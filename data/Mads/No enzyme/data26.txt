@@ -1,0 +1,23 @@
+Batch	mads_t026.rre						
+Evolution 600	161008						
+Sample	Sample001	Sample	Sample002	Sample	sample003	Sample	Sample004
+Data Mode	A	Data Mode	A	Data Mode	A	Data Mode	A
+Smoothing	None	Smoothing	None	Smoothing	None	Smoothing	None
+Date Collected	4/21/2010	Date Collected	4/21/2010	Date Collected	4/21/2010	Date Collected	4/21/2010
+Time Collected	8:24:22PM	Time Collected	8:24:29PM	Time Collected	8:24:36PM	Time Collected	8:32:18PM
+							
+Substrate Conc.	4.1254 mmol/l	Substrate Conc.	4.1254 mmol/l	Substrate Conc.	4.1254 mmol/l	Substrate Conc.	4.1254 mmol/l
+ss.sss	Value	ss.sss	Value	ss.sss	Value	ss.sss	Value
+0.000	0.000	0.000	0.011	0.000	-0.008	0.000	0.008
+49.000	0.004	49.000	0.014	49.000	-0.004	49.000	0.010
+98.000	0.008	98.000	0.019	98.000	-0.001	98.000	0.014
+147.000	0.011	147.000	0.023	147.000	0.003	147.000	0.017
+196.000	0.015	196.000	0.027	196.000	0.008	196.000	0.021
+245.000	0.020	245.000	0.031	245.000	0.012	245.000	0.025
+294.000	0.024	294.000	0.036	294.000	0.017	294.000	0.030
+343.000	0.029	343.000	0.040	343.000	0.021	343.000	0.034
+392.000	0.033	392.000	0.044	392.000	0.025	392.000	0.038
+441.000	0.037	441.000	0.049	441.000	0.030	441.000	0.042
+							
+							
+							
