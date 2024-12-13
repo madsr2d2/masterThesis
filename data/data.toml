@@ -16,6 +16,7 @@ e = "U/mM"
 1 = "Phosphate"
 2 = "Boric Acid"
 3 = "PyroPhosphate"
+4 = "Carbonate"
 
 [data.experiment_002.metadata]
 experiment_id = "experiment_002"
@@ -706,3 +707,762 @@ h2o2_cons = [82.500, 82.500, 82.500, 82.500]
 enz_cons = [0,0,0,0]
 pH = [7.00,7.00,7.00,7.00]
 T = [40, 40, 40, 40]
+
+[data.experiment_034.metadata]
+experiment_id = "experiment_034"
+date = "04/25/2010"
+notes = ""
+
+[data.experiment_034.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [8.251,8.251,8.251,8.251]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.241,0.241,0.241,0.241]
+pH = [7.00,7.00,7.00,7.00]
+T = [40, 40, 40, 40]
+
+[data.experiment_034.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [8.251,8.251,8.251,8.251]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [7.00,7.00,7.00,7.00]
+T = [40, 40, 40, 40]
+
+[data.experiment_035.metadata]
+experiment_id = "experiment_035"
+date = "04/27/2010"
+notes = ""
+
+[data.experiment_035.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [8.251,8.251,8.251,8.251]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.241,0.241,0.241,0.241]
+pH = [7.50,7.50,7.50,7.50]
+T = [40, 40, 40, 40]
+
+[data.experiment_035.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [8.251,8.251,8.251,8.251]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [7.50,7.50,7.50,7.50]
+T = [40, 40, 40, 40]
+
+[data.experiment_036.metadata]
+experiment_id = "experiment_036"
+date = "04/27/2010"
+notes = ""
+
+[data.experiment_036.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [57.900,57.900,57.900,57.900]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.241,0.241,0.241,0.241]
+pH = [7.53,7.53,7.53,7.53]
+T = [40, 40, 40, 40]
+
+[data.experiment_036.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [57.900,57.900,57.900,57.900]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [7.53,7.53,7.53,7.53]
+T = [40, 40, 40, 40]
+
+[data.experiment_037.metadata]
+experiment_id = "experiment_037"
+date = "04/27/2010"
+notes = ""
+
+[data.experiment_037.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [12.228,12.228,12.228,12.228]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.270,0.270,0.270,0.270]
+pH = [7.53,7.53,7.53,7.53]
+T = [40, 40, 40, 40]
+
+[data.experiment_037.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [12.228,12.228,12.228,12.228]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [7.53,7.53,7.53,7.53]
+T = [40, 40, 40, 40]
+
+[data.experiment_038.metadata]
+experiment_id = "experiment_038"
+date = "04/28/2010"
+notes = ""
+
+[data.experiment_038.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [0.191,0.381,0.572,0.762]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [6.97,6.97,6.97,6.97]
+T = [40, 40, 40, 40]
+
+[data.experiment_038.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [0.191,0.381,0.572,0.762]
+h2o2_cons = [0,0,0,0]
+enz_cons = [0,0,0,0]
+pH = [6.97,6.97,6.97,6.97]
+T = [40, 40, 40, 40]
+
+[data.experiment_039.metadata]
+experiment_id = "experiment_039"
+date = "04/28/2010"
+notes = ""
+
+[data.experiment_039.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [0.095,0.191,0.286,0.381]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [6.97,6.97,6.97,6.97]
+T = [40, 40, 40, 40]
+
+[data.experiment_039.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [0.095,0.191,0.286,0.381]
+h2o2_cons = [0,0,0,0]
+enz_cons = [0,0,0,0]
+pH = [6.97,6.97,6.97,6.97]
+T = [40, 40, 40, 40]
+
+[data.experiment_040.metadata]
+experiment_id = "experiment_040"
+date = "04/28/2010"
+notes = ""
+
+[data.experiment_040.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [0.048,0.095,0.143,0.191]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [6.97,6.97,6.97,6.97]
+T = [25, 25, 25, 25]
+
+[data.experiment_040.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [0.048,0.095,0.143,0.191]
+h2o2_cons = [0,0,0,0]
+enz_cons = [0,0,0,0]
+pH = [6.97,6.97,6.97,6.97]
+T = [25, 25, 25, 25]
+
+[data.experiment_041.metadata]
+experiment_id = "experiment_041"
+date = "04/30/2010"
+notes = ""
+
+[data.experiment_041.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.270,0.270,0.270,0.270]
+pH = [8.46,8.46,8.46,8.46]
+T = [25, 25, 25, 25]
+
+[data.experiment_041.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [8.46,8.46,8.46,8.46]
+T = [25, 25, 25, 25]
+
+[data.experiment_042.metadata]
+experiment_id = "experiment_042"
+date = "04/30/2010"
+notes = ""
+
+[data.experiment_042.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.270,0.270,0.270,0.270]
+pH = [8.98,8.98,8.98,8.98]
+T = [25, 25, 25, 25]
+
+[data.experiment_042.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [8.98,8.98,8.98,8.98]
+T = [25, 25, 25, 25]
+
+[data.experiment_043.metadata]
+experiment_id = "experiment_043"
+date = "04/30/2010"
+notes = ""
+
+[data.experiment_043.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.270,0.270,0.270,0.270]
+pH = [9.50,9.50,9.50,9.50]
+T = [25, 25, 25, 25]
+
+[data.experiment_043.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [9.50,9.50,9.50,9.50]
+T = [25, 25, 25, 25]
+
+[data.experiment_044.metadata]
+experiment_id = "experiment_044"
+date = "04/30/2010"
+notes = ""
+
+[data.experiment_044.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.270,0.270,0.270,0.270]
+pH = [10.07,10.07,10.07,10.07]
+T = [25, 25, 25, 25]
+
+[data.experiment_044.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [10.07,10.07,10.07,10.07]
+T = [25, 25, 25, 25]
+
+[data.experiment_045.metadata]
+experiment_id = "experiment_045"
+date = "05/03/2010"
+notes = ""
+
+[data.experiment_045.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.270,0.270,0.270,0.270]
+pH = [9.70,9.70,9.70,9.70]
+T = [25, 25, 25, 25]
+
+[data.experiment_045.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [9.70,9.70,9.70,9.70]
+T = [25, 25, 25, 25]
+
+[data.experiment_046.metadata]
+experiment_id = "experiment_046"
+date = "05/03/2010"
+notes = ""
+
+[data.experiment_046.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.270,0.270,0.270,0.270]
+pH = [9.23,9.23,9.23,9.23]
+T = [25, 25, 25, 25]
+
+[data.experiment_046.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [9.23,9.23,9.23,9.23]
+T = [25, 25, 25, 25]
+
+[data.experiment_047.metadata]
+experiment_id = "experiment_047"
+date = "05/03/2010"
+notes = ""
+
+[data.experiment_047.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.270,0.270,0.270,0.270]
+pH = [9.40,9.40,9.40,9.40]
+T = [25, 25, 25, 25]
+
+[data.experiment_047.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [9.40,9.40,9.40,9.40]
+T = [25, 25, 25, 25]
+
+[data.experiment_048.metadata]
+experiment_id = "experiment_048"
+date = "05/03/2010"
+notes = ""
+
+[data.experiment_048.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.270,0.270,0.270,0.270]
+pH = [9.51,9.51,9.51,9.51]
+T = [25, 25, 25, 25]
+
+[data.experiment_048.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [9.51,9.51,9.51,9.51]
+T = [25, 25, 25, 25]
+
+[data.experiment_049.metadata]
+experiment_id = "experiment_049"
+date = "05/03/2010"
+notes = ""
+
+[data.experiment_049.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.270,0.270,0.270,0.270]
+pH = [10.34,10.34,10.34,10.34]
+T = [25, 25, 25, 25]
+
+[data.experiment_049.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [1.529,3.057,4.586,6.114]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [10.34,10.34,10.34,10.34]
+T = [25, 25, 25, 25]
+
+[data.experiment_050.metadata]
+experiment_id = "experiment_050"
+date = "05/04/2010"
+notes = ""
+
+[data.experiment_050.samples]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [2.062,4.124,6.186,8.249]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.280,0.280,0.280,0.280]
+pH = [9.70,9.70,9.70,9.70]
+T = [25, 25, 25, 25]
+
+[data.experiment_050.references]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [2.062,4.124,6.186,8.249]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [9.70,9.70,9.70,9.70]
+T = [25, 25, 25, 25]
+
+[data.experiment_051.metadata]
+experiment_id = "experiment_051"
+date = "05/04/2010"
+notes = ""
+
+[data.experiment_051.samples]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [2.062,4.124,6.186,8.249]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.280,0.280,0.280,0.280]
+pH = [9.01,9.01,9.01,9.01]
+T = [25, 25, 25, 25]
+
+[data.experiment_051.references]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [2.062,4.124,6.186,8.249]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [9.01,9.01,9.01,9.01]
+T = [25, 25, 25, 25]
+
+[data.experiment_052.metadata]
+experiment_id = "experiment_052"
+date = "05/06/2010"
+notes = ""
+
+[data.experiment_052.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [0.048,0.095,0.143,0.191]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [7.50,7.50,7.50,7.50]
+T = [25, 25, 25, 25]
+
+[data.experiment_052.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [0.048,0.095,0.143,0.191]
+h2o2_cons = [0,0,0,0]
+enz_cons = [0,0,0,0]
+pH = [7.50,7.50,7.50,7.50]
+T = [25, 25, 25, 25]
+
+[data.experiment_055.metadata]
+experiment_id = "experiment_055"
+date = "05/29/2010"
+notes = ""
+
+[data.experiment_055.samples]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [2.062,4.124,6.186,8.249]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.280,0.280,0.280,0.280]
+pH = [9.70,9.70,9.70,9.70]
+T = [25, 25, 25, 25]
+
+[data.experiment_055.references]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [2.062,4.124,6.186,8.249]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [9.70,9.70,9.70,9.70]
+T = [25, 25, 25, 25]
+
+[data.experiment_057.metadata]
+experiment_id = "experiment_057"
+date = "06/04/2010"
+notes = ""
+
+[data.experiment_057.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [4, 4, 4, 4]
+sub_cons = [0.469,0.939,1.877,3.754]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0.140,0.140,0.140,0.140]
+pH = [9.48,9.48,9.48,9.48]
+T = [25, 25, 25, 25]
+
+[data.experiment_057.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [4, 4, 4, 4]
+sub_cons = [0.469,0.939,1.877,3.754]
+h2o2_cons = [82.500, 82.500, 82.500, 82.500]
+enz_cons = [0,0,0,0]
+pH = [9.48,9.48,9.48,9.48]
+T = [25, 25, 25, 25]
+
+[data.experiment_058.metadata]
+experiment_id = "experiment_058"
+date = "06/04/2010"
+notes = ""
+
+[data.experiment_058.samples]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [4, 4, 4, 4]
+sub_cons = [0.534,0.894,1.788,3.576]
+h2o2_cons = [156.398,157.143,157.143,157.143]
+enz_cons = [0.133,0.133,0.133,0.133]
+pH = [9.48,9.48,9.48,9.48]
+T = [25, 25, 25, 25]
+
+[data.experiment_058.references]
+substrate_type = [2, 2, 2, 2]
+buffer_type = [4, 4, 4, 4]
+sub_cons = [0.534,0.894,1.788,3.576]
+h2o2_cons = [156.398,157.143,157.143,157.143]
+enz_cons = [0,0,0,0]
+pH = [9.48,9.48,9.48,9.48]
+T = [25, 25, 25, 25]
+
+[data.experiment_059.metadata]
+experiment_id = "experiment_059"
+date = "06/05/2010"
+notes = ""
+
+[data.experiment_059.samples]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [0.596,2.981,5.366,7.751]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0.028,0.028,0.028,0.028]
+pH = [8.51,8.51,8.51,8.51]
+T = [25, 25, 25, 25]
+
+[data.experiment_059.references]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [0.596,2.981,5.366,7.751]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0,0,0,0]
+pH = [8.51,8.51,8.51,8.51]
+T = [25, 25, 25, 25]
+
+[data.experiment_060.metadata]
+experiment_id = "experiment_060"
+date = "06/05/2010"
+notes = ""
+
+[data.experiment_060.samples]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [0.596,2.981,5.366,7.751]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0.014,0.014,0.014,0.014]
+pH = [8.51,8.51,8.51,8.51]
+T = [25, 25, 25, 25]
+
+[data.experiment_060.references]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [0.596,2.981,5.366,7.751]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0,0,0,0]
+pH = [8.51,8.51,8.51,8.51]
+T = [25, 25, 25, 25]
+
+[data.experiment_061.metadata]
+experiment_id = "experiment_061"
+date = "06/05/2010"
+notes = ""
+
+[data.experiment_061.samples]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [0.596,2.981,5.366,7.751]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0.014,0.014,0.014,0.014]
+pH = [8.75,8.75,8.75,8.75]
+T = [25, 25, 25, 25]
+
+[data.experiment_061.references]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [0.596,2.981,5.366,7.751]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0,0,0,0]
+pH = [8.75,8.75,8.75,8.75]
+T = [25, 25, 25, 25]
+
+[data.experiment_062.metadata]
+experiment_id = "experiment_062"
+date = "06/05/2010"
+notes = ""
+
+[data.experiment_062.samples]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [0.596,2.981,5.366,7.751]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0.014,0.014,0.014,0.014]
+pH = [9.00,9.00,9.00,9.00]
+T = [25, 25, 25, 25]
+
+[data.experiment_062.references]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [0.596,2.981,5.366,7.751]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0,0,0,0]
+pH = [9.00,9.00,9.00,9.00]
+T = [25, 25, 25, 25]
+
+[data.experiment_065.metadata]
+experiment_id = "experiment_065"
+date = "06/05/2010"
+notes = ""
+
+[data.experiment_065.samples]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [7.310,3.655,1.827,0.365]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0,0,0,0]
+pH = [8.51,8.51,8.51,8.51]
+T = [25, 25, 25, 25]
+
+[data.experiment_065.references]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [7.310,3.655,1.827,0.365]
+h2o2_cons = [0,0,0,0]
+enz_cons = [0,0,0,0]
+pH = [8.51,8.51,8.51,8.51]
+T = [25, 25, 25, 25]
+
+[data.experiment_066.metadata]
+experiment_id = "experiment_066"
+date = "06/05/2010"
+notes = ""
+
+[data.experiment_066.samples]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [7.310,3.655,1.827,0.365]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0.028,0.028,0.028,0.028]
+pH = [8.51,8.51,8.51,8.51]
+T = [25, 25, 25, 25]
+
+[data.experiment_066.references]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [7.310,3.655,1.827,0.365]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0,0,0,0]
+pH = [8.51,8.51,8.51,8.51]
+T = [25, 25, 25, 25]
+
+[data.experiment_067.metadata]
+experiment_id = "experiment_067"
+date = "06/08/2010"
+notes = ""
+
+[data.experiment_067.samples]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [7.310,3.655,1.827,0.365]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0,0,0,0]
+pH = [8.01,8.01,8.01,8.01]
+T = [25, 25, 25, 25]
+
+[data.experiment_067.references]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [2, 2, 2, 2]
+sub_cons = [7.310,3.655,1.827,0.365]
+h2o2_cons = [0,0,0,0]
+enz_cons = [0,0,0,0]
+pH = [8.01,8.01,8.01,8.01]
+T = [25, 25, 25, 25]
+
+[data.experiment_068.metadata]
+experiment_id = "experiment_068"
+date = "06/08/2010"
+notes = ""
+
+[data.experiment_068.samples]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [7.310,3.655,1.827,0.365]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0.028,0.028,0.028,0.028]
+pH = [8.01,8.01,8.01,8.01]
+T = [25, 25, 25, 25]
+
+[data.experiment_068.references]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [7.310,3.655,1.827,0.365]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0,0,0,0]
+pH = [8.01,8.01,8.01,8.01]
+T = [25, 25, 25, 25]
+
+[data.experiment_069.metadata]
+experiment_id = "experiment_069"
+date = "06/08/2010"
+notes = ""
+
+[data.experiment_069.samples]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [2.108, 1.054, 0.422, 0.211]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0,0,0,0]
+pH = [8.01,8.01,8.01,8.01]
+T = [25, 25, 25, 25]
+
+[data.experiment_069.references]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [2.108, 1.054, 0.422, 0.211]
+h2o2_cons = [0,0,0,0]
+enz_cons = [0,0,0,0]
+pH = [8.01,8.01,8.01,8.01]
+T = [25, 25, 25, 25]
+
+[data.experiment_070.metadata]
+experiment_id = "experiment_070"
+date = "06/08/2010"
+notes = ""
+
+[data.experiment_070.samples]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [2.108, 1.054, 0.422, 0.211]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0,0,0,0]
+pH = [8.01,8.01,8.01,8.01]
+T = [25, 25, 25, 25]
+
+[data.experiment_070.references]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [2.108, 1.054, 0.422, 0.211]
+h2o2_cons = [0,0,0,0]
+enz_cons = [0,0,0,0]
+pH = [8.01,8.01,8.01,8.01]
+T = [25, 25, 25, 25]
+
+[data.experiment_071.metadata]
+experiment_id = "experiment_071"
+date = "06/08/2010"
+notes = ""
+
+[data.experiment_071.samples]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [2.108, 1.054, 0.422, 0.211]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0.028,0.028,0.028,0.028]
+pH = [8.01,8.01,8.01,8.01]
+T = [25, 25, 25, 25]
+
+[data.experiment_071.references]
+substrate_type = [1, 1, 1, 1]
+buffer_type = [1, 1, 1, 1]
+sub_cons = [2.108, 1.054, 0.422, 0.211]
+h2o2_cons = [122.426,122.426,122.426,122.426]
+enz_cons = [0,0,0,0]
+pH = [8.01,8.01,8.01,8.01]
+T = [25, 25, 25, 25]
