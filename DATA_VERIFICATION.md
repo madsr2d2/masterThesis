@@ -6,6 +6,310 @@ the top.
 
 ---
 
+## 2026-08-29 — Round 3: row-level block-structure audit (all 98 experiments)
+
+Round 2 confirmed `.txt`↔`.xls` sample alignment indirectly (structurally on
+two examples, statistically via rate-vs-concentration correlation on 12
+experiments). This round checks it **directly, on every experiment**, now
+that the paired-reference-cuvette design (round 2 §4) is understood: for
+each of the 98 experiments, located the `[Enz]` concentration column in the
+raw `.xls`, read its full numeric run (not just the truncated
+`sample_num`-length slice the pipeline keeps), and split it into the
+"leading" block (what the pipeline actually extracts) vs. whatever follows
+(the reference block, if recorded).
+
+Checked for two failure modes that would be serious silent labeling errors:
+the leading block containing a mix of zero/nonzero `[Enz]` (would mean a
+reference row leaked into the real samples), and an all-zero leading block
+sitting in front of a nonzero trailing block (would mean the block order is
+reversed and the pipeline is reading the reference cuvette instead of the
+real one).
+
+**Result: 97 of 98 experiments clean.** No reversed blocks, no reference
+row ever extracted in place of a real sample. Two apparent flags turned out
+to be benign and are noted for completeness:
+
+- **Exp 6, exp 65** ("no_E" designs): these have no separate `[Enz]`
+  concentration column at all (enzyme volume is 0 throughout, so no
+  concentration is computed), or only a single shared reference row instead
+  of one per sample. Both fall back correctly to `[enz] = 0` — already
+  understood from round 2, not a new issue.
+
+- **Exp 128 — real finding, not benign.** Its leading (extracted) block is
+  `[0.032, 0.032, 0.032, 0.032, 0.0]` — 4 real enzyme-containing values
+  followed by a **0** still inside the block the pipeline keeps, because
+  this `.txt` file declares **5** samples while its sibling experiments in
+  the same series (127, 129, 130, 131 — same `sub_H2O2` design, same day)
+  all declare 4. Read the raw sheet directly (`mads_t128_..._sub H2O2_
+  pyrophosphate_02.xls`, rows 32–39): it has the standard 4 "kuv" (real)
+  rows followed by 4 "ref" (matched, no-enzyme) rows — but unlike other
+  experiments, where the reference block is written to the sheet purely as
+  a record and never separately monitored over time, **this run's 5th
+  measured channel (`Sample005`) is the first reference row itself
+  (`ref 5`)**, not a 5th titration condition. Its `[enz]=0` and its
+  `[buf]`/`[h2o2]`/`[sub]` (193.6 / 195.9 / 9.47) exactly match `ref 5`,
+  which is the matched blank for `kuv 1`/`kuv 2` (H2O2 = 195.9 mM).
+
+  Current `data/experiment_data.csv` (rows 155–159) already reflects this:
+  sample 5 has `[enz] = 0.000` while samples 1–4 have `[enz] = 0.032`.
+  Samples 2 and 3 of this experiment were already excluded by the existing
+  `clean_experiment_dataframe` (pre-dating this verification effort, for an
+  unrelated reason — a backwards/negative time-series trend, see the
+  reaction-direction check above). **Resolved in the follow-up investigation
+  below** — see "Round 4" for the final disposition of all five samples.
+
+---
+
+## 2026-08-29 — Round 4: plotted experiment 128 directly, resolved samples 2/3/4/5
+
+Built two small reusable modules in `data/` for this and future
+investigations, rather than another one-off scratchpad script:
+
+- `data/kinetics_io.py` — the notebook's extraction functions (cells 3,
+  5–12 of `masterThesis.ipynb`), copied verbatim so there is one canonical
+  implementation, plus a new `load_experiment(exp_num)` convenience wrapper
+  that returns one experiment's metadata *and* raw time series together
+  (the whole-dataset `populate_experimental_data_from_directory` returns
+  metadata only).
+- `data/plot_kinetics.py` — `plot_experiment(exp_num, mark_samples={...})`,
+  raw absorbance and Beer-Lambert-converted `[P]` side by side, one fixed
+  color per sample index, optional dashed styling + legend annotation for
+  samples under investigation. Runnable as `python data/plot_kinetics.py
+  <exp_num>` from the repo root, or imported directly.
+
+Plotting experiment 128 (`python data/plot_kinetics.py 128`) showed all 5
+samples together for the first time and changed the picture from round 3:
+
+| sample | condition | shape | current status |
+|---|---|---|---|
+| 1 | [enz]=0.032, H2O2=196mM | clean rise, 0.030→0.047 | kept |
+| 2 | [enz]=0.032, H2O2=196mM (same as 1) | flat/noisy, net trend −0.008 | **excluded** |
+| 3 | [enz]=0.032, H2O2=3.88mM | flat/noisy, net trend −0.004 | was excluded, **reinstated** |
+| 4 | [enz]=0.032, H2O2=3.88mM (same as 3) | flat/noisy, net trend +0.003 | kept |
+| 5 | [enz]=0, H2O2=196mM (ref channel, see round 3 §4) | flat, net trend +0.002 | **excluded** |
+
+The key observation: samples 3 and 4 are two *independent replicates* of
+the same low-H2O2 condition, and both go flat — reproducible, not a
+one-off. Meanwhile at the high-H2O2 condition, one replicate (1) works
+cleanly and the other (2) doesn't, on the same enzyme aliquot — that's the
+signature of a single failed measurement, not a real effect (the aliquot
+demonstrably works, since sample 1 proves it).
+
+**Decision:** treat 3.88 mM H2O2 as a genuine, reproducible near-zero-rate
+condition rather than two failed measurements. Sample 3's original
+exclusion (under the general "any net-negative time-series trend is
+unphysical" rule from the earlier reaction-direction check) was conflating
+a small, noise-scale negative trend with the large, clearly-wrong-sign
+trends that rule was designed to catch (e.g. exp 50/85 pre-correction, or
+58/77/78/79/84). Reinstating sample 3 alongside 4 avoids cherry-picking
+whichever replicate's noise happened to land on the "nice" side of zero.
+Sample 2 stays excluded — unlike 3/4, it disagrees with its own matched
+replicate (1) at a condition proven capable of strong signal, which is a
+single-measurement failure, not a low-rate result.
+
+**Fix applied** to `clean_experiment_dataframe` (`masterThesis.ipynb`,
+cell 16): `exp_num_sample_num` changed from `[[128, 2], [128, 3]]` to
+`[[128, 2], [128, 5]]` — drops the sample-3 exclusion, adds the sample-5
+(reference channel) exclusion from round 3. Net effect on experiment 128:
+samples 1, 3, 4 feed the fit as real data points; 2 and 5 are excluded.
+
+**Open question flagged, not yet chased:** the same "small negative trend
+excluded under the blanket backwards-trend rule" pattern that applied to
+128,3 may exist elsewhere in the dataset — worth a follow-up pass
+distinguishing large-magnitude (real sign-flip) exclusions from
+small/noise-scale ones before finalizing the excluded-sample list.
+
+---
+
+## 2026-08-29 — Round 5: broad pass on all "backwards trend" exclusions — closed, one mischaracterization fixed
+
+Followed up on round 4's open question: checked every sample in
+experiments 58, 77, 78, 79, 84 (the ones grouped together as pre-existing
+"backwards trend" removals) plus 50/85 (sign-flip corrected, as a sanity
+check) with a proper significance test instead of eyeballing the sign of
+the net trend. For each sample, ran linear regression (`scipy.stats.
+linregress`) of raw absorbance vs. time and compared the fitted slope to
+its standard error (t-test for slope ≠ 0), plus amplitude vs. the residual
+noise level. The question: is each "backwards" trend a real, high-SNR
+inverted signal (genuine error, correctly excluded) or a small one
+indistinguishable from noise (candidate to reinstate, per the 128,3
+reasoning)?
+
+**Result: no new reinstatement candidates.** 128,3 was the exception, not
+part of a wider pattern:
+
+- **77, 78:** every sample, large and highly significant negative slopes
+  (t down to −95, amplitude 0.02–0.06 vs. noise ~0.001–0.003). Real,
+  high-confidence inverted signal — correctly excluded. (Also Carbonate
+  buffer, so excluded via that filter regardless of this list.)
+- **58:** mixed — 3 samples strongly negative, 1 strongly positive, all
+  large real signal (not noise), internally inconsistent between samples
+  (possibly a cuvette-position mixup). Correctly excluded; also Carbonate.
+- **79:** all 4 samples tiny amplitude (0.001–0.003, at the noise floor) —
+  but unlike 128, there's no sibling sample in the group with clean signal
+  to contrast against, so this reads as a group dead-run (same flavor as
+  72/82) rather than "noise obscuring a real, localized effect." Left
+  excluded; also Carbonate.
+- **50, 85** (sign-flip corrected, not excluded): every sample in both,
+  large amplitude (0.09–0.63), highly significant, consistently inverted.
+  Confirms the existing sign-flip fix is well-founded, not a noise
+  artifact.
+
+**One mischaracterization found and fixed here:** round 1's original audit
+grouped **84** in with the "backwards trend" removals, and round 4 repeated
+that framing. It's wrong — checked directly, 84's one recorded sample has
+a small but *correctly-signed, positive* trend (t = +22), not a backwards
+one. Plotting it (`python data/plot_kinetics.py 84`) shows why it's still
+correctly excluded, for an entirely different reason: its `.xls` shows a
+planned 6-sample substrate titration (14.3→1.0 mM `[sub]`), but the `.txt`
+only ever recorded **one** of those six samples, and that lone curve is a
+coarse, quantized 5-step staircase over just 385 s (56 points, dt=7s —
+every other experiment in this set uses dt=28–31s). This is an incomplete/
+truncated run, not usable kinetic data, regardless of its trend direction.
+
+No code changes from this round — every disposition above already matches
+what `clean_experiment_dataframe` currently does. This closes the open
+question from round 4.
+
+---
+
+## 2026-08-29 — Round 2: concentration/curve cross-checks
+
+A second verification pass, this time checking things that need *both* data
+sources together (round 1 checked the csv against the xls, and the raw
+curves against themselves, but not whether a given `.txt` sample and its
+`.xls` row are actually the same physical sample).
+
+### 1. `.txt` sample ↔ `.xls` row alignment — verified, no mismatches found
+
+The extraction pipeline assumes the *n*-th `Sample00n` in a `.txt` file is
+the *n*-th data row under the concentration header in the matching `.xls`
+sheet. This was never directly checked before. Two lines of evidence:
+
+- **Structural**: many `.xls` sheets (e.g. exp 5, exp 135–151) list each
+  condition twice — a block of "Kuv." (cuvette, the real monitored sample)
+  rows immediately followed by an equal-sized block of "Ref." (no-enzyme
+  reference/blank) rows in the *same* concentration columns. Hand-checked
+  exp 5 and exp 135 directly against the raw sheet: the `.txt` file only
+  declares as many samples as there are Kuv rows, and the pipeline's
+  truncate-to-sample-count logic grabs exactly that leading Kuv block, in
+  order — it does not spill into the Ref block or reorder anything.
+- **Statistical**: for every experiment with exactly one concentration field
+  varying across its samples (a clean titration), computed each sample's
+  initial reaction rate (linear fit, first 30% of the curve) and checked
+  its Spearman correlation with the varied concentration. If `.txt` order
+  and `.xls` row order were ever out of sync for a given experiment, this
+  would show up as a scrambled or inverted (rate falls as substrate rises)
+  correlation. Result, 12 substrate-titration experiments (65, 66, 68, 69,
+  70, 71, 73, 74, 75, 76, 83 — excluding the already-known no-enzyme
+  controls) all show positive correlation (rho 0.6–1.0), consistent with
+  expected Michaelis-Menten behavior. No inverted or scrambled cases.
+
+  A separate "numeric run length" check was tried first (count how many
+  numeric cells actually sit under each concentration header, independent
+  of sample count, to catch a mismatch directly) but it produces mostly
+  false positives, because of the legitimate Kuv+Ref double-block layout
+  above — abandoned in favor of the two checks described here.
+
+### 2. Full range/outlier sweep — clean
+
+Checked all 405 non-removed sample rows: pH in [2, 12], T in [0, 80] °C, and
+no negative `[enz]`/`[buf]`/`[h2o2]`/`[sub]` values. Zero violations.
+
+The only rows flagged were 72 samples across experiments 6, 23–31, 38–40,
+52, 65, 67, 69, 70, 128 (`[enz] = 0` for every sample in the experiment).
+Spot-checked several filenames directly — e.g.
+`mads_t065_..._BnOH_no_E_H2O2_122.xls` — confirming these are deliberate
+no-enzyme blank/background-control runs, not an extraction failure.
+
+### 3. Baseline check (`[P]` near zero at t=0) — clean
+
+Converted each curve to `[P]` and checked the first point sits near the
+curve's minimum. 3 borderline flags out of 405, all in samples with a tiny
+absolute amplitude (near the noise floor at the lowest substrate
+concentration in a titration) — not real calibration offsets, just a small
+denominator inflating the fractional metric.
+
+### 4. Explained: `[P]` is a *differential* (reference-subtracted) signal, not an absolute one — this is why no-enzyme "blank" runs can rate as high as or higher than their catalyzed pair
+
+Initially flagged as an anomaly (no-enzyme blanks 65/67/69/70 showing rates
+at or above their enzyme-containing pairs 66/68/71) and logged as an open
+item. Root cause identified by reading the raw cuvette layout directly, not
+just the extracted concentration columns — **every kinetics run in this
+dataset is a two-channel differential measurement, not a single absolute
+one.** Each `.xls` sheet lists twice as many cuvette rows as the matching
+`.txt` file has samples: a leading block of "real" sample rows (labelled
+`kuv`/`Kuv.`/`prøve`), immediately followed by an equal-sized block of
+reference rows (labelled `ref`/`Ref.`). The instrument (or the operator,
+manually) reads each sample cuvette *against* its paired reference cuvette,
+and it is that difference — not the sample's raw absorbance — that ends up
+in the `.txt` progress curve. The extraction pipeline only ever reads the
+leading `sample_num` rows (the real samples); the trailing reference block
+is present in the spreadsheet purely as a record of what the reference
+cuvette contained, and is correctly never pulled into `[enz]`/`[buf]`/
+`[h2o2]`/`[sub]`.
+
+**What differs between experiment types is what the reference cuvette omits:**
+
+- **"with_E" experiments (the bulk of the dataset, e.g. exp 10, exp 66):**
+  the reference row for each sample has **identical `Sub [ml]` and
+  `H2O2 [ml]` to that sample**, and only `Enz [ml]` set to 0. Example, exp 10
+  (`mads_t010_..._with_E.xls`), rows 19–26:
+
+  | kuv | Buf[ml] | H2O[ml] | Enz[ml] | Sub[ml] | H2O2[ml] | role |
+  |---|---|---|---|---|---|---|
+  | 1–4 | 1.6→1.0 | 0 | 0.1 | 0.2→0.8 | 0.1 | real sample (enzyme present) |
+  | 5–8 | 1.6→1.0 | 0.1 | **0** | 0.2→0.8 | 0.1 | matched reference (no enzyme, same Sub/H2O2) |
+
+  So the reported `[P]` for a with_E sample is **already net of the
+  non-enzymatic background** — the enzyme-free reaction is running in the
+  paired reference cuvette under identical Sub/H2O2 conditions and is
+  subtracted out by construction. This is the design in exp 5, exp 10, exp
+  66, exp 135–151, and appears to be the general pattern for the with-enzyme
+  half of the dataset.
+
+- **"no_E" experiments (65, 67, 69, 70 — standalone background-characterization
+  runs, not part of a with/without-enzyme pair in the same sheet):** the
+  reference cuvette is missing a *different* reagent, not the enzyme (there
+  is no enzyme in either channel):
+  - Exp 65 (Boric, pH 8.51): reference has `Sub [ml] = 0` (water makes up the
+    volume), but **H2O2 is still present** (`H2O2 = 122.4 mM`, same as the
+    sample). So the reference isolates "does H2O2 alone drift?" — it does
+    **not** subtract the substrate+H2O2 background reaction, since the
+    reference has no substrate for that reaction to run on.
+  - Exp 67/69/70 (Phosphate, pH 8.01): reference has `H2O2 = 0`, but
+    **substrate is still present** at the same concentration as the sample.
+    So here the reference isolates "does substrate alone drift?" — it does
+    **not** subtract the substrate+H2O2 background reaction either, since
+    the reference has no H2O2 to drive it.
+
+  Either way, the `.txt` curve for a no_E experiment is the **raw,
+  undiminished non-enzymatic (substrate + H2O2) background reaction** —
+  nothing chemically equivalent to it is subtracted. This background is
+  expected to be substantial in its own right and likely autocatalytic
+  (accelerating over the course of the reaction rather than a small linear
+  drift), which further explains why its measured rate can look as large
+  as, or larger than, the *net* (background-subtracted) rate reported for
+  a with_E experiment.
+
+**Practical implications for rate-expression fitting:**
+
+- `[P]` for with_E samples throughout the main dataset should be treated as
+  **already background-corrected** — do **not** additionally subtract a
+  no_E curve from a with_E curve; that would double-subtract, since the
+  with_E curve's own paired reference already performed that subtraction
+  at the instrument level.
+- The four no_E experiments (65, 67, 69, 70) are **not on the same
+  reference basis** as the rest of the dataset (no matched enzyme-free
+  reference of their own) and are not directly comparable, sample-for-sample,
+  to any with_E experiment's raw rate. They exist to characterize the size
+  of the background reaction on its own terms, not to be arithmetically
+  combined with catalyzed runs.
+- This was previously logged as an unresolved "open item" — it no longer
+  is. No further action needed on this point.
+
+---
+
 ## 2026-08-29 — Raw [P] time-series audit
 
 Audited the raw progress-curve data (`data/data/*.txt`, parsed by
@@ -182,7 +486,33 @@ in case the stray file causes confusion later.
 
 - `data.toml` still doesn't parse and isn't reconciled with the verified csv
   (deprioritized — planned rewrite of the toml-generating script).
-- Metadata (pH, T, buffer, substrate, `[enz]`/`[buf]`/`[h2o2]`/`[sub]`) and the
-  raw `[P]` time-series data have both now been audited (see entries above).
-  Remaining known-unreliable field: the `.txt` files' own `Substrate Conc.`
-  line — not used by the pipeline, don't trust it if it resurfaces.
+- Metadata (pH, T, buffer, substrate, `[enz]`/`[buf]`/`[h2o2]`/`[sub]`), the
+  raw `[P]` time-series data, and the cross-linkage between the two (sample
+  alignment, range sanity, baseline, rate-vs-concentration monotonicity)
+  have now all been audited (see entries above). Remaining known-unreliable
+  field: the `.txt` files' own `Substrate Conc.` line — not used by the
+  pipeline, don't trust it if it resurfaces.
+- **Read this before fitting rate expressions:** `[P]` for with-enzyme
+  samples throughout the dataset is a *differential* signal — each sample
+  cuvette is measured against a paired, matched, no-enzyme reference
+  cuvette (same `[sub]`/`[h2o2]`), so the non-enzymatic background is
+  already subtracted at the source. Do not subtract a no-enzyme experiment
+  (65, 67, 69, 70) from a with-enzyme one — that double-subtracts. See
+  round 2 §4 for the full explanation and raw-cell evidence.
+- Row-level block structure (which rows in each `.xls` the pipeline
+  actually extracts vs. the paired reference rows it correctly leaves
+  behind) has now been checked directly for all 98 experiments — see
+  round 3. 97/98 clean; experiment 128 was the one exception, resolved in
+  round 4 (samples 2 and 5 excluded, 3 and 4 kept as a reproducible
+  near-zero-rate replicate pair).
+- ~~Round 4 open question about other "backwards trend" exclusions~~ —
+  **closed in round 5.** Checked every sample in 58/77/78/79/84 (plus 50/85
+  as a sanity check) with a proper significance test; 128,3 was the only
+  noise-scale case. One mischaracterization fixed: 84 was never actually a
+  backwards-trend case — it's an incomplete run (1 of a planned 6-sample
+  titration was ever recorded, and that one is a coarse quantized-staircase
+  artifact) — but it's still correctly excluded either way. No code changes.
+- `data/kinetics_io.py` and `data/plot_kinetics.py` now exist as reusable,
+  single-source-of-truth tools for loading/plotting one experiment at a
+  time (`python data/plot_kinetics.py <exp_num>`) — use these instead of
+  writing new one-off extraction scripts for future investigations.
