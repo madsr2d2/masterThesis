@@ -63,7 +63,20 @@ KNOWN_EXCLUSIONS = {
 
 # Deviations that are understood and accepted, so the deep checks warn rather
 # than error on them. Keyed by experiment -> (check names, reason).
+_BROKEN_ENZ_COLUMN = (
+    "block",
+    "[enz] is deliberately taken from the sheet's header block rather than from "
+    "its cuvette table. The table's '[Enz] mmol/l' column holds 0.000001 in every "
+    "measured row -- a broken formula roughly 14,000x too low -- while the header "
+    "block's 'kuv' row gives 0.01399 (exp 79) / 0.027981 (exp 80), which agrees "
+    "with the recorded volumes and the enzyme stock. The deep check reads the "
+    "table, so it necessarily disagrees here. Ruled 2026-08-30, see "
+    "DATA_VERIFICATION.md."
+)
+
 KNOWN_ACCEPTED_DEVIATIONS = {
+    79: _BROKEN_ENZ_COLUMN,
+    80: _BROKEN_ENZ_COLUMN,
     128: ("block;chain",
           'sample 5 is the reference row "ref 5" (a matched no-enzyme blank) with its own '
           "cuvette volume, not a 5th titration condition, so both its concentrations and "
@@ -97,6 +110,33 @@ _ABS_285_RULING = (
 )
 RULINGS = {number: {"abs_nm": _ABS_285_RULING} for number in (2, 4, 5, 7, 8, 9, 10)}
 
+# Exp 9's filename says pH 5.64 and its sheet says 5.67. Ruled 2026-08-30 to the
+# sheet, which is the instrument reading taken on the day; the filename is typed
+# from it. (Exp 38 is the same shape -- filename 6.97, sheet 7.00 -- and is left
+# open pending the same ruling.)
+RULINGS.setdefault(9, {})["pH"] = (
+    5.67, "filename says 5.64; ruled to the sheet's 5.67 on 2026-08-30. The "
+          "sheet carries the reading taken on the day and the filename is typed "
+          "from it.")
+
+# Exps 79 and 80 are enzyme runs. Their "[Enz] mmol/l" column holds 0.000001 in
+# every measured row -- a broken formula about 14,000x too low -- which the
+# extraction read faithfully and rounding turned into zero, so the manifest
+# inherited has_enzyme = False against filenames that say "with_E". The right
+# value is in the header block's "kuv" row and agrees with the volumes (stock
+# 0.559618 mM; 0.05/2 ml -> 0.01399 for exp 79, 0.1/2 ml -> 0.027981 for exp 80).
+# Corrected in kinetics_io by EXPERIMENT_CORRECTIONS. Ruled 2026-08-30.
+_ENZYME_RUN = (
+    True,
+    "extraction said no enzyme; ruled an enzyme run on 2026-08-30. The cuvette "
+    "table carries only 'Enz [ml]' and no '[Enz] mmol/l' column, so the "
+    "extraction fell through to its zero default. The sheet's header block "
+    "declares the cuvette concentration on the 'kuv' row and it agrees with the "
+    "volumes. Corrected in kinetics_io.EXPERIMENT_CORRECTIONS."
+)
+for _exp in (79, 80):
+    RULINGS.setdefault(_exp, {})["has_enzyme"] = _ENZYME_RUN
+
 # Exps 84 and 85 are 4OMe-BnOH runs whose FILENAMES say BnOH. Ruled 2026-08-30
 # on four independent grounds inside the sheets, against the filename alone:
 #   the stock-solution block is labelled "Stamopløsning 4 / 4-MeO-BnOH [g]";
@@ -119,7 +159,7 @@ _SUBSTRATE_84_85 = (
     "updated -- the likely source of the filename error. No number changes."
 )
 for _exp in (84, 85):
-    RULINGS[_exp] = {"substrate": _SUBSTRATE_84_85}
+    RULINGS.setdefault(_exp, {})["substrate"] = _SUBSTRATE_84_85
 
 # Exps 57 and 58 are 4-methoxybenzyl alcohol runs (ruled 2026-08-30) whose
 # workbook was copied wholesale from t056, a 4-bromobenzyl alcohol run: the
@@ -140,11 +180,11 @@ _COPIED_FROM_T056 = (
     "by CONCENTRATION_RESCALINGS."
 )
 for _exp in (57, 58):
-    RULINGS[_exp] = {
+    RULINGS.setdefault(_exp, {}).update({
         "abs_nm": (300.0, _COPIED_FROM_T056.format(
             declared="285 nm, paired with e = 1.59")),
         "e_declared": (7.53, _COPIED_FROM_T056.format(declared="e = 1.59")),
-    }
+    })
 
 # Substrate keys are checked in order: '4OMe-BnOH' spellings must be tested
 # before the bare 'bnoh' that they all contain.

@@ -7,6 +7,72 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-30 — Exp 80 was an enzyme run posing as a control
+
+Three rulings, one of which was a live defect in an experiment that is in use.
+
+### Exps 79 and 80: enzyme runs, `[enz]` was zero
+
+Both filenames say `with_E`; both compiled with `[enz] = 0`.
+
+Their cuvette tables **do** carry an `[Enz] mmol/l` column — it holds
+**0.000001** in every measured row. That is a broken formula, roughly 14,000×
+too low. The extraction read it faithfully and rounding to three decimals turned
+it into `0.0`.
+
+The right value sits in the sheet's header block, on the `kuv` row of the enzyme
+stock calculation, and it reconciles with the recorded volumes:
+
+| | stock | Enz [ml] / Vol | header `kuv` | check |
+|---|---|---|---|---|
+| exp 79 | 0.559618 mM | 0.05 / 2 | 0.01399 | 0.559618 × 0.025 = 0.013990 ✓ |
+| exp 80 | 0.559618 mM | 0.1 / 2 | 0.027981 | 0.559618 × 0.05 = 0.027981 ✓ |
+
+That header row is the same one that agrees with the table exactly in every
+healthy sheet — exp 2 declares `kuv` = 0.17533 and its table column reads
+0.17533.
+
+**Why this one mattered.** Exp 79 is already excluded for running backwards, so
+it is consequence-free. **Exp 80 is in use**, and with `[enz] = 0` it was
+sitting in the dataset indistinguishable from an enzyme-free control — which is
+precisely the set the catalyst-independent constants `k_can` and `k3` are meant
+to be fitted on before `k5'` and `k6` are touched. An enzyme run in that set
+would have inflated the uncatalysed rate and then been subtracted from the
+catalysed one twice over.
+
+Corrected in `kinetics_io.EXPERIMENT_CORRECTIONS`; the deep check reads the
+table, so it necessarily disagrees and the deviation is declared with that
+reason.
+
+**Scope, checked across all 98 sheets:** 63 declare a header `kuv`; **58 agree**
+with the compiled `[enz]`; the only other disagreements are exps 32 and 34–37,
+where the `kuv` belongs to the planned-but-unmeasured with-enzyme rows and is
+already handled. So the broken column is confined to these two.
+
+That the header `kuv` agrees with the table in 58 of 63 sheets makes it a usable
+**independent cross-check on `[enz]`**, in the same way the volume tables are for
+the other three concentrations — currently unexploited.
+
+### Exp 9: pH ruled to the sheet
+
+Filename 5.64, sheet 5.67. Ruled **5.67** — the sheet carries the reading taken
+on the day and the filename is typed from it. The dataset already held 5.67, so
+no number changes.
+
+Exp 38 is the same shape (filename 6.97, sheet 7.00) and is **left open**
+pending the same ruling; it is now the only unresolved question in the dataset.
+
+### A `RULINGS` bug this exposed
+
+Exp 9 needed a second ruling on top of its existing `abs_nm` one, and the
+plain assignment `RULINGS[9] = {...}` silently discarded the first — visible
+only as the note count dropping from 9 to 8. Every ruling now merges into the
+experiment's entry rather than replacing it.
+
+Errors 0, warnings 12 → **9**, notes 9. With `--deep`: 0 errors.
+
+---
+
 ## 2026-08-30 — Exps 57/58 ruled 4OMe-BnOH; exp 57 excluded, [sub] not recoverable
 
 Ruled by the experimenter: **exps 57 and 58 are 4-methoxybenzyl alcohol runs.**
@@ -1524,6 +1590,10 @@ in case the stray file causes confusion later.
   ruled 4OMe-BnOH, and both excluded: their substrate stock block was copied
   from t056 and the real preparation is unrecorded, so `[sub]` is not
   recoverable. See the entry at the top of this log.
+- **The header `kuv` row is an unused independent check on `[enz]`.** It agrees
+  with the compiled value in 58 of the 63 sheets that declare it, and the five
+  that differ are all understood. Folding it into `--deep` would give `[enz]`
+  the same second source the other three concentrations already have.
 - **Exp 6 uses M = 109.13 for benzyl alcohol** where every later BnOH run uses
   the correct 108.14, making its `[sub]` 0.9% low. The only compiled experiment
   affected (t001 and t003 share it but were never compiled). Recorded, not

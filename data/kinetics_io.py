@@ -54,6 +54,30 @@ EXPERIMENT_CORRECTIONS = {
     35: {"[enz]": 0.0, "[buf]": [50.0, 100.0, 150.0, 200.0]},
     36: {"[enz]": 0.0, "[buf]": [50.0, 100.0, 150.0, 200.0]},
     37: {"[enz]": 0.0, "[buf]": [50.0, 100.0, 150.0, 200.0]},
+
+    # Exps 79 and 80 are enzyme runs whose [enz] extracted as zero. Their
+    # cuvette tables DO carry an "[Enz] mmol/l" column, but every measured row
+    # holds 0.000001 -- a broken formula, about 14,000x too low -- which the
+    # extraction read faithfully and rounding to 3 dp turned into 0.0.
+    #
+    # The right value is in the sheet's header block, on the "kuv" row of the
+    # enzyme stock calculation, and it checks out against the volumes: the stock
+    # is 0.559618 mM, and 0.559618 * 0.05/2 = 0.01399 for exp 79, * 0.1/2 =
+    # 0.027981 for exp 80. Both filenames say "with_E". (That header row is the
+    # same one that matches the table exactly in every healthy sheet -- exp 2
+    # declares kuv = 0.17533 and its table column reads 0.17533.)
+    #
+    # Checked across all 98: 63 sheets declare a header kuv, 58 agree with the
+    # compiled [enz], and the only other disagreements are exps 32 and 34-37,
+    # where the kuv belongs to the planned-but-unmeasured with-enzyme rows. So
+    # the broken column is confined to these two.
+    #
+    # Exp 80 is IN USE, so until now an enzyme run was sitting in the dataset
+    # indistinguishable from an enzyme-free control -- precisely the set the
+    # catalyst-independent rate constants are meant to be fitted on.
+    # Ruled 2026-08-30; see DATA_VERIFICATION.md.
+    79: {"[enz]": 0.014},
+    80: {"[enz]": 0.028},
 }
 
 
