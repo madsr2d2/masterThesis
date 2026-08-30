@@ -51,22 +51,22 @@ autocatalytic kinetics):
 
 **Catalyst-dependent loop:**
 
-1. `K + H2O2 ⇌ KP` — the ketone forms its gem-diol hydroperoxide ("perhydrate")
+4. `K + H2O2 ⇌ KP` — the ketone forms its gem-diol hydroperoxide ("perhydrate")
    with H2O2.
-2. `KP + S → K + A` — the perhydrate directly oxidizes the alcohol substrate to
+5. `KP + S → K + A` — the perhydrate directly oxidizes the alcohol substrate to
    the aldehyde. Hypothesized as the slow, non-autocatalytic "seed" step that
    produces the first trace of A needed to start the autocatalytic loop, before
    enough product has accumulated for steps 1–2 to run.
-3. `PBA + K → KD + BA` — the ketone catalyst reacts with the perbenzoic acid
+6. `PBA + K → KD + BA` — the ketone catalyst reacts with the perbenzoic acid
    produced in step 2 (not with H2O2/Oxone directly), forming a Criegee-type
    adduct that collapses by expelling benzoic acid as the leaving group and
    leaving a dioxirane at the former ketone carbon.
-4. `KD + S → K + A` — the dioxirane oxidizes the substrate's benzylic C–H bond,
+7. `KD + S → K + A` — the dioxirane oxidizes the substrate's benzylic C–H bond,
    regenerating free ketone catalyst and producing a fresh molecule of A. Closes
    the catalytic cycle.
 
 Total catalyst is conserved: `[K] + [KP] + [KD] = [enz]0` throughout (no rate
-constant needed to enforce this — it falls out of steps 4, 6, 7 by construction).
+constant needed to enforce this — it falls out of steps 4–7 by construction).
 
 ## Structural analysis and ODE reduction
 
