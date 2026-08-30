@@ -7,6 +7,88 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-30 — The stock-solution block names the substrate; exps 57/58 are a third compound
+
+Pointed at the `Stamopløsning` (stock solution) block, which every sheet uses to
+weigh out its substrate. It carries a **molar mass**, and the sheet's own
+concentrations are computed from it — so it is not a label but the arithmetic
+the experiment actually ran on. That makes it the strongest substrate evidence
+in the files, and it is machine-readable.
+
+| substrate | M (g/mol) |
+|---|---|
+| benzyl alcohol | 108.14 |
+| 4-methoxybenzyl alcohol | 138.17 |
+| 4-bromobenzyl alcohol | 187.03 |
+
+A molar mass was found in **97 of 98** sheets.
+
+### Exps 84 and 85: closed, 4OMe-BnOH
+
+Their filenames say BnOH. Everything inside the sheets says otherwise:
+
+- the stock block is labelled **`Stamopløsning 4 / 4-MeO-BnOH [g]`**;
+- it computes from **M = 138.17**, so every concentration already assumes 4OMe;
+- the method string reads **`1h_kcat(4OMeBnOH)_7cuv`**;
+- the optics are 300 nm and `e` = 7.53, the 4OMe convention.
+
+Four independent sources against the filename alone. Both sheets also carry
+**83** as their experiment number — the workbook was copied from t083, a genuine
+BnOH run, and the header was never updated, which is almost certainly where the
+filename's "BnOH" came from as well. The dataset already carries 4OMe-BnOH, so
+**no number changes**; the question is simply closed.
+
+### Exps 57 and 58: this morning's ruling was wrong
+
+The same scan found the declared molar mass disagreeing with the manifest in
+exactly two experiments — and it is **187.03**, 4-bromobenzyl alcohol.
+
+Laying the sheets beside the two `4-brom-BnOH` runs that sit in `data/Mads` and
+were never compiled:
+
+| sheet | label in the sheet | nm | e | M | g | L | stock |
+|---|---|---|---|---|---|---|---|
+| t054 (uncompiled) | `4-brom-BnOH` | 285 | 1.23 | 187.03 | 0.3511 | 0.1 | 18.772 mM |
+| t056 (uncompiled) | `4-brom-BnOH` | 285 | **1.59** | 187.03 | 0.3511 | 0.1 | 18.772 mM |
+| **t057** (in use) | `4-MeO-BnOH` | 285 | **1.59** | **187.03** | **0.3511** | **0.1** | **18.772 mM** |
+| **t058** (excluded) | `4-MeO-BnOH` | 285 | **1.59** | **187.03** | **0.3511** | **0.1** | **18.772 mM** |
+
+Exps 57 and 58 use the **same stock solution as the confirmed 4-bromo runs** —
+same compound, same weighed mass, same volume, same resulting molarity. The
+`4-MeO-BnOH` text in cell C4, and the filenames' `4-MeOH-BnOH`, are the stale
+parts; t058 likewise carries `57` as its experiment number.
+
+**So `e` = 1.59 is not a stale workbook artifact. It is the 4-bromo
+convention**, and this morning's ruling — that 57/58 were the same
+copied-template case as exps 2–10 — was wrong. The pattern it followed is real
+but belongs to t054: that sheet pairs M = 187.03 with the BnOH template's
+`e` = 1.23, and the value is corrected to 1.59 by t056, exactly mirroring the
+285 → 300 correction in the early 4OMe series.
+
+### What this costs
+
+**Exp 57 is in use**, recorded as 4OMe-BnOH at 300 nm with `e` = 7.53. All three
+are wrong; on the substrate convention it should be 4-bromobenzyl alcohol at
+285 nm with `e` = 1.59, so its `[P]` is understated by **7.53 / 1.59 = 4.74×**.
+
+The `[sub]` concentrations are unaffected — they come from the sheet's own
+volume table, computed with M = 187.03, which is correct for the bromo compound.
+
+Two further consequences:
+
+- `SUBSTRATE_PROPERTIES` has **no 4Br-BnOH entry**, so the substrate cannot
+  currently be represented at all;
+- t054 and t056, the two genuine 4-bromo runs, are among the 62 files in
+  `data/Mads` that were never compiled. With `Hammett.xls` sitting in the same
+  folder, the dataset evidently contains the beginnings of a **Hammett series**
+  — BnOH, 4-MeO, 4-Br — of which only two mislabelled members are present.
+
+Held for a ruling rather than patched: whether to relabel 57/58 and add the
+substrate, or exclude them and leave the bromo series out of scope, is a
+decision about what the thesis covers.
+
+---
+
 ## 2026-08-30 — Optics settled for the whole dataset: wavelength follows the substrate, ε is a convention
 
 Two general rules, supplied by the experimenter, close every remaining optics
@@ -274,10 +356,12 @@ Every concentration in those experiments is therefore scaled by **4.74×**.
 Exp 58 is already excluded, so it is consequence-free — **exp 57 is in use.**
 Recorded as an open question rather than corrected, pending a ruling.
 
-> **Closed 2026-08-30 — not a defect.** These two disagree on wavelength as
-> well as `e`, but both cells are working notes: the wavelength follows the
-> substrate and `e` is a uniform analysis convention. Ruled to (300 nm, 7.53).
-> No concentration changes. See the entry at the top of this log.
+> **Reopened 2026-08-30, same day.** The ruling below and its successor were
+> both wrong: these two are **4-bromobenzyl alcohol** runs, not 4OMe. Their
+> sheets compute from M = 187.03 and use the same weighed stock as the confirmed
+> 4-brom-BnOH runs t054/t056, so `e` = 1.59 is the 4-bromo convention, not a
+> stale cell. Exp 57 is in use and its `[P]` is understated 4.74×. See the entry
+> at the top of this log.
 
 ### Second question: the seven earliest 4OMe runs
 
@@ -1340,9 +1424,13 @@ in case the stray file causes confusion later.
 
 ## Open items
 
-- ~~**Exps 57 and 58 need a wavelength/ε ruling.**~~ **CLOSED 2026-08-30** —
-  ruled to the substrate convention along with exps 2–10; see the entry at the
-  top of this log. No concentration changes.
+- **Exps 57 and 58 are 4-bromobenzyl alcohol runs mislabelled as 4OMe-BnOH.**
+  Their sheets compute from M = 187.03 and share the weighed stock of the
+  confirmed 4-brom runs t054/t056. **Exp 57 is in use** and its `[P]` is
+  understated by 4.74× (`e` = 7.53 applied where the 4-bromo convention is
+  1.59). `SUBSTRATE_PROPERTIES` has no 4Br entry. Awaiting a decision: relabel
+  and add the substrate (and possibly compile t054/t056 to complete the Hammett
+  series), or exclude both and leave the bromo runs out of scope.
 - **The cross-substrate ε ratio 7.53/1.23 is a standing assumption.** Within a
   substrate an error in `e` is one global scale factor and harmless; between
   substrates it enters any comparison of rate constants directly. Not a defect,

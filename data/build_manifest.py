@@ -113,6 +113,30 @@ _SUBSTRATE_OPTICS_REASON = (
     "All nine deviating sheets in the dataset are 4OMe workbooks carrying the "
     "BnOH template's 285 nm."
 )
+# Exps 84 and 85 are 4OMe-BnOH runs whose FILENAMES say BnOH. Ruled 2026-08-30
+# on four independent grounds inside the sheets, against the filename alone:
+#   the stock-solution block is labelled "Stamopløsning 4 / 4-MeO-BnOH [g]";
+#   the molar mass it computes from is 138.17 (4-methoxybenzyl alcohol;
+#     benzyl alcohol is 108.14), so every concentration already assumes 4OMe;
+#   the method string reads "1h_kcat(4OMeBnOH)_7cuv";
+#   the optics are 300 nm and e = 7.53, the 4OMe convention.
+# Both sheets also carry "83" as their experiment number, i.e. the workbook was
+# copied from t083 (a genuine BnOH run) and the header never updated -- which is
+# almost certainly where the filename's "BnOH" came from too. The dataset
+# already carries 4OMe-BnOH, so this ruling changes no number.
+_SUBSTRATE_84_85 = (
+    "4OMe-BnOH",
+    "filename says BnOH; ruled 4OMe-BnOH on 2026-08-30. The sheet's stock block "
+    "is labelled '4-MeO-BnOH [g]' and computes from M = 138.17 g/mol "
+    "(4-methoxybenzyl alcohol; benzyl alcohol is 108.14), so every concentration "
+    "already assumes 4OMe; the method string reads '1h_kcat(4OMeBnOH)_7cuv'; and "
+    "the optics are the 4OMe convention. The sheet's own experiment number is "
+    "83, so the workbook was copied from the BnOH run t083 and the header never "
+    "updated -- the likely source of the filename error. No number changes."
+)
+for _exp in (84, 85):
+    RULINGS[_exp] = {"substrate": _SUBSTRATE_84_85}
+
 for _exp in (57, 58):
     RULINGS[_exp] = {
         "abs_nm": (300.0, _SUBSTRATE_OPTICS_REASON.format(
@@ -289,8 +313,13 @@ def build(directory="data/data"):
             "has_enzyme": any(s["[enz]"] for s in experiment["samples"]),
         }
 
+        rulings = RULINGS.get(number, {})
         resolved, provenance, open_questions = {}, {}, []
         for field in ("pH", "T", "substrate", "buffer", "has_enzyme"):
+            if field in rulings:
+                resolved[field] = rulings[field][0]
+                provenance[field] = "ruling"
+                continue
             declared = from_folder.get(field, from_name.get(field))
             declared_by = ("folder" if field in from_folder
                            else "filename" if field in from_name else None)
@@ -330,7 +359,7 @@ def build(directory="data/data"):
         sheet_wavelength, sheet_extinction = wavelength, extinction
 
         notes = []
-        for field, (value, reason) in RULINGS.get(number, {}).items():
+        for field, (value, reason) in rulings.items():
             if field == "abs_nm":
                 wavelength = value
             elif field == "e_declared":
