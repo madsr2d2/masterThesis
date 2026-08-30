@@ -6,6 +6,101 @@ the top.
 
 ---
 
+## 2026-08-30 — Concentrations re-derived from the volume tables
+
+The manifest closed the metadata gap but left the concentration columns
+(`[enz]`, `[buf]`, `[h2o2]`, `[sub]`) with nothing independent checking them.
+`data/recompute_concentrations.py` closes it by taking a different path through
+the same sheets: instead of reading the pre-computed mmol/l columns that
+`kinetics_io` reads, it reads the per-cuvette component **volumes** and the
+total volume, back-calculates the implied stock, and re-derives each
+concentration. Available as `validate_dataset.py --deep` (~2.5 s).
+
+The volume table was locatable in **all 98 experiments** (76 sheets carry all
+six volume headers, 22 lack only `H2O [ml]`, which the calculation does not
+need).
+
+### Result 1 — block selection was right in 97 of 98
+
+This was the open worry. `find_numeric_values_below_header` takes the first
+`sample_num` numeric rows below the header, and **97 of 98 sheets plan more
+cuvettes than were measured** (typically 8 planned / 4 measured; 16/7 for
+exps 135–151, 14/7 for exps 84–85). Selecting the measured block *explicitly* —
+dropping rows labelled `ref` and honouring the manifest's `has_enzyme` — and
+comparing against the compiled data produces **exactly one disagreement**:
+
+    exp 128  s5 [sub]: sheet 8 vs compiled 9.47
+
+which is the already-documented Round 4 finding (sample 5 is the reference row
+`ref 5`, not a fifth titration condition). Recorded in the manifest's new
+`accepted_deviations` column so the deep check stays green rather than
+permanently red.
+
+So the first-N-rows assumption, although structurally load-bearing in 97 of 98
+experiments, produced a wrong answer only in the five cases already fixed
+(32/34/35/36/37) plus this one. **The extraction was not silently damaged
+elsewhere.** That is the main thing this check was built to establish.
+
+Caveat on its strength: the block selector consults the manifest's
+`has_enzyme`, which for the 23 experiments whose filename declares no enzyme
+status was itself seeded from the extraction. For those the check is partly
+circular and confirms less than it appears to.
+
+### Result 2 — 248 concentration columns independently confirmed, 59 unverifiable
+
+Counting species × experiment, the implied stock `c · V_total / V_component` is
+**constant across the measured cuvettes in 248 cases** — the sheet's own numbers
+reproduce exactly from the volumes, so those concentrations are independently
+confirmed.
+
+The other **59 are unverifiable by this route, not wrong**. Two dilution designs
+exist in the dataset and only one is checkable:
+
+- **Volume design** (e.g. exp 2): substrate volume steps 0.2 → 0.8 ml at a fixed
+  15.2 mM stock. The implied stock is identical on every row. Verifiable.
+- **Stock design** (e.g. exp 65): volume fixed at 0.1 ml while the *stock* is
+  serially diluted (7.31 → 3.66 → 1.83 → 0.37 mM). The stock appears nowhere in
+  the volume table, so the computed concentration is the only record of it.
+
+Unverifiable by species: `[sub]` in 37 experiments (65–83 and the 135–151
+block), `[h2o2]` in 22 (127–131, 135–151). **`[enz]` and `[buf]` are confirmed
+wherever the sheet records them** — those were never serially diluted.
+
+An earlier version of this check reported 64 "inconsistencies" that were all
+this design difference, plus noise from planned-but-unmeasured rows belonging to
+other designs recorded on the same sheet (exps 135–151 carry D2O variants with
+a `[D2O]%` column). Both were errors in the check, not the data; restricting to
+measured rows and distinguishing the two designs removes all 64.
+
+### Result 3 — 56 experiments' `[buf]` still rests on a hardcoded assumption
+
+`kinetics_io` reads `[buf]` from the sheet's own `[buf]`/`[buffer]` column where
+one exists (**42 experiments**), and otherwise falls back to `(V_buf / 2) * 100`
+— which hardcodes a **0.1 M buffer stock** (**56 experiments**: 2–62).
+
+No contradiction was found: all 38 filenames that declare a stock molarity say
+0.1 M. But that leaves the assumption unverified for the rest, and exps 32–37
+are proof that non-0.1 M stocks were used in this series — they are simply
+recorded as text labels (`1 (0.1M)`, `2 (0.2M)`) rather than in a column. The
+five known cases are patched via `EXPERIMENT_CORRECTIONS`; whether any of the
+remaining 51 used a non-0.1 M stock is **open and cannot be settled from the
+files alone**.
+
+### Standing state
+
+    python data/validate_dataset.py          ->  0 errors, 13 warnings
+    python data/validate_dataset.py --deep   ->  0 errors, 14 warnings
+    python data/test_validator.py            ->  9 passed, 0 failed
+
+### What this does and does not license
+
+Confirmed: metadata, block selection, and 248 of 307 concentration columns.
+Not established: the 59 serially-diluted concentrations, the 0.1 M stock for 51
+experiments, and the six manifest open questions. No extraction code was
+changed — the recomputation found nothing to fix, which is itself the result.
+
+---
+
 ## 2026-08-30 — Validation layer: the dataset is now checked against declared ground truth
 
 Every defect found in this log so far was found **by accident**, during
@@ -888,3 +983,10 @@ in case the stray file causes confusion later.
 - **`find_numeric_values_below_header` still takes the first N rows** of the
   concentration table rather than the measured ones — the root cause of both
   the exp 32-37 and exp 128 defects.
+- **51 experiments' `[buf]` assumes a 0.1 M stock and cannot be checked from
+  the files** (the 56 without a `[buf]` column, less the 5 patched). Exps 32-37
+  prove non-0.1 M stocks were used in this series. Resolvable only from lab
+  notebooks.
+- **59 concentration columns are unverifiable by recomputation** because the
+  stock was serially diluted rather than the volume varied - `[sub]` in 37
+  experiments, `[h2o2]` in 22. Not known to be wrong; simply unchecked.

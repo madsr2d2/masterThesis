@@ -19,6 +19,11 @@ Checks performed:
               exactly when the manifest says no enzyme, concentrations are
               finite and non-negative, required fields are non-null
 
+With --deep, additionally re-derives every concentration from the sheets'
+volume tables (see recompute_concentrations.py) and checks that the compiled
+values match the cuvettes that were actually measured. This is slower -- it
+reopens all 98 spreadsheets -- so it is opt-in rather than the default.
+
 Findings are graded:
   ERROR    a disagreement nothing has accounted for -- the pipeline has drifted
   WARN     a disagreement already recorded in the manifest's open_questions
@@ -218,9 +223,28 @@ if __name__ == "__main__":
     parser.add_argument("--csv", default=DATASET_PATH)
     parser.add_argument("--manifest", default=MANIFEST_PATH)
     parser.add_argument("--quiet", action="store_true", help="Print findings only.")
+    parser.add_argument("--deep", action="store_true",
+                        help="Also re-derive concentrations from the volume tables.")
     args = parser.parse_args()
 
     findings = validate(args.csv, args.manifest)
+
+    if args.deep:
+        from recompute_concentrations import analyse
+        deep_findings, _, verified, unverifiable = analyse(args.csv, args.manifest)
+        manifest = pd.read_csv(args.manifest).set_index("experiment")
+        for number, check, message in deep_findings:
+            accepted = ""
+            if number in manifest.index:
+                accepted = str(manifest.loc[number].get("accepted_deviations") or "")
+            label = f"deep:{check}"[:10]
+            if check in [a.strip() for a in accepted.split(";") if a.strip()]:
+                findings.warn(label, number, message + "  (accepted deviation)")
+            else:
+                findings.error(label, number, message)
+        if not args.quiet:
+            print(f"deep check: {len(verified)} concentration column(s) independently "
+                  f"confirmed, {len(unverifiable)} unverifiable (stock serially diluted)")
     if not args.quiet:
         data = pd.read_csv(args.csv)
         print(f"validating {args.csv} ({len(data)} rows, "
