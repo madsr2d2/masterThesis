@@ -7,6 +7,99 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-30 — The 0.1 M buffer stock: one recipe exists, and it computes to 100.5 mM
+
+`[buf]` is inferred as `(V_buf/2)·100` in 56 experiments, and for 33 of them the
+0.1 M stock that rule assumes was stated nowhere. Searched every sheet in the
+archive — 98 compiled, 62 uncompiled, and the summary workbooks — for free text.
+Six substantive notes exist in the whole collection. **One is a buffer recipe.**
+
+### Exp 13
+
+> *"The Buffer was prepeared by mixing 0.0699 g NaBH4 with 0.1964 g B(OH)3 in
+> 0.05 l water and the pH was adjusted with a NaOH solution."*
+
+```
+B(OH)3   0.1964 g / 61.83 g/mol = 3.176 mmol
+NaBH4    0.0699 g / 37.83 g/mol = 1.848 mmol
+                          total = 5.024 mmol boron in 0.05 l
+                                = 100.5 mM
+```
+
+**0.1 M to within half a percent.**
+
+Two caveats belong with it:
+
+- **The salt name is almost certainly mis-transcribed.** NaBH₄ is sodium
+  borohydride — a reducing agent that would not survive contact with H₂O₂, and
+  that hydrolyses in water. But every plausible substitute falls short:
+  NaBO₂ → 84.8 mM, NaBO₂·4H₂O → 73.7, borax → 78.2, plain NaOH → 63.5. That the
+  literal reading is the one landing on 0.1 M argues the masses are right and
+  only the formula was written down carelessly.
+- **It is a borate buffer**, and exp 13 is the only boric-acid experiment among
+  the 33. The other 32 are phosphate, so this documents the borate stock and
+  supports the phosphate one by house-standard analogy alone.
+
+### The rest of the evidence
+
+**The volume scheme is confirmed textually** in 29 of the 33 sheets:
+
+> *"The buffer was added as 1\*1ml plus x\*0,2 ml, with x=3,2,1 respectivly."*
+
+That gives 1.6, 1.4, 1.2, 1.0 ml — exactly the recorded `Buf [ml]` column. It
+pins the ratios between cuvettes, which is what makes the buffer titration real.
+It says nothing about the scale.
+
+**65 filenames declare `0.1M`, from t041 onward**, across B(OH)₃, phosphate and
+carbonate. The convention is documented — starting one experiment after the
+assumed set ends. The 33 are t002–t040 plus t052, and not one declares a
+molarity in its filename.
+
+**`Buffer.xls` is a different, later preparation** — 0.4 M phosphate from
+NaH₂PO₄·2H₂O and Na₂HPO₄·12H₂O in 0.1 l, a concentrate using the dodecahydrate
+of the later era. Nothing in `Rate(pH).xls`, `Rate(T).xls` or `Hammett.xls`;
+they are derived-rate summaries.
+
+### Recorded
+
+The manifest gains two columns, both computed once in
+`build_manifest.classify_buffer`:
+
+| `buf_provenance` | n | meaning |
+|---|---|---|
+| `declared` | 42 | the sheet states `[buf]` per cuvette |
+| `sheet-recipe` | **1** | a weighed recipe in free text — exp 13 |
+| `filename` | 18 | the stock molarity is in the filename |
+| `sheet-text` | 5 | a label beside a cuvette, e.g. `1 (0.1M)` — exps 32, 34–37 |
+| `assumed` | 32 | stated nowhere |
+
+| `design` | n |
+|---|---|
+| `volume` | 51 — buffer volume traded against substrate |
+| `stock` | 47 — fixed volumes, diluted stocks |
+
+The recipe itself is stored in exp 13's `notes`, so the evidence travels with
+the classification.
+
+### A drift the columns exposed
+
+`build_dossier` had its own copy of this classification, and the two had already
+diverged: it counted a trailing sum row in exps 127–131 and called five
+fixed-volume experiments volume titrations (56/42 against the correct 51/47).
+The dossier's copy is deleted; it now reads the manifest's columns, like
+everything else.
+
+### Two side notes
+
+- The recipe confirms **NaOH was used for pH adjustment**, which adds sodium and
+  therefore ionic strength that `solution_chemistry` does not model. Previously
+  a suspected limitation, now a documented one.
+- **`Rate(pH).xls` carries an `[E] [mmol/l]` column per pH** for the early
+  campaign (0.17533, 0.272695, 0.24068 …) — a second independent record of
+  `[enz]` for exactly the experiments where the enzyme column has been trouble.
+
+---
+
 ## 2026-08-30 — Exp 80 was an enzyme run posing as a control; last questions closed
 
 Four rulings, one of which was a live defect in an experiment that is in use.
@@ -1632,16 +1725,16 @@ in case the stray file causes confusion later.
   largest. A Davies or Pitzer treatment is the fix; until then any
   `[HOO-]`-dependent result should state its exposure via
   `solution_chemistry.out_of_range_fraction()`.
-- **The buffer stock molarity is an assumption for 33 experiments.** `[buf]` is
-  read from a declared `[buf] mmol/l` column in 42 experiments (constant across
-  cuvettes in all 42, matching the CSV exactly), but inferred as
-  `(V_buf/2)·100` in the other 56 — hardcoding a 2 mL cuvette (true in 55 of
-  56; exp 58 is 2.1 mL, already excluded) and a 0.1 M stock. That stock is
-  confirmed by the filename in 18 and by in-sheet text in 5 (exps 32/34/35/36/37,
-  the recovered titration), and stated **nowhere at all** in the remaining 33
-  (exps 2–31, 38, 39, 40, 52). All 56 reproduce the formula exactly, so no
-  second breakage of the exp-32 kind is hiding — but `I` and `[HOO-]` scale
-  linearly with any error here. Needs a `buf_provenance` column.
+- **The buffer stock molarity is an assumption for 32 experiments.** `[buf]` is
+  read from a declared `[buf] mmol/l` column in 42, and inferred as
+  `(V_buf/2)·100` in the other 56 — hardcoding a 2 ml cuvette (true in 55 of 56;
+  exp 58 is 2.1 ml and already excluded) and a 0.1 M stock. That stock is now
+  confirmed by a weighed recipe in 1 (exp 13, computing to 100.5 mM), by the
+  filename in 18, and by in-sheet text in 5 (exps 32, 34–37). It is stated
+  **nowhere** for the remaining 32 — exps 2, 4–12, 14–31, 38, 39, 40 and 52,
+  which are all phosphate and all predate the filename convention that starts at
+  t041. `I` and `[HOO⁻]` scale linearly with any error there. Tracked as the
+  `buf_provenance` column.
 - `data.toml` still doesn't parse and isn't reconciled with the verified csv
   (deprioritized — planned rewrite of the toml-generating script).
 - Metadata (pH, T, buffer, substrate, `[enz]`/`[buf]`/`[h2o2]`/`[sub]`), the

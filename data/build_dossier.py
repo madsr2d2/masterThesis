@@ -194,45 +194,11 @@ def sheet_optics(sheet):
 
 # --- classification -------------------------------------------------------
 
-def classify(sheet, header_row, labels, xls_file, recipe):
-    """
-    Proposes a design and a buffer-stock provenance for confirmation.
-
-    design      'stock'  fixed volumes, concentration varied by using
-                         different stock solutions -- [buf] is constant
-                'volume' buffer volume traded against substrate volume --
-                         [buf] genuinely varies across the cuvettes
-
-    buf_provenance
-                'declared'   the sheet states [buf] per cuvette
-                'filename'   the stock molarity is in the filename
-                'sheet-text' it appears only as free text in the sheet
-                'assumed'    stated nowhere; (V_buf/2)*100 assumes 0.1 M
-    """
-    declared = any(label.lower().startswith("[buf") for label in labels)
-    volume_label = next((label for label in labels
-                         if label.lower().startswith("buf")
-                         and "ml" in label.lower()), None)
-
-    design = "unknown"
-    measured = measured_rows(recipe)
-    if volume_label and measured:
-        values = pd.to_numeric(pd.Series([row.get(volume_label) for row in measured]),
-                               errors="coerce").dropna()
-        design = "volume" if values.nunique() > 1 else "stock"
-    elif declared:
-        design = "stock"
-
-    if declared:
-        provenance = "declared"
-    elif re.search(r"(\d+[.,]?\d*)\s*M(?![a-z])", xls_file):
-        provenance = "filename"
-    elif any(isinstance(v, str) and re.search(r"\(\s*\d+[.,]?\d*\s*M\s*\)", v)
-             for v in sheet.values.ravel()):
-        provenance = "sheet-text"
-    else:
-        provenance = "assumed"
-    return design, provenance
+# classify() used to live here. It is gone: design and buf_provenance are now
+# computed once in build_manifest.classify_buffer and carried as manifest
+# columns, so the dossier reads the same answer everything else does. The two
+# copies had already drifted -- the dossier counted a trailing sum row in exps
+# 127-131 and called five fixed-volume experiments volume titrations.
 
 
 _CURVE_INDEX = None
@@ -411,7 +377,8 @@ def render_experiment(number, manifest, dataset, summary=None):
     header_row = header_index(sheet)
     labels = column_labels(sheet, header_row) if header_row is not None else []
     recipe = recipe_rows(sheet, header_row, labels) if header_row is not None else []
-    design, provenance = classify(sheet, header_row, labels, xls_file, recipe)
+    design = str(declared.get("design") or "unknown")
+    provenance = str(declared.get("buf_provenance") or "assumed")
     sheet_nm, sheet_e = read_sheet_optics(sheet)
     notes = sheet_notes(sheet)
     from_filename = parse_filename(xls_file)
@@ -518,6 +485,10 @@ def render_experiment(number, manifest, dataset, summary=None):
     if provenance == "assumed":
         flags.append(("assumption", "[buf] computed as (V_buf/2)*100; the 0.1 M stock "
                                     "is stated nowhere in the filename or the sheet"))
+    if provenance == "sheet-recipe":
+        flags.append(("ruled", "[buf] stock confirmed by the only buffer recipe in the "
+                               "archive: 0.1964 g B(OH)3 + 0.0699 g NaBH4 in 0.05 l = "
+                               "100.5 mM total boron, i.e. 0.1 M"))
     if bad:
         flags.append(("curves", f"{bad} of {len(diagnostics)} curve(s) flagged below"))
     over = compiled["I"] > 100
@@ -539,6 +510,8 @@ def render_experiment(number, manifest, dataset, summary=None):
 
     if provenance == "declared":
         stock_note = "n/a -- [buf] read per cuvette from the sheet"
+    elif provenance == "sheet-recipe":
+        stock_note = "0.1 M -- from the weighed recipe in the sheet"
     elif provenance == "filename":
         stock_note = str(from_filename.get("buffer_stock_M", "?"))
     elif provenance == "sheet-text":

@@ -30,12 +30,14 @@ Usage:
     python data/build_manifest.py --write -o path  # write elsewhere
 """
 import argparse
+import contextlib
+import io
 import os
 import re
 
 import pandas as pd
 
-from kinetics_io import find_and_parse_experiment_file, load_experiment
+from kinetics_io import find_header_row, find_and_parse_experiment_file, load_experiment
 
 MADS_DIR = "data/Mads"
 
@@ -244,6 +246,125 @@ def read_sheet_optics(sheet):
     return wavelength, extinction
 
 
+# A buffer-preparation sentence written into a sheet as free text. Exactly one
+# exists in the whole archive -- exp 13's -- and it is the only direct evidence
+# for the 0.1 M buffer stock that 32 further experiments rely on by convention:
+#
+#   "The Buffer was prepeared by mixing 0.0699g NaBH4 with 0.1964 g B(OH)3 in
+#    0.05 l water and the pH was adjusted with a NaOH solution."
+#
+#   B(OH)3  0.1964 g / 61.83 g/mol = 3.176 mmol
+#   NaBH4   0.0699 g / 37.83 g/mol = 1.848 mmol
+#                            total = 5.024 mmol boron in 0.05 l = 100.5 mM
+#
+# i.e. 0.1 M to within half a percent. See DATA_VERIFICATION.md 2026-08-30 for
+# the caveats: NaBH4 is almost certainly a mis-transcription (it is a reducing
+# agent, and would not survive contact with H2O2), though every plausible
+# substitute lands at 64-85 mM and only the literal reading gives 0.1 M.
+RECIPE_PATTERN = re.compile(r"buffer\s+was\s+prep", re.I)
+
+# A stock molarity written as a text label beside a cuvette, e.g. "1 (0.1M)".
+LABEL_MOLARITY = re.compile(r"\(\s*(\d+[.,]?\d*)\s*M\s*\)", re.I)
+# A stock molarity in a filename, e.g. "phosphate_0.1M".
+FILENAME_MOLARITY = re.compile(r"(\d+[.,]?\d*)\s*M(?![a-z])")
+
+
+def find_recipe(sheet):
+    """
+    Returns the buffer-preparation sentence a sheet carries, or None.
+
+    Args:
+        sheet (pd.DataFrame): A raw, header-less sheet.
+
+    Returns:
+        str or None: The sentence, whitespace-collapsed.
+    """
+    for value in sheet.values.ravel():
+        if isinstance(value, str) and RECIPE_PATTERN.search(value):
+            return " ".join(value.split())
+    return None
+
+
+def classify_buffer(sheet, filename):
+    """
+    Classifies how each experiment's [buf] is known, and how it was titrated.
+
+    Neither is stated as such in any file, and both are needed before fitting:
+    the design says whether [buf] is expected to vary across the cuvettes at
+    all, and the provenance says how far the recorded value can be trusted.
+
+    design
+        'stock'   fixed volumes throughout; concentration varied by using
+                  different stock solutions, so [buf] is constant
+        'volume'  buffer volume traded against substrate volume, so [buf]
+                  genuinely varies across the cuvettes
+    buf_provenance, in descending order of authority
+        'declared'     the sheet states [buf] per cuvette
+        'sheet-recipe' the sheet carries a weighed buffer recipe in free text
+        'filename'     the stock molarity is in the filename
+        'sheet-text'   it appears only as a label beside a cuvette
+        'assumed'      stated nowhere; (V_buf/2)*100 assumes a 0.1 M stock
+
+    Reference channels are excluded from the design test: several sheets run
+    the paired no-enzyme cuvettes at different volumes than the samples (exp
+    146 uses 0.5 ml buffer in 1 ml for samples and 1.0 ml in 2 ml for
+    references), which makes a fixed-volume experiment look like a titration.
+
+    Args:
+        sheet (pd.DataFrame): A raw, header-less sheet.
+        filename (str): The experiment's .xls filename.
+
+    Returns:
+        tuple: (design, buf_provenance, recipe or None)
+    """
+    header_row = None
+    with contextlib.redirect_stdout(io.StringIO()):
+        header_row = find_header_row(sheet)
+
+    labels, measured = [], []
+    if header_row is not None:
+        for column in range(sheet.shape[1]):
+            parts = [str(sheet.iat[row, column])
+                     for row in range(header_row, min(header_row + 2, len(sheet)))
+                     if str(sheet.iat[row, column]) != "nan"]
+            labels.append(" ".join(parts).strip())
+        volume_column = next((i for i, l in enumerate(labels)
+                              if l.lower().startswith("buf") and "ml" in l.lower()), None)
+        total_column = next((i for i, l in enumerate(labels)
+                             if l.lower().startswith("vol")), None)
+        first_column = next((i for i, l in enumerate(labels) if l), None)
+        if volume_column is not None:
+            for row in range(header_row + 1, min(header_row + 26, len(sheet))):
+                label = str(sheet.iat[row, first_column]).strip().lower()
+                if label.startswith(("ref", "sum")) or label == "nan":
+                    continue
+                if total_column is not None and pd.isna(sheet.iat[row, total_column]):
+                    continue
+                value = pd.to_numeric(pd.Series([sheet.iat[row, volume_column]]),
+                                      errors="coerce").iloc[0]
+                if pd.notna(value):
+                    measured.append(float(value))
+
+    declared = any(l.lower().startswith("[buf") for l in labels)
+    design = ("stock" if declared and not measured
+              else "volume" if len(set(measured)) > 1
+              else "stock" if measured else "unknown")
+
+    recipe = find_recipe(sheet)
+    if declared:
+        provenance = "declared"
+    elif recipe:
+        provenance = "sheet-recipe"
+    elif FILENAME_MOLARITY.search(filename):
+        provenance = "filename"
+    elif any(isinstance(v, str) and LABEL_MOLARITY.search(v)
+             for v in sheet.values.ravel()):
+        provenance = "sheet-text"
+    else:
+        provenance = "assumed"
+    return design, provenance, recipe
+
+
 def parse_filename(filename):
     """
     Extracts whatever metadata the filename declares.
@@ -404,6 +525,9 @@ def build(directory="data/data"):
         # the evidence it was made against. abs_nm/e_declared below carry the
         # adjudicated values; these two carry the observation.
         sheet_wavelength, sheet_extinction = wavelength, extinction
+        design, buf_provenance, recipe = (
+            classify_buffer(sheet, str(experiment["xls_file"]))
+            if sheet is not None else ("unknown", "assumed", None))
 
         notes = []
         for field, (value, reason) in rulings.items():
@@ -426,6 +550,8 @@ def build(directory="data/data"):
             "e_declared": extinction,
             "abs_nm_sheet": sheet_wavelength,
             "e_sheet": sheet_extinction,
+            "design": design,
+            "buf_provenance": buf_provenance,
             "status": "exclude" if excluded else "use",
             "exclude_reason": KNOWN_EXCLUSIONS.get(number, flag if excluded else ""),
             "accepted_deviations": KNOWN_ACCEPTED_DEVIATIONS.get(number, ("", ""))[0],
@@ -433,7 +559,7 @@ def build(directory="data/data"):
             "provenance": ";".join(f"{k}={v}" for k, v in provenance.items()),
             "open_questions": " | ".join(open_questions + KNOWN_OPEN_QUESTIONS.get(number, [])),
             "xls_file": experiment["xls_file"],
-            "notes": " | ".join(notes),
+            "notes": " | ".join(notes + ([f"buffer recipe: {recipe}"] if recipe else [])),
         })
 
     return pd.DataFrame(rows), conflicts
