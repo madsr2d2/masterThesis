@@ -6,6 +6,104 @@ the top.
 
 ---
 
+## 2026-08-30 — Validation layer: the dataset is now checked against declared ground truth
+
+Every defect found in this log so far was found **by accident**, during
+analysis aimed at something else. The extraction scans heterogeneous
+spreadsheets for anything pH-shaped, buffer-name-shaped or table-shaped; when
+it guesses wrong it returns a plausible number rather than raising. Nothing
+ever contradicted it. That failure mode, not the parsing quality, is what this
+adds a fix for.
+
+The architecture is inverted: metadata is now **declared** in a checked-in
+manifest, and the extraction is **validated** against it.
+
+### `data/manifest.csv` — declared ground truth (98 rows, one per experiment)
+
+Columns: `substrate, buffer, pH, T, has_enzyme, n_samples, status,
+exclude_reason, provenance, open_questions, xls_file, notes`.
+
+Bootstrapped by `data/build_manifest.py` from three sources independent of the
+sheets' interiors:
+
+1. **Filenames** — confirmed as ground truth by the experimentalist. Recover
+   75–92% of fields (pH 92/98, T 81/98, substrate 92/98, buffer 81/98,
+   enzyme-presence 75/98).
+2. **`data/Mads/` hand-sorted folders** — `No enzyme` states enzyme status
+   outright; `bad data` and `bad data pH ca. 11` record curation judgements.
+3. **The extraction** — used only where the two above are silent.
+
+Exclusions previously living as a bare list literal in the notebook
+(`experiments_to_remove = [84, 58, 77, 78, 79, 72, 82]`) are now declared rows
+with reasons attached.
+
+**Where a declared source and the extraction disagree, the manifest keeps the
+extracted value** and records the disagreement in `open_questions`. Adopting
+the manifest therefore changed no data; adjudicating means editing the value
+and clearing the note. Six such questions stand — see below.
+
+### `data/validate_dataset.py` — the validator
+
+Checks coverage (every compiled experiment declared and vice versa), metadata
+agreement, structure (sample counts; pH/T/substrate/buffer constant within an
+experiment) and invariants (extinction coefficient matches the substrate;
+`[enz]` is zero exactly when the manifest says no enzyme; concentrations
+finite, non-negative, non-null).
+
+Findings are graded: **ERROR** for a disagreement nothing has accounted for,
+**WARN** for one already recorded as an open question or an expected exclusion.
+Exit status is non-zero on any ERROR, so it can gate a rebuild.
+
+Current state: **0 errors, 13 warnings** — 7 expected (excluded experiments
+retained by the raw compile by design) and 6 unresolved questions.
+
+### `data/test_validator.py` — fault injection
+
+A validator that has never failed is indistinguishable from one that cannot
+fail. Nine corruptions are injected into a copy of the dataset and each must be
+caught: wrong pH, wrong buffer, substrate swapped without updating `e`, enzyme
+concentration lost, negative concentration, null concentration, a dropped
+sample, pH varying within an experiment, an experiment appearing from nowhere.
+**9/9 caught.**
+
+Retrospective check: restoring the pre-fix `[enz]` values for experiments
+32/34/35/36/37 raises **10 errors immediately**. The bug that took days to
+surface would have been caught on the first run.
+
+### Six open questions awaiting adjudication
+
+| exp | field | filename says | extraction says | in use? |
+|---|---|---|---|---|
+| 9 | pH | 5.64 | 5.67 | yes |
+| 38 | pH | 6.97 | 7.00 | yes |
+| 79 | has_enzyme | True | False | no (excluded) |
+| **80** | **has_enzyme** | **True** | **False** | **yes** |
+| 84 | substrate | BnOH | 4OMe-BnOH | no (excluded) |
+| **85** | **substrate** | **BnOH** | **4OMe-BnOH** | **yes** |
+
+The two in bold are consequential:
+
+- **exp 85** — if the filename is right, `e` should be 1.23 rather than 7.53
+  and **every concentration in that experiment is off by 6.1×**. Seven samples,
+  currently in use, and one of the two sign-flip-corrected runs.
+- **exp 80** — if the filename is right, a run that had catalyst is currently
+  being treated as an enzyme-free control, which would contaminate exactly the
+  `E0 = 0` block the mechanism fit depends on.
+
+The pH pairs (9, 38) are minor but should be settled for consistency. Note that
+79 and 84 show the same two failure modes as 80 and 85 respectively, in
+experiments already excluded — consistent with the extraction, not the
+filenames, being the unreliable party in both cases.
+
+### Not done
+
+The root cause behind the worst extraction bugs — `find_numeric_values_below_header`
+taking the **first** N rows of the concentration table rather than the rows
+actually measured — is still unfixed. It caused both the exp 32–37 and exp 128
+defects. Contained fix, not attempted here.
+
+---
+
 ## 2026-08-30 — Buffer-titration recovery: five experiments had two wrong columns
 
 Triggered by a claim that a buffer-concentration titration at constant `[sub]`
@@ -784,3 +882,9 @@ in case the stray file causes confusion later.
   single `[buf]` value and their ionic strength are both incomplete.
 - **Exp 134, and exps 3/53/64**, have raw material but no compiled row — see the
   2026-08-30 buffer-titration entry for whether they should be recovered.
+- **Six manifest open questions need your ruling** — most urgently exp 85's
+  substrate (6.1x concentration error if the filename is right) and exp 80's
+  enzyme status. Run `python data/validate_dataset.py` to see them.
+- **`find_numeric_values_below_header` still takes the first N rows** of the
+  concentration table rather than the measured ones — the root cause of both
+  the exp 32-37 and exp 128 defects.
