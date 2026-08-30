@@ -7,6 +7,135 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-30 — The 0.1 M buffer stock is evidenced, and [buf] now has its own verification
+
+[buf] was the least-verified concentration in the dataset. [sub], [h2o2] and
+[enz] each trace to a weighed mass through a recorded dilution chain; [buf] did
+not, because the buffer was made up once and used across many runs. Thirty-three
+experiments — the phosphate campaign of 2010-04-08 to 2010-05-06, which predates
+the `0.1M` filename convention starting at t041 — rested on a fallback that
+hardcodes both a 2 ml cuvette and a 0.1 M stock. I and [HOO⁻] scale linearly
+with it.
+
+### The experimenter's own arithmetic says 0.1 M
+
+Exp 14's workbook carries the calculation in a scratch column beside the cuvette
+table. In the `.ods` copy under `data/Mads/Variable Temperature/` it is still a
+live formula:
+
+```
+P27  =(C20/H20)*0.1  = 0.08        C = Buf [ml] (1.6, 1.4, 1.2, 1.0)
+P28  =(C21/H21)*0.1  = 0.07        H = Vol [ml] (2)
+P29  =(C22/H22)*0.1  = 0.06
+P30  =(C23/H23)*0.1  = 0.05
+```
+
+That is `(V_buf / V_total) × 0.1 mol/L` — the fallback exactly, in the
+experimenter's hand. The `.xls` copies keep the values but drop the formula,
+which is why it had never been seen.
+
+Exp 14 ran 2010-04-18, in the middle of the campaign, and **21 of the 33 share
+its cuvette recipe to the millilitre** (V_buf 1.6/1.4/1.2/1.0 in 2 ml); all 33
+use a 2 ml cuvette. A scan of every sheet of all 33 workbooks found this
+arithmetic in exp 14 alone, so it is one instance — but it is a direct one, and
+it is what the extraction already assumed.
+
+### Every filename that states a molarity agrees
+
+Dividing a declared `[buf]` by the cuvette's volume ratio recovers the stock, and
+it is identical across cuvettes in all 43 experiments that declare it — one
+bottle per experiment, as it should be. Of the 21 whose filename says `0.1M`,
+**18 recover exactly 100 mM.**
+
+The stocks actually in use across the project:
+
+| stock | experiments | how known |
+|---|---|---|
+| 33 mM | 3 | declared |
+| 100 mM | 19 | declared, plus exp 14's own arithmetic |
+| 150 mM | 17 | declared |
+| 225 mM | 5 | declared |
+
+So 0.1 M was never a universal convention — which is why assuming it needed
+evidence rather than habit.
+
+### `Buffer.xls` gives the recipe but cannot date-match
+
+`data/Mads/Buffer.xls` is the preparation calculator: NaH₂PO₄·2H₂O (156.02) and
+Na₂HPO₄·12H₂O (358.14) at pKa 7.20, Henderson–Hasselbalch, reproducing its own
+gram figures to ten significant figures. It was **created 2010-04-15**, in the
+middle of the campaign.
+
+Its surviving values are 0.1 L at pH 8.00 and **0.4 mol/L** — but it was **last
+saved 2010-08-30**, four months later, so those are August's numbers and April's
+were overwritten. It confirms how the buffer was made, not how strong the April
+stock was. (0.4 M is one of the stocks the late-April buffer titration used:
+exps 32 and 34–37 step 0.1/0.2/0.3/0.4 M.)
+
+### A new module: `data/verify_buffer.py`
+
+Four checks, wired into `validate_dataset.py --deep`:
+
+| check | what it catches |
+|---|---|
+| `bufstock` | a declared `[buf]` column implying a stock that changes between cuvettes |
+| `buflabel` | a filename and its sheet disagreeing about the stock |
+| `bufarith` | exp 14's arithmetic no longer readable — the campaign's only direct evidence |
+| `bufvolume` | the fallback's hardcoded 2 ml applied to a sheet whose cuvettes are not 2 ml |
+| `bufcompiled` | a compiled `[buf]` that is not what that stock gives at the sheet's own volumes |
+
+All 100 experiments now recover a stock and pass `bufcompiled`. Two fault
+injections in `data/test_validator.py` pin it: a wholesale ×4 rescaling (the
+shape the 0.1-vs-0.4 M question would take) and a single wrong cuvette.
+
+### It found a real defect on its first run: exp 58
+
+Exp 58's cuvettes are **2.10–2.11 ml, not 2 ml**, so the fallback's division by 2
+makes every `[buf]` about 5% high — 90.0 where the sheet's own volumes give
+85.71. It is the only experiment in the archive where the hardcoded 2 ml is
+wrong.
+
+Exp 58 is excluded for running backwards, so no result depends on it. Recorded
+as an accepted deviation rather than corrected, since correcting an excluded run
+would change the compiled CSV for no benefit.
+
+### And a filename/sheet disagreement awaiting a ruling
+
+Exps **75, 76** (pyrophosphate) and **78** (carbonate) have `0.1M` in the
+filename but a declared `[buf]` implying a **33 mM** stock — 24.75 mM in the
+cuvette where 0.1 M would give 75 mM, a factor of three.
+
+The compiled dataset follows the sheet, which is the standing precedence
+everywhere else, so nothing is wrong with it as built. But exps 75 and 76 are
+live and are the only two pyrophosphate runs of that era, and their neighbours
+77, 79 and 80 — same week, same `0.1M` naming — recover 100 mM. Reported as a
+warning rather than resolved.
+
+### Two reader bugs fixed on the way
+
+Both were in `build_dossier.py`, so they affected the dossier's recipe tables
+as well as this module.
+
+**The header merge ate a cuvette.** `column_labels` joins the header row with the
+one below to catch labels split across two rows (`[sub]` over `mmol/l`), and
+`recipe_rows` skipped that row if *any* cell in it was text. The 135–151 series
+has a one-row header, so its first cuvette — whose name cell, `Kuv. 1 (a1,a2)`,
+is text — was folded into the labels (`Buf [ml] 0.5`) and dropped. Seventeen
+experiments were showing 6 of their 7 cuvettes. Both now use a majority rule:
+the row is a units line only if it is mostly words.
+
+**An unlabelled totals row passed as a cuvette.** Exp 9 ends with a row whose
+`kuv` cell is blank and whose Buf and Vol cells hold 10.4 and 16 — the column
+sums of the eight cuvettes above. It has a filled total-volume cell, so the
+existing `Sum:` guard let it through. A cuvette must carry an identifier.
+
+Neither bug reached `experiment_data.csv`, which `kinetics_io.py` builds with its
+own reader: the dataset still reproduces from `data/data` with **zero differing
+cells**, and the manifest is byte-identical apart from exp 58's new accepted
+deviation.
+
+---
+
 ## 2026-08-30 — The curve flag was measuring reaction rate, not data quality
 
 The dossier's `curve_flags` marked 72 curves across 31 experiments. A survey of

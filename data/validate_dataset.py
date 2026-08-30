@@ -28,7 +28,8 @@ volume tables (recompute_concentrations.py), traces the serially diluted ones
 back through the recorded dilution chain (verify_dilutions.py), and traces
 [enz] back to the weighed mass of catalyst (verify_enzyme.py), and cross-checks
 [enz] against the experimenter's own Rate(pH).xls analysis
-(verify_rate_workbook.py). This is slower
+(verify_rate_workbook.py), and recovers each buffer stock from the sheet's own
+cuvette volumes (verify_buffer.py). This is slower
 -- it reopens all 98 spreadsheets several times -- so it is opt-in.
 
 Findings are graded:
@@ -349,6 +350,24 @@ if __name__ == "__main__":
             else:
                 findings.error(label, number, message)
 
+        from verify_buffer import analyse as analyse_buffer
+        buffer_findings, buffer_summary = analyse_buffer(args.csv, args.manifest)
+        for number, check, message in buffer_findings:
+            # buflabel records that a filename and its sheet disagree about the
+            # buffer stock. The compiled value follows the sheet, which is the
+            # standing precedence everywhere else, so this is a disagreement to
+            # adjudicate rather than a defect in the dataset.
+            if check == "buflabel":
+                findings.warn("deep:buf", number, message)
+                continue
+            accepted = ""
+            if number in manifest.index:
+                accepted = str(manifest.loc[number].get("accepted_deviations") or "")
+            if check in [a.strip() for a in accepted.split(";") if a.strip()]:
+                findings.warn("deep:buf", number, message + "  (accepted deviation)")
+            else:
+                findings.error("deep:buf", number, message)
+
         if not args.quiet:
             with_blocks = dilution_summary[dilution_summary.blocks > 0]
             traced = int(with_blocks[["sub", "h2o2"]].fillna(0).to_numpy().sum())
@@ -358,6 +377,11 @@ if __name__ == "__main__":
             confirmed = int(workbook_summary.matched.apply(bool).sum()) if len(workbook_summary) else 0
             print(f"deep check: {confirmed} of {len(workbook_summary)} pH points in "
                   f"Rate(pH).xls confirm the dataset's [enz] independently")
+            recovered = buffer_summary[buffer_summary["stock_mM"].notna()]
+            evidenced = int((recovered["source"] == "sheet-arithmetic").sum())
+            print(f"deep check: {len(recovered)} experiment(s) recovered a buffer stock "
+                  f"from the sheet's own volumes, {evidenced} of them from the "
+                  f"experimenter's own arithmetic")
             print(f"deep check: {len(verified)} concentration column(s) confirmed from the "
                   f"volume tables; the remaining {len(unverifiable)} were serially diluted "
                   f"and {traced} cuvette values were traced back to a recorded dilution")

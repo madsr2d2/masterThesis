@@ -76,15 +76,40 @@ def header_index(sheet):
         return find_header_row(sheet)
 
 
+def _is_unit_row(sheet, row):
+    """
+    True when a row looks like a continuation of the header rather than the
+    first cuvette. Units are words ('mmol/l', 'ml'); a cuvette is numbers.
+
+    Without this the 7-cuvette series 135-151 loses its first cuvette: its
+    header is one row deep, so joining the row below folds cuvette 1's values
+    into the labels ('Buf [ml] 0.5') and the recipe starts at cuvette 2.
+    """
+    if row >= len(sheet):
+        return False
+    numeric = text = 0
+    for column in range(sheet.shape[1]):
+        value = sheet.iat[row, column]
+        if str(value) == "nan":
+            continue
+        if _is_number(value):
+            numeric += 1
+        else:
+            text += 1
+    return text > numeric
+
+
 def column_labels(sheet, header_row):
     """
     Joins the header row with the one below it, since several sheets split a
-    column label across two rows ('[sub]' over 'mmol/l').
+    column label across two rows ('[sub]' over 'mmol/l') -- but only when that
+    row is units rather than the first cuvette's data.
     """
+    depth = 2 if _is_unit_row(sheet, header_row + 1) else 1
     labels = []
     for column in range(sheet.shape[1]):
         parts = [str(sheet.iat[row, column])
-                 for row in range(header_row, min(header_row + 2, len(sheet)))
+                 for row in range(header_row, min(header_row + depth, len(sheet)))
                  if str(sheet.iat[row, column]) != "nan"]
         labels.append(" ".join(parts).strip())
     return labels
@@ -105,15 +130,23 @@ def recipe_rows(sheet, header_row, labels, limit=24):
     volume_column = next((i for i, label in enumerate(labels)
                           if label.lower().startswith("vol")), None)
     rows = []
-    start = header_row + (2 if any(
-        str(sheet.iat[header_row + 1, i]) != "nan" and
-        not _is_number(sheet.iat[header_row + 1, i]) for i in keep) else 1)
+    # Same rule as column_labels: the row below the header is a units line only
+    # if it is mostly words. Testing with any() instead made a single text cell
+    # -- the cuvette's own name, 'Kuv. 1 (a1,a2)' -- enough to skip a real row,
+    # which cost the 135-151 series its first cuvette.
+    start = header_row + (2 if _is_unit_row(sheet, header_row + 1) else 1)
     for row in range(start, min(start + limit, len(sheet))):
         values = [sheet.iat[row, i] for i in keep]
         if all(pd.isna(v) for v in values):
             break
         first = str(sheet.iat[row, keep[0]]).strip().lower()
         if first.startswith("sum"):
+            continue
+        # An unlabelled totals row: exp 9 ends with kuv blank, Buf 10.4 and
+        # Vol 16, the column sums of the eight cuvettes above. It has a filled
+        # total-volume cell so the guard below lets it through, but a cuvette
+        # always carries an identifier.
+        if first in ("", "nan"):
             continue
         if volume_column is not None and pd.isna(sheet.iat[row, volume_column]):
             continue

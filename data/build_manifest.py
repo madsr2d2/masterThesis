@@ -122,6 +122,14 @@ KNOWN_ACCEPTED_DEVIATIONS = {
     35: _PLANNED_ENZYME_ROWS,
     36: _PLANNED_ENZYME_ROWS,
     37: _PLANNED_ENZYME_ROWS,
+    58: ("bufvolume;bufcompiled",
+         "the cuvettes here are 2.10-2.11 ml, not the 2 ml the volume fallback "
+         "assumes, so every [buf] is about 5% high (90.0 where the sheet's own "
+         "volumes give 85.71). Found 2026-08-30 by verify_buffer.py. The "
+         "experiment is excluded for running backwards, so no result depends on "
+         "it; the deviation is recorded rather than corrected because correcting "
+         "an excluded run would change the compiled CSV for no benefit. It is "
+         "the only experiment in the archive where the hardcoded 2 ml is wrong"),
     79: _BROKEN_ENZ_COLUMN,
     80: _BROKEN_ENZ_COLUMN,
     128: ("block;chain",

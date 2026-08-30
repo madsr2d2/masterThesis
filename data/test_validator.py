@@ -117,6 +117,32 @@ WORKBOOK_CASES = [
 ]
 
 
+# verify_buffer recovers each experiment's buffer stock from the sheet's own
+# cuvette volumes, so a compiled [buf] that no longer matches that stock is
+# caught. This is the only independent handle on [buf] the archive offers.
+BUFFER_CASES = [
+    # A wholesale rescaling, the shape the 0.1-vs-0.4 M question would take.
+    ("buffer concentration scaled by four",
+     lambda d: _set(d, 136, "[buf]",
+                    float(d.loc[d.experiment == 136, "[buf]"].iloc[0]) * 4),
+     "bufcompiled"),
+    # A single cuvette wrong, which no per-experiment summary statistic sees.
+    ("one cuvette's [buf] wrong",
+     lambda d: _set(d, 127, "[buf]", 42.0, sample=2), "bufcompiled"),
+]
+
+
+def _run_buffer(corrupt, tmpdir):
+    """Applies a corruption and returns verify_buffer's findings."""
+    from verify_buffer import analyse as analyse_buffer
+    data = pd.read_csv(DATASET_PATH)
+    corrupt(data)
+    path = os.path.join(tmpdir, "buffer.csv")
+    data.to_csv(path, index=False)
+    findings, _ = analyse_buffer(path)
+    return findings
+
+
 def _run_workbook(corrupt, tmpdir):
     """Applies a corruption and returns verify_rate_workbook's findings."""
     from verify_rate_workbook import analyse as analyse_workbook
@@ -173,6 +199,17 @@ def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         for name, corrupt, expected_check in WORKBOOK_CASES:
             findings = _run_workbook(corrupt, tmpdir)
+            caught = [f for f in findings if f[1] == expected_check]
+            if caught:
+                passed += 1
+                print(f"  PASS  {name:38s} -> {expected_check}: {caught[0][2][:56]}")
+            else:
+                failed += 1
+                print(f"  FAIL  {name:38s} -> nothing raised under '{expected_check}'")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for name, corrupt, expected_check in BUFFER_CASES:
+            findings = _run_buffer(corrupt, tmpdir)
             caught = [f for f in findings if f[1] == expected_check]
             if caught:
                 passed += 1
