@@ -7,7 +7,7 @@ quantum-chemistry tasks.
 
 ---
 
-## 2026-08-30 — Exps 57/58 ruled 4OMe-BnOH; [sub] corrected by 1.354×
+## 2026-08-30 — Exps 57/58 ruled 4OMe-BnOH; exp 57 excluded, [sub] not recoverable
 
 Ruled by the experimenter: **exps 57 and 58 are 4-methoxybenzyl alcohol runs.**
 The workbook was copied from t056, a 4-bromobenzyl alcohol run, with the
@@ -34,40 +34,56 @@ was **25.411 mM** and every cuvette is higher than recorded by
 
 > 187.03 / 138.17 = **1.3536**
 
-| | s1 | s2 | s3 | s4 |
-|---|---|---|---|---|
-| exp 57, was | 0.469 | 0.939 | 1.877 | 3.754 |
-| exp 57, now | **0.635** | **1.271** | **2.541** | **5.081** |
-| exp 58, was | 0.534 | 0.894 | 1.788 | 3.576 |
-| exp 58, now | **0.723** | **1.210** | **2.420** | **4.841** |
+That rescaling was applied, then **withdrawn** — see below. `[sub]` in the
+dataset remains the sheet's own value, and **exp 57 is now excluded** alongside
+exp 58.
 
-### How the correction is carried
+### Why the correction did not survive
 
-`kinetics_io` gains **`CONCENTRATION_RESCALINGS`**, kept separate from
-`EXPERIMENT_CORRECTIONS` because the two are different kinds of fix: the latter
-replaces values the extraction read from the wrong rows, this one rescales
-values the sheet computed correctly from a wrong constant. One factor, stated
-once, rather than eight retyped numbers.
+Rescaling by 187.03/138.17 assumes the mass and volume are the real methoxy
+weighing and only `M` stayed stale. Cataloguing every stock preparation in the
+archive argues against exactly that assumption.
 
-This is **the only place in the dataset where the compiled value is right and
-the sheet's is wrong**, so the deep check necessarily objects. Declared as an
-accepted deviation on both experiments with that reason, rather than weakening
-the check.
+**Stock reuse is real and common** — six long-lived preparations run across the
+dataset, and t055 reuses the BnOH stock first made at t050/t051 after skipping
+over t052–t054, which used other substrates. So a bottle genuinely does get
+carried forward and picked up later. **But whenever that happens the molar mass
+travels with the mass and volume and is correct for the substrate.** From t001
+to t062 there is no case where the label says one compound and `M` says another
+— except t057 and t058.
 
-### The evidence that pointed the other way, recorded
+**And no earlier 4OMe preparation matches.** Every methoxy stock ever recorded:
 
-Two things argued for 4-bromobenzyl alcohol, and they should stay on the record
-since the ruling went against them:
+```
+0.021 / 0.0223 / 0.0224 / 0.0208 / 0.0219 g in 0.01 L
+0.15335 g / 0.06 L    0.1425 g / 0.05 L    0.0528 g / 0.05 L
+0.0158 g / 0.06 L     1.0 g / 0.05 L       0.2112 g / 0.05 L
+0.0158 g / 0.12 L
+```
 
-- **no new weighing.** Across t052–t062 a genuine substrate change always brings
-  a fresh mass and volume (t055 weighs 0.1115 g/0.025 L, t059 weighs
-  0.2579 g/0.1 L). t057 and t058 carry t056's stock unchanged to four digits.
-- **`Hammett.xls`** assigns the p-Brom arm to t054 and t056 — but it does not
-  mention 57 or 58 at all, so it is silent on them either way.
+None is 0.3511 g / 0.1 L. The only preparation in the archive with those numbers
+is the bromo stock at t054/t056. The most recent methoxy stock before t057 was
+0.0158 g / 0.12 L = **0.953 mM**, a month older and 27× too dilute for these
+runs, so that bottle cannot have been used either.
 
-The ruling accepts that the stock block was copied without being updated. Under
-it, six cells were stale (M, `g`, `L`, the derived molarity, nm, `e`) against two
-edited (the label and the filename).
+So a fresh methoxy stock must have been weighed, and the sheet records t056's
+instead. Weighing a different compound and landing on 0.3511 g — matching t056
+to a tenth of a milligram — is not credible, which means `g` and `L` are copied
+too and the real stock is **unrecorded**. `[sub]` for these two is therefore
+unknown, not merely wrong by a known factor.
+
+### Outcome: exp 57 excluded
+
+Exp 58 was already excluded for running backwards; **exp 57 is now excluded as
+well**, with `[sub] is not recoverable` as its reason. `[sub]` in the dataset is
+left at the sheet's own value rather than at an estimate nothing supports, and
+`CONCENTRATION_RESCALINGS` — which existed only for this case — is removed
+rather than left as machinery for inventing numbers. The accepted deviations it
+required are removed with it, so `--deep` is clean on the strength of the data
+rather than on a declaration.
+
+The cost is one carbonate experiment. The notebook already discards every
+carbonate run, so nothing downstream loses anything.
 
 ### Two side findings
 
@@ -1505,8 +1521,13 @@ in case the stray file causes confusion later.
 ## Open items
 
 - ~~**Exps 57 and 58 are 4-bromobenzyl alcohol runs.**~~ **CLOSED 2026-08-30** —
-  ruled 4OMe-BnOH; the copied workbook's stale molar mass made `[sub]` low by
-  1.354×, now corrected. See the entry at the top of this log.
+  ruled 4OMe-BnOH, and both excluded: their substrate stock block was copied
+  from t056 and the real preparation is unrecorded, so `[sub]` is not
+  recoverable. See the entry at the top of this log.
+- **Exp 6 uses M = 109.13 for benzyl alcohol** where every later BnOH run uses
+  the correct 108.14, making its `[sub]` 0.9% low. The only compiled experiment
+  affected (t001 and t003 share it but were never compiled). Recorded, not
+  corrected — it is well inside the other uncertainties on that run.
 - **t054 and t056 are genuine 4-bromobenzyl alcohol runs and are not compiled.**
   With `Hammett.xls` in the same folder, the raw archive holds the beginnings of
   a Hammett series (H, 4-MeO, 4-Br) of which the bromo arm is entirely absent

@@ -43,6 +43,15 @@ MADS_DIR = "data/Mads"
 # in DATA_VERIFICATION.md. Seeded here so status/exclusion becomes declared data
 # rather than a literal buried in a notebook cell.
 KNOWN_EXCLUSIONS = {
+    57: ("[sub] is not recoverable: the workbook was copied from t056, a "
+         "4-brom-BnOH run, and the whole substrate stock block came with it. "
+         "The compound was 4OMe-BnOH (ruled 2026-08-30), so a fresh stock must "
+         "have been weighed, and the sheet records t056's instead -- 0.3511 g "
+         "in 0.1 L, matching t056 to four digits, which no independent weighing "
+         "would. No earlier 4OMe preparation matches those numbers either. "
+         "Rescaling by 187.03/138.17 assumes only the molar mass was stale, "
+         "which is the one assumption the evidence argues against, so the "
+         "concentration is unknown rather than merely wrong"),
     58: "reaction-direction: whole experiment runs backwards",
     72: "flat progress curves in every sample; same-day sibling 71 normal",
     77: "reaction-direction: whole experiment runs backwards",
@@ -54,20 +63,7 @@ KNOWN_EXCLUSIONS = {
 
 # Deviations that are understood and accepted, so the deep checks warn rather
 # than error on them. Keyed by experiment -> (check names, reason).
-_RESCALED_57_58 = (
-    "block;chain",
-    "[sub] is deliberately 1.3536x the value the sheet computes. The sheet "
-    "divides the substrate stock (0.3511 g / 0.1 L) by M = 187.03, the molar "
-    "mass of 4-bromobenzyl alcohol, because the workbook was copied from t056; "
-    "the compound actually used is 4-methoxybenzyl alcohol, M = 138.17. "
-    "Corrected in kinetics_io by CONCENTRATION_RESCALINGS, so the compiled "
-    "value is right and the sheet's is wrong -- the one place in this dataset "
-    "where that is true. Ruled 2026-08-30, see DATA_VERIFICATION.md."
-)
-
 KNOWN_ACCEPTED_DEVIATIONS = {
-    57: _RESCALED_57_58,
-    58: _RESCALED_57_58,
     128: ("block;chain",
           'sample 5 is the reference row "ref 5" (a matched no-enzyme blank) with its own '
           "cuvette volume, not a 5th titration condition, so both its concentrations and "
