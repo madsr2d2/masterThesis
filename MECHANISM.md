@@ -4,7 +4,9 @@ This document lays out the mechanistic hypothesis for the chemzyme-catalyzed oxi
 of benzylic alcohols (benzyl alcohol, 4-methoxybenzyl alcohol) by H2O2, the reasoning
 and literature support behind each step, and the open questions that still need
 resolving before/while fitting a kinetic (ODE) model to the progress-curve data. See
-`DATA_VERIFICATION.md` for the data-cleaning side of this work.
+`DATA_VERIFICATION.md` for the data-cleaning side of this work, and
+`COMPUTATIONAL.md` for quantum-chemistry tasks that would settle questions
+the literature and the dataset cannot.
 
 [Structural analysis and ODE reduction](#structural-analysis-and-ode-reduction)
 reduces the mechanism to a 3-ODE / 4-parameter system and records the tests it
@@ -527,8 +529,12 @@ buffer catalysis from pH — which the existing titration data cannot do, since
   accelerating total-product curve, and the data shows the latter. Resolving it
   needs two cheap facts from the lab: the **monitoring wavelength**, and the
   **extinction coefficients of benzaldehyde, benzoic acid and the starting
-  alcohol at that wavelength**. Until then, `r = eps_BA/eps_A` is carried as a
-  fitted parameter.
+  alcohol at that wavelength**. The wavelength is now settled (285 nm for BnOH,
+  300 nm for 4OMe-BnOH -- each sheet declares it) and benzaldehyde's eps is known
+  from the literature; **eps of benzoate at 285 nm is the one missing number**.
+  Tracked as task C1 in `COMPUTATIONAL.md`, which also records why a naive
+  TD-DFT calculation would answer it wrongly. Until then, `r = eps_BA/eps_A` is
+  carried as a fitted parameter.
 - **No E0 titration exists.** Only one experiment varies enzyme concentration
   across its own samples, so the mechanism's cleanest prediction — that the
   reduced model is exactly linear in E0, and that the induction period shortens

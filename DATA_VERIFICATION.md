@@ -2,7 +2,8 @@
 
 Record of checks performed on the raw kinetics dataset (`data/data/*.txt` + `*.xls`)
 and its derived artifacts, and any corrections made as a result. New entries go at
-the top.
+the top. See `MECHANISM.md` for the chemistry and `COMPUTATIONAL.md` for pending
+quantum-chemistry tasks.
 
 ---
 
