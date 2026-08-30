@@ -7,6 +7,68 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-30 — A third, independent record of [enz]: Rate(pH).xls confirms all nine points
+
+`verify_enzyme.py` traces `[enz]` through the sheet that ran the experiment — its
+weighed catalyst, its stock, its cuvette volumes. That is **one document**. If a
+sheet's enzyme block were itself wrong — copied from another run, which is
+exactly what happened to exps 57/58's substrate block — the whole chain would
+agree with itself and still be wrong.
+
+`Rate(pH).xls`, in `data/Mads`, is the experimenter's own pH-dependence analysis
+of the 4OMe-BnOH series. It tabulates the enzyme concentration used at each pH,
+written down for a different purpose, at a different time, from the analyst's
+side rather than the bench's. **`data/verify_rate_workbook.py`** checks the
+compiled dataset against it.
+
+### All nine points confirm
+
+| pH | workbook `[E]` mM | candidates | matched |
+|---|---|---|---|
+| 5.64 | 0.175330 | 9, 11 | **9** |
+| 5.87 | 0.272695 | 10 | 10 |
+| 6.50 | 0.240683 | 22 | 22 |
+| 6.71 | 0.175330 | 2, 4, 5, 7 | 2, 4, 5, 7 |
+| 7.00 | 0.272695 | 14, 15, 16, 17, 18, 19 | 14, 15, 17, 18 |
+| 7.50 | 0.240683 | 20, 84 | 20 |
+| 8.01 | 0.175330 | 8 | 8 |
+| 8.50 | 0.240683 | 21, 41 | 21 |
+| 8.95 | 0.272695 | 12, 42 | 12, 42 |
+
+The workbook labels rows by pH rather than by experiment, so each row is matched
+to every 4OMe enzyme experiment within 0.05 pH and passes if any carries the
+tabulated value. **Nine of nine.** Where several experiments share a pH the
+`[E]` value discriminates between them — at pH 5.64 it picks exp 9 (0.17533)
+over exp 11 (0.272695), and at pH 7.00 it separates exps 14, 15, 17 and 18 from
+exps 16 and 19.
+
+### Two mapping notes, reported not raised
+
+- **exp 9** — the workbook labels its row pH **5.64** where the dataset has
+  **5.67**. That is the filename value, and we ruled to the sheet earlier today.
+- **exp 42** — the workbook labels its row pH **8.95** where both the dataset
+  *and the filename* say **8.98**.
+
+Exp 42 is what makes exp 9 easy to read: the workbook's pH labels drift by up to
+0.03 in **both** directions and disagree with the filename as readily as with the
+sheet, so they are round numbers for plotting rather than a pH source. They do
+not disturb the exp 9 ruling. Reported at NOTE level, since they record which
+value the experimenter's own analysis used rather than any disagreement about a
+measurement.
+
+### What this catches that the sheet chain cannot
+
+A fault-injection case pins it (14 total, all passing): setting exp 8's `[enz]`
+to a wrong value now raises under `ratee`. The sheet chain would still pass such
+a fault if the sheet itself were the source of the error — a copied enzyme block
+would be internally consistent all the way down. Only a document written
+independently of that sheet can catch it.
+
+`[enz]` now has **three** sources: the cuvette table, the weighed-catalyst chain
+in the same sheet, and this workbook for the nine pH points of the 4OMe series.
+
+---
+
 ## 2026-08-30 — [enz] traced back to the weighed catalyst, in all 98
 
 `[enz]` was the one concentration with no second source. `[buf]`, `[h2o2]` and
@@ -1773,9 +1835,9 @@ in case the stray file causes confusion later.
   **CLOSED 2026-08-30** — built as `data/verify_enzyme.py` and folded into
   `--deep`. All 98 experiments now trace `[enz]` back to a weighed mass of
   catalyst.
-- **`Rate(pH).xls` carries an `[E] [mmol/l]` column per pH** for the early
-  campaign (0.17533, 0.272695, 0.24068 …) — a *third* record of `[enz]`,
-  independent of both the sheet and the volumes, still unexploited.
+- ~~**`Rate(pH).xls` carries an `[E] [mmol/l]` column per pH.**~~
+  **CLOSED 2026-08-30** — built as `data/verify_rate_workbook.py` and folded
+  into `--deep`; all nine tabulated points confirm the dataset.
 - **Exp 6 uses M = 109.13 for benzyl alcohol** where every later BnOH run uses
   the correct 108.14, making its `[sub]` 0.9% low. The only compiled experiment
   affected (t001 and t003 share it but were never compiled). Recorded, not

@@ -26,7 +26,9 @@ Checks performed:
 With --deep, additionally re-derives every concentration from the sheets'
 volume tables (recompute_concentrations.py), traces the serially diluted ones
 back through the recorded dilution chain (verify_dilutions.py), and traces
-[enz] back to the weighed mass of catalyst (verify_enzyme.py). This is slower
+[enz] back to the weighed mass of catalyst (verify_enzyme.py), and cross-checks
+[enz] against the experimenter's own Rate(pH).xls analysis
+(verify_rate_workbook.py). This is slower
 -- it reopens all 98 spreadsheets several times -- so it is opt-in.
 
 Findings are graded:
@@ -319,6 +321,22 @@ if __name__ == "__main__":
             else:
                 findings.error(label, number, message)
 
+        from verify_rate_workbook import analyse as analyse_workbook
+        workbook_findings, workbook_summary = analyse_workbook(args.csv, args.manifest)
+        for number, check, message in workbook_findings:
+            # ratemap is informational: it records which pH the experimenter's
+            # own analysis used, not a disagreement about a value.
+            if check == "ratemap":
+                findings.note("deep:rate", number, message)
+                continue
+            accepted = ""
+            if number in manifest.index:
+                accepted = str(manifest.loc[number].get("accepted_deviations") or "")
+            if check in [a.strip() for a in accepted.split(";") if a.strip()]:
+                findings.warn("deep:rate", number, message + "  (accepted deviation)")
+            else:
+                findings.error("deep:rate", number, message)
+
         from verify_dilutions import analyse as analyse_dilutions
         dilution_findings, dilution_summary = analyse_dilutions(args.csv, args.manifest)
         for number, check, message in dilution_findings:
@@ -337,6 +355,9 @@ if __name__ == "__main__":
             traced_enzyme = int(enzyme_summary.from_mass.notna().sum())
             print(f"deep check: {traced_enzyme} experiment(s) traced [enz] back to a "
                   f"weighed mass of catalyst")
+            confirmed = int(workbook_summary.matched.apply(bool).sum()) if len(workbook_summary) else 0
+            print(f"deep check: {confirmed} of {len(workbook_summary)} pH points in "
+                  f"Rate(pH).xls confirm the dataset's [enz] independently")
             print(f"deep check: {len(verified)} concentration column(s) confirmed from the "
                   f"volume tables; the remaining {len(unverifiable)} were serially diluted "
                   f"and {traced} cuvette values were traced back to a recorded dilution")

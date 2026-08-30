@@ -108,6 +108,25 @@ DEEP_CASES = [
      "enzuse"),
 ]
 
+# Rate(pH).xls is a third record of [enz], independent of the sheet that ran the
+# experiment. It catches what verify_enzyme cannot: an enzyme block that is
+# internally consistent but describes the wrong run.
+WORKBOOK_CASES = [
+    ("[enz] wrong at a pH the experimenter tabulated",
+     lambda d: _set(d, 8, "[enz]", 0.99), "ratee"),
+]
+
+
+def _run_workbook(corrupt, tmpdir):
+    """Applies a corruption and returns verify_rate_workbook's findings."""
+    from verify_rate_workbook import analyse as analyse_workbook
+    data = pd.read_csv(DATASET_PATH)
+    corrupt(data)
+    path = os.path.join(tmpdir, "workbook.csv")
+    data.to_csv(path, index=False)
+    findings, _ = analyse_workbook(path)
+    return findings
+
 
 def _run_deep(corrupt, tmpdir):
     """Applies a corruption and returns verify_enzyme's findings."""
@@ -144,6 +163,17 @@ def main():
             findings = _run_deep(corrupt, tmpdir)
             caught = [f for f in findings if f[1] == expected_check
                       and f[0] not in ACCEPTED_ENZYME_DEVIATIONS]
+            if caught:
+                passed += 1
+                print(f"  PASS  {name:38s} -> {expected_check}: {caught[0][2][:56]}")
+            else:
+                failed += 1
+                print(f"  FAIL  {name:38s} -> nothing raised under '{expected_check}'")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for name, corrupt, expected_check in WORKBOOK_CASES:
+            findings = _run_workbook(corrupt, tmpdir)
+            caught = [f for f in findings if f[1] == expected_check]
             if caught:
                 passed += 1
                 print(f"  PASS  {name:38s} -> {expected_check}: {caught[0][2][:56]}")
