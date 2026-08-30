@@ -65,18 +65,7 @@ KNOWN_ACCEPTED_DEVIATIONS = {
 # Questions raised outside the automatic filename/extraction comparison, seeded
 # so they survive a rebuild. Listing a field here also tells validate_dataset.py
 # to warn rather than error on it, since it is known and awaiting a ruling.
-KNOWN_OPEN_QUESTIONS = {
-    57: ["e_declared: sheet says e = 1.59 at 285 nm, dataset uses the hardcoded 7.53 "
-         "(4.74x); IN USE, so every concentration would be affected",
-         "abs_nm: sheet declares 285 nm, dataset uses 300 nm. The same question as "
-         "e_declared -- the sheet states the pair (285 nm, e = 1.59) and the dataset "
-         "states the pair (300 nm, e = 7.53). Unlike exps 2-10 the e differs too, so "
-         "this cannot be a stale template cell and must be ruled on directly"],
-    58: ["e_declared: sheet says e = 1.59 at 285 nm, dataset uses the hardcoded 7.53 "
-         "(4.74x); experiment is excluded, so consequence-free",
-         "abs_nm: sheet declares 285 nm, dataset uses 300 nm; same pair as exp 57, "
-         "but this experiment is excluded so it is consequence-free"],
-}
+KNOWN_OPEN_QUESTIONS = {}
 # Adjudicated questions: a value the sheet states that we have decided against,
 # with the evidence. A ruling overrides the extracted value, marks the field's
 # provenance as "ruling" so it is never mistaken for something read off a file,
@@ -98,6 +87,38 @@ _ABS_285_RULING = (
     "internal consistency test has any power."
 )
 RULINGS = {number: {"abs_nm": _ABS_285_RULING} for number in (2, 4, 5, 7, 8, 9, 10)}
+
+# Exps 57 and 58 carry the same stale 285 nm, and additionally a different e.
+# Ruled 2026-08-30 on two general principles, which also close the question for
+# the whole dataset:
+#
+#   the WAVELENGTH is a property of the substrate, not of the run -- BnOH is
+#   read at 285 nm and 4OMe-BnOH at 300 nm throughout;
+#
+#   e is a CONVERSION FACTOR applied uniformly at analysis time, not a
+#   per-experiment measurement, so a sheet's e cell is that workbook's own
+#   working note and is authoritative for nothing.
+#
+# All nine deviating sheets in the dataset are 4OMe workbooks carrying the BnOH
+# template's 285 nm; exps 57/58 are the only two where the e cell was changed as
+# well. Consequence: none. Uniformity within a substrate is what matters, and it
+# holds -- a wrong e would be one global scale factor absorbed into the fitted
+# rate constants. The cross-substrate ratio 7.53/1.23 is a separate standing
+# assumption, recorded in DATA_VERIFICATION.md.
+_SUBSTRATE_OPTICS_REASON = (
+    "sheet declares {declared}; ruled to the substrate convention on 2026-08-30. "
+    "The monitoring wavelength follows the substrate (BnOH 285 nm, 4OMe-BnOH "
+    "300 nm) and e is a conversion factor applied uniformly at analysis time, "
+    "not a per-experiment measurement, so this sheet's cells are working notes. "
+    "All nine deviating sheets in the dataset are 4OMe workbooks carrying the "
+    "BnOH template's 285 nm."
+)
+for _exp in (57, 58):
+    RULINGS[_exp] = {
+        "abs_nm": (300.0, _SUBSTRATE_OPTICS_REASON.format(
+            declared="285 nm, paired with e = 1.59")),
+        "e_declared": (7.53, _SUBSTRATE_OPTICS_REASON.format(declared="e = 1.59")),
+    }
 
 # Substrate keys are checked in order: '4OMe-BnOH' spellings must be tested
 # before the bare 'bnoh' that they all contain.
@@ -303,6 +324,11 @@ def build(directory="data/data"):
         flag = from_folder.get("folder_flag")
         excluded = number in KNOWN_EXCLUSIONS or flag in ("bad data", "bad data pH ca. 11")
 
+        # What the sheet itself says, kept unmodified so a ruling never erases
+        # the evidence it was made against. abs_nm/e_declared below carry the
+        # adjudicated values; these two carry the observation.
+        sheet_wavelength, sheet_extinction = wavelength, extinction
+
         notes = []
         for field, (value, reason) in RULINGS.get(number, {}).items():
             if field == "abs_nm":
@@ -322,6 +348,8 @@ def build(directory="data/data"):
             "n_samples": len(experiment["samples"]),
             "abs_nm": wavelength,
             "e_declared": extinction,
+            "abs_nm_sheet": sheet_wavelength,
+            "e_sheet": sheet_extinction,
             "status": "exclude" if excluded else "use",
             "exclude_reason": KNOWN_EXCLUSIONS.get(number, flag if excluded else ""),
             "accepted_deviations": KNOWN_ACCEPTED_DEVIATIONS.get(number, ("", ""))[0],

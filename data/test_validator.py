@@ -44,8 +44,12 @@ CASES = [
      lambda d: _set(d, 2, "pH", 9.99), "metadata"),
     ("silently wrong buffer",
      lambda d: _set(d, 13, "buffer", "Carbonate"), "metadata"),
+    # e and the wavelength moved from "invariant" to "optics" on 2026-08-30,
+    # when they were reframed as substrate conventions rather than per-sheet
+    # measurements. Relabelling a substrate leaves its optics behind, which is
+    # now an optics finding.
     ("substrate swapped without updating e",
-     lambda d: _set(d, 2, "substrate", "BnOH"), "invariant"),
+     lambda d: _set(d, 2, "substrate", "BnOH"), "optics"),
     ("enzyme concentration lost",
      lambda d: _set(d, 2, "[enz]", 0.0), "invariant"),
     ("negative concentration",
@@ -64,6 +68,12 @@ CASES = [
     # have passed silently. Exp 14 is a 300 nm run with no open question.
     ("monitoring wavelength drifting from the sheet",
      lambda d: _set(d, 14, "abs", 285), "optics"),
+    # Uniformity is what the dataset's comparability rests on: within a
+    # substrate a wrong e is one global scale factor absorbed into the fitted
+    # constants, but a per-experiment e silently rescales runs against each
+    # other. Nothing asserted it until 2026-08-30.
+    ("a per-experiment e sneaking in",
+     lambda d: _set(d, 14, "e", 9.9), "optics"),
 ]
 
 

@@ -7,6 +7,77 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-30 — Optics settled for the whole dataset: wavelength follows the substrate, ε is a convention
+
+Two general rules, supplied by the experimenter, close every remaining optics
+question at once:
+
+> **The monitoring wavelength is a property of the substrate, not of the run.**
+> BnOH is read at 285 nm and 4OMe-BnOH at 300 nm, throughout.
+>
+> **`e` is a conversion factor applied uniformly at analysis time, not a
+> per-experiment measurement.** A sheet's `e` cell is that workbook's own
+> working note and is authoritative for nothing.
+
+### The rules reproduce the dataset exactly
+
+| | |
+|---|---|
+| dataset, by construction | 4OMe-BnOH → (300 nm, `e` = 7.53), 220 rows; BnOH → (285 nm, `e` = 1.23), 223 rows |
+| sheets that deviate | **9 of 98**, every one a 4OMe workbook carrying the BnOH template's 285 nm |
+| exps 2, 4, 5, 7, 8, 9, 10 | 285 nm with `e` = 7.53 — ruled earlier today |
+| exps 57, 58 | 285 nm with `e` = 1.59 — the only two where the `e` cell was changed as well |
+
+So exps 57/58 are the same stale-template artifact as the other seven. Both are
+now ruled to the substrate convention.
+
+### This was a wrong contract, not just a wrong value
+
+`abs_nm` and `e_declared` had been treated as **ground truth read from the
+sheet**, which the dataset must match — which is why exp 57 was being reported
+as "every concentration scaled by 4.74×". If the wavelength is fixed by the
+substrate and `e` is an analysis convention, that test is simply the wrong one.
+
+What actually matters is **uniformity**: every experiment on a given substrate
+must use the same `(abs, e)`. That was true by construction and asserted
+nowhere. `validate_dataset.py` now checks it at dataset level, and the
+per-experiment check compares against `SUBSTRATE_PROPERTIES` rather than
+against the sheet. Two fault-injection cases pin it (11 total).
+
+### The evidence is not erased
+
+A ruling used to overwrite the extracted value, leaving the sheet's own reading
+only in prose. The manifest now carries **`abs_nm_sheet`** and **`e_sheet`**
+alongside `abs_nm` and `e_declared`: the first pair is the observation, the
+second the adjudicated value, and a ruling never touches the observation. The
+validator reads the `*_sheet` columns and reports all nine deviations at a new
+**NOTE** level — visible, not defects, never gating a rebuild.
+
+### What still propagates, and is now a standing assumption rather than a question
+
+Within a substrate, an error in `e` is harmless: it is a single global scale
+factor absorbed into the fitted rate constants, identical for every run.
+
+**Between substrates it is not.** BnOH uses 1.23 and 4OMe-BnOH uses 7.53, a
+factor of **6.1**. Any comparison of rate constants across the two substrates —
+a substrate effect, a Hammett-type argument — inherits the ratio 7.53/1.23
+directly. Neither number is a defect and neither needs changing, but their
+*relative* accuracy is a live assumption for any cross-substrate conclusion.
+
+These are not arbitrary numbers: 1.23 mM⁻¹cm⁻¹ = 1230 M⁻¹cm⁻¹ is consistent
+with benzaldehyde's own ε at 285 nm (lit. ≈ 1400 at 278–279 nm in water), so
+the convention was chosen to be physical. No source has been found for
+4-methoxybenzaldehyde at 300 nm, which makes the ratio the natural thing for
+`COMPUTATIONAL.md` task C1 to pin down alongside its main question.
+
+And the deeper issue is untouched: if the signal is `[A] + r·[BA]` rather than
+`[A]` alone, no single `e` is correct for either substrate, because the
+conversion assumes the aldehyde is the sole absorber. That stays with C1.
+
+Errors 0, warnings 21 → **13**, notes 9.
+
+---
+
 ## 2026-08-30 — Wavelength question closed for exps 2–10; exps 57/58 stay open
 
 The seven earliest 4OMe-BnOH runs declared **285 nm** while the dataset used
@@ -203,9 +274,10 @@ Every concentration in those experiments is therefore scaled by **4.74×**.
 Exp 58 is already excluded, so it is consequence-free — **exp 57 is in use.**
 Recorded as an open question rather than corrected, pending a ruling.
 
-> **Still open, and larger than recorded here.** Enforcing the wavelength check
-> on 2026-08-30 showed these two disagree on **wavelength as well as `e`**: the
-> sheet states the pair (285 nm, 1.59), the dataset the pair (300 nm, 7.53).
+> **Closed 2026-08-30 — not a defect.** These two disagree on wavelength as
+> well as `e`, but both cells are working notes: the wavelength follows the
+> substrate and `e` is a uniform analysis convention. Ruled to (300 nm, 7.53).
+> No concentration changes. See the entry at the top of this log.
 
 ### Second question: the seven earliest 4OMe runs
 
@@ -1268,11 +1340,13 @@ in case the stray file causes confusion later.
 
 ## Open items
 
-- **Exps 57 and 58 need a wavelength/ε ruling.** The sheet states (285 nm,
-  `e` = 1.59), the dataset (300 nm, `e` = 7.53). Both halves are one question
-  and neither can be a stale template cell, since `e` differs too. **Exp 57 is
-  in use and every concentration in it is scaled by 4.74×** if the sheet is
-  right. This is now the largest unadjudicated item in the dataset.
+- ~~**Exps 57 and 58 need a wavelength/ε ruling.**~~ **CLOSED 2026-08-30** —
+  ruled to the substrate convention along with exps 2–10; see the entry at the
+  top of this log. No concentration changes.
+- **The cross-substrate ε ratio 7.53/1.23 is a standing assumption.** Within a
+  substrate an error in `e` is one global scale factor and harmless; between
+  substrates it enters any comparison of rate constants directly. Not a defect,
+  but it should be stated wherever a substrate effect is claimed.
 - **The extended Debye–Hückel equation is out of range for 70% of the dataset**
   (308 rows, 71 experiments above I = 100 mM; 21 rows above 1 M, all
   pyrophosphate). Systematic, not random, and largest where `[HOO-]` is

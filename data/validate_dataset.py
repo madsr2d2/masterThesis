@@ -15,8 +15,10 @@ Checks performed:
   coverage    every compiled experiment has a manifest row, and vice versa
   metadata    substrate / buffer / pH / T / enzyme-presence agree
   structure   sample counts agree; excluded experiments are flagged
-  optics      the monitoring wavelength and extinction coefficient the sheet
-              declares match the ones the dataset uses
+  optics      the monitoring wavelength and extinction coefficient follow the
+              substrate (BnOH 285 nm / 4OMe-BnOH 300 nm) and are uniform across
+              the dataset; sheets that declare something else are reported as
+              notes, since their cells are working notes, not measurements
   invariants  extinction coefficient matches the substrate, [enz] is zero
               exactly when the manifest says no enzyme, concentrations are
               finite and non-negative, required fields are non-null
@@ -30,6 +32,8 @@ Findings are graded:
   ERROR    a disagreement nothing has accounted for -- the pipeline has drifted
   WARN     a disagreement already recorded in the manifest's open_questions
            column, i.e. known and awaiting adjudication
+  NOTE     a deviation that has been adjudicated and recorded as a ruling;
+           shown so the evidence stays visible, but not a defect
 
 Exit status is non-zero if any ERROR is raised, so this can gate a rebuild.
 
@@ -70,6 +74,11 @@ class Findings:
     def warn(self, check, experiment, message):
         self.add("WARN", check, experiment, message)
 
+    def note(self, check, experiment, message):
+        """Records something worth seeing that is not a defect -- an adjudicated
+        deviation, say. Notes never gate a rebuild."""
+        self.add("NOTE", check, experiment, message)
+
     @property
     def errors(self):
         return [i for i in self.items if i["level"] == "ERROR"]
@@ -78,11 +87,15 @@ class Findings:
     def warnings(self):
         return [i for i in self.items if i["level"] == "WARN"]
 
+    @property
+    def notes(self):
+        return [i for i in self.items if i["level"] == "NOTE"]
+
     def report(self, quiet=False):
         """Prints the findings and returns the number of errors."""
         if not self.items and not quiet:
             print("no findings -- dataset agrees with the manifest")
-        for level in ("ERROR", "WARN"):
+        for level in ("ERROR", "WARN", "NOTE"):
             group = [i for i in self.items if i["level"] == level]
             if not group:
                 continue
@@ -142,6 +155,23 @@ def validate(dataset_path=DATASET_PATH, manifest_path=MANIFEST_PATH):
     for number in sorted(in_manifest - in_data):
         findings.error("coverage", number, "in the manifest but not compiled")
 
+    # --- dataset-level optics invariant ------------------------------------
+    # e and the wavelength are conventions applied per substrate. Nothing
+    # asserted that they are actually uniform, which is the property the whole
+    # dataset's comparability rests on: within a substrate a wrong e is one
+    # global scale factor absorbed into the fitted constants, but a per-
+    # experiment e would silently rescale individual runs against each other.
+    for substrate, group in data.groupby("substrate"):
+        for column, label in (("abs", "monitoring wavelength"),
+                              ("e", "extinction coefficient")):
+            values = sorted(group[column].dropna().unique())
+            if len(values) > 1:
+                findings.error("optics", None,
+                               f"{substrate}: {label} is not uniform across the "
+                               f"dataset -- {values} appear in experiments "
+                               f"{sorted(group.loc[group[column] == values[-1], 'experiment'].unique())[:6]} "
+                               f"and others")
+
     # --- per-experiment agreement ------------------------------------------
     for number in sorted(in_data & in_manifest):
         rows = data[data.experiment == number]
@@ -187,44 +217,45 @@ def validate(dataset_path=DATASET_PATH, manifest_path=MANIFEST_PATH):
             for question in questions.split("|"):
                 findings.warn("unresolved", number, question.strip())
 
-        # --- invariants ----------------------------------------------------
-        expected_e = SUBSTRATE_PROPERTIES.get(observed["substrate"], {}).get("e")
+        # --- optics ---------------------------------------------------------
+        # The monitoring wavelength is a property of the SUBSTRATE, not of the
+        # individual run: BnOH is read at 285 nm and 4OMe-BnOH at 300 nm
+        # throughout. And e is a conversion factor applied uniformly at analysis
+        # time, not a per-experiment measurement -- so the authority for both is
+        # SUBSTRATE_PROPERTIES, and a sheet's own cells are notes rather than
+        # ground truth. Nine of the 98 sheets disagree, every one of them a 4OMe
+        # workbook carrying the BnOH template's 285 nm; those are recorded as
+        # rulings in the manifest and reported below as notes, not defects.
+        # See DATA_VERIFICATION.md 2026-08-30.
+        expected = SUBSTRATE_PROPERTIES.get(observed["substrate"], {})
         actual_e = rows.e.iloc[0]
-        if expected_e is not None and not _agrees(expected_e, actual_e, tolerance=1e-6):
-            findings.error("invariant", number,
-                           f"extinction coefficient {actual_e} does not match "
-                           f"{observed['substrate']} (expected {expected_e})")
-
-        # kinetics_io hardcodes e per SUBSTRATE in SUBSTRATE_PROPERTIES, but each
-        # sheet declares its own alongside the monitoring wavelength. Where they
-        # diverge the compiled concentrations are scaled wrong by exactly that
-        # ratio, so this is checked against the sheet, not against the hardcode.
-        # The monitoring wavelength is declared per experiment but the dataset
-        # takes it, like e, from the SUBSTRATE_PROPERTIES hardcode. Until this
-        # check existed the manifest's abs_nm was read only to interpolate into
-        # an error message, so a new drift would have passed silently.
-        declared_nm = declared.get("abs_nm")
         actual_nm = rows["abs"].iloc[0]
-        if declared_nm is not None and not pd.isna(declared_nm):
-            if not _agrees(declared_nm, actual_nm, tolerance=0.5):
-                message = (f"manifest declares {declared_nm:g} nm but the dataset "
-                           f"uses {actual_nm:g} nm")
-                if "abs_nm" in disputed:
-                    findings.warn("optics", number, message + "  (open question)")
-                else:
-                    findings.error("optics", number, message)
+        if expected.get("e") is not None and not _agrees(expected["e"], actual_e, 1e-6):
+            findings.error("optics", number,
+                           f"extinction coefficient {actual_e} does not match "
+                           f"{observed['substrate']} (expected {expected['e']})")
+        if expected.get("abs") is not None and not _agrees(expected["abs"], actual_nm, 0.5):
+            findings.error("optics", number,
+                           f"monitoring wavelength {actual_nm:g} nm does not match "
+                           f"{observed['substrate']} (expected {expected['abs']:g} nm)")
 
-        declared_e = declared.get("e_declared")
-        if declared_e is not None and not pd.isna(declared_e):
-            if not _agrees(declared_e, actual_e, tolerance=1e-6):
-                message = (f"sheet declares e = {declared_e} at "
-                           f"{declared.get('abs_nm')} nm but the dataset uses "
-                           f"{actual_e} (all concentrations scaled by "
-                           f"{actual_e / declared_e:.3g}x)")
-                if "e_declared" in disputed:
-                    findings.warn("optics", number, message + "  (open question)")
-                else:
-                    findings.error("optics", number, message)
+        # The sheet's own cells, kept visible so the deviations are not lost.
+        # These come from the *_sheet columns, which a ruling never overwrites.
+        declared_nm = declared.get("abs_nm_sheet")
+        declared_e = declared.get("e_sheet")
+        deviations = []
+        if declared_nm is not None and not pd.isna(declared_nm) \
+                and not _agrees(declared_nm, actual_nm, 0.5):
+            deviations.append(f"{declared_nm:g} nm vs {actual_nm:g} nm")
+        if declared_e is not None and not pd.isna(declared_e) \
+                and not _agrees(declared_e, actual_e, 1e-6):
+            deviations.append(f"e = {declared_e} vs {actual_e}")
+        if deviations:
+            ruled = "abs_nm=ruling" in str(declared.get("provenance") or "")
+            message = ("sheet declares " + " and ".join(deviations)
+                       + ("; adjudicated, see the manifest's notes" if ruled
+                          else "; NOT adjudicated"))
+            (findings.note if ruled else findings.warn)("optics", number, message)
 
         enzyme_present = bool((rows["[enz]"].fillna(0) > 0).any())
         if bool(declared["has_enzyme"]) != enzyme_present and "has_enzyme" not in disputed:
@@ -298,5 +329,6 @@ if __name__ == "__main__":
         print(f"validating {args.csv} ({len(data)} rows, "
               f"{data.experiment.nunique()} experiments) against {args.manifest}")
     error_count = findings.report(quiet=args.quiet)
-    print(f"\n{len(findings.errors)} error(s), {len(findings.warnings)} warning(s)")
+    print(f"\n{len(findings.errors)} error(s), {len(findings.warnings)} warning(s), "
+          f"{len(findings.notes)} note(s)")
     sys.exit(1 if error_count else 0)
