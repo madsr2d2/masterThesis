@@ -7,6 +7,69 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-31 — Exps 127-131 are a pH series recorded as a single pH
+
+A re-audit of the metadata, done from the sheets rather than from the manifest,
+found that **five live experiments carry the wrong pH**.
+
+Exps 127–131 are a pyrophosphate pH series. Their sheets record:
+
+| exp | buffer pH | pH after run (1,2,5,6) | pH after run (3,4,7,8) | manifest |
+|---|---|---|---|---|
+| 127 | 6.94 | 6.86 | 6.99 | **7.29** |
+| 128 | 7.41 | 7.57 | 7.64 | **7.29** |
+| 129 | 8.11 | 8.03 | 8.11 | **7.29** |
+| 130 | 8.56 | 8.47 | 8.56 | **7.29** |
+| 131 | — | 8.99 | 9.10 | **7.29** |
+
+A series spanning roughly 6.9 to 9.1 is being modelled at a single point.
+
+### Why it happened
+
+Each of these sheets contains **two** buffer blocks:
+
+```
+I22 Buffer      J22 pyrophosphate      <- the one used
+I23 mmol/l      J23 225.159
+I24 buffer pH   J24 6.94
+
+F24 Buffer      G24 Phosphate          <- an unused second block
+F25 mol/l       G25 0.2
+F27 pH          G27 7.29
+```
+
+`kinetics_io.find_pH_value_in_range` matches a **bare** `pH` label. `buffer pH`
+is not a bare match, so the only cell it can see is F27 — which belongs to the
+unused phosphate block and holds 7.29 in all five sheets.
+
+The pyrophosphate block is demonstrably the buffer in use: 225.159 mM x the
+0.86/1.0 volume ratio gives 193.637 mM, which is exactly the `[buf]` the dataset
+carries for all five.
+
+### The check that should have caught this was vacuous
+
+The 2026-08-31 entry above reports "all 100 sheets declare pH, all agreeing with
+the manifest to within 0.02". That comparison read the **same cell the pipeline
+reads**, so it could only ever agree. A verification that consults the same
+source as the thing it verifies confirms nothing.
+
+The same trap applies elsewhere and is worth stating as a standing rule: a check
+is only worth its runtime if its source is independent of the extraction's. The
+`[enz]` chain (weighed catalyst, then `Rate(pH).xls`) and the buffer stock
+recovery (cuvette volumes vs a declared column) are independent. A field read
+back from the cell it was written from is not.
+
+### Recorded, not fixed
+
+Logged as an open question on all five experiments in
+`build_manifest.KNOWN_OPEN_QUESTIONS`. It needs a ruling on which value to
+adopt: the `buffer pH` as prepared, or the mean of the two post-run readings.
+The post-run pair straddles the buffer value in every case, so the drift is
+small — but choosing between them is a judgement, and the two differ by up to
+0.16 units.
+
+---
+
 ## 2026-08-31 — Correction: every sheet declares its pH, and the provenance column was hiding it
 
 A status summary on 2026-08-30 said pH was "~92% filename-sourced" and called

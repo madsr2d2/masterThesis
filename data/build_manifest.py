@@ -142,7 +142,19 @@ KNOWN_ACCEPTED_DEVIATIONS = {
 # Questions raised outside the automatic filename/extraction comparison, seeded
 # so they survive a rebuild. Listing a field here also tells validate_dataset.py
 # to warn rather than error on it, since it is known and awaiting a ruling.
-KNOWN_OPEN_QUESTIONS = {}
+_PH_SERIES_127 = (
+    "pH is almost certainly wrong. Exps 127-131 are a pH series -- their sheets "
+    "record 'buffer pH' 6.94, 7.41, 8.11, 8.56 and post-run pH up to 9.10 -- but "
+    "all five carry pH 7.29 here, read from a bare 'pH' cell at F27 that sits in "
+    "a SECOND, unused buffer block (phosphate, 0.2 M) and is identical in all "
+    "five sheets. The buffer actually used is the pyrophosphate block: its "
+    "225.16 mM x 0.86 gives the [buf] = 193.637 the dataset carries. "
+    "find_pH_value_in_range matches a bare 'pH' label, so it cannot see "
+    "'buffer pH'. Found 2026-08-31; awaiting a ruling on which value to use "
+    "(buffer pH, or the mean of the two post-run readings)."
+)
+
+KNOWN_OPEN_QUESTIONS = {n: [_PH_SERIES_127] for n in (127, 128, 129, 130, 131)}
 # Adjudicated questions: a value the sheet states that we have decided against,
 # with the evidence. A ruling overrides the extracted value, marks the field's
 # provenance as "ruling" so it is never mistaken for something read off a file,
