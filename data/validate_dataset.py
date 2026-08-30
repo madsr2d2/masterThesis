@@ -242,9 +242,24 @@ if __name__ == "__main__":
                 findings.warn(label, number, message + "  (accepted deviation)")
             else:
                 findings.error(label, number, message)
+        from verify_dilutions import analyse as analyse_dilutions
+        dilution_findings, dilution_summary = analyse_dilutions(args.csv, args.manifest)
+        for number, check, message in dilution_findings:
+            accepted = ""
+            if number in manifest.index:
+                accepted = str(manifest.loc[number].get("accepted_deviations") or "")
+            label = f"deep:{check}"[:10]
+            if check in [a.strip() for a in accepted.split(";") if a.strip()]:
+                findings.warn(label, number, message + "  (accepted deviation)")
+            else:
+                findings.error(label, number, message)
+
         if not args.quiet:
-            print(f"deep check: {len(verified)} concentration column(s) independently "
-                  f"confirmed, {len(unverifiable)} unverifiable (stock serially diluted)")
+            with_blocks = dilution_summary[dilution_summary.blocks > 0]
+            traced = int(with_blocks[["sub", "h2o2"]].fillna(0).to_numpy().sum())
+            print(f"deep check: {len(verified)} concentration column(s) confirmed from the "
+                  f"volume tables; the remaining {len(unverifiable)} were serially diluted "
+                  f"and {traced} cuvette values were traced back to a recorded dilution")
     if not args.quiet:
         data = pd.read_csv(args.csv)
         print(f"validating {args.csv} ({len(data)} rows, "

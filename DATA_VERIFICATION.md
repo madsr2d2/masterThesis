@@ -6,6 +6,93 @@ the top.
 
 ---
 
+## 2026-08-30 — The 59 "unverifiable" concentrations are verifiable after all
+
+The previous entry concluded that 59 concentration columns could not be checked
+from the files, because they were made by serially diluting the stock rather
+than by varying the volume, and the volume table does not record the stock.
+**That conclusion was wrong.** The sheets do record it — in a dilution-series
+table (`Fortyndingsrække` / `opløsning`) that the earlier check never looked at.
+`data/verify_dilutions.py` reads it, and all 59 are now covered.
+
+### The chain is traceable back to a weighed mass
+
+Both sheet generations record, per dilution, the stock volume taken, the final
+volume made up to, and the resulting concentration — and above it the master
+stock traced to a mass and a molar mass. Every link reproduces exactly:
+
+**Exp 65** (earlier layout, mol/L):
+
+    0.1581 g / 108.14 g/mol / 0.01 L        = 0.14619937 M   sheet: 0.14619937118550025
+    0.146199 x 0.001/0.001, /0.002, /0.004, 0.0005/0.01      all four match to 1e-9
+    0.146199 M x 0.1/2 ml                   = 7.3100 mM      compiled [sub]: 7.31
+
+**Exp 135** (later layout, mmol/L, with the dilutions labelled a1/b1/c1/d1 and
+the cuvette labels indexing into them — `Kuv. 1 (a1,a2)`):
+
+    0.148 g / 108.14 / 50 ml                = 27.3719253 mM  sheet: 27.371925282041794
+    a1 = 27.3719 x 20/25 = 21.89754023      sheet: 21.89754023   (b1, c1, d1 likewise)
+    Kuv.1 [sub]  = 21.8975 x 0.4/1          = 8.7590 mM      compiled: 8.759
+    Kuv.1 [H2O2] = 3263.2949 x 0.05/1       = 163.1647 mM    compiled: 163.16
+
+This is a **stronger** check than the volume route, which only confirms internal
+proportionality: this one starts from grams on a balance.
+
+### Coverage
+
+The two routes partition the dataset exactly. The 56 experiments with no
+dilution table (2–62) are the earlier volume-titration design already confirmed
+by the volume route; the 42 with one are the stock-dilution design.
+
+| | |
+|---|---|
+| dilution tables internally consistent | **42 / 42** |
+| `[sub]` cuvettes traced to a recorded dilution | **202**, across 37 experiments |
+| `[h2o2]` cuvettes traced | **139**, across 22 experiments |
+| remaining findings | **2**, both exp 128 s5 |
+
+37 + 22 = 59 — **exactly the gap the previous entry left open, now closed.** The
+two residuals are the known reference-row case (`ref 5` has its own cuvette
+volume as well as its own concentrations), recorded in the manifest's
+`accepted_deviations`.
+
+Two scoping errors were made and fixed along the way, both in the check rather
+than the data: the chain test initially ran on species the volume route had
+already confirmed (in several experiments H2O2 was taken straight from the 30%
+stock, so it appears in no dilution table while being perfectly verified), which
+produced 102 spurious findings; and the parser initially recognised only
+tabular dilution series, missing the species-labelled standalone declarations
+(`[H2O2]` / `mmol/l` / value) that exps 127–131 use for both peroxide stocks —
+a further 20.
+
+### A quantitative by-product
+
+Exp 135's buffer traces end to end: Na4P2O7 30.1495 g → 135.181 mM and
+Na2HPO4 39.0052 g → 500.003 mM, mixed 74 + 20 → 100 ml, then 9 → 12 ml, giving
+150.026 mM, and 0.5/1 ml into the cuvette = **75.013 mM**, matching the compiled
+`[buf]` exactly. So the two-component buffer of exps 135–151 is
+**37.51 mM pyrophosphate + 37.51 mM phosphate**, not 75 mM of one species —
+which is what the ionic-strength calculation needs, and what it currently
+assumes wrongly.
+
+Also visible in these sheets and worth noting for the mechanism work: the
+monitoring wavelength and extinction coefficient are recorded directly
+(`abs 285 nm`, `e 1.23 U/mM` for BnOH), and exps 135–151 log **pH before and
+after each run** (exp 135: 7.63 → 7.77), which is a direct measurement of the
+pH drift previously only estimated.
+
+### Standing state
+
+    python data/validate_dataset.py          ->  0 errors, 13 warnings
+    python data/validate_dataset.py --deep   ->  0 errors, 16 warnings
+    python data/test_validator.py            ->  9 passed, 0 failed
+
+Every concentration in the compiled dataset is now independently corroborated —
+by volume proportionality (248 columns) or by the recorded dilution chain (341
+cuvette values) — except exp 128 sample 5, which is a known artefact.
+
+---
+
 ## 2026-08-30 — Concentrations re-derived from the volume tables
 
 The manifest closed the metadata gap but left the concentration columns
@@ -987,6 +1074,11 @@ in case the stray file causes confusion later.
   the files** (the 56 without a `[buf]` column, less the 5 patched). Exps 32-37
   prove non-0.1 M stocks were used in this series. Resolvable only from lab
   notebooks.
-- **59 concentration columns are unverifiable by recomputation** because the
-  stock was serially diluted rather than the volume varied - `[sub]` in 37
-  experiments, `[h2o2]` in 22. Not known to be wrong; simply unchecked.
+- ~~59 concentration columns unverifiable~~ **CLOSED 2026-08-30** via the
+  recorded dilution series - see `data/verify_dilutions.py`.
+- **Exps 135-151's buffer is 37.51 mM pyrophosphate + 37.51 mM phosphate**, not
+  75 mM of a single species. The ionic-strength calculation still treats it as
+  pure pyrophosphate.
+- **The sheets record the monitoring wavelength and extinction coefficient**
+  (285 nm, e = 1.23 U/mM for BnOH) and exps 135-151 log pH before/after each
+  run. Both bear directly on `MECHANISM.md`'s open observable question.
