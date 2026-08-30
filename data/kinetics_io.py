@@ -374,11 +374,43 @@ def find_numeric_values_below_header(data, header_row, sample_num):
     return results
 
 
+def _parse_pH_cell(value):
+    """
+    Reads a pH out of a cell that may be a number or a written range.
+
+    Exp 131 records its buffer pH as the string "8.88-9.07" -- the drift across
+    the run rather than a single reading -- so a range is taken at its midpoint.
+
+    Args:
+        value: The cell contents.
+
+    Returns:
+        float: The pH, or None if the cell holds neither a number nor a range.
+    """
+    if isinstance(value, (int, float)):
+        return None if (isinstance(value, float) and np.isnan(value)) else round(float(value), 2)
+    if isinstance(value, str):
+        numbers = re.findall(r"\d+(?:[.,]\d+)?", value)
+        parsed = [float(n.replace(",", ".")) for n in numbers]
+        parsed = [n for n in parsed if 0 < n < 14]
+        if len(parsed) == 2:
+            return round(sum(parsed) / 2, 2)
+        if len(parsed) == 1:
+            return round(parsed[0], 2)
+    return None
+
+
 def find_pH_value_in_range(data, row_range, col_range, filename=None):
     """
-    Finds the pH value located in a cell to the immediate right of a cell containing the string "pH",
-    within a specified range of rows and columns. If not found in the DataFrame, attempts to parse the
-    pH value from the filename using the patterns "pH=XX.XX" or "pH_XX,XX".
+    Finds the pH value beside a cell labelling it, within a range of rows and
+    columns, falling back to the filename patterns "pH=XX.XX" or "pH_XX,XX".
+
+    A sheet may carry more than one pH. Exps 127-131 hold two buffer blocks --
+    the pyrophosphate one actually used, labelled "buffer pH", and an unused
+    phosphate block whose bare "pH" cell reads 7.29 in all five sheets. Matching
+    only the bare label gave all five the same wrong pH and flattened a real
+    series spanning 6.94 to 9.0, an error of up to 67x in [HOO-]. So the more
+    specific label is searched first. See DATA_VERIFICATION.md 2026-08-31.
 
     Args:
         data (pd.DataFrame): The DataFrame containing the data.
@@ -394,7 +426,19 @@ def find_pH_value_in_range(data, row_range, col_range, filename=None):
     start_col, end_col = col_range
     search_area = data.iloc[start_row:end_row + 1, start_col:end_col + 1]
 
-    # Iterate through the specified range
+    # Most specific label first: a bare "pH" may belong to a block that was
+    # never used, while "buffer pH" names the solution that went in the cuvette.
+    for pattern in (r"buffer\s*pH", r"\bpH\b"):
+        for row_index in range(search_area.shape[0]):
+            for col_index in range(search_area.shape[1] - 1):
+                cell = search_area.iloc[row_index, col_index]
+                if not (isinstance(cell, str)
+                        and re.fullmatch(pattern, cell.strip(), re.IGNORECASE)):
+                    continue
+                parsed = _parse_pH_cell(search_area.iloc[row_index, col_index + 1])
+                if parsed is not None:
+                    return parsed
+
     for row_index in range(search_area.shape[0]):
         for col_index in range(search_area.shape[1] - 1):  # Stop before the last column
             cell = search_area.iloc[row_index, col_index]

@@ -49,17 +49,27 @@ not record what would be needed to do better:
      the dataset's 15-40 C range. The Debye-Huckel constant varies by about 5%
      over that span (~0.004 pKa units), which is negligible; the temperature
      dependence of pKa(H2O2) itself is not.
-  5. Validity range. The extended Debye-Huckel equation is reliable to about
-     I = 100 mM and is routinely stretched to ~500 mM. Much of this dataset
-     sits beyond that: 308 rows across 71 experiments exceed 100 mM, and the
-     pyrophosphate runs reach 1069 mM, where the equation is extrapolated by
-     an order of magnitude. See DEBYE_HUCKEL_RELIABLE_mM and
-     out_of_range_fraction below; the validator surfaces the affected rows.
-     A Davies or Pitzer treatment would be the principled fix. The practical
-     consequence is bounded -- the shift only ever moves pKa(H2O2) from 11.75
-     to 10.96 across the whole dataset -- but it is a systematic error in
-     [HOO-], not a random one, and it is largest exactly where [HOO-] is
-     largest.
+  5. Validity range. Extended Debye-Huckel is reliable to about I = 100 mM;
+     70% of this dataset's live rows exceed that and the pyrophosphate runs
+     reach 1069 mM, an order of magnitude beyond it. The default was therefore
+     changed to Davies on 2026-08-31, which is claimed to roughly 500 mM. The
+     two differ by up to 0.60 pKa units, a factor of 4 in [HOO-], at the top
+     of the range.
+
+     Davies has its own ceiling, and it is worth stating plainly rather than
+     trading one silent extrapolation for another. Its -0.3I term eventually
+     dominates, so the predicted shift turns around near I = 0.5 mol/L:
+
+         I (mM)      100     400     700    1069
+         pKa_eff  11.536  11.478  11.500  11.559
+
+     Above ~500 mM the curve is no longer physical, it is merely bounded. What
+     changed is that the error stops growing without limit; the highest-I rows
+     are still approximate. out_of_range_fraction and the validator continue to
+     report them, and a Pitzer treatment with real ion-interaction parameters
+     remains the principled fix. effective_pka_h2o2(..., model="debye")
+     reproduces the previous numbers exactly, so any earlier result can be
+     regenerated.
 
 Usage:
     from solution_chemistry import add_solution_columns
@@ -98,6 +108,17 @@ DELTA_Z_SQUARED = 2     # (+1)^2 + (-1)^2 - 0^2 for a neutral acid dissociating
 # outside its established range. Not an error -- there is no better model here
 # without activity data -- but every result that depends on it should say so.
 DEBYE_HUCKEL_RELIABLE_mM = 100.0
+
+# Davies' empirical term, the standard 0.3 in
+#     log(gamma) = -A z^2 (sqrt(I)/(1 + sqrt(I)) - 0.3 I)
+# which extends usable range to roughly 500 mM against Debye-Huckel's 100.
+DAVIES_B = 0.3
+
+# Which activity model effective_pka_h2o2 uses by default. Changed from
+# "debye" to "davies" on 2026-08-31: 70% of the dataset's rows exceed
+# DEBYE_HUCKEL_RELIABLE_mM, and the two models differ by up to a factor of 4
+# in [HOO-] there. See DATA_VERIFICATION.md 2026-08-31.
+ACTIVITY_MODEL = "davies"
 
 
 def speciation(buffer_name, pH):
@@ -166,26 +187,49 @@ def ionic_strength(buffer_name, pH, buffer_mM):
     return 0.5 * float(buffer_mM) * (anion_term + counter_ion_term)
 
 
-def effective_pka_h2o2(ionic_strength_mM):
+def effective_pka_h2o2(ionic_strength_mM, model=None):
     """
-    pKa of H2O2 corrected for ionic strength by the extended Debye-Huckel law.
+    pKa of H2O2 corrected for ionic strength.
 
-        pKa_eff = pKa0 - A * delta(z^2) * sqrt(I) / (1 + B * sqrt(I))
+    Two models, both giving pKa_eff = pKa0 - A * delta(z^2) * f(I) with I in
+    mol/L. This is the only place the mM -> mol/L conversion happens.
 
-    with I in mol/L. This is the only place the mM -> mol/L conversion happens.
+        davies   f = sqrt(I) / (1 + sqrt(I)) - 0.3 I      (the default)
+        debye    f = sqrt(I) / (1 + B sqrt(I))
+
+    Davies is the default because 70% of the dataset's rows sit above 100 mM,
+    where extended Debye-Huckel is outside its established range, and the two
+    diverge by up to 0.60 pKa units -- a factor of 4 in [HOO-] at the dataset's
+    maximum of 1069 mM. Davies is itself only claimed to ~500 mM, so the
+    highest-I rows remain approximate; what changes is that the approximation
+    no longer degrades without bound. out_of_range_fraction still reports them.
 
     Args:
         ionic_strength_mM (float): Ionic strength in mM.
+        model (str): "davies" or "debye"; None uses ACTIVITY_MODEL.
 
     Returns:
         float: Effective pKa. Equals PKA_H2O2 exactly at I = 0.
+
+    Raises:
+        ValueError: On a negative ionic strength or an unknown model.
     """
-    molar = float(ionic_strength_mM) / 1000.0
-    if molar < 0:
+    # Resolved at call time, not bound as a default, so ACTIVITY_MODEL can be
+    # switched by a caller comparing the two treatments.
+    model = ACTIVITY_MODEL if model is None else model
+    molar = np.asarray(ionic_strength_mM, dtype=float) / 1000.0
+    if np.any(molar < 0):
         raise ValueError(f"negative ionic strength: {ionic_strength_mM} mM")
     root = np.sqrt(molar)
-    shift = DEBYE_HUCKEL_A * DELTA_Z_SQUARED * root / (1.0 + DEBYE_HUCKEL_B * root)
-    return PKA_H2O2 - shift
+    if model == "davies":
+        term = root / (1.0 + root) - DAVIES_B * molar
+    elif model == "debye":
+        term = root / (1.0 + DEBYE_HUCKEL_B * root)
+    else:
+        raise ValueError(f"unknown activity model: {model!r}")
+    shift = DEBYE_HUCKEL_A * DELTA_Z_SQUARED * term
+    result = PKA_H2O2 - shift
+    return float(result) if np.ndim(ionic_strength_mM) == 0 else result
 
 
 def hydroperoxide_fraction(pH, ionic_strength_mM):

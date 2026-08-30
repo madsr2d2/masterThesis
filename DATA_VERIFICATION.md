@@ -7,6 +7,88 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-31 — The pH series is fixed, and [HOO⁻] now uses Davies
+
+Two corrections before any fitting begins, both to quantities the model reads
+directly.
+
+### 1. Exps 127-131 now carry their own pH
+
+Fixed at the root rather than as five per-experiment rulings.
+`find_pH_value_in_range` now searches the more specific `buffer pH` label before
+the bare `pH`, so the unused phosphate block can no longer win:
+
+| exp | was | now | source |
+|---|---|---|---|
+| 127 | 7.29 | **6.94** | `buffer pH` |
+| 128 | 7.29 | **7.41** | `buffer pH` |
+| 129 | 7.29 | **8.11** | `buffer pH` |
+| 130 | 7.29 | **8.56** | `buffer pH` |
+| 131 | 7.29 | **8.98** | `buffer pH`, given as the range "8.88-9.07" |
+
+Exp 131 states its buffer pH as a written range rather than a number, so
+`_parse_pH_cell` takes a two-number cell at its midpoint. That is why the
+earlier numeric scan found only four of the five.
+
+Exactly **21 cells** changed in `experiment_data.csv`, all of them `pH` in these
+five experiments. Every other value is byte-identical, and the manifest's
+provenance for all five moved from `filename` to `sheet`. The open question is
+closed; `KNOWN_OPEN_QUESTIONS` is empty again.
+
+The choice was the buffer pH as prepared, not the post-run readings. The
+post-run pair straddles it in every case, so the run-average is close either
+way, and the prepared value is the one condition that is the same for all
+cuvettes.
+
+### 2. Davies replaces extended Debye-Hückel
+
+`ACTIVITY_MODEL = "davies"`, resolved at call time so either treatment can be
+selected: `effective_pka_h2o2(I, model="debye")` reproduces every earlier number
+exactly.
+
+The reason is coverage: 70% of live rows exceed the 100 mM where extended
+Debye-Hückel is reliable, and the pyrophosphate runs reach 1069 mM. The effect
+on the driving concentration is not small, and it is not random:
+
+```
+I (mM)        n    [HOO-] Davies / Debye
+0-100       118          0.907
+100-200     107          0.783
+200-400      66          0.680
+400-700      94          0.489
+700-1200     13          0.248
+```
+
+Median 0.760 across 406 live rows; 62% change by more than 20%. **The error was
+monotonic in ionic strength**, which is the shape that would have distorted the
+buffer-concentration dependence specifically — the thing the buffer titrations
+exist to measure.
+
+Ionic strength itself is unchanged; only pKa_eff(H2O2) moves.
+
+### Davies' own ceiling, stated rather than hidden
+
+The -0.3I term eventually dominates, so the predicted shift turns around near
+0.5 mol/L:
+
+```
+I (mM)      100     400     700    1069
+pKa_eff  11.536  11.478  11.500  11.559
+```
+
+Above ~500 mM the curve is bounded rather than physical. What changed is that
+the error stops growing without limit — it did not become correct.
+`out_of_range_fraction` and the validator still report those rows, and a Pitzer
+treatment with real ion-interaction parameters remains the principled fix.
+
+`data/test_solution_chemistry.py` now pins **both** models against hand
+calculations at I = 75 mM (Davies 11.554, Debye-Hückel 11.494), asserts they
+agree at I = 0, asserts Davies shifts less wherever it matters, and requires an
+unknown model to raise. The Δ(z²) = 2 regression is written against whichever
+model is active, so switching cannot quietly retire it.
+
+---
+
 ## 2026-08-31 — Exps 127-131 are a pH series recorded as a single pH
 
 A re-audit of the metadata, done from the sheets rather than from the manifest,

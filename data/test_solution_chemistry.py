@@ -16,7 +16,8 @@ import numpy as np
 import pandas as pd
 
 from solution_chemistry import (
-    BUFFER_CHARGES, BUFFER_PKA, DEBYE_HUCKEL_A, DEBYE_HUCKEL_B, PKA_H2O2,
+    ACTIVITY_MODEL, BUFFER_CHARGES, BUFFER_PKA, DAVIES_B, DEBYE_HUCKEL_A,
+    DEBYE_HUCKEL_B, PKA_H2O2,
     add_solution_columns, effective_pka_h2o2, hydroperoxide,
     hydroperoxide_fraction, ionic_strength, speciation,
 )
@@ -120,12 +121,33 @@ def test_debye_huckel():
     check("ionic strength always lowers the pKa",
           effective_pka_h2o2(75.0) < PKA_H2O2)
 
-    # Hand check at I = 75 mM: sqrt(0.075) = 0.273861
-    #   shift = 0.509 * 2 * 0.273861 / (1 + 0.328 * 0.273861) = 0.25581
-    expected = PKA_H2O2 - 0.25581
-    check("pKa at I = 75 mM matches the hand calculation",
+    # Hand check of the DEFAULT model, Davies, at I = 75 mM:
+    #   sqrt(0.075) = 0.2738613
+    #   term  = 0.2738613 / 1.2738613 - 0.3 * 0.075 = 0.1924858
+    #   shift = 0.509 * 2 * 0.1924858 = 0.19595
+    expected = PKA_H2O2 - 0.19595
+    check("Davies pKa at I = 75 mM matches the hand calculation",
           close(effective_pka_h2o2(75.0), expected, 1e-4),
           f"got {effective_pka_h2o2(75.0):.5f}, expected {expected:.5f}")
+
+    # And of the extended Debye-Huckel model, still selectable:
+    #   shift = 0.509 * 2 * 0.273861 / (1 + 0.328 * 0.273861) = 0.25581
+    expected_debye = PKA_H2O2 - 0.25581
+    check("Debye-Huckel pKa at I = 75 mM matches the hand calculation",
+          close(effective_pka_h2o2(75.0, "debye"), expected_debye, 1e-4),
+          f"got {effective_pka_h2o2(75.0, 'debye'):.5f}, expected {expected_debye:.5f}")
+
+    check("the default model is Davies", ACTIVITY_MODEL == "davies")
+    check("the two models agree at I = 0",
+          close(effective_pka_h2o2(0.0, "debye"), effective_pka_h2o2(0.0, "davies"), 1e-12))
+    check("Davies shifts the pKa less than Debye-Huckel wherever it matters",
+          all(effective_pka_h2o2(I) > effective_pka_h2o2(I, "debye")
+              for I in (50.0, 100.0, 400.0, 1069.0)))
+    try:
+        effective_pka_h2o2(75.0, "pitzer")
+        check("an unknown activity model raises", False)
+    except ValueError:
+        check("an unknown activity model raises", True)
 
     check("HOO- fraction is in [0, 1]",
           all(0.0 <= hydroperoxide_fraction(pH, 100.0) <= 1.0
@@ -172,9 +194,12 @@ def test_regressions():
           actual < molar_mistake / 5,
           f"shift {actual:.4f}, the mM-fed mistake gives {molar_mistake:.4f}")
 
-    # BUG 4: delta(z^2) is 2 for a neutral acid, not 1.
+    # BUG 4: delta(z^2) is 2 for a neutral acid, not 1. Written against the
+    # active model so switching models cannot quietly retire the check.
     root = math.sqrt(0.075)
-    single = DEBYE_HUCKEL_A * 1 * root / (1 + DEBYE_HUCKEL_B * root)
+    term = (root / (1 + root) - DAVIES_B * 0.075 if ACTIVITY_MODEL == "davies"
+            else root / (1 + DEBYE_HUCKEL_B * root))
+    single = DEBYE_HUCKEL_A * 1 * term
     check("charge factor is delta(z^2) = 2, so the shift is twice the z^2 = 1 value",
           close(actual, 2 * single, 1e-9),
           f"shift {actual:.5f}, z^2=1 would give {single:.5f}")
