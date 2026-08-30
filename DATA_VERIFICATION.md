@@ -6,6 +6,93 @@ the top.
 
 ---
 
+## 2026-08-30 — Mechanism research: consequences for how this data can be fitted
+
+Three literature research passes were run to pin down the reaction mechanism
+before fitting (full write-up, reasoning and 51 references in `MECHANISM.md`).
+Several findings bear directly on the data itself and on what can and cannot be
+concluded from it, so they are recorded here too.
+
+### 1. The four buffers are chemically different reagents, not just pH setters
+
+This is the most important finding for data interpretation. It also gives a
+mechanistic explanation for the buffer-dependent behaviour noticed by eye in
+the dataset.
+
+- **Boric buffer points should be treated as suspect.** Borate does three
+  separate things to this chemistry: it forms **peroxoborate** with H2O2
+  (significant above pH ~7.7), whose anions are much faster oxidants than H2O2
+  and "deliver the hydroperoxide anion at a lower pH than when H2O2 is used";
+  it generates **dioxaborirane**, a highly reactive cyclic peroxide that is a
+  competing oxidant unrelated to the catalyst; and — most damaging — **boric
+  acid catalyses peroxyacid hydrolysis ~12-fold, with a maximum at pH 8.4–9**.
+  The dataset's Boric experiments span pH 8.46–10.34, i.e. straight through
+  that maximum. If the proposed mechanism's peracid intermediate is real,
+  borate buffer is actively destroying it.
+- **Carbonate buffer points should also be treated as suspect.** Bicarbonate +
+  H2O2 forms **peroxymonocarbonate (HCO4-)**, a two-electron oxidant ~300x
+  faster than H2O2 for sulfide oxidation, formed within minutes near neutral
+  pH. In the dataset's 7 Carbonate experiments (pH 9.40–11.84) the effective
+  oxidant is partly HCO4-, not H2O2.
+- **Phosphate catalyses the first step of the mechanism directly.** H2O2
+  addition to a carbonyl is subject to **both general acid and general base
+  catalysis** (Sander & Jencks 1968), so buffer concentration is a genuine
+  kinetic variable, not a nuisance parameter.
+- **Pyrophosphate is probably chelating trace metals** (reasoning, not
+  sourced) — trace Fe/Cu catalyse H2O2 decomposition, which is why dioxirane
+  papers routinely add EDTA. Pyrophosphate chelates; phosphate and carbonate
+  do not, to the same degree.
+
+**Consequence:** rate constants from different buffer systems at the same
+nominal pH are **not directly comparable**. Any pH-rate profile built by
+pooling across buffers is confounded. This should be stated explicitly
+alongside any such plot.
+
+### 2. `[buf]` and `[sub]` are collinear within every titration experiment — a buffer-concentration effect cannot be isolated from the existing data
+
+Checked directly: in every titration experiment, `[buf]` decreases in lockstep
+as `[sub]` increases across samples 1→4 (substrate stock dilutes the buffer).
+Example, experiment 2: `[buf]` 80→70→60→50 mM while `[sub]` 1.52→3.04→4.56→6.08
+mM. 50 of 98 experiments vary `[buf]` within the experiment, and **not one of
+them holds `[sub]` fixed while doing so**.
+
+So any within-experiment "buffer effect" is perfectly confounded with the
+substrate effect. Separating them requires either a multi-variable regression
+of v0 against `[sub]`, `[h2o2]`, `[enz]`, `[buf]` jointly across experiments,
+or (cleanly, but this needs new bench work) a buffer-dilution series at fixed
+pH, fixed `[sub]` and fixed ionic strength.
+
+Buffer *type* is the cleaner comparison available now: the pH ranges overlap
+across buffers (Phosphate 5.64–8.95, Pyrophosphate 5.47–9.73, Boric 8.46–10.34,
+Carbonate 9.40–11.84), so different buffer species can be compared at matched
+pH — the classic diagnostic for general acid/base catalysis. Bear §1 in mind
+when interpreting the result, though: borate and carbonate bring their own
+chemistry, so a buffer-type difference is not automatically general acid/base
+catalysis.
+
+### 3. The pH range may not be able to discriminate the mechanism's key branch
+
+The mechanism predicts that dioxirane formation (its central catalytic step) is
+pH-controlled, because it needs an anionic peroxide species. But the same pH
+dependence arises trivially from HOO- (pKa 11.6) being the nucleophile in the
+*addition* step. Both predict rate rising across pH 5.5→11.8. The discriminator
+is **where the inflection sits**: near 11.6 points to peroxyanion
+nucleophilicity; well below 10 would point to ionization of the tetrahedral
+adduct. Worth fitting the pH profile carefully enough to locate the inflection
+— but note that no pKa has ever been measured for the relevant adduct, so this
+is an open question, not a calibrated test.
+
+### 4. Reminder: the differential-measurement design still governs everything
+
+Nothing in the mechanism work changes the round-2 §4 finding — with-enzyme
+`[P]` is already background-subtracted at the source. But it is now clearer
+*why* the background is substantial and accelerating: the proposed
+catalyst-free loop (aldehyde + HOO- → peracid → oxidises more alcohol) is
+autocatalytic on its own, with no catalyst required. Whether that specific
+ionic mechanism is right is unresolved (it has no literature precedent — see
+`MECHANISM.md`), and a radical/O2-chain alternative is equally consistent with
+the data and cannot be excluded without dark/anaerobic controls.
+
 ## 2026-08-29 — Round 3: row-level block-structure audit (all 98 experiments)
 
 Round 2 confirmed `.txt`↔`.xls` sample alignment indirectly (structurally on
@@ -516,3 +603,19 @@ in case the stray file causes confusion later.
   single-source-of-truth tools for loading/plotting one experiment at a
   time (`python data/plot_kinetics.py <exp_num>`) — use these instead of
   writing new one-off extraction scripts for future investigations.
+- **Buffer systems are not interchangeable** — borate, carbonate, phosphate
+  and pyrophosphate each bring their own chemistry to an H2O2 reaction (see
+  the 2026-08-30 mechanism entry, §1). Boric and Carbonate points in
+  particular should be flagged as suspect in any pooled analysis. Rate
+  constants from different buffers at the same pH are not directly
+  comparable.
+- **A buffer-concentration effect cannot be isolated from the current data**
+  — `[buf]` and `[sub]` are perfectly collinear within every titration
+  experiment (50 of 98 experiments vary `[buf]`; none hold `[sub]` fixed
+  while doing so). Buffer *type* at matched pH is the comparison that is
+  available; buffer *concentration* needs either a joint multi-variable
+  regression or new bench work.
+- `MECHANISM.md` now holds the proposed 7-step mechanism, its per-step
+  literature support (51 references), the competing side reactions that
+  belong in the ODE model as sink terms, and the open questions. Read it
+  before building the kinetic model.
