@@ -6,6 +6,156 @@ the top.
 
 ---
 
+## 2026-08-30 — Buffer-titration recovery: five experiments had two wrong columns
+
+Triggered by a claim that a buffer-concentration titration at constant `[sub]`
+existed in the dataset. An exhaustive search of `data/experiment_data.csv` found
+none — including across experiments (matched on substrate, buffer, T, pH within
+0.15, `[sub]`/`[h2o2]` within 10%, `[enz]` within 20%, only one pair anywhere
+differed in `[buf]` by more than 20%, and only 1.37-fold). The claim was correct
+anyway: **the titration exists in the raw data and had been erased by the
+extraction.** Three separate defects, all now fixed.
+
+### 1. Experiments 32, 34, 35, 36, 37 — `[enz]` and `[buf]` both wrong
+
+These five are phosphate / 4OMe-BnOH / 40 °C buffer-concentration titrations at
+constant `[sub]`, `[h2o2]`, `[enz]`, pH and T. One bug corrupted two columns:
+
+Their `.xls` sheets lay out **eight planned cuvettes** — rows 1–4 with
+`Enz 0.1 ml`, rows 5–8 with `Enz 0` — while only four channels were ever
+measured. These were no-enzyme days, so the four that ran were cuvettes **5–8**,
+but `find_numeric_values_below_header` reads the *first four rows* of the table
+and so picked up the with-enzyme plan rows.
+
+- **`[enz]`** was extracted as 0.241 / 0.270 mM. The runs were enzyme-free. Two
+  independent confirmations: the filenames carry `with_NO_E`, and all five sit
+  in the hand-sorted `data/Mads/"No enzyme"/` folder. That folder holds 27
+  experiments; **22 extract correctly as `[enz] = 0` and exactly these five did
+  not.** As extracted they were the *highest*-enzyme runs in the whole dataset.
+- **`[buf]`** was extracted as a flat 50 mM, because every cuvette receives the
+  same buffer *volume* (1 ml into 2 ml total) and only the stock differs — and
+  the stock exists solely as a text label in the `kuv` column (`1 (0.1M)`,
+  `2 (0.2M)`, …), invisible to the volume-based extraction.
+
+Corrected cuvette concentrations (= half the stock, from the confirmed 1 ml →
+2 ml dilution):
+
+| experiments | `[enz]` | `[buf]` per sample |
+|---|---|---|
+| 32, 35, 36, 37 | 0 | 50, 100, 150, 200 mM |
+| 34 | 0 | 25, 12.5, 6.25, 3.125 mM |
+
+A prior partial patch in `clean_experiment_dataframe` set `[100, 200, 300, 400]`
+and `[50, 25, 12.5, 6.25]` — those are the **stock** concentrations, uniformly
+2× the cuvette values every other row in the dataset uses — and never touched
+`[enz]` at all. Replaced.
+
+**Why this matters more than any other correction so far.** Corrected, these
+five are enzyme-free buffer titrations spanning **3.125–200 mM (64-fold) at
+constant substrate**. They are simultaneously the `E0 = 0` data needed to fit
+the catalyst-free loop (`k_can`, `k3` in `MECHANISM.md`) and the only real
+evidence on buffer catalysis anywhere in the project — with no catalyst present
+to confound either. Scope caveat: 4OMe-BnOH at 40 °C, pH 7.00–7.53, so the
+buffer constant they pin is for the methoxy substrate at that temperature.
+
+Fixed in `data/kinetics_io.py` as `EXPERIMENT_CORRECTIONS` +
+`apply_experiment_corrections()`, applied by both
+`populate_experimental_data_from_directory` and `load_experiment`; mirrored
+idempotently in the notebook's `clean_experiment_dataframe` (cell 16).
+`data/experiment_data.csv` regenerated — a full recompile changed **36 cells and
+nothing else**: 20 `[enz]` and 16 `[buf]`, all inside these five experiments.
+
+### 2. Ionic strength was silently zero for 26 experiments
+
+`add_ionic_strength_column` keyed its pKa table on `'Boric Acid'` while
+`find_buffer_type` emits `'Boric'`, and omitted `'Carbonate'` altogether. Both
+fell through to the `return [1]` / `charges = [0]` fallback, giving **`I = 0`
+for 107 rows across 26 experiments** with no warning — precisely the high-pH
+runs (Boric 8.46–10.34, Carbonate 9.40–11.84) where the correction to
+pKa(H2O2), and hence `[HOO-]`, matters most. Since the notebook's feature list
+drops `[buf]` and `buffer` and relies on `I` to carry buffer information, for
+those 26 experiments the buffer effect was being loaded entirely onto `[sub]`.
+
+Fixed: keys corrected to `'Boric'` (pKa 9.24) and `'Carbonate'` (pKa 6.35,
+10.33) with matching charge lists. Two further corrections in the same chain,
+without which fixing the keys would have made the numbers worse rather than
+better:
+
+- **Counter-ions.** `I = ½Σc·z²` was summed over the buffer anions only. The
+  Na+ required for electroneutrality contributes too; omitting it understates
+  `I` by roughly a factor of two for a 1:1 salt. Now included.
+- **Units and charge factor in the Debye–Hückel step** (cell 38). `I` is
+  returned in mM (because `[buf]` is in mM) but was fed straight into a formula
+  whose constant `A = 0.509` is defined for mol/L — inflating √I by ~31× and the
+  pKa shift by ~9× (1.15 vs 0.13 units at I = 75 mM). Separately, for
+  `H2O2 ⇌ H+ + HOO-` the correct term is Δ(z²) = (+1)² + (−1)² − 0 = **2**, not
+  z² = 1. Both fixed.
+
+Net effect on the computed `[HOO-]`, which feeds `v_can` directly in the
+mechanism: **median ratio new/old = 0.17** (i.e. the old values were ~6× too
+high), ranging 0.14–2.02 — the values above 1 being the Boric and Carbonate rows
+that previously got no correction at all.
+
+**Known limitation, not fixed:** the corrected `I` reaches ~1.07 M for the
+193.6 mM pyrophosphate experiments (127–131). The extended Debye–Hückel form is
+only valid to ~0.1 M and the Davies equation to ~0.5 M, so those points are an
+empirical extrapolation. Choosing an activity model for that range is a
+modelling decision, deliberately left open.
+
+### 3. `NaH2PO4*2H2O` was mapped to Pyrophosphate
+
+The buffer map in `find_buffer_type` contained
+`"NaH2PO4*2H2O": "Pyrophosphate"`. NaH2PO4·2H2O is monosodium **phosphate**.
+Corrected to `"Phosphate"` in both `data/kinetics_io.py` and notebook cell 10.
+
+No labels changed as a result, because the 17 experiments that hit this key
+(135–151) have `Na4P2O7*10H2O` at sheet row 0 and `NaH2PO4*2H2O` at row 2, and
+the scan is row-major with early return — so they still resolve to
+`Pyrophosphate`. Verified explicitly after the change.
+
+That co-occurrence is itself worth recording: **experiments 135–151 use a
+two-component pyrophosphate/phosphate buffer**, so their single `[buf]` value of
+75.013 mM stands for two species, and the ionic-strength calculation (which uses
+pyrophosphate pKa's only) is incomplete for all 17. They remain the
+best-designed block in the dataset — `[buf]` fixed, samples 1–4 titrating
+`[sub]` at fixed `[h2o2]`, samples 5–7 titrating `[h2o2]` at fixed `[sub]`,
+across 17 pH values from 5.47 to 9.73 — but the buffer composition is not what
+the single label implies.
+
+### Design classes, for the record
+
+Recount of what the 98 compiled experiments actually vary:
+
+| design | experiments | |
+|---|---|---|
+| `[buf]` and `[sub]` displaced together | 49 | confounded (mostly exps 2–62) |
+| `[buf]` fixed, `[sub]` varied | 19 | clean (exps 65–85) |
+| `[buf]` fixed, `[sub]` + `[h2o2]` varied | 17 | clean (exps 135–151) |
+| `[buf]` varied at constant `[sub]` | 5 | **exps 32, 34, 35, 36, 37 — recovered here** |
+| `[h2o2]` or `[enz]` only | 5 | |
+| nothing varies | 7 | |
+
+The `[buf]`/`[sub]` confound is therefore **quarantined to 49 experiments, not
+pervasive**. Note also that only **one** experiment varies `[enz]` across its own
+samples, so the E0 dependence remains untestable from this dataset.
+
+### Raw material present but never compiled
+
+49 experiment numbers have raw files under `data/Mads` but no row in the CSV.
+Most are deliberate and should stay out — the whole `bad data pH ca. 11` folder
+(86–126: the Na2HPO4 pH 11 series and every solvent-isotope run), and 54/56
+which are **4-bromo-benzyl alcohol**, a third substrate outside this dataset's
+scope. Two groups are worth a second look:
+
+- **exp 134** sits in the hand-sorted `good data BnOH` folder alongside 135–151
+  and has an `.xls`, but never reached `data/data` or the CSV. If it belongs
+  with that block it is an 18th member of the best-designed series.
+- **exps 3, 53, 64** are no-enzyme runs with raw `.xls` in `data/Mads` but no
+  `dataN.txt` in `data/data`. (Exp 63 is explained — its own filename ends
+  `NO_DATA_FILE`.)
+
+---
+
 ## 2026-08-30 — Mechanism research: consequences for how this data can be fitted
 
 Three literature research passes were run to pin down the reaction mechanism
@@ -619,3 +769,18 @@ in case the stray file causes confusion later.
   literature support (51 references), the competing side reactions that
   belong in the ODE model as sink terms, and the open questions. Read it
   before building the kinetic model.
+
+- **Experiments 32/34/35/36/37 are now the highest-value block in the dataset**
+  (enzyme-free, 3.125–200 mM buffer at constant substrate) and have never been
+  used as such — the prior analyses saw them as top-of-range enzyme runs at a
+  flat 50 mM. Any conclusion drawn from `[enz]` or `[buf]` before 2026-08-30
+  should be re-derived.
+- **All `[HOO-]`-derived results predate the ionic-strength fix** and used
+  values ~6× too high (median), with 26 experiments getting no correction at
+  all. The RandomForest / PySR feature work on `I` and `[HOO-]` needs re-running.
+- **Activity model above 0.1 M is unresolved** — corrected `I` reaches ~1.07 M
+  for exps 127–131, outside the validity of both Debye–Hückel and Davies.
+- **Exps 135–151 use a two-component pyrophosphate/phosphate buffer**, so their
+  single `[buf]` value and their ionic strength are both incomplete.
+- **Exp 134, and exps 3/53/64**, have raw material but no compiled row — see the
+  2026-08-30 buffer-titration entry for whether they should be recovered.

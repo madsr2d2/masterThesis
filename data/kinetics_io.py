@@ -25,6 +25,64 @@ SUBSTRATE_PROPERTIES = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Per-experiment extraction corrections
+# ---------------------------------------------------------------------------
+# Experiments 32, 34, 35, 36 and 37 are buffer-concentration titrations whose
+# .xls sheets lay out EIGHT planned cuvettes -- rows 1-4 with enzyme, rows 5-8
+# without -- while only four channels were ever measured. These were no-enzyme
+# days, so the four cuvettes that actually ran were 5-8; but
+# find_numeric_values_below_header reads the first four rows of the table and
+# therefore picks up the with-enzyme plan rows. Two columns come out wrong:
+#
+#   [enz]  extracted as 0.241 / 0.270 mM. The runs were enzyme-free -- the
+#          filenames say "with_NO_E" and all five sit in the hand-sorted
+#          data/Mads/"No enzyme"/ folder. 22 of the 27 experiments in that
+#          folder extract correctly as 0; these five are the exceptions.
+#   [buf]  extracted as a flat 50 mM, because every cuvette receives the same
+#          buffer VOLUME (1 ml into 2 ml total) and only the stock differs --
+#          and the stock appears solely as a text label in the "kuv" column
+#          ("1 (0.1M)", "2 (0.2M)", ...), which the volume-based extraction
+#          cannot see. The cuvette concentration is half the stock.
+#
+# Corrected, these five become enzyme-free buffer titrations spanning
+# 3.125-200 mM at constant substrate. See DATA_VERIFICATION.md, 2026-08-30.
+EXPERIMENT_CORRECTIONS = {
+    # experiment: {column: scalar applied to every sample, or per-sample list}
+    32: {"[enz]": 0.0, "[buf]": [50.0, 100.0, 150.0, 200.0]},
+    34: {"[enz]": 0.0, "[buf]": [25.0, 12.5, 6.25, 3.125]},
+    35: {"[enz]": 0.0, "[buf]": [50.0, 100.0, 150.0, 200.0]},
+    36: {"[enz]": 0.0, "[buf]": [50.0, 100.0, 150.0, 200.0]},
+    37: {"[enz]": 0.0, "[buf]": [50.0, 100.0, 150.0, 200.0]},
+}
+
+
+def apply_experiment_corrections(experiment_number, sample_index, concentrations):
+    """
+    Overrides extracted concentrations for the experiments whose .xls layout
+    defeats the generic extraction (see EXPERIMENT_CORRECTIONS above).
+
+    Args:
+        experiment_number (int): The experiment number.
+        sample_index (int): Zero-based index of the sample within the experiment.
+        concentrations (dict): Extracted {"[enz]", "[buf]", "[h2o2]", "[sub]"}.
+
+    Returns:
+        dict: A new dict with any corrections applied.
+    """
+    corrected = dict(concentrations)
+    correction = EXPERIMENT_CORRECTIONS.get(experiment_number)
+    if not correction:
+        return corrected
+    for column, value in correction.items():
+        if isinstance(value, (list, tuple)):
+            if sample_index < len(value):
+                corrected[column] = value[sample_index]
+        else:
+            corrected[column] = value
+    return corrected
+
+
 def parse_experiment_data(file_path):
     """
     Parses the experiment data file and extracts the experiment number, date,
@@ -434,7 +492,7 @@ def find_buffer_type(data, row_range, col_range, filename=None, buffer_map=None)
             "phosphat": "Phosphate",
             "phosphate": "Phosphate",
             "Na4P2O7*10H2O": "Pyrophosphate",
-            "NaH2PO4*2H2O": "Pyrophosphate",
+            "NaH2PO4*2H2O": "Phosphate",   # monosodium phosphate, NOT pyrophosphate
             "carbonate": "Carbonate",
             "CO3": "Carbonate"
         }
@@ -574,6 +632,12 @@ def populate_experimental_data_from_directory(directory, sheet_name='Sheet1'):
             e_value = SUBSTRATE_PROPERTIES.get(substrate_type, {}).get("e", None)
 
             for i, sample_name in enumerate(parsed_data['samples']):
+                cons = apply_experiment_corrections(experiment_number, i, {
+                    "[enz]": initial_cons["[enz]"][i] if initial_cons["[enz]"] else 0,
+                    "[buf]": initial_cons["[buf]"][i] if initial_cons["[buf]"] else 0,
+                    "[h2o2]": initial_cons["[h2o2]"][i] if initial_cons["[h2o2]"] else 0,
+                    "[sub]": initial_cons["[sub]"][i] if initial_cons["[sub]"] else 0,
+                })
                 row = {
                     "experiment": experiment_number,
                     "sample": i + 1,
@@ -583,10 +647,7 @@ def populate_experimental_data_from_directory(directory, sheet_name='Sheet1'):
                     "buffer": buffer_type,
                     "pH": pH_value,
                     "T": temperature,
-                    "[enz]": initial_cons["[enz]"][i] if initial_cons["[enz]"] else 0,
-                    "[buf]": initial_cons["[buf]"][i] if initial_cons["[buf]"] else 0,
-                    "[h2o2]": initial_cons["[h2o2]"][i] if initial_cons["[h2o2]"] else 0,
-                    "[sub]": initial_cons["[sub]"][i] if initial_cons["[sub]"] else 0,
+                    **cons,
                 }
                 experiment_rows.append(row)
 
@@ -655,13 +716,16 @@ def load_experiment(experiment_number, directory="data/data", sheet_name="Sheet1
     samples = []
     for i, sample_name in enumerate(parsed_data["samples"]):
         s = parsed_data["samples"][sample_name]
-        samples.append({
-            "sample": i + 1,
-            "sample_name": sample_name,
+        cons = apply_experiment_corrections(experiment_number, i, {
             "[enz]": initial_cons["[enz]"][i] if initial_cons["[enz]"] else 0,
             "[buf]": initial_cons["[buf]"][i] if initial_cons["[buf]"] else 0,
             "[h2o2]": initial_cons["[h2o2]"][i] if initial_cons["[h2o2]"] else 0,
             "[sub]": initial_cons["[sub]"][i] if initial_cons["[sub]"] else 0,
+        })
+        samples.append({
+            "sample": i + 1,
+            "sample_name": sample_name,
+            **cons,
             "abs": abs_value,
             "e": e_value,
             "time": s["time"],
