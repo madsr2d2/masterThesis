@@ -24,9 +24,10 @@ Checks performed:
               finite and non-negative, required fields are non-null
 
 With --deep, additionally re-derives every concentration from the sheets'
-volume tables (see recompute_concentrations.py) and checks that the compiled
-values match the cuvettes that were actually measured. This is slower -- it
-reopens all 98 spreadsheets -- so it is opt-in rather than the default.
+volume tables (recompute_concentrations.py), traces the serially diluted ones
+back through the recorded dilution chain (verify_dilutions.py), and traces
+[enz] back to the weighed mass of catalyst (verify_enzyme.py). This is slower
+-- it reopens all 98 spreadsheets several times -- so it is opt-in.
 
 Findings are graded:
   ERROR    a disagreement nothing has accounted for -- the pipeline has drifted
@@ -306,6 +307,18 @@ if __name__ == "__main__":
                 findings.warn(label, number, message + "  (accepted deviation)")
             else:
                 findings.error(label, number, message)
+        from verify_enzyme import analyse as analyse_enzyme
+        enzyme_findings, enzyme_summary = analyse_enzyme(args.csv, args.manifest)
+        for number, check, message in enzyme_findings:
+            accepted = ""
+            if number in manifest.index:
+                accepted = str(manifest.loc[number].get("accepted_deviations") or "")
+            label = f"deep:{check}"[:10]
+            if check in [a.strip() for a in accepted.split(";") if a.strip()]:
+                findings.warn(label, number, message + "  (accepted deviation)")
+            else:
+                findings.error(label, number, message)
+
         from verify_dilutions import analyse as analyse_dilutions
         dilution_findings, dilution_summary = analyse_dilutions(args.csv, args.manifest)
         for number, check, message in dilution_findings:
@@ -321,6 +334,9 @@ if __name__ == "__main__":
         if not args.quiet:
             with_blocks = dilution_summary[dilution_summary.blocks > 0]
             traced = int(with_blocks[["sub", "h2o2"]].fillna(0).to_numpy().sum())
+            traced_enzyme = int(enzyme_summary.from_mass.notna().sum())
+            print(f"deep check: {traced_enzyme} experiment(s) traced [enz] back to a "
+                  f"weighed mass of catalyst")
             print(f"deep check: {len(verified)} concentration column(s) confirmed from the "
                   f"volume tables; the remaining {len(unverifiable)} were serially diluted "
                   f"and {traced} cuvette values were traced back to a recorded dilution")

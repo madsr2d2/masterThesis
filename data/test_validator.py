@@ -31,12 +31,28 @@ def _errors_for(findings, check):
 
 
 def _set(data, experiment, column, value, sample=None):
-    """Overwrites one column for one experiment (or one sample of it)."""
+    """
+    Overwrites one column for one experiment (or one sample of it).
+
+    Returns the dataframe so corruptions can be chained; the CASES above rely
+    on the in-place edit and ignore the return value.
+    """
     mask = data.experiment == experiment
     if sample is not None:
         mask &= data["sample"] == sample
     data.loc[mask, column] = value
+    return data
 
+
+# These fire on the clean dataset by design -- their enzyme block describes the
+# planned with-enzyme cuvettes, which were never run -- so a deep case must not
+# count them as having caught its injected fault.
+ACCEPTED_ENZYME_DEVIATIONS = {32, 34, 35, 36, 37}
+
+# These fire on the clean dataset by design -- their enzyme block describes the
+# planned with-enzyme cuvettes, which were never run -- so a deep case must not
+# count them as having caught its injected fault.
+ACCEPTED_ENZYME_DEVIATIONS = {32, 34, 35, 36, 37}
 
 CASES = [
     # (name, corruption applied to a copy of the dataset, check that must fire)
@@ -77,6 +93,33 @@ CASES = [
 ]
 
 
+# The deep checks run outside validate(), so they are exercised directly. Each
+# case corrupts the dataset and names the check that must fire.
+DEEP_CASES = [
+    # The case this check was built for: exps 79 and 80 compiled with [enz] = 0
+    # because their "[Enz] mmol/l" cell holds 0.000001, and nothing noticed
+    # until it was spotted by eye. Restoring that state must now raise.
+    ("enzyme concentration lost to a broken cell",
+     lambda d: _set(_set(d, 79, "[enz]", 0.0), 80, "[enz]", 0.0), "enzuse"),
+    # A plausible-looking but wrong enzyme concentration -- the failure mode a
+    # scanner cannot catch, since the value is neither missing nor absurd.
+    ("enzyme concentration silently halved",
+     lambda d: _set(d, 14, "[enz]", float(d.loc[d.experiment == 14, "[enz]"].iloc[0]) / 2),
+     "enzuse"),
+]
+
+
+def _run_deep(corrupt, tmpdir):
+    """Applies a corruption and returns verify_enzyme's findings."""
+    from verify_enzyme import analyse as analyse_enzyme
+    data = pd.read_csv(DATASET_PATH)
+    corrupted = corrupt(data)
+    path = os.path.join(tmpdir, "deep.csv")
+    (corrupted if corrupted is not None else data).to_csv(path, index=False)
+    findings, _ = analyse_enzyme(path)
+    return findings
+
+
 def main():
     print(f"baseline: validating the real dataset")
     baseline = validate()
@@ -92,6 +135,18 @@ def main():
             if caught:
                 passed += 1
                 print(f"  PASS  {name:38s} -> {expected_check}: {caught[0]['message'][:56]}")
+            else:
+                failed += 1
+                print(f"  FAIL  {name:38s} -> nothing raised under '{expected_check}'")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for name, corrupt, expected_check in DEEP_CASES:
+            findings = _run_deep(corrupt, tmpdir)
+            caught = [f for f in findings if f[1] == expected_check
+                      and f[0] not in ACCEPTED_ENZYME_DEVIATIONS]
+            if caught:
+                passed += 1
+                print(f"  PASS  {name:38s} -> {expected_check}: {caught[0][2][:56]}")
             else:
                 failed += 1
                 print(f"  FAIL  {name:38s} -> nothing raised under '{expected_check}'")

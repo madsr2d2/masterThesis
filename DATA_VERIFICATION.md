@@ -7,6 +7,74 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-30 — [enz] traced back to the weighed catalyst, in all 98
+
+`[enz]` was the one concentration with no second source. `[buf]`, `[h2o2]` and
+`[sub]` are checked against the cuvette volume tables and, where serially
+diluted, traced through the recorded dilution chain back to weighed grams.
+`[enz]` was read from a single cell of the cuvette table, and when that cell was
+wrong nothing noticed — exps 79 and 80 held `0.000001` there, roughly 14,000×
+too low, and the error survived until it was spotted by eye.
+
+The sheets carry a second route. Every one prepares the catalyst in a header
+block recording the molar mass, the mass weighed, the volume and the resulting
+stock, then the concentration in the cuvette:
+
+```
+g/mol   1054.29          <- the catalyst
+g       0.0236
+l       0.004
+mol/l   0.005596
+mmol/l  5.596183         <- stock
+kuv     0.139905 mmol/l  <- in the cuvette
+```
+
+**`data/verify_enzyme.py`** checks every link of that chain:
+
+| link | check |
+|---|---|
+| `enzmw` | the block really is the catalyst — M = 1054.29 g/mol |
+| `enzstock` | the block's own arithmetic: `g / (g/mol) / l` = the declared mM |
+| `enzkuv` | stock × `V_enz / V_total` = the declared `kuv` |
+| `enzuse` | the compiled dataset agrees with that cuvette value |
+
+**All 98 experiments now trace `[enz]` back to a weighed mass of catalyst**, and
+the first three links pass everywhere. `[enz]` has the same standing as the
+other three concentrations.
+
+### Anchoring
+
+The first version keyed on the `kuv` label and found only 81 of 98. The later
+series (exps 135–151) lays the block out differently — volume in ml rather than
+l, and no `kuv` row at all, the cuvette concentration living in the table
+instead. Anchoring on **the catalyst's molar mass, 1054.29**, finds all 98: that
+number appears in no other block, the substrate blocks carrying 108.14, 138.17
+or 187.03. Where there is no `kuv` row, the volume route supplies the cuvette
+value.
+
+### What fires, and why it is right
+
+Only exps 32, 34, 35, 36 and 37 — the recovered buffer titrations. Their enzyme
+block describes the four **planned** with-enzyme cuvettes, which were never run:
+these are enzyme-free titrations, their filenames say `with_NO_E`, all five sit
+in `data/Mads/'No enzyme'/`, and only cuvettes 5–8 were measured. `[enz] = 0` is
+correct and the block's 0.24–0.27 mM is the plan. Declared as an accepted
+deviation with that reason.
+
+### Proof that it bites
+
+Two fault-injection cases, run against the deep check directly (13 total, all
+passing):
+
+- **the bug it was built for** — restoring exps 79 and 80 to `[enz] = 0` now
+  raises immediately, where before it survived unnoticed through every check;
+- **a silently halved `[enz]`** on exp 14 — the failure a scanner cannot catch,
+  because the value is neither missing nor absurd, only wrong.
+
+Errors 0. With `--deep`: 0 errors, 10 accepted deviations, all explained.
+
+---
+
 ## 2026-08-30 — The 0.1 M buffer stock: one recipe exists, and it computes to 100.5 mM
 
 `[buf]` is inferred as `(V_buf/2)·100` in 56 experiments, and for 33 of them the
@@ -1701,10 +1769,13 @@ in case the stray file causes confusion later.
   ruled 4OMe-BnOH, and both excluded: their substrate stock block was copied
   from t056 and the real preparation is unrecorded, so `[sub]` is not
   recoverable. See the entry at the top of this log.
-- **The header `kuv` row is an unused independent check on `[enz]`.** It agrees
-  with the compiled value in 58 of the 63 sheets that declare it, and the five
-  that differ are all understood. Folding it into `--deep` would give `[enz]`
-  the same second source the other three concentrations already have.
+- ~~**The header `kuv` row is an unused independent check on `[enz]`.**~~
+  **CLOSED 2026-08-30** — built as `data/verify_enzyme.py` and folded into
+  `--deep`. All 98 experiments now trace `[enz]` back to a weighed mass of
+  catalyst.
+- **`Rate(pH).xls` carries an `[E] [mmol/l]` column per pH** for the early
+  campaign (0.17533, 0.272695, 0.24068 …) — a *third* record of `[enz]`,
+  independent of both the sheet and the volumes, still unexploited.
 - **Exp 6 uses M = 109.13 for benzyl alcohol** where every later BnOH run uses
   the correct 108.14, making its `[sub]` 0.9% low. The only compiled experiment
   affected (t001 and t003 share it but were never compiled). Recorded, not

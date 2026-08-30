@@ -65,6 +65,16 @@ KNOWN_EXCLUSIONS = {
 
 # Deviations that are understood and accepted, so the deep checks warn rather
 # than error on them. Keyed by experiment -> (check names, reason).
+_PLANNED_ENZYME_ROWS = (
+    "enzuse",
+    "the sheet's enzyme block describes the four PLANNED with-enzyme cuvettes, "
+    "which were never run. These are enzyme-free buffer titrations -- the "
+    "filenames say with_NO_E and all five sit in data/Mads/'No enzyme'/ -- and "
+    "only cuvettes 5-8, the no-enzyme half of the eight-row plan, were measured. "
+    "[enz] = 0 is correct and the block's 0.24-0.27 mM is the plan. See "
+    "DATA_VERIFICATION.md 2026-08-30."
+)
+
 _BROKEN_ENZ_COLUMN = (
     "block",
     "[enz] is deliberately taken from the sheet's header block rather than from "
@@ -77,6 +87,11 @@ _BROKEN_ENZ_COLUMN = (
 )
 
 KNOWN_ACCEPTED_DEVIATIONS = {
+    32: _PLANNED_ENZYME_ROWS,
+    34: _PLANNED_ENZYME_ROWS,
+    35: _PLANNED_ENZYME_ROWS,
+    36: _PLANNED_ENZYME_ROWS,
+    37: _PLANNED_ENZYME_ROWS,
     79: _BROKEN_ENZ_COLUMN,
     80: _BROKEN_ENZ_COLUMN,
     128: ("block;chain",
