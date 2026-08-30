@@ -7,6 +7,86 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-30 — Exps 57/58 ruled 4OMe-BnOH; [sub] corrected by 1.354×
+
+Ruled by the experimenter: **exps 57 and 58 are 4-methoxybenzyl alcohol runs.**
+The workbook was copied from t056, a 4-bromobenzyl alcohol run, with the
+substrate label in cell C4 and the filename updated and the stock block and
+optics left behind.
+
+### What the copy left behind
+
+| | t056 (4-brom) | t057 | t058 |
+|---|---|---|---|
+| stock mass / volume | 0.3511 g / 0.1 L | **same** | **same** |
+| molar mass used | 187.03 | **187.03** | **187.03** |
+| stock molarity | 18.772 mM | **18.772 mM** | **18.772 mM** |
+| wavelength / `e` | 285 nm / 1.59 | 285 nm / 1.59 | 285 nm / 1.59 |
+| label in cell C4 | `4-brom-BnOH` | `4-MeO-BnOH` | `4-MeO-BnOH` |
+
+The optics being stale is unremarkable — it is the same pattern as exps 2–10,
+and the dataset's 300 nm and `e` = 7.53 are correct by the substrate convention,
+so **no ruling was needed there**.
+
+The **molar mass** is the consequential one. The sheet divides 0.3511 g by
+187.03 to get 18.772 mM. For 4-methoxybenzyl alcohol, M = 138.17, so the stock
+was **25.411 mM** and every cuvette is higher than recorded by
+
+> 187.03 / 138.17 = **1.3536**
+
+| | s1 | s2 | s3 | s4 |
+|---|---|---|---|---|
+| exp 57, was | 0.469 | 0.939 | 1.877 | 3.754 |
+| exp 57, now | **0.635** | **1.271** | **2.541** | **5.081** |
+| exp 58, was | 0.534 | 0.894 | 1.788 | 3.576 |
+| exp 58, now | **0.723** | **1.210** | **2.420** | **4.841** |
+
+### How the correction is carried
+
+`kinetics_io` gains **`CONCENTRATION_RESCALINGS`**, kept separate from
+`EXPERIMENT_CORRECTIONS` because the two are different kinds of fix: the latter
+replaces values the extraction read from the wrong rows, this one rescales
+values the sheet computed correctly from a wrong constant. One factor, stated
+once, rather than eight retyped numbers.
+
+This is **the only place in the dataset where the compiled value is right and
+the sheet's is wrong**, so the deep check necessarily objects. Declared as an
+accepted deviation on both experiments with that reason, rather than weakening
+the check.
+
+### The evidence that pointed the other way, recorded
+
+Two things argued for 4-bromobenzyl alcohol, and they should stay on the record
+since the ruling went against them:
+
+- **no new weighing.** Across t052–t062 a genuine substrate change always brings
+  a fresh mass and volume (t055 weighs 0.1115 g/0.025 L, t059 weighs
+  0.2579 g/0.1 L). t057 and t058 carry t056's stock unchanged to four digits.
+- **`Hammett.xls`** assigns the p-Brom arm to t054 and t056 — but it does not
+  mention 57 or 58 at all, so it is silent on them either way.
+
+The ruling accepts that the stock block was copied without being updated. Under
+it, six cells were stale (M, `g`, `L`, the derived molarity, nm, `e`) against two
+edited (the label and the filename).
+
+### Two side findings
+
+- **`Hammett.xls` has its first block transposed.** It lists file 50 as p-OMe
+  and 45 as p-H, while the filenames are t050 = BnOH and t045 = 4OMe — swapped.
+  Its second block (42 = p-OMe, 51 = p-H) matches the filenames exactly. The
+  file is an uncompiled analysis workbook, so nothing in the dataset depends on
+  it, but it should not be trusted as a substrate source.
+- **The notebook drops every carbonate experiment** (`buffer != "Carbonate"`),
+  which is exps 57, 58, 77, 78, 79, 80, 85 — 31 rows. So this error never
+  reached the notebook's analysis. It was live only in
+  `data/experiment_data.csv`, which is the artifact everything is being moved
+  onto, so it would have mattered from the next step onward.
+
+Errors 0, warnings 11, notes 9. With `--deep`: 0 errors, all five deviations
+accepted and explained.
+
+---
+
 ## 2026-08-30 — The stock-solution block names the substrate; exps 57/58 are a third compound
 
 Pointed at the `Stamopløsning` (stock solution) block, which every sheet uses to
@@ -1424,13 +1504,15 @@ in case the stray file causes confusion later.
 
 ## Open items
 
-- **Exps 57 and 58 are 4-bromobenzyl alcohol runs mislabelled as 4OMe-BnOH.**
-  Their sheets compute from M = 187.03 and share the weighed stock of the
-  confirmed 4-brom runs t054/t056. **Exp 57 is in use** and its `[P]` is
-  understated by 4.74× (`e` = 7.53 applied where the 4-bromo convention is
-  1.59). `SUBSTRATE_PROPERTIES` has no 4Br entry. Awaiting a decision: relabel
-  and add the substrate (and possibly compile t054/t056 to complete the Hammett
-  series), or exclude both and leave the bromo runs out of scope.
+- ~~**Exps 57 and 58 are 4-bromobenzyl alcohol runs.**~~ **CLOSED 2026-08-30** —
+  ruled 4OMe-BnOH; the copied workbook's stale molar mass made `[sub]` low by
+  1.354×, now corrected. See the entry at the top of this log.
+- **t054 and t056 are genuine 4-bromobenzyl alcohol runs and are not compiled.**
+  With `Hammett.xls` in the same folder, the raw archive holds the beginnings of
+  a Hammett series (H, 4-MeO, 4-Br) of which the bromo arm is entirely absent
+  from the dataset. Bringing it in would need a `4Br-BnOH` entry in
+  `SUBSTRATE_PROPERTIES` (285 nm, `e` = 1.59 per t056) — a scope decision, not a
+  defect.
 - **The cross-substrate ε ratio 7.53/1.23 is a standing assumption.** Within a
   substrate an error in `e` is one global scale factor and harmless; between
   substrates it enters any comparison of rate constants directly. Not a defect,

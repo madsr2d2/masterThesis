@@ -54,7 +54,20 @@ KNOWN_EXCLUSIONS = {
 
 # Deviations that are understood and accepted, so the deep checks warn rather
 # than error on them. Keyed by experiment -> (check names, reason).
+_RESCALED_57_58 = (
+    "block;chain",
+    "[sub] is deliberately 1.3536x the value the sheet computes. The sheet "
+    "divides the substrate stock (0.3511 g / 0.1 L) by M = 187.03, the molar "
+    "mass of 4-bromobenzyl alcohol, because the workbook was copied from t056; "
+    "the compound actually used is 4-methoxybenzyl alcohol, M = 138.17. "
+    "Corrected in kinetics_io by CONCENTRATION_RESCALINGS, so the compiled "
+    "value is right and the sheet's is wrong -- the one place in this dataset "
+    "where that is true. Ruled 2026-08-30, see DATA_VERIFICATION.md."
+)
+
 KNOWN_ACCEPTED_DEVIATIONS = {
+    57: _RESCALED_57_58,
+    58: _RESCALED_57_58,
     128: ("block;chain",
           'sample 5 is the reference row "ref 5" (a matched no-enzyme blank) with its own '
           "cuvette volume, not a 5th titration condition, so both its concentrations and "
@@ -88,31 +101,6 @@ _ABS_285_RULING = (
 )
 RULINGS = {number: {"abs_nm": _ABS_285_RULING} for number in (2, 4, 5, 7, 8, 9, 10)}
 
-# Exps 57 and 58 carry the same stale 285 nm, and additionally a different e.
-# Ruled 2026-08-30 on two general principles, which also close the question for
-# the whole dataset:
-#
-#   the WAVELENGTH is a property of the substrate, not of the run -- BnOH is
-#   read at 285 nm and 4OMe-BnOH at 300 nm throughout;
-#
-#   e is a CONVERSION FACTOR applied uniformly at analysis time, not a
-#   per-experiment measurement, so a sheet's e cell is that workbook's own
-#   working note and is authoritative for nothing.
-#
-# All nine deviating sheets in the dataset are 4OMe workbooks carrying the BnOH
-# template's 285 nm; exps 57/58 are the only two where the e cell was changed as
-# well. Consequence: none. Uniformity within a substrate is what matters, and it
-# holds -- a wrong e would be one global scale factor absorbed into the fitted
-# rate constants. The cross-substrate ratio 7.53/1.23 is a separate standing
-# assumption, recorded in DATA_VERIFICATION.md.
-_SUBSTRATE_OPTICS_REASON = (
-    "sheet declares {declared}; ruled to the substrate convention on 2026-08-30. "
-    "The monitoring wavelength follows the substrate (BnOH 285 nm, 4OMe-BnOH "
-    "300 nm) and e is a conversion factor applied uniformly at analysis time, "
-    "not a per-experiment measurement, so this sheet's cells are working notes. "
-    "All nine deviating sheets in the dataset are 4OMe workbooks carrying the "
-    "BnOH template's 285 nm."
-)
 # Exps 84 and 85 are 4OMe-BnOH runs whose FILENAMES say BnOH. Ruled 2026-08-30
 # on four independent grounds inside the sheets, against the filename alone:
 #   the stock-solution block is labelled "Stamopløsning 4 / 4-MeO-BnOH [g]";
@@ -137,11 +125,29 @@ _SUBSTRATE_84_85 = (
 for _exp in (84, 85):
     RULINGS[_exp] = {"substrate": _SUBSTRATE_84_85}
 
+# Exps 57 and 58 are 4-methoxybenzyl alcohol runs (ruled 2026-08-30) whose
+# workbook was copied wholesale from t056, a 4-bromobenzyl alcohol run: the
+# substrate label in cell C4 and the filename were updated, the entire stock
+# block and the optics were not. So the sheet's 285 nm, its e = 1.59 and its
+# M = 187.03 are all t056's, and the dataset's 300 nm / e = 7.53 are correct by
+# the substrate convention. The molar mass is the consequential one -- the stock
+# of 0.3511 g in 0.1 L was divided by 187.03 instead of 138.17, so every [sub]
+# in these two experiments was low by that ratio. Corrected in kinetics_io by
+# CONCENTRATION_RESCALINGS. See DATA_VERIFICATION.md 2026-08-30.
+_COPIED_FROM_T056 = (
+    "sheet declares {declared}; ruled to the 4OMe-BnOH convention on 2026-08-30. "
+    "The workbook was copied from t056, a 4-brom-BnOH run, with the substrate "
+    "label and the filename changed and the stock block and optics left behind: "
+    "the stock (0.3511 g / 0.1 L) and the molar mass (187.03) are byte-identical "
+    "to t056's, and e = 1.59 is the 4-bromo convention. The stale M = 187.03 "
+    "made every [sub] low by 187.03/138.17 = 1.3536x, corrected in kinetics_io "
+    "by CONCENTRATION_RESCALINGS."
+)
 for _exp in (57, 58):
     RULINGS[_exp] = {
-        "abs_nm": (300.0, _SUBSTRATE_OPTICS_REASON.format(
+        "abs_nm": (300.0, _COPIED_FROM_T056.format(
             declared="285 nm, paired with e = 1.59")),
-        "e_declared": (7.53, _SUBSTRATE_OPTICS_REASON.format(declared="e = 1.59")),
+        "e_declared": (7.53, _COPIED_FROM_T056.format(declared="e = 1.59")),
     }
 
 # Substrate keys are checked in order: '4OMe-BnOH' spellings must be tested

@@ -57,10 +57,32 @@ EXPERIMENT_CORRECTIONS = {
 }
 
 
+# Corrections that are a uniform RESCALING rather than a set of replacement
+# values. Kept separate from EXPERIMENT_CORRECTIONS so the reason stays legible:
+# these are cases where the sheet's arithmetic is right but its input constant
+# is wrong, so every value scales by one factor rather than being retyped.
+#
+# Exps 57 and 58 are 4-methoxybenzyl alcohol runs (ruled 2026-08-30) whose
+# workbook was copied from t056, a 4-bromobenzyl alcohol run, with the substrate
+# label and the filename updated but the whole stock block left behind. The
+# stock is recorded as 0.3511 g in 0.1 L, and the sheet divides that mass by
+# M = 187.03 (4-bromobenzyl alcohol) to get 18.772 mM. For the compound actually
+# used, M = 138.17, so the stock was 25.411 mM and every cuvette is higher than
+# recorded by 187.03 / 138.17. See DATA_VERIFICATION.md 2026-08-30.
+_BROMO_TO_METHOXY = 187.03 / 138.17
+
+CONCENTRATION_RESCALINGS = {
+    57: {"[sub]": _BROMO_TO_METHOXY},
+    58: {"[sub]": _BROMO_TO_METHOXY},
+}
+
+
 def apply_experiment_corrections(experiment_number, sample_index, concentrations):
     """
     Overrides extracted concentrations for the experiments whose .xls layout
-    defeats the generic extraction (see EXPERIMENT_CORRECTIONS above).
+    defeats the generic extraction (EXPERIMENT_CORRECTIONS), then applies any
+    uniform rescaling (CONCENTRATION_RESCALINGS). Replacements come first, so a
+    rescaling applies to the corrected value.
 
     Args:
         experiment_number (int): The experiment number.
@@ -71,15 +93,15 @@ def apply_experiment_corrections(experiment_number, sample_index, concentrations
         dict: A new dict with any corrections applied.
     """
     corrected = dict(concentrations)
-    correction = EXPERIMENT_CORRECTIONS.get(experiment_number)
-    if not correction:
-        return corrected
-    for column, value in correction.items():
+    for column, value in (EXPERIMENT_CORRECTIONS.get(experiment_number) or {}).items():
         if isinstance(value, (list, tuple)):
             if sample_index < len(value):
                 corrected[column] = value[sample_index]
         else:
             corrected[column] = value
+    for column, factor in (CONCENTRATION_RESCALINGS.get(experiment_number) or {}).items():
+        if corrected.get(column) is not None:
+            corrected[column] = round(corrected[column] * factor, 3)
     return corrected
 
 
