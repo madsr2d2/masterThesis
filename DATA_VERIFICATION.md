@@ -7,6 +7,96 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-30 — Ionic strength and [HOO⁻] moved out of the notebook
+
+`I` and `[HOO-]` are the only quantities in this dataset that are **computed**
+rather than measured or read off a sheet, and until now both lived in notebook
+cells 37 and 38. Every one of the four bugs previously recorded against that
+block survived because a notebook cell cannot be imported, diffed against a
+second implementation, or tested.
+
+They now live in **`data/solution_chemistry.py`**, with
+**`data/test_solution_chemistry.py`** pinning them.
+
+### The physics is unchanged
+
+The module reproduces the corrected notebook implementation **exactly** — max
+absolute difference 2.3e-13 mM on `I` and 0 on `[HOO-]` across all 443 rows.
+Nothing that has already been looked at changes.
+
+### What the tests pin
+
+71 checks, all passing. The load-bearing ones are the two worked by hand, which
+give the module a validation gate rather than mere self-consistency:
+
+| check | expected | why it is checkable by hand |
+|---|---|---|
+| 100 mM phosphate, pH 7.00 | **I = 177.37 mM** | pKa₂ = 7.20 ⇒ fractions 0.61313 / 0.38684; Na⁺ = 1.38682 per phosphate; I = ½·100·(0.61313 + 4·0.38684 + 1.38682) |
+| 100 mM boric, pH = pKa | **I = 50 mM** | half dissociated ⇒ ½·100·(0.5·1 + 0.5·1) |
+| pKa(H₂O₂) at I = 75 mM | **11.494** | 11.75 − 0.509·2·√0.075/(1 + 0.328·√0.075) |
+
+Plus one regression per historical bug, each written to fail if the old
+behaviour returns:
+
+1. an unrecognised buffer name now **raises** instead of falling through to a
+   single-species default — that default is what turned the `'Boric Acid'` /
+   `'Boric'` key mismatch into a silent `I = 0` for 26 experiments;
+2. `I` must exceed the anion-only value by more than 1.5×, catching a dropped
+   counter-ion term;
+3. the Debye–Hückel shift must be under a fifth of what feeding mM directly
+   would give, catching the unit error;
+4. the shift must equal exactly twice the `z² = 1` value, pinning Δ(z²) = 2.
+
+### New finding: the Debye–Hückel equation is being extrapolated
+
+Stamping the column across the whole dataset made the range visible for the
+first time:
+
+| | rows | experiments | buffers |
+|---|---|---|---|
+| I > 100 mM (usual validity limit) | **308 of 443 (70%)** | 71 | Carbonate, Phosphate, Pyrophosphate |
+| I > 300 mM | 133 | 24 | Phosphate, Pyrophosphate |
+| I > 500 mM (the usual stretch limit) | 63 | 11 | Pyrophosphate |
+| I > 1000 mM | 21 | 5 | Pyrophosphate |
+
+The maximum is **1069 mM** (exps 128, 131 — pyrophosphate, 194 mM, pH 7.29).
+Pyrophosphate drives this by construction: a tetraprotic acid contributes z²
+up to 16, so its `I` starts at 158 mM and never drops below it.
+
+The consequence is bounded — the correction only ever moves pKa(H₂O₂) from
+11.75 to 10.96 across the entire dataset — but it is a **systematic** error in
+`[HOO-]`, not a random one, and it is largest exactly where `[HOO-]` is
+largest. A Davies or Pitzer treatment would be the principled fix. Recorded as
+an open item rather than patched, and exposed as
+`DEBYE_HUCKEL_RELIABLE_mM` / `out_of_range_fraction()` so any result depending
+on it can state its own exposure.
+
+### Other limitations, documented rather than modelled
+
+The module docstring records four more, none of which the dataset carries
+enough information to fix:
+
+- **mixed buffers** — several sheets prepare one "buffer" from two salts
+  (exp 146 mixes Na₄P₂O₇·10H₂O with NaH₂PO₄·2H₂O), but the dataset carries a
+  single name and a single `[buf]`; for that pyrophosphate/phosphate mixture
+  near pH 8.7 the error in `I` is roughly 10–20%;
+- **titrant** — HCl/NaOH used to reach the target pH is recorded nowhere;
+- **thermodynamic pKa values** used at finite ionic strength for the buffers
+  while H₂O₂'s pKa *is* activity-corrected — deliberate, so the module stays
+  numerically identical to results already recorded;
+- **temperature** — 25 °C constants applied across 15–40 °C.
+
+### Notebook
+
+Cells 37 and 38 no longer define the physics; they import the module and keep
+thin wrappers so downstream cells still run. Verified: the notebook contains
+**zero** copies of `buffer_pKa`, `species_charges` or `pKa_H2O2`, and both
+cells execute and agree with `add_solution_columns` to floating-point
+equality. This removes the last duplicated calculation between the notebook and
+the pipeline.
+
+---
+
 ## 2026-08-30 — Wavelength and extinction coefficient: the sheets declare them, the pipeline ignores them
 
 Chasing `MECHANISM.md`'s open observable question turned up the answer in the
@@ -1091,6 +1181,22 @@ in case the stray file causes confusion later.
 
 ## Open items
 
+- **The extended Debye–Hückel equation is out of range for 70% of the dataset**
+  (308 rows, 71 experiments above I = 100 mM; 21 rows above 1 M, all
+  pyrophosphate). Systematic, not random, and largest where `[HOO-]` is
+  largest. A Davies or Pitzer treatment is the fix; until then any
+  `[HOO-]`-dependent result should state its exposure via
+  `solution_chemistry.out_of_range_fraction()`.
+- **The buffer stock molarity is an assumption for 33 experiments.** `[buf]` is
+  read from a declared `[buf] mmol/l` column in 42 experiments (constant across
+  cuvettes in all 42, matching the CSV exactly), but inferred as
+  `(V_buf/2)·100` in the other 56 — hardcoding a 2 mL cuvette (true in 55 of
+  56; exp 58 is 2.1 mL, already excluded) and a 0.1 M stock. That stock is
+  confirmed by the filename in 18 and by in-sheet text in 5 (exps 32/34/35/36/37,
+  the recovered titration), and stated **nowhere at all** in the remaining 33
+  (exps 2–31, 38, 39, 40, 52). All 56 reproduce the formula exactly, so no
+  second breakage of the exp-32 kind is hiding — but `I` and `[HOO-]` scale
+  linearly with any error here. Needs a `buf_provenance` column.
 - `data.toml` still doesn't parse and isn't reconciled with the verified csv
   (deprioritized — planned rewrite of the toml-generating script).
 - Metadata (pH, T, buffer, substrate, `[enz]`/`[buf]`/`[h2o2]`/`[sub]`), the

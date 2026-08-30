@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+
+# LibreOffice lock files (present only while a document is open)
+.~lock.*#
