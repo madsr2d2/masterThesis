@@ -476,13 +476,18 @@ def render_experiment(number, manifest, dataset):
     status_class = "exclude" if declared["status"] == "exclude" else "use"
     return f"""
 <section id="exp{number}">
-  <h2>Experiment {number}
+  <div class="gutter">{number}<small>exp</small></div>
+  <div class="record">
+  <h2>{html.escape(str(declared['substrate']))} in {html.escape(str(declared['buffer']))},
+      pH {html.escape(str(declared['pH']))}, {html.escape(str(declared['T']))}&deg;C</h2>
+  <p class="file">{html.escape(str(xls_file))}
+     {'&middot; collected ' + html.escape(str(collected)) if collected else ''}</p>
+  <div class="badges">
       <span class="badge {status_class}">{html.escape(str(declared['status']))}</span>
       <span class="badge design">{html.escape(design)} design</span>
       <span class="badge prov-{provenance}">[buf] {html.escape(provenance)}</span>
-  </h2>
-  <p class="file">{html.escape(str(xls_file))}
-     {'&middot; collected ' + html.escape(str(collected)) if collected else ''}</p>
+      <span class="badge">{len(rows)} cuvettes</span>
+  </div>
 
   {flag_html}
 
@@ -505,76 +510,139 @@ def render_experiment(number, manifest, dataset):
   <div class="scroll">{recipe_html}</div>
 
   <h3>Ruling</h3>
-  <table class="ruling"><tbody>
+  <div class="ruling"><table><tbody>
     <tr><td>design</td><td class="proposed">{html.escape(design)}</td><td class="blank"></td></tr>
     <tr><td>buf_provenance</td><td class="proposed">{html.escape(provenance)}</td><td class="blank"></td></tr>
     <tr><td>buffer stock (M)</td><td class="proposed">{html.escape(stock_note)}</td><td class="blank"></td></tr>
     <tr><td>status</td><td class="proposed">{html.escape(str(declared['status']))}</td><td class="blank"></td></tr>
     <tr><td>open questions resolved?</td><td class="proposed">{
         len([f for f in flags if f[0] == 'open question'])} outstanding</td><td class="blank"></td></tr>
-  </tbody></table>
+  </tbody></table></div>
+  </div>
 </section>
 """
 
 
 STYLE = """
-:root { --ink:#1a1a1a; --dim:#666; --line:#ddd; --bg:#fff; --panel:#fafafa;
-        --warn:#b8541f; --warnbg:#fdf3ec; --ok:#3f7a4f; --okbg:#f0f7f1; }
-:root:not([data-theme="light"]) { }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --ink:#e6e6e6; --dim:#999; --line:#333;
-     --bg:#141414; --panel:#1c1c1c; --warn:#e08a4f; --warnbg:#2a1f16;
-     --ok:#7fb98f; --okbg:#16241a; }
+/* Palette grounded in the subject: a UV spectrophotometer readout on lab
+   paper. Neutrals carry a cool bias toward the 285 nm accent rather than
+   sitting at pure grey; the warn hue is the burnt orange of a flagged trace. */
+:root {
+  --ground:#f6f6f3; --panel:#edeee9; --sunk:#e4e5df;
+  --ink:#16181c; --body:#33363d; --dim:#71757e;
+  --rule:#d6d7d0; --hair:#e6e7e1;
+  --accent:#33459b; --accent-soft:#e7e9f4;
+  --warn:#9d4419; --warn-soft:#f6ebe3;
+  --ok:#3a6a48; --ok-soft:#e8f0e9;
 }
-:root[data-theme="dark"] { --ink:#e6e6e6; --dim:#999; --line:#333; --bg:#141414;
-  --panel:#1c1c1c; --warn:#e08a4f; --warnbg:#2a1f16; --ok:#7fb98f; --okbg:#16241a; }
-body { background:var(--bg); color:var(--ink); font:14px/1.5 -apple-system,
-       BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-       margin:0; padding:0 24px 64px; max-width:1180px; }
-h1 { font-size:22px; margin:28px 0 4px; }
-h2 { font-size:18px; margin:0 0 2px; border-top:2px solid var(--ink);
-     padding-top:14px; }
-h3 { font-size:12px; text-transform:uppercase; letter-spacing:.06em;
-     color:var(--dim); margin:18px 0 6px; font-weight:600; }
-p.lede { color:var(--dim); max-width:70ch; }
-p.file { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
-         color:var(--dim); margin:2px 0 12px; word-break:break-all; }
-section { margin:0 0 40px; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:#111317; --panel:#191c21; --sunk:#1f232a;
+    --ink:#eceef1; --body:#c3c7cf; --dim:#858b96;
+    --rule:#2b3038; --hair:#22262d;
+    --accent:#8f9fe4; --accent-soft:#1c2140;
+    --warn:#e08a52; --warn-soft:#2c1f16;
+    --ok:#7cb28c; --ok-soft:#16241b;
+  }
+}
+:root[data-theme="dark"] {
+  --ground:#111317; --panel:#191c21; --sunk:#1f232a;
+  --ink:#eceef1; --body:#c3c7cf; --dim:#858b96;
+  --rule:#2b3038; --hair:#22262d;
+  --accent:#8f9fe4; --accent-soft:#1c2140;
+  --warn:#e08a52; --warn-soft:#2c1f16;
+  --ok:#7cb28c; --ok-soft:#16241b;
+}
+
+body { background:var(--ground); color:var(--body);
+       font:400 15px/1.6 "IBM Plex Serif", Georgia, serif;
+       margin:0; padding:0 28px 96px; }
+.wrap { max-width:1220px; margin:0 auto; }
+
+h1 { font:600 30px/1.15 "IBM Plex Sans Condensed", "IBM Plex Sans",
+     system-ui, sans-serif; color:var(--ink); letter-spacing:-.01em;
+     margin:40px 0 10px; text-wrap:balance; }
+p.lede { max-width:66ch; color:var(--body); margin:0 0 22px; }
+p.lede em { color:var(--ink); font-style:italic; }
+
+/* Section = one specimen sheet: a number in the gutter, the record beside it */
+section { display:grid; grid-template-columns:88px minmax(0,1fr); gap:0 22px;
+          border-top:2px solid var(--ink); padding-top:18px; margin:0 0 52px; }
+@media (max-width:820px){ section { grid-template-columns:minmax(0,1fr); } }
+.gutter { font:600 40px/1 "IBM Plex Sans Condensed", system-ui, sans-serif;
+          color:var(--ink); font-variant-numeric:tabular-nums;
+          letter-spacing:-.02em; position:sticky; top:12px; align-self:start; }
+.gutter small { display:block; font:600 10px/1.4 "IBM Plex Mono", monospace;
+                color:var(--dim); text-transform:uppercase; letter-spacing:.12em;
+                margin-top:4px; }
+.record { min-width:0; }
+
+h2 { font:600 19px/1.25 "IBM Plex Sans Condensed", system-ui, sans-serif;
+     color:var(--ink); margin:0 0 3px; }
+h3 { font:600 10.5px/1 "IBM Plex Mono", monospace; text-transform:uppercase;
+     letter-spacing:.13em; color:var(--dim); margin:22px 0 7px; }
+p.file { font:400 11.5px/1.5 "IBM Plex Mono", monospace; color:var(--dim);
+         margin:0 0 14px; word-break:break-all; }
+
+/* Badges encode the three classifications, not decoration */
+.badges { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 12px; }
+.badge { font:600 10px/1.7 "IBM Plex Mono", monospace; text-transform:uppercase;
+         letter-spacing:.09em; padding:1px 9px; border-radius:2px;
+         background:var(--sunk); color:var(--dim); }
+.badge.use { background:var(--accent-soft); color:var(--accent); }
+.badge.exclude, .badge.prov-assumed { background:var(--warn-soft); color:var(--warn); }
+
+.flag { display:grid; grid-template-columns:112px minmax(0,1fr); gap:10px;
+        background:var(--panel); border-left:3px solid var(--warn);
+        padding:6px 12px; margin:0 0 3px; font-size:13.5px; }
+.flag.ok { border-left-color:var(--ok); background:var(--ok-soft); }
+.tag { font:600 10px/1.9 "IBM Plex Mono", monospace; text-transform:uppercase;
+       letter-spacing:.08em; color:var(--warn); }
+.flag.ok .tag { color:var(--ok); }
+
 .grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr);
-        gap:24px; align-items:start; }
+        gap:26px; align-items:start; margin-top:4px; }
 @media (max-width:900px){ .grid { grid-template-columns:minmax(0,1fr); } }
-table { border-collapse:collapse; font-size:12px; width:100%; }
-th,td { border-bottom:1px solid var(--line); padding:3px 8px 3px 0;
-        text-align:left; white-space:nowrap; }
-th { color:var(--dim); font-weight:600; font-size:11px; text-transform:uppercase;
-     letter-spacing:.04em; }
-td { font-variant-numeric:tabular-nums; }
-tr.conflict td { background:var(--warnbg); color:var(--warn); font-weight:600; }
-.scroll { overflow-x:auto; }
-img { display:block; width:100%; height:auto; margin-bottom:8px;
-      border:1px solid var(--line); border-radius:3px; background:#fff; }
-.badge { font-size:10px; text-transform:uppercase; letter-spacing:.05em;
-         border:1px solid var(--line); border-radius:9px; padding:1px 8px;
-         margin-left:6px; vertical-align:middle; color:var(--dim);
-         font-weight:600; }
-.badge.exclude { color:var(--warn); border-color:var(--warn); }
-.badge.prov-assumed { color:var(--warn); border-color:var(--warn); }
-.flag { background:var(--panel); border-left:3px solid var(--line);
-        padding:5px 10px; margin:4px 0; font-size:12.5px; }
-.flag.ok { border-left-color:var(--ok); }
-.tag { display:inline-block; min-width:96px; color:var(--warn);
-       font-weight:600; font-size:11px; text-transform:uppercase;
-       letter-spacing:.04em; }
-.tag.ok { color:var(--ok); }
-.notes td:first-child { color:var(--dim); }
-.ruling td { padding:5px 8px 5px 0; }
-.ruling td:first-child { color:var(--dim); width:180px; }
-.proposed { font-weight:600; width:220px; }
-.blank { border-bottom:1px solid var(--ink); width:auto; min-width:220px; }
-.none { color:var(--dim); font-style:italic; font-size:12.5px; }
-nav { background:var(--panel); padding:10px 14px; border-radius:4px;
-      margin:16px 0 32px; font-size:13px; }
-nav a { color:inherit; margin-right:14px; display:inline-block; }
+
+table { border-collapse:collapse; width:100%;
+        font:400 12.5px/1.55 "IBM Plex Mono", ui-monospace, monospace;
+        font-variant-numeric:tabular-nums; }
+th, td { padding:3px 12px 3px 0; text-align:left; white-space:nowrap;
+         border-bottom:1px solid var(--hair); }
+th { font-weight:600; font-size:10px; text-transform:uppercase;
+     letter-spacing:.09em; color:var(--dim); border-bottom:1px solid var(--rule); }
+td { color:var(--body); }
+tbody tr:last-child td { border-bottom:1px solid var(--rule); }
+
+/* A conflict is marked, not washed: the stripe carries it */
+tr.conflict td { color:var(--warn); font-weight:600; background:var(--warn-soft); }
+tr.conflict td:first-child { box-shadow:inset 3px 0 0 var(--warn); padding-left:9px; }
+
+.notes td:first-child, .sources td:first-child { color:var(--dim); }
+.scroll { overflow-x:auto; padding-bottom:2px; }
+
+img { display:block; width:100%; height:auto; margin:0 0 10px;
+      border:1px solid var(--rule); background:#fff; }
+
+/* The ruling block is a form: proposed value, then a rule to write on */
+.ruling { background:var(--panel); padding:12px 14px; margin-top:6px; }
+.ruling table { font-size:12.5px; }
+.ruling td { border-bottom:none; padding:6px 12px 6px 0; white-space:normal; }
+.ruling td:first-child { color:var(--dim); width:170px; }
+.proposed { color:var(--ink); font-weight:600; width:46%; }
+.blank { border-bottom:1px solid var(--rule); min-width:150px; }
+.none { color:var(--dim); font-style:italic; font-size:13px; }
+
+nav { position:sticky; top:0; z-index:5; background:var(--ground);
+      border-bottom:1px solid var(--rule); padding:9px 0 8px; margin:0 0 30px;
+      font:400 12px/1.7 "IBM Plex Mono", monospace; }
+nav strong { color:var(--dim); font-weight:600; text-transform:uppercase;
+             letter-spacing:.09em; font-size:10px; margin-right:10px; }
+nav a { color:var(--accent); text-decoration:none; padding:1px 7px;
+        border:1px solid var(--rule); border-radius:2px; margin-right:4px;
+        display:inline-block; }
+nav a:hover, nav a:focus-visible { background:var(--accent-soft);
+        border-color:var(--accent); outline:none; }
 """
 
 
@@ -600,9 +668,11 @@ def build(experiments=None, out_path="dossier.html",
         print(f"  experiment {number}", flush=True)
         sections.append(render_experiment(number, manifest, dataset))
 
-    links = " ".join(f"<a href='#exp{n}'>{n}</a>" for n in numbers)
-    page = f"""<title>Experiment Dossier</title>
+    links = "".join(f'<a href="#exp{n}">{n}</a>' for n in numbers)
+    page = f"""<title>Kinetics Experiment Dossier</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap">
 <style>{STYLE}</style>
+<div class="wrap">
 <h1>Experiment review dossier</h1>
 <p class="lede">Every source of truth for each experiment, side by side. The
 per-cuvette concentrations below are already verified against the volume tables
@@ -610,8 +680,9 @@ and the recorded dilution chains; what needs a human is the per-experiment
 metadata &mdash; the design, the buffer stock, and whether the run should be
 used at all. Conflicts between sources are highlighted. Values under
 <em>Ruling</em> are proposed by rule, not asserted.</p>
-<nav><strong>{len(numbers)} experiments:</strong> {links}</nav>
+<nav><strong>{len(numbers)} experiments</strong>{links}</nav>
 {''.join(sections)}
+</div>
 """
     with open(out_path, "w") as handle:
         handle.write(page)
