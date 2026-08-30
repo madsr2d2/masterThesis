@@ -7,6 +7,93 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-30 — The 62 uncompiled files: only two were recoverable, and both are now in
+
+Inventory of everything in `data/Mads` that had never reached the dataset.
+
+| | n | |
+|---|---|---|
+| analysis workbooks, not runs | 5 | `Buffer`, `Hammett`, `Rate(T)`, `Rate(pH)`, `Rate_uncat` — two now serve as verification sources |
+| duplicate copies of compiled experiments | 6 | #143 (+autosaved), t018(1), t019(1), t042 variant, t052, t053 |
+| **never compiled, has raw curve data** | **2** | **exps 3 and 64** |
+| never compiled, **no raw curve data** | 49 | t001, t054, t056, t063, t081, the pH-11 batch t086–t109, the solvent-isotope batch t110–t126 and t132, #133, #134 |
+
+### The archive holds measurements for exactly 100 experiments
+
+All 105 `.txt` files under `data/Mads` parse, and between them they cover 100
+distinct experiment numbers: the 98 already compiled plus exps 3 and 64. Every
+file in the last row above has a **recipe sheet and no measurement**. Those runs
+are not missing from the dataset; they are missing from the archive.
+
+**This closes the Hammett question as impossible rather than pending.** t054 and
+t056 are genuine 4-bromobenzyl alcohol runs, but neither has an instrument
+export, so the bromo arm cannot be built from this archive at all. It is no
+longer a scope decision.
+
+### Exp 3 added — the largest enzyme-free experiment in the dataset
+
+`t003, BnOH, phosphate pH 6.71, 25 °C, no enzyme.` Seven cuvettes, a substrate
+ladder 1.28 → 8.98 mM at fixed H₂O₂ = 82.5 mM, 227 points over 185 minutes at
+dt = 49 s. All seven curves rise, none flat, none backwards; the enzyme block
+reads `kuv = 0` explicitly.
+
+Every other enzyme-free experiment in the dataset has **four** samples — 23 of
+them, one with three. Exp 3 nearly doubles that, and the catalyst-free constants
+`k_can` and `k3` are fitted on precisely this set before anything catalysed is
+touched.
+
+It uses M = 109.13 for benzyl alcohol, the early value that overstates the true
+108.14, so its `[sub]` is 0.9% low — the same defect already recorded for exp 6.
+
+### Exp 64 added and excluded
+
+`t064, BnOH, boric pH 8.51, no enzyme, H₂O₂ = 244.9 mM` — the highest peroxide
+in the dataset, which is why it was worth looking at.
+
+```
+Sample001  17 pts   7 min   net +0.006
+Sample002  17 pts   7 min   net +0.000
+Sample003  16 pts   7 min   net -0.001
+Sample004  16 pts   7 min   net -0.007
+```
+
+Seven minutes, and three of four curves flat or backwards — the criterion exps
+72 and 82 were excluded on. Its session was troubled throughout: the sibling
+sheet `mads_t063_..._no_E_94` is named **NO_DATA_FILE**, and t063 has no export
+at all.
+
+Compiled anyway and marked excluded, so the archive-to-dataset mapping is
+complete and the exclusion is recorded rather than silent.
+
+### The rebuild was safe because the dataset is reproducible
+
+Before touching anything, the compiled CSV was regenerated from `data/data` and
+diffed against the stored one: 443 rows, 12 columns, **zero differing cells**.
+Every hand-patch made today — exps 79/80's `[enz]`, exps 57/58's `[sub]` revert
+— is encoded in `EXPERIMENT_CORRECTIONS` and reproduces from the sheets. So
+adding experiments is a rebuild rather than a merge, and the check was repeated
+afterwards: all 443 pre-existing rows are byte-identical, with 11 new ones
+appended.
+
+**Both new experiments pass every deep check with no accepted deviation.**
+
+| | before | after |
+|---|---|---|
+| rows / experiments | 443 / 98 | **454 / 100** |
+| traced `[enz]` to weighed catalyst | 98 | **100** |
+| concentration columns from volume tables | 248 | **250** |
+| cuvette values through dilution chains | 341 | **345** |
+
+### Noted, not fixed
+
+`data/data` holds two copies of exp 32's sheet, one with a truncated filename.
+Their `Sheet1` contents are identical, and `find_and_parse_experiment_file`
+takes the first match, so nothing depends on which is read.
+
+Errors 0, warnings 9, notes 11. With `--deep`: 0 errors.
+
+---
+
 ## 2026-08-30 — A third, independent record of [enz]: Rate(pH).xls confirms all nine points
 
 `verify_enzyme.py` traces `[enz]` through the sheet that ran the experiment — its
@@ -299,8 +386,8 @@ experiments carry a recorded ruling (2, 4, 5, 7, 8, 9, 10, 38, 57, 58, 79, 80,
 84, 85) and eight are excluded (57, 58, 72, 77, 78, 79, 82, 84).
 
 What remains open is not about individual experiments: the buffer stock assumed
-for 33 of them, the design classification no file states, the 62 uncompiled
-files, and the Debye–Hückel range. Those are listed below.
+for 33 of them and the Debye–Hückel range. The design classification and the
+uncompiled files have since been resolved; see the entries above.
 
 ### A `RULINGS` bug this exposed
 
@@ -1842,12 +1929,10 @@ in case the stray file causes confusion later.
   the correct 108.14, making its `[sub]` 0.9% low. The only compiled experiment
   affected (t001 and t003 share it but were never compiled). Recorded, not
   corrected — it is well inside the other uncertainties on that run.
-- **t054 and t056 are genuine 4-bromobenzyl alcohol runs and are not compiled.**
-  With `Hammett.xls` in the same folder, the raw archive holds the beginnings of
-  a Hammett series (H, 4-MeO, 4-Br) of which the bromo arm is entirely absent
-  from the dataset. Bringing it in would need a `4Br-BnOH` entry in
-  `SUBSTRATE_PROPERTIES` (285 nm, `e` = 1.59 per t056) — a scope decision, not a
-  defect.
+- ~~**t054 and t056 are genuine 4-bromobenzyl alcohol runs and are not
+  compiled.**~~ **CLOSED 2026-08-30 — impossible, not pending.** Neither has an
+  instrument export, so the bromo arm cannot be built from this archive at all.
+  The Hammett series stays at two substrates.
 - **The cross-substrate ε ratio 7.53/1.23 is a standing assumption.** Within a
   substrate an error in `e` is one global scale factor and harmless; between
   substrates it enters any comparison of rate constants directly. Not a defect,
@@ -1858,13 +1943,14 @@ in case the stray file causes confusion later.
   largest. A Davies or Pitzer treatment is the fix; until then any
   `[HOO-]`-dependent result should state its exposure via
   `solution_chemistry.out_of_range_fraction()`.
-- **The buffer stock molarity is an assumption for 32 experiments.** `[buf]` is
+- **The buffer stock molarity is an assumption for 33 experiments** (32 plus
+  exp 3, added 2026-08-30, which is the same early phosphate era). `[buf]` is
   read from a declared `[buf] mmol/l` column in 42, and inferred as
   `(V_buf/2)·100` in the other 56 — hardcoding a 2 ml cuvette (true in 55 of 56;
   exp 58 is 2.1 ml and already excluded) and a 0.1 M stock. That stock is now
   confirmed by a weighed recipe in 1 (exp 13, computing to 100.5 mM), by the
   filename in 18, and by in-sheet text in 5 (exps 32, 34–37). It is stated
-  **nowhere** for the remaining 32 — exps 2, 4–12, 14–31, 38, 39, 40 and 52,
+  **nowhere** for the remaining 33 — exps 2, 3, 4–12, 14–31, 38, 39, 40 and 52,
   which are all phosphate and all predate the filename convention that starts at
   t041. `I` and `[HOO⁻]` scale linearly with any error there. Tracked as the
   `buf_provenance` column.

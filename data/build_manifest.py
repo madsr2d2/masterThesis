@@ -45,6 +45,13 @@ MADS_DIR = "data/Mads"
 # in DATA_VERIFICATION.md. Seeded here so status/exclusion becomes declared data
 # rather than a literal buried in a notebook cell.
 KNOWN_EXCLUSIONS = {
+    64: ("aborted run: 7 minutes at dt = 28 s, and three of the four curves are "
+         "flat or backwards (net +0.000, -0.001, -0.007 against sample 1's "
+         "+0.006). Same criterion as exps 72 and 82. Its session was troubled "
+         "throughout -- the sibling sheet mads_t063_..._no_E_94 is named "
+         "NO_DATA_FILE and t063 has no instrument export at all. Compiled "
+         "anyway, on 2026-08-30, so the archive-to-dataset mapping is complete "
+         "and the exclusion is recorded rather than silent"),
     57: ("[sub] is not recoverable: the workbook was copied from t056, a "
          "4-brom-BnOH run, and the whole substrate stock block came with it. "
          "The compound was 4OMe-BnOH (ruled 2026-08-30), so a fresh stock must "
