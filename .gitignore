@@ -3,3 +3,6 @@ __pycache__/
 
 # LibreOffice lock files (present only while a document is open)
 .~lock.*#
+
+# generated review dossiers
+dossier*.html
