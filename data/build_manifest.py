@@ -61,12 +61,35 @@ KNOWN_EXCLUSIONS = {
          "Rescaling by 187.03/138.17 assumes only the molar mass was stale, "
          "which is the one assumption the evidence argues against, so the "
          "concentration is unknown rather than merely wrong"),
+    50: ("reaction-direction: all four curves descend 0.075-0.105 AU, and the "
+         "descent has no ordering by substrate at all -- rho(|net| vs [sub]) = "
+         "0.00 against +1.00 for every healthy run. Nothing that depends on "
+         "substrate produced that signal, and negating the curves does not "
+         "help, since a sign flip preserves the ordering. The repeat under "
+         "identical conditions (exp 55: same buffer, pH, ladder and [enz]) "
+         "rises +0.145 to +0.476 monotonically, and the same-day sibling exp "
+         "51 is clean -- the criterion that excluded exps 72 and 82. Ruled "
+         "2026-08-30. It survived earlier passes only because it is "
+         "hand-sorted into data/Mads/'good data BnOH'"),
     58: "reaction-direction: whole experiment runs backwards",
     72: "flat progress curves in every sample; same-day sibling 71 normal",
     77: "reaction-direction: whole experiment runs backwards",
     78: "reaction-direction: whole experiment runs backwards",
     79: "reaction-direction: whole experiment runs backwards",
     82: "flat progress curves in every sample; same-day sibling 83 normal",
+    85: ("reaction-direction: all seven curves crash 0.30-0.63 AU, most of it "
+         "in the first 15 of 60 minutes, which is a decay rather than a "
+         "reaction. The drop is ANTI-correlated with substrate -- 14.30 mM "
+         "falls -0.298 where 0.51 mM falls -0.604 -- so the observable is not "
+         "product formation. Substrate inhibition was considered and does not "
+         "explain it: inhibition drives the rate toward zero, never below, and "
+         "it predicts the low-[sub] cuvette to be the largest POSITIVE. The "
+         "sheet gives pH 11.84 in Na2CO3, 1.5 units above carbonate's pKa2, so "
+         "the run is barely buffered; exps 86-109 at pH 11 were hand-sorted "
+         "into 'bad data pH ca. 11' and exp 85 escaped only because it sits in "
+         "'carbonate buffer'. Ruled 2026-08-30. It carries the widest substrate "
+         "range in the archive, 0.51-14.30 mM, and may be worth citing as "
+         "evidence of catalyst instability at pH 11.8 -- but not as kinetics"),
     84: "hand-sorted into data/Mads/'bad data'",
 }
 

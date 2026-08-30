@@ -15,7 +15,9 @@ For each experiment it shows, in one place:
               compiled dataset ended up with -- disagreements highlighted
   recipe      the sheet's own cuvette table, verbatim
   compiled    the rows that reached experiment_data.csv
-  curves      every progress curve, with dead and backwards ones marked
+  curves      every progress curve, with backwards, thrashing and flat
+              ones marked -- flat is a note, not a defect, since it is
+              usually a titration's slowest rung rather than a failure
   inferred    design (volume vs stock) and buffer-stock provenance, proposed
               by rule for confirmation rather than asserted
   ruling      the fields to fill in on the manifest
@@ -223,6 +225,62 @@ def curve_index():
     return _CURVE_INDEX
 
 
+# The instrument writes absorbance to three decimals, so a curve that is
+# genuinely still has first differences of exactly zero and any spread-based
+# noise estimate collapses. Floor every estimate at the quantisation sigma.
+ABSORBANCE_QUANTUM = 0.001
+QUANTISATION_SIGMA = ABSORBANCE_QUANTUM / np.sqrt(12)
+
+# A net change smaller than this is reported as flat regardless of its
+# significance: below it the curve carries no usable rate, whether or not the
+# instrument could resolve the drift.
+FLAT_ABSORBANCE = 0.01
+
+# Backtracking has to clear both an absolute bar (well above the quantum) and a
+# relative one, so a large clean curve with a little wander is not flagged.
+BACKTRACK_ABSORBANCE = 0.02
+BACKTRACK_FRACTION = 0.5
+
+# How many sigma a rise or fall must clear to count as real rather than drift.
+SIGNIFICANCE_SIGMA = 5.0
+
+MINIMUM_POINTS = 20
+
+
+def curve_noise(values):
+    """
+    Point-to-point noise, from the median absolute second difference.
+
+    The second difference annihilates any linear trend, so this measures the
+    scatter of a progress curve without being inflated by the progress itself.
+    The 1.4826 converts a median absolute deviation to a standard deviation and
+    the sqrt(6) undoes the variance the second difference introduces.
+    """
+    values = np.asarray(values, dtype=float)
+    if len(values) < 5:
+        return QUANTISATION_SIGMA
+    curvature = values[2:] - 2 * values[1:-1] + values[:-2]
+    estimate = 1.4826 * np.median(np.abs(curvature)) / np.sqrt(6)
+    return max(float(estimate), QUANTISATION_SIGMA)
+
+
+def curve_backtrack(values, window=5):
+    """
+    Absorbance travelled against the curve's own direction, in AU.
+
+    A clean progress curve is monotone, so its total variation equals the net
+    change and this is zero. A curve disturbed by a bubble crossing the light
+    path travels much further than it progresses. Median-smoothed first, so
+    ordinary point noise does not accumulate into an apparent excursion.
+    """
+    values = np.asarray(values, dtype=float)
+    if len(values) < 3:
+        return 0.0
+    smoothed = pd.Series(values).rolling(window, center=True, min_periods=1).median().values
+    net = smoothed[-1] - smoothed[0]
+    return float((np.abs(np.diff(smoothed)).sum() - abs(net)) / 2)
+
+
 def curve_diagnostics(experiment_number):
     """Returns (DataFrame of per-curve diagnostics, collection date), or (None, None)."""
     parsed = curve_index().get(experiment_number)
@@ -237,22 +295,53 @@ def curve_diagnostics(experiment_number):
                 "duration_min": float(time[-1] - time[0]) / 60.0 if len(time) else np.nan,
                 "start": float(values[0]), "end": float(values[-1]),
                 "max": float(values.max()), "net": float(values[-1] - values[0]),
+                "noise": curve_noise(values), "backtrack": curve_backtrack(values),
                 "time": time, "values": values,
             })
         return pd.DataFrame(rows), parsed.get("date")
     return None, None
 
 
-def curve_flags(row):
-    """Returns the list of problems this curve has, if any."""
-    flags = []
-    if row["net"] < -1e-9:
-        flags.append(f"ends {row['net']:+.3f} below start")
-    if row["max"] < 0:
-        flags.append("never rises above baseline")
-    if row["points"] < 20:
-        flags.append(f"only {row['points']} points")
-    return flags
+def curve_findings(row):
+    """
+    Returns [(level, message)] describing this curve, where level is 'defect'
+    for something wrong with the measurement and 'note' for something worth
+    seeing that may be the experiment working as designed.
+
+    The distinction matters because the flattest cuvette in a titration is
+    usually its lowest rung, not a failure -- those points carry the K_M
+    information and must not be discarded for being slow. What is genuinely
+    wrong is a curve that runs backwards, or one that thrashes: see
+    DATA_VERIFICATION.md 2026-08-30 for the survey behind these rules.
+    """
+    findings = []
+    net, noise = row["net"], row["noise"]
+    significant = abs(net) > SIGNIFICANCE_SIGMA * noise
+
+    if net < 0 and significant and abs(net) >= FLAT_ABSORBANCE:
+        findings.append(("defect",
+                         f"runs backwards: ends {net:+.3f} below start "
+                         f"({abs(net) / noise:.0f} sigma)"))
+    elif abs(net) < FLAT_ABSORBANCE:
+        findings.append(("note",
+                         f"flat: net {net:+.3f} over "
+                         f"{row['duration_min']:.0f} min"))
+
+    backtrack = row["backtrack"]
+    if (backtrack >= BACKTRACK_ABSORBANCE
+            and backtrack >= BACKTRACK_FRACTION * abs(net)):
+        findings.append(("defect",
+                         f"backtracks {backtrack:.3f} AU against a net of "
+                         f"{net:+.3f}"))
+
+    if row["points"] < MINIMUM_POINTS:
+        findings.append(("defect", f"only {row['points']} points"))
+    return findings
+
+
+def curve_defects(row):
+    """The subset of findings that are actually wrong with the measurement."""
+    return [message for level, message in curve_findings(row) if level == "defect"]
 
 
 # --- rendering ------------------------------------------------------------
@@ -261,7 +350,7 @@ def plot_curves(diagnostics):
     """Renders the progress curves to a base64 PNG."""
     figure, axis = plt.subplots(figsize=(7.2, 3.2), dpi=110)
     for index, row in diagnostics.iterrows():
-        flagged = bool(curve_flags(row))
+        flagged = bool(curve_defects(row))
         axis.plot(np.asarray(row["time"]) / 60.0, row["values"],
                   color=PALETTE[index % len(PALETTE)],
                   linestyle="--" if flagged else "-",
@@ -453,21 +542,24 @@ def render_experiment(number, manifest, dataset, summary=None):
         image = plot_curves(diagnostics)
         curve_table = []
         for _, row in diagnostics.iterrows():
-            flags = curve_flags(row)
+            findings = curve_findings(row)
             curve_table.append({
                 "sample": row["sample"], "points": row["points"],
                 "dt s": row["dt"], "duration min": round(row["duration_min"], 1),
                 "start": round(row["start"], 4), "end": round(row["end"], 4),
-                "net": round(row["net"], 4),
-                "flags": "; ".join(flags),
+                "net": round(row["net"], 4), "noise": round(row["noise"], 4),
+                "backtrack": round(row["backtrack"], 3),
+                "flags": "; ".join(message for _, message in findings),
             })
         curves_html = (f"<img alt='progress curves for experiment {number}' "
                        f"src='data:image/png;base64,{image}'>"
                        + table(curve_table, classes="curves"))
-        bad = sum(1 for _, row in diagnostics.iterrows() if curve_flags(row))
+        bad = sum(1 for _, row in diagnostics.iterrows() if curve_defects(row))
+        slow = sum(1 for _, row in diagnostics.iterrows()
+                   if curve_findings(row) and not curve_defects(row))
     else:
         curves_html = "<p class='none'>no time series found</p>"
-        bad = 0
+        bad = slow = 0
 
     # --- flags
     flags = []
@@ -490,7 +582,13 @@ def render_experiment(number, manifest, dataset, summary=None):
                                "archive: 0.1964 g B(OH)3 + 0.0699 g NaBH4 in 0.05 l = "
                                "100.5 mM total boron, i.e. 0.1 M"))
     if bad:
-        flags.append(("curves", f"{bad} of {len(diagnostics)} curve(s) flagged below"))
+        flags.append(("curves", f"{bad} of {len(diagnostics)} curve(s) defective -- "
+                                f"see the curve table below"))
+    if slow:
+        flags.append(("curves", f"{slow} of {len(diagnostics)} curve(s) flat. This is "
+                                f"usually the lowest rung of a titration working as "
+                                f"designed, not a failure; check it against the "
+                                f"compiled concentrations above before discarding"))
     over = compiled["I"] > 100
     if over.any():
         flags.append(("ionic strength", f"I = {compiled['I'].max():.0f} mM exceeds the "

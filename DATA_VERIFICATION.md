@@ -7,6 +7,176 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-30 — The curve flag was measuring reaction rate, not data quality
+
+The dossier's `curve_flags` marked 72 curves across 31 experiments. A survey of
+all 421 curves in the live experiments found that most of those marks were
+wrong, and that a whole class of real defect was invisible to the rule.
+
+### It condemned 33 healthy curves
+
+The rule was `max < 0` — "never rises above baseline". It fires on any curve
+whose absorbance offset is negative, whatever the curve then does. It fired on
+36 live curves and **32 of them have a genuine positive rise.** Exp 67 s2 climbs
++0.037 at 60σ; it merely started at −0.044. Baseline offset is an instrument
+zero, not a measurement failure.
+
+### The curves that really are flat are the informative ones
+
+Ranking every cuvette by the rate its own recipe predicts, **35 of 39** flagged
+curves sit in the slowest-expected half of their experiment. They are the lowest
+rung of a deliberate titration — exp 136 s7 is 3.67 mM H₂O₂ against s1's 73.4 —
+or the zero-enzyme control, exp 128 s5.
+
+Those points carry the K_M information. Discarding a cuvette for being slow
+would drop the low-concentration end and bias every fit toward saturation. Flat
+is therefore reported as a **note**, never a defect.
+
+### The rule could not see a curve that thrashes
+
+It read only the endpoints, so a curve that bounces wildly and happens to land
+in the right place passed clean. Measuring backtracking — absorbance travelled
+against the curve's own direction, after a 5-point median filter — finds **37
+curves in 20 live experiments moving more than 0.02 AU backwards, of which the
+old rule flagged 2.**
+
+```
+exp 131 s2   net +0.106   backtracks 0.474 AU     4.5x more motion backwards than forwards
+exp 131 s1   net +0.069   backtracks 0.391
+exp 135 s2   net +0.113   backtracks 0.353
+```
+
+Exp 131 s1 reads `+0.00 +0.03 +0.09 +0.10 +0.10 +0.15 +0.04 +0.09 +0.13 +0.15
++0.07` — not a progress curve. In exps 135 and 138 samples 1–4 thrash while
+samples 5–7 of the same run are smooth.
+
+### The thrashing tracks peroxide, and it is not a cuvette-position effect
+
+Within an experiment, the highest-[H₂O₂] cuvette backtracks more than the lowest
+in **19 of 22** experiments where [H₂O₂] varies (binomial p = 0.0009).
+
+The obvious confound is that the high-peroxide cuvettes are also the early
+positions in every one of these designs. It is ruled out by the 68 experiments
+where [H₂O₂] is constant across all cuvettes: there, position does nothing —
+early beats late in 24, late beats early in 23, p = 1.00.
+
+This is consistent with O₂ from peroxide decomposition crossing the light path.
+**For fitting, the affected points are not biased on average but their residuals
+are far from Gaussian**, so unweighted least squares will over-trust them.
+
+### The replacement
+
+`curve_findings()` in `data/build_dossier.py` returns `(level, message)`, where
+`defect` means the measurement is wrong and `note` means something worth seeing
+that may be the experiment working as designed.
+
+| finding | level | test |
+|---|---|---|
+| runs backwards | defect | net < 0, beyond 5σ, and at least 0.01 AU |
+| backtracks | defect | ≥ 0.02 AU and ≥ half the net |
+| only N points | defect | fewer than 20 |
+| flat | note | net within 0.01 AU |
+
+Noise is the median absolute second difference (which annihilates any trend),
+floored at the quantisation σ of the instrument's three-decimal output, since a
+still curve has first differences of exactly zero and any spread-based estimate
+would collapse to nothing.
+
+Live experiments now carry **40 defective curves across 18 experiments** and 61
+noted flat, against 54 flagged before. `data/test_curve_flags.py` pins this with
+28 checks: synthetic curves whose defect is known by construction, a regression
+test for each way the old rule was wrong, and the archive counts themselves.
+
+### Two whole-run failures surfaced. Both are now excluded (ruled 2026-08-30)
+
+**Exp 50** — all four curves descend 0.075–0.105 AU, and the descent has *no
+ordering by substrate* (2.06 mM → −0.094, 4.12 → −0.075, 6.19 → −0.105, 8.25 →
+−0.086). Chemistry would order them; an instrument fault would not.
+
+```
+exp 55  same buffer, pH, ladder and [enz]   +0.145 +0.281 +0.392 +0.476   monotone
+exp 51  same day as 50                      +0.054 +0.072 +0.082 +0.100   monotone
+exp 50                                      -0.094 -0.075 -0.105 -0.086   no ordering
+```
+
+A same-day sibling is normal and the repeat under identical conditions is
+textbook — the criterion that excluded exps 72 and 82. It survived until now
+because it is hand-sorted into `data/Mads/good data BnOH/`.
+
+**Exp 85** — all seven curves crash, and the drop is *anti*-correlated with
+substrate: 14.30 mM falls −0.298, 0.51 mM falls −0.604. Nearly all of it happens
+in the first 15 of 60 minutes and then flattens, which is a decay rather than a
+reaction. The sheet gives pH **11.84** in Na₂CO₃, a full 1.5 units above
+carbonate's pK_a2, so the run is barely buffered. Exps 86–109 at pH 11 were
+hand-sorted into `data/Mads/bad data pH ca. 11/`; exp 85 escaped only because it
+sits in `data/Mads/carbonate buffer/`.
+
+### Substrate inhibition was considered as an alternative and does not fit
+
+The proposal: substrate crowding the cavity blocks H₂O₂ from reaching the
+ketone, so less dioxirane forms and the rate falls at high substrate. It is the
+right shape of idea for a negative substrate dependence, but it cannot produce
+these curves.
+
+Inhibition drives the rate **toward zero**; its limit is a flat line, never a
+descending one. Exp 85 falls 0.30–0.63 AU. It also predicts the *low*-substrate
+cuvette to be the fastest and therefore the **largest positive** — exp 85's
+low-substrate cuvette is the most negative of the seven. And exp 50 shows no
+substrate dependence at all (ρ = 0.00), which is the absence of the effect
+rather than an instance of it.
+
+Tested independently on the healthy data, pooling replicate series with each run
+normalised by its own mean rate so no rung is favoured:
+
+```
+borate 4OMe, exps 41-49 (n=9)          BnOH 7-cuvette, exps 135-151 (n=16)
+   1.53 mM  0.58 +/- 0.04                 0.22 mM  0.14 +/- 0.13
+   3.06 mM  0.89 +/- 0.02                 0.86 mM  0.85 +/- 0.19
+   4.59 mM  1.15 +/- 0.02                 3.03 mM  1.53 +/- 0.11
+   6.11 mM  1.38 +/- 0.04                10.82 mM  1.50 +/- 0.17
+```
+
+The widest-range series (50×) saturates by 3 mM and stays flat to 10.8 mM,
+p = 0.90 — ordinary Michaelis–Menten with no downturn. The tightest-signal
+series is still climbing at the top of its range. **There is no substrate
+inhibition to find below ~11 mM**, which is a useful negative result in itself.
+
+Settling the competitive question properly needs a 2-D grid in [sub] × [H₂O₂].
+The 7-cuvette design gives two 1-D slices meeting at a single point, so the
+archive cannot answer it.
+
+### The notebook had been sign-flipping both runs, and that manufactured the effect
+
+`clean_experiment_dataframe` carried a block negating `[P]` for exps 50 and 85.
+It has been removed.
+
+Negation leaves the ordering of |net| against [sub] untouched, so it rescues
+neither run — exp 50 stays at ρ = 0.00, exp 85 at −0.71, against +1.00 for every
+healthy run. Flipped, exp 50 contributes four cuvettes rising by the *same*
+amount whatever the substrate.
+
+Flipped exp 85 is worse than useless: a rate that falls with substrate is
+exactly the substrate-inhibition signature, produced here out of a decaying
+baseline. Anyone fitting it would have found strong apparent inhibition that the
+real ladders say is not there.
+
+Exp 85 was already being dropped by the carbonate-buffer rule at the end of the
+function, so only exp 50 reached the fits — **four sign-flipped curves with no
+substrate dependence, in the dataset the catalysed constants are fitted on.**
+
+### What changed
+
+| | before | after |
+|---|---|---|
+| manifest exclusions | 9 | 11 |
+| `clean_experiment_dataframe` output | 408 rows, 89 experiments | 404 rows, 88 experiments |
+| `[P]` sign flips | 2 experiments | none |
+
+`experiments_to_remove` in the notebook and `KNOWN_EXCLUSIONS` in
+`data/build_manifest.py` now hold the same eleven numbers.
+
+---
+
 ## 2026-08-30 — The 62 uncompiled files: only two were recoverable, and both are now in
 
 Inventory of everything in `data/Mads` that had never reached the dataset.
