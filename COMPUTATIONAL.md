@@ -24,7 +24,7 @@ not worth running.
 | | |
 |---|---|
 | ORCA | 6.1.0 — `~/orca_6_1_0/orca`, aliased as `orca` |
-| verified working | yes, HF/def2-SVP water single point (`hellowater.*`) |
+| verified working | yes, HF/def2-SVP water single point (`computational/hellowater/`) |
 | xtb / CREST / Psi4 / NWChem / Gaussian | not installed |
 | pyscf / ASE / RDKit / cclib | not installed |
 

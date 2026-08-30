@@ -1,3 +1,16 @@
+"""
+One-off utility that built data/data from the delivered archive.
+
+data/data holds a flat copy of every instrument export (.txt) and recipe
+workbook the pipeline reads; data/Mads holds the archive as delivered, in
+the experimenter's own folder structure. This is the script that flattened
+the first into the second, keeping the mapping reproducible rather than a
+manual step nobody recorded.
+
+Not part of the pipeline and not imported by anything. Kept because it
+documents where data/data came from. See DATA_VERIFICATION.md for the
+archive-to-dataset mapping it produced.
+"""
 import os
 import shutil
 

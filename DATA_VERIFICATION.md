@@ -7,6 +7,75 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-31 — Repository cleanup, and what the pristine zip caught
+
+Housekeeping, with one finding worth recording.
+
+### The delivered zip is not redundant, and it earns its place
+
+`Mads-20241207T151327Z-001.zip` is the archive exactly as delivered on
+2024-12-07. It looked like a 14 MB duplicate of `data/Mads`, so it was checked
+before being considered for removal.
+
+67 of its 716 files differ byte-wise from the working copies. A first comparison
+put 35 of those down as real content differences — **wrong**, because comparing
+`df.astype(str)` makes a float `nan` and an object-column `None` look different.
+Compared null-aware, only **three** files differ in content, and all three are
+stray keystrokes in cells nothing reads:
+
+| file | difference |
+|---|---|
+| `mads_t002...xls` | R24CR holds a pasted list `1.5199,3.0397,4.5596,6.0795` |
+| `mads_t014...xls` | R38CR holds `j` |
+| `mads_t057...xls` | R1CA holds **`jjjj`** where the zip has the experiment number 57 |
+
+The last one matters: exp 57's experiment number was typed over in the
+`data/Mads` copy. The copy under `data/data` — the one the pipeline actually
+reads — still holds 57, so nothing downstream was affected, and exp 57 is
+excluded in any case.
+
+**The zip stays.** It is the only way to detect edits like these, and deleting it
+from the working tree would not shrink the repository anyway, since git history
+holds it either way.
+
+### Removed
+
+Dead artefacts, all recoverable from history:
+
+| | |
+|---|---|
+| `outputs/` | 60 directories, 42 MB of PySR symbolic-regression runs from 2024-12-15, referenced nowhere |
+| `model.ipynb` | a Michaelis–Menten ODE prototype predating the 7-step mechanism. Both cells are broken — cell 0 unpacks 5 states from a 4-element `y0`, cell 1 returns 6 derivatives for 5 states |
+| `test.ipynb` | one cell of spline scratch work |
+| `Sample00*_time_series.csv` | four stray exports from 2024-12-14 |
+
+### Moved and added
+
+`hellowater.*` (the ORCA smoke test `COMPUTATIONAL.md` cites as proof the
+toolchain runs) moved from the top level to `computational/hellowater/`, and the
+reference updated.
+
+`README.md` added — the repository had none. It carries the layout, the commands,
+the current counts, the sheet-over-filename precedence rule, and the four known
+limitations.
+
+`data/movedata.py` gained a docstring. It is the one-off that flattened
+`data/Mads` into `data/data`; it is imported by nothing and has no CLI, and was
+kept because it records how `data/data` came to exist.
+
+`.gitignore` gained `outputs/` and `.ipynb_checkpoints/`. Two LibreOffice lock
+files were cleared from the working tree.
+
+### After
+
+The top level is now nine entries: three documents, the README, the notebook,
+`data/`, `computational/`, the delivered zip, and the generated dossier. Every
+module under `data/` is reachable, every check still passes, and
+`experiment_data.csv` still reproduces from `data/data` with zero differing
+cells.
+
+---
+
 ## 2026-08-31 — The pH series is fixed, and [HOO⁻] now uses Davies
 
 Two corrections before any fitting begins, both to quantities the model reads

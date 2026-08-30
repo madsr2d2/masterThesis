@@ -1,8 +1,12 @@
 __pycache__/
 *.pyc
+.ipynb_checkpoints/
 
 # LibreOffice lock files (present only while a document is open)
 .~lock.*#
 
-# generated review dossiers
+# generated review dossiers -- rebuild with data/build_dossier.py
 dossier*.html
+
+# symbolic-regression run directories
+outputs/
