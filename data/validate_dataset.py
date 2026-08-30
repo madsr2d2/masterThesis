@@ -15,6 +15,8 @@ Checks performed:
   coverage    every compiled experiment has a manifest row, and vice versa
   metadata    substrate / buffer / pH / T / enzyme-presence agree
   structure   sample counts agree; excluded experiments are flagged
+  optics      the monitoring wavelength and extinction coefficient the sheet
+              declares match the ones the dataset uses
   invariants  extinction coefficient matches the substrate, [enz] is zero
               exactly when the manifest says no enzyme, concentrations are
               finite and non-negative, required fields are non-null
@@ -197,6 +199,21 @@ def validate(dataset_path=DATASET_PATH, manifest_path=MANIFEST_PATH):
         # sheet declares its own alongside the monitoring wavelength. Where they
         # diverge the compiled concentrations are scaled wrong by exactly that
         # ratio, so this is checked against the sheet, not against the hardcode.
+        # The monitoring wavelength is declared per experiment but the dataset
+        # takes it, like e, from the SUBSTRATE_PROPERTIES hardcode. Until this
+        # check existed the manifest's abs_nm was read only to interpolate into
+        # an error message, so a new drift would have passed silently.
+        declared_nm = declared.get("abs_nm")
+        actual_nm = rows["abs"].iloc[0]
+        if declared_nm is not None and not pd.isna(declared_nm):
+            if not _agrees(declared_nm, actual_nm, tolerance=0.5):
+                message = (f"manifest declares {declared_nm:g} nm but the dataset "
+                           f"uses {actual_nm:g} nm")
+                if "abs_nm" in disputed:
+                    findings.warn("optics", number, message + "  (open question)")
+                else:
+                    findings.error("optics", number, message)
+
         declared_e = declared.get("e_declared")
         if declared_e is not None and not pd.isna(declared_e):
             if not _agrees(declared_e, actual_e, tolerance=1e-6):

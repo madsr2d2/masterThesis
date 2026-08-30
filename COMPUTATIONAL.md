@@ -71,7 +71,8 @@ Settled from the sheets and the literature (see `DATA_VERIFICATION.md`
 
 | | |
 |---|---|
-| monitoring wavelength | **285 nm** for BnOH (43 experiments), **300 nm** for 4OMe-BnOH (46) |
+| monitoring wavelength | **285 nm** for BnOH (43 experiments), **300 nm** for 4OMe-BnOH (**53** — the 46 that declare it, plus exps 2, 4, 5, 7, 8, 9, 10 ruled 300 nm on 2026-08-30, their sheets' 285 being a stale cell copied from the BnOH template) |
+| still unruled | exps 57, 58 state (285 nm, ε = 1.59); the dataset states (300 nm, ε = 7.53). Exp 57 is in use. If C1 ever produces a reliable ε for 4-methoxybenzaldehyde at both wavelengths, it would settle this directly |
 | benzaldehyde, water | **ε ≈ 1400 M⁻¹cm⁻¹ at 278–279 nm** (weak n→π*; the strong π→π* is at 248 nm, ε ≈ 12,000–14,000) |
 | the sheets' `e = 1.23 mM⁻¹cm⁻¹` | = 1230 M⁻¹cm⁻¹ at 285 nm, on that band's falling edge — so `e` is benzaldehyde's own ε, **not** a differential coefficient |
 | benzoate | strong band 224–230 nm; weak band near 268 nm. **No reliable aqueous ε at 285 nm found** — the two best sources are paywalled (HTTP 403) |

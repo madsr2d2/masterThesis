@@ -7,6 +7,85 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-30 — Wavelength question closed for exps 2–10; exps 57/58 stay open
+
+The seven earliest 4OMe-BnOH runs declared **285 nm** while the dataset used
+**300 nm**. Ruled: **300 nm. The sheet label is stale.**
+
+### The evidence
+
+Reading the declared optics in run order — including t001 and t003, which are
+in `data/Mads` and were never compiled — makes the pattern plain:
+
+| run | substrate | declares |
+|---|---|---|
+| t001 | BnOH | 285 nm, e = 1.23 |
+| **t002** | **4OMe** | **285 nm, e = 7.53** |
+| t003 | BnOH | 285 nm, e = 1.23 |
+| **t004, t005** | **4OMe** | **285 nm, e = 7.53** |
+| t006 | BnOH | 285 nm, e = 1.23 |
+| **t007–t010** | **4OMe** | **285 nm, e = 7.53** |
+| t011 … t022 | 4OMe | 300 nm, e = 7.53 |
+
+The early series alternates BnOH and 4OMe runs. The 4OMe workbooks were copied
+from the BnOH one with the substrate and `e` changed and the `abs [nm]` cell
+left at 285. At t011 the cell is corrected, and it reads 300 for every
+subsequent 4OMe run.
+
+The decisive detail is that **`e` does not change across the t010 → t011
+boundary.** ε is wavelength-dependent, so a genuine retune from 285 to 300
+would have forced `e` to change with it — and this operator does exactly that
+when they really change wavelength, which is what exps 57/58 show by pairing
+285 nm with `e = 1.59`.
+
+### What could not be used
+
+Stated so the ruling's basis is not overstated later:
+
+- the `.txt` instrument export records batch, instrument, sample names, data
+  mode, smoothing, dates and times — **but not the wavelength**;
+- conversion in these runs stays under 1% (exp 2 sample 4 ends at A = 0.093,
+  i.e. 0.012 mM of 6.08 mM substrate), so no internal consistency test — a
+  conversion ceiling, a rate comparison against the 300 nm runs — has any
+  power. The early curves sit near background and scatter hugely.
+
+The argument is from the workbook's own edit history, not from a measurement.
+
+### Consequence: none, either way
+
+The sheet and the dataset both carry `e = 7.53` for these seven, so **no
+concentration changes under either reading.** This was a question about what
+the signal physically is, not a numerical error — the opposite of exp 57, where
+the sheet says 1.59, the dataset uses 7.53, and every concentration is off by
+4.74×.
+
+### How the ruling is recorded
+
+`build_manifest.py` gains a `RULINGS` table: a decided value that overrides the
+extracted one, marks the field's provenance as `ruling` so it can never be
+mistaken for something read off a file, and writes the sheet's own value plus
+the reasoning into `notes` so the evidence is not erased. Rebuilding the
+manifest changed exactly 7 rows and only the columns `abs_nm`, `provenance`,
+`open_questions` and `notes`.
+
+### A second question surfaced by enforcing it
+
+`abs_nm` had been declared in the manifest since the wavelength work but
+**compared against nothing** — `validate_dataset.py` read it only to
+interpolate into an error message. Adding the check (parallel to the existing
+`e` check, and pinned by a tenth fault-injection case) immediately raised two
+errors: **exps 57 and 58 disagree on wavelength as well as on `e`.**
+
+That half of their conflict had been invisible. The sheet states the pair
+(285 nm, `e` = 1.59); the dataset states the pair (300 nm, `e` = 7.53). Unlike
+exps 2–10, the `e` differs too, so a stale template cell cannot explain it and
+it needs a ruling of its own. Both fields are now listed in those experiments'
+open questions, so the validator warns rather than errors. **Exp 57 is in use.**
+
+Warnings: 24 → 21. Errors: 0.
+
+---
+
 ## 2026-08-30 — Ionic strength and [HOO⁻] moved out of the notebook
 
 `I` and `[HOO-]` are the only quantities in this dataset that are **computed**
@@ -124,7 +203,15 @@ Every concentration in those experiments is therefore scaled by **4.74×**.
 Exp 58 is already excluded, so it is consequence-free — **exp 57 is in use.**
 Recorded as an open question rather than corrected, pending a ruling.
 
+> **Still open, and larger than recorded here.** Enforcing the wavelength check
+> on 2026-08-30 showed these two disagree on **wavelength as well as `e`**: the
+> sheet states the pair (285 nm, 1.59), the dataset the pair (300 nm, 7.53).
+
 ### Second question: the seven earliest 4OMe runs
+
+> **Closed 2026-08-30 — ruled 300 nm, the sheet label is stale.** See the entry
+> at the top of this log for the run-order evidence. The paragraph below records
+> the question as it stood.
 
 Exps 2, 4, 5, 7, 8, 9, 10 declare **285 nm** but carry `e = 7.53`, which is the
 value every **300 nm** sheet uses, while exps 57/58 pair 285 nm with 1.59.
@@ -1181,6 +1268,11 @@ in case the stray file causes confusion later.
 
 ## Open items
 
+- **Exps 57 and 58 need a wavelength/ε ruling.** The sheet states (285 nm,
+  `e` = 1.59), the dataset (300 nm, `e` = 7.53). Both halves are one question
+  and neither can be a stale template cell, since `e` differs too. **Exp 57 is
+  in use and every concentration in it is scaled by 4.74×** if the sheet is
+  right. This is now the largest unadjudicated item in the dataset.
 - **The extended Debye–Hückel equation is out of range for 70% of the dataset**
   (308 rows, 71 experiments above I = 100 mM; 21 rows above 1 M, all
   pyrophosphate). Systematic, not random, and largest where `[HOO-]` is

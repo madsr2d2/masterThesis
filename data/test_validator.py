@@ -59,6 +59,11 @@ CASES = [
      lambda d: _set(d, 2, "pH", 3.0, sample=1), "structure"),
     ("an experiment appearing from nowhere",
      lambda d: _set(d, 2, "experiment", 9999), "coverage"),
+    # The wavelength was declared in the manifest but compared against nothing
+    # until 2026-08-30, so a drift in the SUBSTRATE_PROPERTIES hardcode would
+    # have passed silently. Exp 14 is a 300 nm run with no open question.
+    ("monitoring wavelength drifting from the sheet",
+     lambda d: _set(d, 14, "abs", 285), "optics"),
 ]
 
 

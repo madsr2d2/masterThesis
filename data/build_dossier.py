@@ -46,7 +46,8 @@ import pandas as pd
 
 warnings.filterwarnings("ignore")
 
-from build_manifest import read_sheet_optics
+from build_manifest import (BUFFER_PATTERNS, SUBSTRATE_PATTERNS,
+                            read_sheet_optics)
 from kinetics_io import (EXPERIMENT_CORRECTIONS, find_header_row,
                          parse_experiment_data)
 from solution_chemistry import add_solution_columns
@@ -317,6 +318,21 @@ def table(rows, columns=None, classes=""):
             f"<tbody>{''.join(body)}</tbody></table>")
 
 
+def _same(a, b):
+    """
+    Compares two source values, so that 25 and 25.0 do not read as a conflict.
+
+    Booleans are compared as booleans and numbers as numbers; anything else
+    falls back to a string comparison.
+    """
+    if isinstance(a, bool) or isinstance(b, bool):
+        return bool(a) == bool(b)
+    try:
+        return abs(float(a) - float(b)) < 1e-6
+    except (TypeError, ValueError):
+        return str(a).strip() == str(b).strip()
+
+
 def parse_filename(name):
     """Pulls what the filename asserts. Filenames are ground truth here."""
     facts = {}
@@ -326,12 +342,19 @@ def parse_filename(name):
     match = re.search(r"t=(\d+)", name, re.I)
     if match:
         facts["T"] = float(match.group(1))
-    if re.search(r"4OMe|pMeOBnOH|4MeOBnOH", name, re.I):
-        facts["substrate"] = "4OMe-BnOH"
-    elif re.search(r"4-brom", name, re.I):
-        facts["substrate"] = "4Br-BnOH"
-    elif re.search(r"BnOH|BnO", name, re.I):
-        facts["substrate"] = "BnOH"
+    # Reuse build_manifest's ordered patterns rather than a second copy: they
+    # are order-sensitive ('4-meoh-bnoh' must be tested before the bare 'bnoh'
+    # it contains), and a divergent copy here reported exp 57 as a substrate
+    # conflict that does not exist.
+    lowered = name.lower()
+    for pattern, substrate in SUBSTRATE_PATTERNS:
+        if pattern in lowered:
+            facts["substrate"] = substrate
+            break
+    for pattern, buffer_name in BUFFER_PATTERNS:
+        if pattern in lowered:
+            facts["buffer"] = buffer_name
+            break
     if re.search(r"no[_ ]E|NO[_ ]E", name):
         facts["has_enzyme"] = False
     elif re.search(r"with[_ ]E", name, re.I):
@@ -356,6 +379,10 @@ def render_experiment(number, manifest, dataset):
     sheet_nm, sheet_e = read_sheet_optics(sheet)
     notes = sheet_notes(sheet)
     from_filename = parse_filename(xls_file)
+    provenance_of = dict(
+        part.split("=", 1) for part in str(declared.get("provenance") or "").split(";")
+        if "=" in part)
+    ruled = {field for field, source in provenance_of.items() if source == "ruling"}
 
     # --- sources side by side
     source_rows = []
@@ -365,16 +392,19 @@ def render_experiment(number, manifest, dataset):
         ("T", from_filename.get("T"), None, rows["T"].iloc[0]),
         ("has_enzyme", from_filename.get("has_enzyme"), None,
          bool((rows["[enz]"] > 0).any())),
-        ("buffer", None, None, rows.buffer.iloc[0]),
+        ("buffer", from_filename.get("buffer"), None, rows.buffer.iloc[0]),
         ("wavelength nm", None, sheet_nm, rows["abs"].iloc[0]),
         ("e mM-1cm-1", None, sheet_e, rows.e.iloc[0]),
         ("buffer stock M", from_filename.get("buffer_stock_M"), None,
          "0.1 (assumed)" if provenance == "assumed" else None),
     ]:
         known = [v for v in (filename_value, sheet_value, dataset_value) if v is not None]
-        conflict = len({str(v) for v in known}) > 1 and len(known) > 1
+        conflict = len(known) > 1 and any(not _same(a, b)
+                                          for a, b in zip(known, known[1:]))
         source_rows.append({
             "field": field,
+            "_ruled": {"wavelength nm": "abs_nm",
+                       "e mM-1cm-1": "e_declared"}.get(field, field) in ruled,
             "filename says": "" if filename_value is None else filename_value,
             "sheet says": "" if sheet_value is None else sheet_value,
             "dataset has": "" if dataset_value is None else dataset_value,
@@ -385,12 +415,18 @@ def render_experiment(number, manifest, dataset):
                    "<th>field</th><th>filename says</th><th>sheet says</th>"
                    "<th>dataset has</th></tr></thead><tbody>"]
     for row in source_rows:
-        klass = " class='conflict'" if row["_conflict"] else ""
+        if row["_ruled"]:
+            klass = " class='ruled'"
+        elif row["_conflict"]:
+            klass = " class='conflict'"
+        else:
+            klass = ""
         source_html.append(
             f"<tr{klass}><td>{html.escape(row['field'])}</td>"
             f"<td>{html.escape(str(row['filename says']))}</td>"
             f"<td>{html.escape(str(row['sheet says']))}</td>"
-            f"<td>{html.escape(str(row['dataset has']))}</td></tr>")
+            f"<td>{html.escape(str(row['dataset has']))}"
+            f"{' &check; ruled' if row['_ruled'] else ''}</td></tr>")
     source_html.append("</tbody></table>")
 
     # --- recipe as the sheet states it
@@ -440,6 +476,9 @@ def render_experiment(number, manifest, dataset):
     if number in EXPERIMENT_CORRECTIONS:
         flags.append(("corrected", "values overridden by kinetics_io.EXPERIMENT_CORRECTIONS: "
                       + ", ".join(EXPERIMENT_CORRECTIONS[number])))
+    if isinstance(declared.get("notes"), str) and declared["notes"].strip():
+        for note in declared["notes"].split(" | "):
+            flags.append(("ruled", note.strip()))
     if provenance == "assumed":
         flags.append(("assumption", "[buf] computed as (V_buf/2)*100; the 0.1 M stock "
                                     "is stated nowhere in the filename or the sheet"))
@@ -452,7 +491,8 @@ def render_experiment(number, manifest, dataset):
                                         f"systematic error here"))
 
     flag_html = "".join(
-        f"<div class='flag'><span class='tag'>{html.escape(kind)}</span>"
+        f"<div class='flag{' settled' if kind == 'ruled' else ''}'>"
+        f"<span class='tag'>{html.escape(kind)}</span>"
         f"{html.escape(str(text))}</div>" for kind, text in flags
     ) or "<div class='flag ok'><span class='tag ok'>clean</span>nothing flagged</div>"
 
@@ -596,6 +636,8 @@ p.file { font:400 11.5px/1.5 "IBM Plex Mono", monospace; color:var(--dim);
         background:var(--panel); border-left:3px solid var(--warn);
         padding:6px 12px; margin:0 0 3px; font-size:13.5px; }
 .flag.ok { border-left-color:var(--ok); background:var(--ok-soft); }
+.flag.settled { border-left-color:var(--accent); background:var(--accent-soft); }
+.flag.settled .tag { color:var(--accent); }
 .tag { font:600 10px/1.9 "IBM Plex Mono", monospace; text-transform:uppercase;
        letter-spacing:.08em; color:var(--warn); }
 .flag.ok .tag { color:var(--ok); }
@@ -617,6 +659,8 @@ tbody tr:last-child td { border-bottom:1px solid var(--rule); }
 /* A conflict is marked, not washed: the stripe carries it */
 tr.conflict td { color:var(--warn); font-weight:600; background:var(--warn-soft); }
 tr.conflict td:first-child { box-shadow:inset 3px 0 0 var(--warn); padding-left:9px; }
+tr.ruled td { color:var(--accent); }
+tr.ruled td:first-child { box-shadow:inset 3px 0 0 var(--accent); padding-left:9px; }
 
 .notes td:first-child, .sources td:first-child { color:var(--dim); }
 .scroll { overflow-x:auto; padding-bottom:2px; }

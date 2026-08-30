@@ -67,19 +67,37 @@ KNOWN_ACCEPTED_DEVIATIONS = {
 # to warn rather than error on it, since it is known and awaiting a ruling.
 KNOWN_OPEN_QUESTIONS = {
     57: ["e_declared: sheet says e = 1.59 at 285 nm, dataset uses the hardcoded 7.53 "
-         "(4.74x); IN USE, so every concentration would be affected"],
+         "(4.74x); IN USE, so every concentration would be affected",
+         "abs_nm: sheet declares 285 nm, dataset uses 300 nm. The same question as "
+         "e_declared -- the sheet states the pair (285 nm, e = 1.59) and the dataset "
+         "states the pair (300 nm, e = 7.53). Unlike exps 2-10 the e differs too, so "
+         "this cannot be a stale template cell and must be ruled on directly"],
     58: ["e_declared: sheet says e = 1.59 at 285 nm, dataset uses the hardcoded 7.53 "
-         "(4.74x); experiment is excluded, so consequence-free"],
+         "(4.74x); experiment is excluded, so consequence-free",
+         "abs_nm: sheet declares 285 nm, dataset uses 300 nm; same pair as exp 57, "
+         "but this experiment is excluded so it is consequence-free"],
 }
-# The seven earliest 4OMe-BnOH runs declare 285 nm but carry e = 7.53, which is the
-# value every 300 nm sheet uses; exps 57/58 pair 285 nm with 1.59 instead. Either
-# the wavelength cell is a stale template value or e was never updated when the
-# wavelength changed. A raw-signal comparison against the 300 nm runs was
-# inconclusive (those early curves are near background and scatter hugely).
-for _exp in (2, 4, 5, 7, 8, 9, 10):
-    KNOWN_OPEN_QUESTIONS.setdefault(_exp, []).append(
-        "abs_nm: sheet declares 285 nm but carries e = 7.53, the value used by every "
-        "300 nm sheet; exps 57/58 pair 285 nm with e = 1.59")
+# Adjudicated questions: a value the sheet states that we have decided against,
+# with the evidence. A ruling overrides the extracted value, marks the field's
+# provenance as "ruling" so it is never mistaken for something read off a file,
+# and records what the sheet said in notes so the evidence is not erased.
+# Rulings are settled; open questions are not. Both survive a rebuild.
+_ABS_285_RULING = (
+    300.0,
+    "sheet declares 285 nm; ruled 300 nm on 2026-08-30. The early series "
+    "alternates BnOH and 4OMe runs (t001 BnOH 285/1.23, t002 4OMe 285/7.53, "
+    "t003 BnOH 285/1.23, ...), so the 4OMe workbooks were copied from the BnOH "
+    "one with the substrate and e changed and the abs [nm] cell left at 285. "
+    "The cell is corrected to 300 at t011 and stays 300 for every later 4OMe "
+    "run, while e stays 7.53 across that boundary -- had the instrument really "
+    "been retuned, e would have had to change with it, which is exactly what "
+    "exps 57/58 do (285 nm paired with e = 1.59). No concentration is affected "
+    "either way here, since sheet and dataset agree on e = 7.53. Not directly "
+    "confirmable: the .txt instrument export records batch, date, data mode and "
+    "smoothing but not the wavelength, and conversion stays under 1%, so no "
+    "internal consistency test has any power."
+)
+RULINGS = {number: {"abs_nm": _ABS_285_RULING} for number in (2, 4, 5, 7, 8, 9, 10)}
 
 # Substrate keys are checked in order: '4OMe-BnOH' spellings must be tested
 # before the bare 'bnoh' that they all contain.
@@ -284,6 +302,16 @@ def build(directory="data/data"):
 
         flag = from_folder.get("folder_flag")
         excluded = number in KNOWN_EXCLUSIONS or flag in ("bad data", "bad data pH ca. 11")
+
+        notes = []
+        for field, (value, reason) in RULINGS.get(number, {}).items():
+            if field == "abs_nm":
+                wavelength = value
+            elif field == "e_declared":
+                extinction = value
+            provenance[field] = "ruling"
+            notes.append(f"{field}: {reason}")
+
         rows.append({
             "experiment": number,
             "substrate": resolved["substrate"],
@@ -301,7 +329,7 @@ def build(directory="data/data"):
             "provenance": ";".join(f"{k}={v}" for k, v in provenance.items()),
             "open_questions": " | ".join(open_questions + KNOWN_OPEN_QUESTIONS.get(number, [])),
             "xls_file": experiment["xls_file"],
-            "notes": "",
+            "notes": " | ".join(notes),
         })
 
     return pd.DataFrame(rows), conflicts
