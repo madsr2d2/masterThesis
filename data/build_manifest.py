@@ -110,14 +110,19 @@ _ABS_285_RULING = (
 )
 RULINGS = {number: {"abs_nm": _ABS_285_RULING} for number in (2, 4, 5, 7, 8, 9, 10)}
 
-# Exp 9's filename says pH 5.64 and its sheet says 5.67. Ruled 2026-08-30 to the
-# sheet, which is the instrument reading taken on the day; the filename is typed
-# from it. (Exp 38 is the same shape -- filename 6.97, sheet 7.00 -- and is left
-# open pending the same ruling.)
-RULINGS.setdefault(9, {})["pH"] = (
-    5.67, "filename says 5.64; ruled to the sheet's 5.67 on 2026-08-30. The "
-          "sheet carries the reading taken on the day and the filename is typed "
-          "from it.")
+# Two experiments disagree with their filename on pH, both by hundredths, and
+# both were ruled to the sheet on 2026-08-30: the sheet carries the reading taken
+# on the day and the filename is typed from it. Neither changes a number -- the
+# dataset already held the sheet value in both cases -- but the provenance is now
+# stated rather than left as an unadjudicated conflict.
+_PH_FROM_SHEET = (
+    "filename says {filename}; ruled to the sheet's {sheet} on 2026-08-30. The "
+    "sheet carries the reading taken on the day and the filename is typed from "
+    "it. The dataset already held the sheet value, so no number changes."
+)
+for _exp, _sheet_pH, _filename_pH in ((9, 5.67, "5.64"), (38, 7.00, "6.97")):
+    RULINGS.setdefault(_exp, {})["pH"] = (
+        _sheet_pH, _PH_FROM_SHEET.format(filename=_filename_pH, sheet=_sheet_pH))
 
 # Exps 79 and 80 are enzyme runs. Their "[Enz] mmol/l" column holds 0.000001 in
 # every measured row -- a broken formula about 14,000x too low -- which the

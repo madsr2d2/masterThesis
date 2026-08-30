@@ -7,9 +7,10 @@ quantum-chemistry tasks.
 
 ---
 
-## 2026-08-30 — Exp 80 was an enzyme run posing as a control
+## 2026-08-30 — Exp 80 was an enzyme run posing as a control; last questions closed
 
-Three rulings, one of which was a live defect in an experiment that is in use.
+Four rulings, one of which was a live defect in an experiment that is in use.
+After them the dataset carries no unresolved per-experiment questions.
 
 ### Exps 79 and 80: enzyme runs, `[enz]` was zero
 
@@ -53,14 +54,30 @@ That the header `kuv` agrees with the table in 58 of 63 sheets makes it a usable
 **independent cross-check on `[enz]`**, in the same way the volume tables are for
 the other three concentrations — currently unexploited.
 
-### Exp 9: pH ruled to the sheet
+### Exps 9 and 38: pH ruled to the sheet
 
-Filename 5.64, sheet 5.67. Ruled **5.67** — the sheet carries the reading taken
-on the day and the filename is typed from it. The dataset already held 5.67, so
-no number changes.
+Both disagree with their filename by hundredths, and both are ruled to the
+**sheet**: it carries the reading taken on the day, and the filename is typed
+from it.
 
-Exp 38 is the same shape (filename 6.97, sheet 7.00) and is **left open**
-pending the same ruling; it is now the only unresolved question in the dataset.
+| | filename | sheet | ruled |
+|---|---|---|---|
+| exp 9 | 5.64 | 5.67 | **5.67** |
+| exp 38 | 6.97 | 7.00 | **7.00** |
+
+The dataset already held the sheet value in both cases, so **no number changes**
+— what changes is that the provenance is stated rather than left as an
+unadjudicated conflict.
+
+**With these two, the dataset has no unresolved questions left.** Every
+disagreement between the filenames, the hand-sorted folders, the sheets and the
+extraction has been either ruled on or turned into an exclusion. Fourteen
+experiments carry a recorded ruling (2, 4, 5, 7, 8, 9, 10, 38, 57, 58, 79, 80,
+84, 85) and eight are excluded (57, 58, 72, 77, 78, 79, 82, 84).
+
+What remains open is not about individual experiments: the buffer stock assumed
+for 33 of them, the design classification no file states, the 62 uncompiled
+files, and the Debye–Hückel range. Those are listed below.
 
 ### A `RULINGS` bug this exposed
 
@@ -69,7 +86,8 @@ plain assignment `RULINGS[9] = {...}` silently discarded the first — visible
 only as the note count dropping from 9 to 8. Every ruling now merges into the
 experiment's entry rather than replacing it.
 
-Errors 0, warnings 12 → **9**, notes 9. With `--deep`: 0 errors.
+Errors 0, warnings 12 → **8**, notes 9 — the 8 remaining warnings are all
+exclusions working as designed. With `--deep`: 0 errors.
 
 ---
 
