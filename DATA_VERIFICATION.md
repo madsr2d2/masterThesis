@@ -7,6 +7,100 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-30 — A declared sheet value outranks a filename, and reading the sheets properly changed three things
+
+**Ruling: where the sheet declares a value, that is ground truth; the filename
+is not.** A filename is copied forward between runs and only partly updated,
+which this archive does repeatedly and demonstrably — exp 85's sheet still says
+experiment 83, exps 2–10 carry a stale 285 nm, exp 57's substrate block came
+from t056. A declared value is what the experimenter measured and wrote down.
+
+Acting on that ruling meant reading a part of the sheet the pipeline had never
+looked at.
+
+### Twenty-one sheets state the buffer stock outright
+
+The header block carries a name and a molarity:
+
+```
+exp 75    N3 Buffer   O3 hexametaphosphate (pyrophosphate)
+          N4 mol/l    O4 0.033
+
+exp 79    N3 Buffer   O3 carbonate
+          N4 mol/l    O4 0.1
+```
+
+The sheet's `[buffer]` column is computed from that cell. **In all 21 the two
+agree** — the sheet is internally consistent, and only the filename dissents.
+
+### So exps 75, 76 and 78 are settled
+
+All three say `0.1M` in the filename over a sheet that says **0.033 M**, and the
+`[buf]` column follows the sheet: 24.75 mM in the cuvette, not 75. The compiled
+dataset already used the sheet, so no number changes; what changes is that this
+is now adjudicated rather than open.
+
+Exp 78 is the cleanest demonstration. Exp 79 is the same buffer, same pH 9.40,
+same day, the same 1.55 ml of buffer in 2 ml — and declares 77.5 mM, exactly
+what 0.1 M gives. Exp 78 declares 25.575, exactly what 0.033 M gives. Two
+sheets, one condition, and each is internally consistent with its own stated
+stock. Both filenames say `0.1M`.
+
+`verify_buffer.py` now reports this as `bufstale` — a note, not a warning — and
+gains `bufdeclared`, which errors if a sheet's stated stock and its own `[buf]`
+column ever disagree. That check fires nowhere today.
+
+### Exps 75 and 76 are hexametaphosphate, not pyrophosphate
+
+Their sheets name the buffer `hexametaphosphate (pyrophosphate)`. A search of
+every sheet in the archive finds that word in exactly these two files.
+
+`solution_chemistry.py` classifies them as `Pyrophosphate` and applies
+pK_a = [0.85, 1.96, 6.60, 9.41] with charges 0 to −4. Sodium hexametaphosphate,
+(NaPO₃)₆, is a polymeric metaphosphate and not that species at all. Both
+experiments are **live**, and I and [HOO⁻] depend on the choice.
+
+**Open: which speciation to use for exps 75 and 76.** Not resolved here, since
+it is a chemistry judgement rather than a data-provenance one.
+
+### The later pyrophosphate series is genuine — and mixed
+
+Exps 135–151 name their salts explicitly and carry gram-level preparations:
+
+```
+Buf 1.  Na4P2O7*10H2O   M.W. 446.06    30.1495 g in 500 ml  ->  135.18 mmol/l
+Buf 2.  Na2HPO4*2H2O    M.W. 156.02    39.0052 g in 500 ml
+```
+
+(exps 143–151 use `NaH2PO4*2H2O` as Buf 2 instead.) So they are real sodium
+pyrophosphate, correctly classified — but every one of them is a **two-salt
+mixture of pyrophosphate and phosphate**, treated as pure pyrophosphate.
+
+That puts a number on a limitation `solution_chemistry.py` has documented since
+it was written: the mixed-buffer approximation applies to **17 experiments**,
+the largest single BnOH series in the dataset.
+
+**This corrects an earlier entry.** The 2026-08-30 note on the 0.1 M buffer
+stock called exp 13's borate preparation "the only buffer recipe in the
+archive". It is not: 17 more sit in the 135–151 sheets, and they are the better
+ones — two named salts, weighed masses, final volumes, and a computed molarity
+that checks out (30.1495 / 446.06 / 0.5 L = 135.18 mM).
+
+### Standing
+
+```
+                                              before   after
+sheets read for a declared buffer stock            0      21
+experiments whose stock is confirmed twice         0      21
+open filename-vs-sheet disagreements               3       0
+fault-injection cases                             16      17
+```
+
+Nothing in `experiment_data.csv` changed. What changed is how much of it is
+evidenced rather than inferred.
+
+---
+
 ## 2026-08-30 — The 0.1 M buffer stock is evidenced, and [buf] now has its own verification
 
 [buf] was the least-verified concentration in the dataset. [sub], [h2o2] and

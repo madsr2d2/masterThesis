@@ -129,6 +129,11 @@ BUFFER_CASES = [
     # A single cuvette wrong, which no per-experiment summary statistic sees.
     ("one cuvette's [buf] wrong",
      lambda d: _set(d, 127, "[buf]", 42.0, sample=2), "bufcompiled"),
+    # The sheet states its stock in the header AND computes [buf] from it. If
+    # the two ever disagree, one of them was left behind by an edit -- which is
+    # how exps 75/76/78's filenames came to say 0.1 M over a 0.033 M sheet.
+    ("[buf] contradicting the stock the sheet states",
+     lambda d: _set(d, 67, "[buf]", 17.0), "bufcompiled"),
 ]
 
 

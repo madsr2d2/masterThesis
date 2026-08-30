@@ -67,6 +67,52 @@ SHEET_ARITHMETIC = {14: ("Sheet1", 27, 15, 0.1)}
 
 FILENAME_MOLARITY = re.compile(r"[_ ](\d+(?:[.,]\d+)?)\s*M[_.]", re.IGNORECASE)
 
+# How far down the sheet the header's own buffer block can sit.
+HEADER_DEPTH = 14
+
+
+def header_stock(sheet):
+    """
+    Returns (buffer name, stock in mol/L) from the sheet's own header block, or
+    (None, None).
+
+    Twenty-one sheets state the buffer outright -- a name beside a 'Buffer'
+    label and a molarity under it:
+
+        N3 Buffer   O3 hexametaphosphate (pyrophosphate)
+        N4 mol/l    O4 0.033
+
+    This is the experimenter recording what went into the cuvette, and the
+    sheet's [buffer] column is computed from it. It outranks the filename,
+    which is copied forward between runs and only partly updated -- exps 75, 76
+    and 78 all say '0.1M' in the filename over a sheet that says 0.033.
+    """
+    for row in range(min(HEADER_DEPTH, len(sheet))):
+        for column in range(sheet.shape[1]):
+            if str(sheet.iat[row, column]).strip().lower() != "buffer":
+                continue
+            name = None
+            for right in range(column + 1, min(column + 3, sheet.shape[1])):
+                value = sheet.iat[row, right]
+                if str(value) != "nan" and not isinstance(value, (int, float)):
+                    name = str(value).strip()
+                    break
+            stock = None
+            for below in range(row + 1, min(row + 4, len(sheet))):
+                if str(sheet.iat[below, column]).strip().lower() != "mol/l":
+                    continue
+                for right in range(column + 1, min(column + 3, sheet.shape[1])):
+                    try:
+                        candidate = float(sheet.iat[below, right])
+                    except (TypeError, ValueError):
+                        continue
+                    if np.isfinite(candidate) and 0 < candidate < 2:
+                        stock = candidate
+                        break
+            if name or stock:
+                return name, stock
+    return None, None
+
 
 def filename_stock_mM(filename):
     """Returns the stock a filename declares, in mM, or None."""
@@ -167,9 +213,17 @@ def analyse(dataset_path=DATASET_PATH, manifest_path=MANIFEST_PATH):
         tuple: (findings, summary). findings is a list of
             (experiment or None, check, message); summary is a DataFrame.
     """
+    from build_dossier import read_sheet
+
     data = pd.read_csv(dataset_path)
     manifest = pd.read_csv(manifest_path).set_index("experiment")
     findings, rows = [], []
+
+    declared_stock = {}
+    for number in manifest.index:
+        filename = str(manifest.loc[number, "xls_file"])
+        if os.path.exists(os.path.join(SHEET_DIR, filename)):
+            declared_stock[number] = header_stock(read_sheet(filename))
 
     for number in manifest.index:
         volumes, totals, declared = recipe(number, manifest)
@@ -179,7 +233,7 @@ def analyse(dataset_path=DATASET_PATH, manifest_path=MANIFEST_PATH):
         declared = np.array(declared, dtype=float)
         row = {"experiment": number, "cuvettes": len(volumes),
                "provenance": manifest.loc[number, "buf_provenance"],
-               "stock_mM": np.nan, "source": ""}
+               "stock_mM": np.nan, "source": "", "buffer_name": None}
 
         # The volume fallback divides by a hardcoded 2 ml cuvette, so a sheet
         # whose cuvettes are not 2 ml silently gets the wrong [buf].
@@ -207,15 +261,35 @@ def analyse(dataset_path=DATASET_PATH, manifest_path=MANIFEST_PATH):
                                  f"bottle, so the column is not [buf] = stock * "
                                  f"V_buf/V_total"))
 
-            # 2. and it must match a molarity stated in the filename
+            # 2. where the sheet states the stock outright, the [buf] column
+            # must agree with it -- two places in one document, so a
+            # disagreement means one of them was left behind by an edit.
+            recovered = float(np.median(stocks))
+            name, stated_stock = declared_stock.get(number, (None, None))
+            if stated_stock is not None:
+                row["buffer_name"] = name
+                if abs(recovered - stated_stock * 1000.0) > TOLERANCE * recovered:
+                    findings.append((number, "bufdeclared",
+                                     f"the sheet's header states a {stated_stock:g} M "
+                                     f"buffer but its own [buf] column implies "
+                                     f"{recovered:.4g} mM"))
+
+            # 3. and the filename, which ranks below both
             stated = filename_stock_mM(manifest.loc[number, "xls_file"])
-            if stated is not None:
-                recovered = float(np.median(stocks))
-                if abs(recovered - stated) > TOLERANCE * stated:
+            if stated is not None and abs(recovered - stated) > TOLERANCE * stated:
+                if stated_stock is not None:
+                    findings.append((number, "bufstale",
+                                     f"the filename says {stated / 1000:g} M, but the "
+                                     f"sheet states {stated_stock:g} M in its header and "
+                                     f"computes [buf] from it. The filename is stale; the "
+                                     f"sheet is the measurement"
+                                     + (f" (buffer: {name})" if name else "")))
+                else:
                     findings.append((number, "buflabel",
                                      f"the filename declares a {stated / 1000:g} M buffer "
                                      f"but the sheet's own [buf] column implies "
-                                     f"{recovered:.4g} mM"))
+                                     f"{recovered:.4g} mM, and the sheet states no stock "
+                                     f"in its header to adjudicate between them"))
 
         # 3. the fallback's 0.1 M must still be evidenced where it can be
         if number in SHEET_ARITHMETIC:

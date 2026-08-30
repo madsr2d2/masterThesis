@@ -353,10 +353,16 @@ if __name__ == "__main__":
         from verify_buffer import analyse as analyse_buffer
         buffer_findings, buffer_summary = analyse_buffer(args.csv, args.manifest)
         for number, check, message in buffer_findings:
-            # buflabel records that a filename and its sheet disagree about the
-            # buffer stock. The compiled value follows the sheet, which is the
-            # standing precedence everywhere else, so this is a disagreement to
-            # adjudicate rather than a defect in the dataset.
+            # bufstale is adjudicated: the sheet states the stock in its own
+            # header AND computes [buf] from it, so the two agree and only the
+            # filename dissents. A filename is copied forward between runs and
+            # only partly updated, which this archive does repeatedly; a
+            # declared value is what the experimenter measured. The sheet wins.
+            if check == "bufstale":
+                findings.note("deep:buf", number, message)
+                continue
+            # buflabel is the same disagreement WITHOUT a header stock to
+            # adjudicate it, so it stays open.
             if check == "buflabel":
                 findings.warn("deep:buf", number, message)
                 continue
@@ -379,9 +385,11 @@ if __name__ == "__main__":
                   f"Rate(pH).xls confirm the dataset's [enz] independently")
             recovered = buffer_summary[buffer_summary["stock_mM"].notna()]
             evidenced = int((recovered["source"] == "sheet-arithmetic").sum())
+            named = int(buffer_summary["buffer_name"].notna().sum())
             print(f"deep check: {len(recovered)} experiment(s) recovered a buffer stock "
                   f"from the sheet's own volumes, {evidenced} of them from the "
-                  f"experimenter's own arithmetic")
+                  f"experimenter's own arithmetic and {named} confirmed against a stock "
+                  f"the sheet states outright")
             print(f"deep check: {len(verified)} concentration column(s) confirmed from the "
                   f"volume tables; the remaining {len(unverifiable)} were serially diluted "
                   f"and {traced} cuvette values were traced back to a recorded dilution")
