@@ -269,6 +269,40 @@ BUFFER_PATTERNS = [
 ]
 
 
+def read_sheet_claims(sheet):
+    """
+    Returns the fields the SHEET itself supplies, independently of any filename.
+
+    kinetics_io's find_* helpers are already sheet-first, taking the filename
+    only as a fallback, so calling them with filename=None isolates what the
+    sheet actually declares. That distinction is what the provenance column
+    needs: stamping "filename" whenever a filename agreed made the sheet's
+    corroboration invisible, and understated the evidence for 83 of the 100 pH
+    values, which the sheets carry beside a 'pH' label.
+
+    Args:
+        sheet (pd.DataFrame): A raw, header-less sheet.
+
+    Returns:
+        dict: Any of "pH", "T", "buffer", "substrate" the sheet declares.
+    """
+    from kinetics_io import (find_buffer_type, find_pH_value_in_range,
+                             find_substrate_type, find_temperature_value_in_range)
+
+    readers = {"pH": find_pH_value_in_range, "T": find_temperature_value_in_range,
+               "buffer": find_buffer_type, "substrate": find_substrate_type}
+    claims = {}
+    with contextlib.redirect_stdout(io.StringIO()):
+        for field, reader in readers.items():
+            try:
+                value = reader(sheet, (0, 100), (0, 100), filename=None)
+            except Exception:
+                value = None
+            if value is not None and not (isinstance(value, float) and pd.isna(value)):
+                claims[field] = value
+    return claims
+
+
 def read_sheet_optics(sheet):
     """
     Reads the monitoring wavelength and extinction coefficient a sheet declares.
@@ -535,6 +569,7 @@ def build(directory="data/data"):
         }
 
         rulings = RULINGS.get(number, {})
+        from_sheet = read_sheet_claims(sheet) if sheet is not None else {}
         resolved, provenance, open_questions = {}, {}, []
         for field in ("pH", "T", "substrate", "buffer", "has_enzyme"):
             if field in rulings:
@@ -546,12 +581,18 @@ def build(directory="data/data"):
                            else "filename" if field in from_name else None)
             if declared is None:
                 resolved[field] = extracted[field]
-                provenance[field] = "extracted"
+                provenance[field] = "sheet" if field in from_sheet else "extracted"
                 continue
 
             if _agrees(declared, extracted[field]):
                 resolved[field] = declared
-                provenance[field] = declared_by
+                # Two independent sources agreeing is the strongest state the
+                # metadata reaches, and it deserves its own label: stamping
+                # "filename" here hid that the sheet says the same thing.
+                provenance[field] = (f"sheet+{declared_by}"
+                                     if field in from_sheet and
+                                     _agrees(from_sheet[field], declared)
+                                     else declared_by)
                 continue
 
             # Declared and extracted disagree. Keep the CURRENT (extracted)

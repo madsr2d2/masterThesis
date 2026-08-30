@@ -7,6 +7,69 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-31 — Correction: every sheet declares its pH, and the provenance column was hiding it
+
+A status summary on 2026-08-30 said pH was "~92% filename-sourced" and called
+that the dataset's largest remaining exposure. **That was wrong**, and the
+manifest's own provenance column is what made it look true.
+
+### All 100 sheets declare pH
+
+Every sheet carries a bare `pH` label with the value in the cell to its right,
+in one of four places:
+
+| cell | sheets |
+|---|---|
+| K11 | 57 |
+| N5 | 21 |
+| I70 | 17 |
+| F27 | 5 |
+
+**All 100 agree with the manifest**, to within 0.02. The I70 group is the
+135–151 series, which is why a first scan limited to the top 30 rows found only
+83 — the sheets were not sparse, the scan was shallow.
+
+### The pipeline was already reading them
+
+`kinetics_io.find_pH_value_in_range` matches `\bpH\b` over a 100 x 100 window
+and takes the neighbouring cell, falling back to the filename only if that
+fails. The same is true of `find_temperature_value_in_range`, `find_buffer_type`
+and `find_substrate_type`. So the sheet has always been the primary source for
+all four fields.
+
+What went wrong was the label. `build_manifest` stamped `provenance = filename`
+whenever a filename agreed with the extraction, which read as "the filename is
+where this came from" when it actually meant "the filename agreed with the
+sheet". The strongest state the metadata reaches — two independent sources
+saying the same thing — was recorded as if it were the weakest.
+
+### The provenance column now distinguishes them
+
+`read_sheet_claims()` calls each `find_*` helper with `filename=None`, isolating
+what the sheet alone declares, and the resolution stamps `sheet+filename` where
+both agree, `sheet` where only the sheet has it.
+
+| field | sheet+filename | sheet only | filename only | folder | ruling |
+|---|---|---|---|---|---|
+| pH | 82 | 5 | **0** | 0 | 2 |
+| substrate | 83 | 6 | **0** | 0 | 0 |
+| T | 60 | 17 | 12 | 0 | 0 |
+| buffer | 33 | 17 | 39 | 0 | 0 |
+| has_enzyme | 0 | 0 | 42 | 24 | 23 |
+
+(89 live experiments.)
+
+**pH and substrate have no filename-only cases at all.** Every live experiment
+has both from the sheet, and in 82 and 83 of them the filename independently
+agrees. Buffer is the weakest of the four at 39 filename-only — and that is the
+field where a stale filename has already been caught three times, in exps 75, 76
+and 78.
+
+Only the `provenance` column changed. `experiment_data.csv` still reproduces
+from `data/data` with zero differing cells, and every check still passes.
+
+---
+
 ## 2026-08-30 — A declared sheet value outranks a filename, and reading the sheets properly changed three things
 
 **Ruling: where the sheet declares a value, that is ground truth; the filename
