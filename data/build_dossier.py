@@ -235,14 +235,32 @@ def classify(sheet, header_row, labels, xls_file, recipe):
     return design, provenance
 
 
+_CURVE_INDEX = None
+
+
+def curve_index():
+    """
+    Parses every .txt once and indexes it by experiment number.
+
+    Built lazily and cached: the per-experiment scan this replaces reparsed all
+    98 files for each of the 98 experiments.
+    """
+    global _CURVE_INDEX
+    if _CURVE_INDEX is None:
+        _CURVE_INDEX = {}
+        for name in sorted(os.listdir(SHEET_DIR)):
+            if not name.endswith(".txt"):
+                continue
+            parsed = parse_experiment_data(os.path.join(SHEET_DIR, name))
+            if parsed is not None and parsed.get("num") is not None:
+                _CURVE_INDEX.setdefault(parsed["num"], parsed)
+    return _CURVE_INDEX
+
+
 def curve_diagnostics(experiment_number):
-    """Returns a DataFrame of per-curve diagnostics, or None if no txt found."""
-    for name in sorted(os.listdir(SHEET_DIR)):
-        if not name.endswith(".txt"):
-            continue
-        parsed = parse_experiment_data(os.path.join(SHEET_DIR, name))
-        if parsed is None or parsed.get("num") != experiment_number:
-            continue
+    """Returns (DataFrame of per-curve diagnostics, collection date), or (None, None)."""
+    parsed = curve_index().get(experiment_number)
+    if parsed is not None:
         rows = []
         for index, (sample_name, sample) in enumerate(parsed["samples"].items(), start=1):
             time = np.asarray(sample["time"], dtype=float)
@@ -323,12 +341,19 @@ def _same(a, b):
     Compares two source values, so that 25 and 25.0 do not read as a conflict.
 
     Booleans are compared as booleans and numbers as numbers; anything else
-    falls back to a string comparison.
+    falls back to a string comparison. The numeric tolerance deliberately
+    matches build_manifest._agrees, so the dossier and the manifest agree on
+    what counts as a conflict -- a stricter rule here flagged four experiments
+    (75, 139, 140, 146) whose filename and sheet pH differ by a hundredth,
+    which the manifest had already accepted and which exp 146 shows to be
+    meaningless anyway: its sheet records pH 8.62 before the run and 8.71
+    after, so the recorded 8.66 is a midpoint, not a measurement to compare
+    against a filename at two decimals.
     """
     if isinstance(a, bool) or isinstance(b, bool):
         return bool(a) == bool(b)
     try:
-        return abs(float(a) - float(b)) < 1e-6
+        return abs(float(a) - float(b)) < 0.02
     except (TypeError, ValueError):
         return str(a).strip() == str(b).strip()
 
@@ -365,8 +390,19 @@ def parse_filename(name):
     return facts
 
 
-def render_experiment(number, manifest, dataset):
-    """Renders one experiment's section."""
+def render_experiment(number, manifest, dataset, summary=None):
+    """
+    Renders one experiment's section.
+
+    Args:
+        number (int): Experiment number.
+        manifest, dataset (pd.DataFrame): Declared and compiled data.
+        summary (list or None): If given, one dict per experiment is appended
+            for the index at the top of the page.
+
+    Returns:
+        str: The section's HTML.
+    """
     declared = manifest.loc[number]
     xls_file = declared["xls_file"]
     rows = dataset[dataset.experiment == number]
@@ -514,6 +550,13 @@ def render_experiment(number, manifest, dataset):
         stock_note = "0.1 assumed -- stated nowhere"
 
     status_class = "exclude" if declared["status"] == "exclude" else "use"
+    if summary is not None:
+        summary.append({
+            "experiment": number, "status": declared["status"], "design": design,
+            "provenance": provenance, "substrate": declared["substrate"],
+            "buffer": declared["buffer"], "curves_flagged": bad,
+            "ruled": bool(ruled), "cuvettes": len(rows),
+        })
     return f"""
 <section id="exp{number}">
   <div class="gutter">{number}<small>exp</small></div>
@@ -687,6 +730,20 @@ nav a { color:var(--accent); text-decoration:none; padding:1px 7px;
         display:inline-block; }
 nav a:hover, nav a:focus-visible { background:var(--accent-soft);
         border-color:var(--accent); outline:none; }
+nav a.ex { opacity:.55; text-decoration:line-through; }
+nav a.fl { border-bottom:2px solid var(--warn); }
+nav a.as { border-top:2px solid var(--dim); }
+.key { display:block; margin-top:8px; color:var(--dim); font-size:11px; }
+.key b { display:inline-block; width:9px; height:9px; margin:0 3px 0 10px;
+         border:1px solid var(--rule); vertical-align:-1px; }
+.key b.ex { opacity:.4; background:var(--dim); }
+.key b.fl { border-bottom:2px solid var(--warn); }
+.key b.as { border-top:2px solid var(--dim); }
+table.index { max-width:640px; margin-bottom:22px; }
+table.index td.n { font:600 15px/1.3 "IBM Plex Sans Condensed", sans-serif;
+                  color:var(--ink); text-align:right; width:44px;
+                  font-variant-numeric:tabular-nums; }
+table.index td.detail { color:var(--dim); white-space:normal; }
 """
 
 
@@ -707,12 +764,48 @@ def build(experiments=None, out_path="dossier.html",
     dataset = pd.read_csv(dataset_path)
     numbers = sorted(experiments) if experiments else sorted(manifest.index)
 
-    sections = []
+    sections, summary = [], []
     for number in numbers:
         print(f"  experiment {number}", flush=True)
-        sections.append(render_experiment(number, manifest, dataset))
+        sections.append(render_experiment(number, manifest, dataset, summary))
 
-    links = "".join(f'<a href="#exp{n}">{n}</a>' for n in numbers)
+    facts = {row["experiment"]: row for row in summary}
+    links = "".join(
+        '<a href="#exp{n}" class="{k}" title="{t}">{n}</a>'.format(
+            n=n,
+            k=" ".join(filter(None, [
+                "ex" if facts.get(n, {}).get("status") == "exclude" else "",
+                "fl" if facts.get(n, {}).get("curves_flagged") else "",
+                "as" if facts.get(n, {}).get("provenance") == "assumed" else ""])),
+            t=html.escape("{s}, {b}".format(s=facts.get(n, {}).get("substrate", ""),
+                                            b=facts.get(n, {}).get("buffer", ""))))
+        for n in numbers)
+
+    def count(predicate):
+        return sum(1 for row in summary if predicate(row))
+
+    index_rows = [
+        ("experiments", len(summary), ""),
+        ("excluded", count(lambda r: r["status"] == "exclude"),
+         ", ".join(str(r["experiment"]) for r in summary if r["status"] == "exclude")),
+        ("carrying a ruling", count(lambda r: r["ruled"]),
+         ", ".join(str(r["experiment"]) for r in summary if r["ruled"])),
+        ("volume design", count(lambda r: r["design"] == "volume"), "buffer traded against substrate"),
+        ("stock design", count(lambda r: r["design"] == "stock"), "fixed volumes, diluted stocks"),
+        ("design unclear", count(lambda r: r["design"] == "unknown"),
+         ", ".join(str(r["experiment"]) for r in summary if r["design"] == "unknown")),
+        ("[buf] read from the sheet", count(lambda r: r["provenance"] == "declared"), ""),
+        ("[buf] stock from the filename", count(lambda r: r["provenance"] == "filename"), ""),
+        ("[buf] stock from sheet text", count(lambda r: r["provenance"] == "sheet-text"), ""),
+        ("[buf] stock ASSUMED 0.1 M", count(lambda r: r["provenance"] == "assumed"),
+         "stated nowhere -- needs confirming"),
+        ("with a flagged curve", count(lambda r: r["curves_flagged"]),
+         ", ".join(str(r["experiment"]) for r in summary if r["curves_flagged"])),
+    ]
+    index_html = "<table class='index'><tbody>" + "".join(
+        f"<tr><td class='n'>{value}</td><td>{html.escape(label)}</td>"
+        f"<td class='detail'>{html.escape(str(detail))}</td></tr>"
+        for label, value, detail in index_rows) + "</tbody></table>"
     page = f"""<title>Kinetics Experiment Dossier</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap">
 <style>{STYLE}</style>
@@ -724,7 +817,11 @@ and the recorded dilution chains; what needs a human is the per-experiment
 metadata &mdash; the design, the buffer stock, and whether the run should be
 used at all. Conflicts between sources are highlighted. Values under
 <em>Ruling</em> are proposed by rule, not asserted.</p>
-<nav><strong>{len(numbers)} experiments</strong>{links}</nav>
+<h3>Where the work is</h3>
+{index_html}
+<nav><strong>{len(numbers)} experiments</strong>{links}
+  <span class="key"><b class="ex">&nbsp;</b>excluded <b class="fl">&nbsp;</b>flagged curve
+  <b class="as">&nbsp;</b>[buf] assumed</span></nav>
 {''.join(sections)}
 </div>
 """
