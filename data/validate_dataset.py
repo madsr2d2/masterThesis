@@ -193,6 +193,22 @@ def validate(dataset_path=DATASET_PATH, manifest_path=MANIFEST_PATH):
                            f"extinction coefficient {actual_e} does not match "
                            f"{observed['substrate']} (expected {expected_e})")
 
+        # kinetics_io hardcodes e per SUBSTRATE in SUBSTRATE_PROPERTIES, but each
+        # sheet declares its own alongside the monitoring wavelength. Where they
+        # diverge the compiled concentrations are scaled wrong by exactly that
+        # ratio, so this is checked against the sheet, not against the hardcode.
+        declared_e = declared.get("e_declared")
+        if declared_e is not None and not pd.isna(declared_e):
+            if not _agrees(declared_e, actual_e, tolerance=1e-6):
+                message = (f"sheet declares e = {declared_e} at "
+                           f"{declared.get('abs_nm')} nm but the dataset uses "
+                           f"{actual_e} (all concentrations scaled by "
+                           f"{actual_e / declared_e:.3g}x)")
+                if "e_declared" in disputed:
+                    findings.warn("optics", number, message + "  (open question)")
+                else:
+                    findings.error("optics", number, message)
+
         enzyme_present = bool((rows["[enz]"].fillna(0) > 0).any())
         if bool(declared["has_enzyme"]) != enzyme_present and "has_enzyme" not in disputed:
             findings.error("invariant", number,

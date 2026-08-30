@@ -2,6 +2,11 @@
 Bootstraps data/manifest.csv -- the declared ground truth for the dataset --
 from the independent sources that exist outside the .xls sheets:
 
+  0. The sheet header. Each sheet declares the monitoring wavelength and the
+                      extinction coefficient (`abs [nm]`, `e [U/mM]`).
+                      kinetics_io ignores both, hardcoding e per substrate in
+                      SUBSTRATE_PROPERTIES, so recording them here makes any
+                      divergence visible.
   1. Filenames.       They encode pH, temperature, substrate, buffer and
                       whether enzyme was present. Confirmed as ground truth by
                       the experimentalist; recovers 75-92% of fields.
@@ -30,7 +35,7 @@ import re
 
 import pandas as pd
 
-from kinetics_io import load_experiment
+from kinetics_io import find_and_parse_experiment_file, load_experiment
 
 MADS_DIR = "data/Mads"
 
@@ -46,6 +51,35 @@ KNOWN_EXCLUSIONS = {
     82: "flat progress curves in every sample; same-day sibling 83 normal",
     84: "hand-sorted into data/Mads/'bad data'",
 }
+
+# Deviations that are understood and accepted, so the deep checks warn rather
+# than error on them. Keyed by experiment -> (check names, reason).
+KNOWN_ACCEPTED_DEVIATIONS = {
+    128: ("block;chain",
+          'sample 5 is the reference row "ref 5" (a matched no-enzyme blank) with its own '
+          "cuvette volume, not a 5th titration condition, so both its concentrations and "
+          "its volume ratio differ from the measured cuvettes. Documented in "
+          "DATA_VERIFICATION.md Round 4; the sample is already handled downstream."),
+}
+
+# Questions raised outside the automatic filename/extraction comparison, seeded
+# so they survive a rebuild. Listing a field here also tells validate_dataset.py
+# to warn rather than error on it, since it is known and awaiting a ruling.
+KNOWN_OPEN_QUESTIONS = {
+    57: ["e_declared: sheet says e = 1.59 at 285 nm, dataset uses the hardcoded 7.53 "
+         "(4.74x); IN USE, so every concentration would be affected"],
+    58: ["e_declared: sheet says e = 1.59 at 285 nm, dataset uses the hardcoded 7.53 "
+         "(4.74x); experiment is excluded, so consequence-free"],
+}
+# The seven earliest 4OMe-BnOH runs declare 285 nm but carry e = 7.53, which is the
+# value every 300 nm sheet uses; exps 57/58 pair 285 nm with 1.59 instead. Either
+# the wavelength cell is a stale template value or e was never updated when the
+# wavelength changed. A raw-signal comparison against the 300 nm runs was
+# inconclusive (those early curves are near background and scatter hugely).
+for _exp in (2, 4, 5, 7, 8, 9, 10):
+    KNOWN_OPEN_QUESTIONS.setdefault(_exp, []).append(
+        "abs_nm: sheet declares 285 nm but carries e = 7.53, the value used by every "
+        "300 nm sheet; exps 57/58 pair 285 nm with e = 1.59")
 
 # Substrate keys are checked in order: '4OMe-BnOH' spellings must be tested
 # before the bare 'bnoh' that they all contain.
@@ -68,6 +102,36 @@ BUFFER_PATTERNS = [
     ("na2hpo4", "Phosphate"),
     ("phosphat", "Phosphate"),
 ]
+
+
+def read_sheet_optics(sheet):
+    """
+    Reads the monitoring wavelength and extinction coefficient a sheet declares.
+
+    Args:
+        sheet (pd.DataFrame): A raw, header-less sheet.
+
+    Returns:
+        tuple: (wavelength_nm, e_per_mM), either possibly None.
+    """
+    wavelength = extinction = None
+    for row in range(min(40, sheet.shape[0])):
+        for col in range(min(16, sheet.shape[1])):
+            cell = ("" if pd.isna(sheet.iloc[row, col])
+                    else str(sheet.iloc[row, col]).strip().lower())
+            if cell == "nm" or cell.startswith("abs ["):
+                for offset in (-1, 1):
+                    if 0 <= col + offset < sheet.shape[1]:
+                        value = sheet.iloc[row, col + offset]
+                        if isinstance(value, (int, float)) and pd.notna(value) and 200 < value < 800:
+                            wavelength = float(value)
+            if cell == "e" or cell.startswith("e ["):
+                for offset in (1, 2):
+                    if col + offset < sheet.shape[1]:
+                        value = sheet.iloc[row, col + offset]
+                        if isinstance(value, (int, float)) and pd.notna(value) and 0 < value < 1000:
+                            extinction = float(value)
+    return wavelength, extinction
 
 
 def parse_filename(filename):
@@ -173,6 +237,9 @@ def build(directory="data/data"):
         if experiment is None:
             continue
 
+        _, sheet = find_and_parse_experiment_file(number, directory, "Sheet1")
+        wavelength, extinction = read_sheet_optics(sheet) if sheet is not None else (None, None)
+
         from_name = parse_filename(str(experiment["xls_file"]))
         from_folder = folder_claims.get(number, {})
         extracted = {
@@ -225,10 +292,14 @@ def build(directory="data/data"):
             "T": resolved["T"],
             "has_enzyme": bool(resolved["has_enzyme"]),
             "n_samples": len(experiment["samples"]),
+            "abs_nm": wavelength,
+            "e_declared": extinction,
             "status": "exclude" if excluded else "use",
             "exclude_reason": KNOWN_EXCLUSIONS.get(number, flag if excluded else ""),
+            "accepted_deviations": KNOWN_ACCEPTED_DEVIATIONS.get(number, ("", ""))[0],
+            "accepted_deviation_reason": KNOWN_ACCEPTED_DEVIATIONS.get(number, ("", ""))[1],
             "provenance": ";".join(f"{k}={v}" for k, v in provenance.items()),
-            "open_questions": " | ".join(open_questions),
+            "open_questions": " | ".join(open_questions + KNOWN_OPEN_QUESTIONS.get(number, [])),
             "xls_file": experiment["xls_file"],
             "notes": "",
         })

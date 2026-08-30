@@ -213,6 +213,22 @@ assumption that the observable is `[A]`.
 
 ### The extinction coefficients support the reinterpretation
 
+*(Updated 2026-08-30 — the wavelength is no longer an inference. Each `.xls`
+sheet declares it in its header: **285 nm for BnOH** with `e = 1.23`, **300 nm
+for 4OMe-BnOH** with `e = 7.53`. Literature puts benzaldehyde in water at
+**eps ~ 1400 M^-1 cm^-1 at 278-279 nm**, so `e = 1230 M^-1 cm^-1` at 285 nm sits
+on the falling edge of that same n->pi* band: **`e` is benzaldehyde's own
+extinction coefficient, not a differential one**, and the abs -> [P] conversion
+does assume the aldehyde is the sole absorber. What is still missing is
+eps(benzoate) at 285 nm; benzoate's weak band lies near 268 nm and no reliable
+aqueous value at 285 nm could be retrieved (the two best sources are paywalled).
+A band-shape bracket gives eps ~ 100-400 M^-1 cm^-1, i.e. **r ~ 0.08-0.33**,
+lower than the ~0.5 guessed below - though the signal contribution is
+`r x [BA]/[A]`, and A is an intermediate whose pool stays small while BA
+accumulates, so a small r does not by itself restore the aldehyde reading.
+One UV spectrum of benzoic acid at working pH settles it. See
+`DATA_VERIFICATION.md` 2026-08-30.)*
+
 `experiment_data.csv` carries exactly one `e` per substrate: **1.23 mM^-1 cm^-1
 for BnOH** and **7.53 mM^-1 cm^-1 for 4OMe-BnOH**. Benzaldehyde's strong pi->pi*
 band at 250 nm has eps ~ 12,000–14,000 M^-1 cm^-1 — about ten times higher than

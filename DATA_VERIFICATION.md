@@ -6,6 +6,95 @@ the top.
 
 ---
 
+## 2026-08-30 — Wavelength and extinction coefficient: the sheets declare them, the pipeline ignores them
+
+Chasing `MECHANISM.md`'s open observable question turned up the answer in the
+sheets themselves, plus a live defect.
+
+### What the sheets declare
+
+Every sheet states its monitoring wavelength and extinction coefficient in its
+header (`abs [nm]`, `e [U/mM]`). Across the 98 experiments:
+
+| substrate | nm | e (mM⁻¹cm⁻¹) | experiments |
+|---|---|---|---|
+| BnOH | 285 | 1.23 | 43 |
+| 4OMe-BnOH | 300 | 7.53 | 46 |
+| 4OMe-BnOH | 285 | 7.53 | 7 — exps 2, 4, 5, 7, 8, 9, 10 |
+| 4OMe-BnOH | 285 | **1.59** | 2 — exps 57, 58 |
+
+`kinetics_io` ignores all of it, hardcoding `e` per substrate in
+`SUBSTRATE_PROPERTIES` (BnOH 1.23 / 285; 4OMe-BnOH 7.53 / 300).
+
+### Live defect: exps 57 and 58
+
+Their sheets declare `e = 1.59` at 285 nm; the compiled dataset uses **7.53**.
+Every concentration in those experiments is therefore scaled by **4.74×**.
+Exp 58 is already excluded, so it is consequence-free — **exp 57 is in use.**
+Recorded as an open question rather than corrected, pending a ruling.
+
+### Second question: the seven earliest 4OMe runs
+
+Exps 2, 4, 5, 7, 8, 9, 10 declare **285 nm** but carry `e = 7.53`, which is the
+value every **300 nm** sheet uses, while exps 57/58 pair 285 nm with 1.59.
+Either the wavelength cell is a stale template value or `e` was never updated
+when the wavelength changed. An empirical test — comparing raw absorbance slope
+per unit substrate and enzyme between the two groups, using the near-matched
+pair exp 9 (pH 5.67, "285") against exp 11 (pH 5.64, 300) — was **inconclusive**:
+the nominal replicates at pH 6.71 (exps 2, 4, 5, 7) scatter from −2.8e-6 to
++3.7e-6, so the comparison has no power. Recorded as an open question.
+
+### The observable question is now partly answered
+
+Literature: benzaldehyde in water has **ε ≈ 1400 M⁻¹cm⁻¹ at 278–279 nm**, the
+weak n→π* band of the aldehyde carbonyl (the strong π→π* sits at 248 nm with
+ε ≈ 12,000–14,000). The sheets' `e = 1.23 mM⁻¹cm⁻¹` = **1230 M⁻¹cm⁻¹ at 285 nm**
+sits exactly on the falling edge of that band.
+
+Two consequences:
+
+1. **`e` is benzaldehyde's own ε, not a differential coefficient.** The
+   abs → `[P]` conversion therefore assumes benzaldehyde is the *sole* absorber,
+   which is what `MECHANISM.md` suspected. Confirmed, not merely inferred.
+2. The earlier inference that 285 nm is the weak n→π* band is confirmed
+   directly from the recorded wavelength, not deduced from the magnitude of ε.
+
+**Still missing: ε of benzoate at 285 nm.** Benzoic acid's strong band is at
+224–230 nm; the weak "C band" sits near 273 nm (ε ≈ 2000 M⁻¹cm⁻¹ in ethanol),
+and at pH 5.5–11.8 the species present is benzoate, whose weak band is near
+268 nm. At 285 nm we are on its tail. No reliable aqueous value at 285 nm was
+found in the open literature — the two most promising sources (RSC
+*Absorption Spectra of Benzoic Acid in Water at Different pH*, and the 1958
+*Light Absorption Studies* tabulation) are both paywalled (HTTP 403).
+
+Rough bracket from band shape: ε(benzoate, 285 nm) plausibly 100–400 M⁻¹cm⁻¹,
+giving `r = ε_BA/ε_A` ≈ **0.08–0.33** — appreciably lower than the ~0.5 guessed
+in `MECHANISM.md`. That does **not** settle the observable question, because the
+signal contribution is `r × [BA]/[A]`, and within the mechanism benzaldehyde is
+an intermediate whose pool stays small while benzoic acid accumulates. A small
+`r` with a large `[BA]/[A]` still lets the acid dominate late in a run.
+
+The decisive measurement is cheap and local: **run a UV spectrum of benzoic
+acid at the working pH and read ε at 285 nm.** One cuvette settles what the
+literature would not give up.
+
+### Changes made
+
+- `data/manifest.csv` gains `abs_nm` and `e_declared`, read from each sheet, so
+  the optics become declared ground truth like every other field. Also gains
+  `accepted_deviations` / `accepted_deviation_reason` seeded in the bootstrap so
+  they survive a rebuild.
+- `validate_dataset.py` gains an `optics` check comparing the compiled `e`
+  against the sheet's declared value and reporting the exact scaling error.
+- Nine new open questions recorded (exps 57, 58 on `e`; exps 2, 4, 5, 7, 8, 9,
+  10 on wavelength). No data changed.
+
+    python data/validate_dataset.py          ->  0 errors, 24 warnings
+    python data/validate_dataset.py --deep   ->  0 errors, 27 warnings
+    python data/test_validator.py            ->  9 passed, 0 failed
+
+---
+
 ## 2026-08-30 — The 59 "unverifiable" concentrations are verifiable after all
 
 The previous entry concluded that 59 concentration columns could not be checked
