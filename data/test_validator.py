@@ -44,15 +44,17 @@ def _set(data, experiment, column, value, sample=None):
     return data
 
 
-# These fire on the clean dataset by design -- their enzyme block describes the
-# planned with-enzyme cuvettes, which were never run -- so a deep case must not
-# count them as having caught its injected fault.
-ACCEPTED_ENZYME_DEVIATIONS = {32, 34, 35, 36, 37}
-
-# These fire on the clean dataset by design -- their enzyme block describes the
-# planned with-enzyme cuvettes, which were never run -- so a deep case must not
-# count them as having caught its injected fault.
-ACCEPTED_ENZYME_DEVIATIONS = {32, 34, 35, 36, 37}
+# Findings that fire on the CLEAN dataset, which a deep case must not count as
+# having caught its injected fault. Keyed by check as well as by experiment: a
+# per-experiment blanket would suppress every other check on the same run, and
+# the fault-injection case "a catalysed run zeroed to look enzyme-free" (exp 34)
+# proved that -- it was masked until this became check-specific.
+#
+# Exps 32 and 34-37 raise `enzname` because their filenames say "with_NO_E"
+# while their cuvette tables lay out the catalysed design; the sheet wins, ruled
+# 2026-08-31. Nothing else about them is accepted.
+ACCEPTED_DEEP_FINDINGS = {("enzname", experiment)
+                          for experiment in (32, 34, 35, 36, 37)}
 
 CASES = [
     # (name, corruption applied to a copy of the dataset, check that must fire)
@@ -106,6 +108,21 @@ DEEP_CASES = [
     ("enzyme concentration silently halved",
      lambda d: _set(d, 14, "[enz]", float(d.loc[d.experiment == 14, "[enz]"].iloc[0]) / 2),
      "enzuse"),
+    # The 2026-08-30 error, reproduced: a catalysed run forced to [enz] = 0 on
+    # the strength of its filename. Every check above passes on this, because
+    # zero is a perfectly consistent enzyme concentration -- the arithmetic
+    # chain has nothing to disagree with. Only the cuvette table's SHAPE knows,
+    # and exp 34 is one of the five where the filename says otherwise, so this
+    # also confirms the design check is reading the sheet rather than the name.
+    ("a catalysed run zeroed to look enzyme-free",
+     lambda d: _set(d, 34, "[enz]", 0.0), "enzdesign"),
+    # The same fault on an experiment whose filename agrees with its sheet, so
+    # the check cannot be passing by way of the filename conflict.
+    ("a catalysed run zeroed where the filename agrees",
+     lambda d: _set(d, 16, "[enz]", 0.0), "enzdesign"),
+    # And the reverse: a background run given a catalyst it never had.
+    ("a background run given an enzyme concentration",
+     lambda d: _set(d, 23, "[enz]", 0.241), "enzdesign"),
 ]
 
 # Rate(pH).xls is a third record of [enz], independent of the sheet that ran the
@@ -193,7 +210,7 @@ def main():
         for name, corrupt, expected_check in DEEP_CASES:
             findings = _run_deep(corrupt, tmpdir)
             caught = [f for f in findings if f[1] == expected_check
-                      and f[0] not in ACCEPTED_ENZYME_DEVIATIONS]
+                      and (f[1], f[0]) not in ACCEPTED_DEEP_FINDINGS]
             if caught:
                 passed += 1
                 print(f"  PASS  {name:38s} -> {expected_check}: {caught[0][2][:56]}")

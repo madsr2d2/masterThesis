@@ -321,8 +321,9 @@ def analyse(dataset_path=DATASET_PATH, manifest_path=MANIFEST_PATH):
 
         # 4. every compiled [buf] must be one of the values that stock gives
         # when diluted by a cuvette's own volumes. Comparing against the SET
-        # rather than pairwise, because most sheets lay out eight planned
-        # cuvettes and only four were measured, so the rows do not line up.
+        # rather than pairwise, because a sheet lays out twice as many rows as
+        # the run has samples -- the second half is the reference channel -- so
+        # the rows do not line up with the measured cuvettes.
         compiled = data[data.experiment == number].sort_values("sample")["[buf]"].values
         expected = np.unique(np.round(row["stock_mM"] * ratios, 6))
         # sheet-text experiments are buffer titrations that vary the STOCK at a

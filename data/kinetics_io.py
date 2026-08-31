@@ -29,31 +29,42 @@ SUBSTRATE_PROPERTIES = {
 # Per-experiment extraction corrections
 # ---------------------------------------------------------------------------
 # Experiments 32, 34, 35, 36 and 37 are buffer-concentration titrations whose
-# .xls sheets lay out EIGHT planned cuvettes -- rows 1-4 with enzyme, rows 5-8
-# without -- while only four channels were ever measured. These were no-enzyme
-# days, so the four cuvettes that actually ran were 5-8; but
-# find_numeric_values_below_header reads the first four rows of the table and
-# therefore picks up the with-enzyme plan rows. Two columns come out wrong:
+# [buf] the volume-based extraction cannot see: every cuvette receives the same
+# buffer VOLUME (1 ml into 2 ml total) and only the stock differs, and the stock
+# appears solely as a text label in the "kuv" column ("1 (0.1M)", "2 (0.2M)",
+# ...). The cuvette concentration is half the stock. Without this the whole
+# titration flattens to 50 mM and the [buf] axis disappears.
 #
-#   [enz]  extracted as 0.241 / 0.270 mM. The runs were enzyme-free -- the
-#          filenames say "with_NO_E" and all five sit in the hand-sorted
-#          data/Mads/"No enzyme"/ folder. 22 of the 27 experiments in that
-#          folder extract correctly as 0; these five are the exceptions.
-#   [buf]  extracted as a flat 50 mM, because every cuvette receives the same
-#          buffer VOLUME (1 ml into 2 ml total) and only the stock differs --
-#          and the stock appears solely as a text label in the "kuv" column
-#          ("1 (0.1M)", "2 (0.2M)", ...), which the volume-based extraction
-#          cannot see. The cuvette concentration is half the stock.
+# These five ALSO carried "[enz]": 0.0 here from 2026-08-30 to 2026-08-31, on
+# the strength of their "with_NO_E" filenames and the hand-sorted
+# data/Mads/"No enzyme"/ folder they sit in. That was wrong, and the reason it
+# was wrong is that rows 5-8 of a sheet are not a second planned experiment --
+# they are the REFERENCE CHANNEL of a double-beam measurement, which is what
+# DATA_VERIFICATION.md established on 2026-08-29. Rows 1-4 are always the
+# measured cuvettes; what rows 5-8 omit is what the reported curve is net of.
+# Classified that way the campaign splits perfectly:
 #
-# Corrected, these five become enzyme-free buffer titrations spanning
-# 3.125-200 mM at constant substrate. See DATA_VERIFICATION.md, 2026-08-30.
+#   reference omits the enzyme  ->  53 "with_E" sheets ... and 32, 34-37
+#   reference omits the H2O2    ->  14 "with_NO_E" sheets, 0 "with_E"
+#
+# On all five, rows 5-8 carry the same Sub and H2O2 as rows 1-4 with the enzyme
+# volume replaced by water: the catalysed design, exactly as in exp 10 or 16.
+# No genuine background run in the archive is laid out that way. The physical
+# confirmation is that a reference-subtracted curve can run backwards and a raw
+# background curve cannot -- 0 of 65 background curves dip below their own
+# starting absorbance, 6 of 207 differential ones do, and exp 34 sample 4 is
+# one of the six (-0.006 AU, negative fitted slope). Ruled 2026-08-31.
+#
+# So [enz] extracts CORRECTLY on these five and is no longer overridden. Their
+# curves are catalytic increments, already net of the background, and must not
+# be pooled with the raw-background runs (23-31, 38-40).
 EXPERIMENT_CORRECTIONS = {
     # experiment: {column: scalar applied to every sample, or per-sample list}
-    32: {"[enz]": 0.0, "[buf]": [50.0, 100.0, 150.0, 200.0]},
-    34: {"[enz]": 0.0, "[buf]": [25.0, 12.5, 6.25, 3.125]},
-    35: {"[enz]": 0.0, "[buf]": [50.0, 100.0, 150.0, 200.0]},
-    36: {"[enz]": 0.0, "[buf]": [50.0, 100.0, 150.0, 200.0]},
-    37: {"[enz]": 0.0, "[buf]": [50.0, 100.0, 150.0, 200.0]},
+    32: {"[buf]": [50.0, 100.0, 150.0, 200.0]},
+    34: {"[buf]": [25.0, 12.5, 6.25, 3.125]},
+    35: {"[buf]": [50.0, 100.0, 150.0, 200.0]},
+    36: {"[buf]": [50.0, 100.0, 150.0, 200.0]},
+    37: {"[buf]": [50.0, 100.0, 150.0, 200.0]},
 
     # Exps 79 and 80 are enzyme runs whose [enz] extracted as zero. Their
     # cuvette tables DO carry an "[Enz] mmol/l" column, but every measured row
@@ -68,8 +79,8 @@ EXPERIMENT_CORRECTIONS = {
     # declares kuv = 0.17533 and its table column reads 0.17533.)
     #
     # Checked across all 98: 63 sheets declare a header kuv, 58 agree with the
-    # compiled [enz], and the only other disagreements are exps 32 and 34-37,
-    # where the kuv belongs to the planned-but-unmeasured with-enzyme rows. So
+    # compiled [enz], and the only other disagreements were exps 32 and 34-37,
+    # which have since been ruled catalysed (2026-08-31) and now agree too. So
     # the broken column is confined to these two.
     #
     # Exp 80 is IN USE, so until now an enzyme run was sitting in the dataset

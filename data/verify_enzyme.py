@@ -30,13 +30,32 @@ this module checks every link of it:
   kuv      the cuvette value: stock * V_enz / V_total == the declared kuv
   compiled the dataset agrees with kuv
 
+A fourth check answers a different question -- not "is [enz] arithmetically
+right?" but "should this experiment have enzyme at all?" -- and it reads the
+cuvette table's SHAPE rather than any concentration. Every run is a two-channel
+differential measurement: rows 1-4 of the table are the measured cuvettes and
+rows 5-8 are their references, and what the reference omits is what the reported
+curve is net of (DATA_VERIFICATION.md, 2026-08-29). That makes the reference
+design a structural classifier, independent of both the filename and the [Enz]
+column:
+
+  reference omits the enzyme  ->  catalysed; the curve is a catalytic increment
+  reference omits the H2O2    ->  background; the curve is the raw reaction
+
+Across the archive this splits 53/14 with no overlap, so a run whose design and
+whose compiled [enz] disagree is a defect. Exps 32 and 34-37 were exactly that
+until 2026-08-31, carrying [enz] = 0 on a catalysed layout because their
+filenames say "with_NO_E".
+
 Usage:
     python data/verify_enzyme.py
 """
 import argparse
 import contextlib
+import glob
 import io
 import os
+import re
 
 import numpy as np
 import pandas as pd
@@ -138,6 +157,104 @@ def read_enzyme_volumes(sheet):
     return volumes, totals
 
 
+def reference_design(sheet):
+    """
+    Classifies an experiment by what its reference channel leaves out.
+
+    Reads the cuvette table as two equal halves -- the measured cuvettes and
+    their references -- and reports which reagent is present in the first and
+    absent from the second. This is a statement about the experiment's design,
+    made without looking at any declared concentration, which is what makes it
+    usable as a check ON the declared concentrations.
+
+    Args:
+        sheet (pd.DataFrame): A raw, header-less sheet.
+
+    Returns:
+        str or None: "enzyme", "h2o2", "substrate", "other", or None if the
+            table could not be read as two halves.
+    """
+    with contextlib.redirect_stdout(io.StringIO()):
+        header_row = find_header_row(sheet)
+    if header_row is None:
+        return None
+
+    labels = []
+    for column in range(sheet.shape[1]):
+        parts = [str(sheet.iat[row, column])
+                 for row in range(header_row, min(header_row + 2, len(sheet)))
+                 if str(sheet.iat[row, column]) != "nan"]
+        labels.append(" ".join(parts).strip().lower())
+
+    def column_for(prefix):
+        return next((i for i, l in enumerate(labels)
+                     if l.startswith(prefix) and "ml" in l), None)
+
+    wanted = {"enzyme": column_for("enz"), "h2o2": column_for("h2o2"),
+              "substrate": column_for("sub")}
+    total_column = next((i for i, l in enumerate(labels) if l.startswith("vol")), None)
+    if total_column is None or any(c is None for c in wanted.values()):
+        return None
+
+    # find_header_row can land on the units row above the column names, so the
+    # cuvette rows are identified by carrying a real total volume rather than by
+    # their offset. That also stops cleanly at the sheet's column-sum row, whose
+    # total volume is blank.
+    rows = []
+    for row in range(header_row + 1, min(header_row + 26, len(sheet))):
+        total = pd.to_numeric(pd.Series([sheet.iat[row, total_column]]),
+                              errors="coerce").iloc[0]
+        if pd.isna(total) or total <= 0:
+            if rows:
+                break
+            continue
+        rows.append(pd.to_numeric(pd.Series([sheet.iat[row, c] for c in wanted.values()]),
+                                  errors="coerce").fillna(0.0).tolist())
+    if len(rows) < 2 or len(rows) % 2:
+        return None
+
+    half = len(rows) // 2
+    measured = np.array(rows[:half], dtype=float)
+    reference = np.array(rows[half:], dtype=float)
+    for index, name in enumerate(wanted):
+        if measured[:, index].max() > 0 and reference[:, index].max() == 0:
+            return name
+    return "other"
+
+
+def filename_enzyme_tag(filename):
+    """
+    What the filename claims: True with enzyme, False without, None if silent.
+
+    Checked for "no_e" first -- "with_E" is a substring of "with_NO_E" under a
+    naive test, which would classify every background run as catalysed.
+    """
+    name = filename.lower()
+    if re.search(r"with_no_e", name):
+        return False
+    if re.search(r"with_e(\b|_)", name):
+        return True
+    return None
+
+
+def _tagged_filename(number, manifest_name, directory):
+    """
+    The sheet filename to read the with_E / with_NO_E tag from.
+
+    The manifest names one sheet per experiment, and for exp 32 that is the
+    truncated duplicate `mads_t032_t=40_pH=7.00_Phosphat_0.1_0.2_0.xls`, whose
+    name was cut off before the tag. The two files are byte-identical in
+    content, so any sibling that still carries a tag speaks for the experiment.
+    """
+    if filename_enzyme_tag(manifest_name) is not None:
+        return manifest_name
+    for path in sorted(glob.glob(os.path.join(directory, f"mads_t{number:03d}*.xls"))):
+        name = os.path.basename(path)
+        if filename_enzyme_tag(name) is not None:
+            return name
+    return manifest_name
+
+
 def _off(a, b):
     """Relative difference, guarding against a zero reference."""
     if a is None or b is None:
@@ -172,7 +289,29 @@ def analyse(dataset_path=DATASET_PATH, manifest_path=MANIFEST_PATH,
 
         row = {"experiment": number, "block": bool(block), "compiled": compiled[0]
                if len(compiled) == 1 else None, "kuv": None, "stock": None,
-               "from_mass": None, "from_volumes": None}
+               "from_mass": None, "from_volumes": None, "design": None}
+
+        # check 4 -- the design the cuvette table lays out, against the dataset
+        filename = _tagged_filename(number, manifest.loc[number, "xls_file"], directory)
+        design = reference_design(sheet)
+        row["design"] = design
+        if design in ("enzyme", "h2o2") and row["compiled"] is not None:
+            catalysed = design == "enzyme"
+            if catalysed != (row["compiled"] > 0):
+                findings.append((number, "enzdesign",
+                                 f"the reference channel omits the "
+                                 f"{'enzyme' if catalysed else 'H2O2'}, which is the "
+                                 f"{'catalysed' if catalysed else 'background'} design, "
+                                 f"but the dataset has [enz] = {row['compiled']}"))
+            tag = filename_enzyme_tag(filename)
+            if tag is not None and tag != catalysed:
+                findings.append((number, "enzname",
+                                 f"filename says {'with_E' if tag else 'with_NO_E'} but "
+                                 f"the cuvette table lays out the "
+                                 f"{'catalysed' if catalysed else 'background'} design "
+                                 f"(reference omits the "
+                                 f"{'enzyme' if catalysed else 'H2O2'})"))
+
         if block is None:
             rows.append(row)
             continue
@@ -240,6 +379,14 @@ if __name__ == "__main__":
     print(f"{len(summary)} experiments; {len(with_block)} declare an enzyme block")
     traced = with_block[with_block.from_mass.notna()]
     print(f"{len(traced)} trace [enz] back to a weighed mass of catalyst")
+    designs = summary.design.value_counts()
+    named = {"enzyme": "catalysed (reference omits the enzyme)",
+             "h2o2": "background (reference omits the H2O2)",
+             "substrate": "background (reference omits the substrate)",
+             "other": "reference matches the sample / not classifiable"}
+    print("reference-channel design:")
+    for key, count in designs.items():
+        print(f"  {count:>3}  {named.get(key, key)}")
     print(f"\n{len(findings)} finding(s)")
     for number, check, message in findings:
         print(f"  [{check:9s}] exp {number:<5d} {message}")

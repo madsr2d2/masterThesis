@@ -107,6 +107,24 @@ KNOWN_SAMPLE_EXCLUSIONS = {
                "cuvettes; the 5th is the paired no-enzyme reference cuvette's own "
                "curve (it matches ref row 5: [enz] = 0, same [buf]/[h2o2]/[sub] as "
                "kuv 1/2), not a titration point"),
+    (25, 2): ("dead cuvette at [sub] = 4.125 mM: v0 = 4.08e-06 AU/s, rising only "
+              "0.0030 AU in 1127 s. Eight independent enzyme-free cuvettes at the "
+              "SAME 4.125 mM, pH 7.00 and [HOO-] ~ 2.5e-03 (exps 23,24,26x4,27,28) "
+              "give 5.9e-05 to 8.8e-05, so this one is 17x below the median of its "
+              "own condition -- experiment 26 is four replicates at exactly this "
+              "concentration and they agree within 9%. Not a slow rung: the block's "
+              "LOWEST substrate (0.095 mM, 43x less) still runs 9x faster, so no "
+              "monotone [sub] law reaches this value, and the four other "
+              "experiments running this identical ladder give substrate orders of "
+              "-0.03, -0.08, -0.02 and +0.05 against exp 25's -1.03"),
+    (25, 4): ("dead cuvette at [sub] = 8.251 mM: v0 = 8.16e-06 AU/s, 6x below its "
+              "own experiment's median and ~7x below the same rung in exps 23, 24 "
+              "and 28. Fails with 25,2 while the cuvettes between them (25,1 at "
+              "2.063 mM and 25,3 at 6.188 mM) are entirely normal against every "
+              "other experiment, giving a non-monotone fast/slow/fast/slow ladder. "
+              "[sub] rises and [buf] falls monotonically along that ladder, so no "
+              "smooth function of the conditions can alternate -- the cause has to "
+              "be per-cuvette handling, not chemistry"),
 }
 
 # Buffers excluded wholesale rather than experiment by experiment. Carbonate is
@@ -118,14 +136,18 @@ EXCLUDED_BUFFERS = {"Carbonate"}
 
 # Deviations that are understood and accepted, so the deep checks warn rather
 # than error on them. Keyed by experiment -> (check names, reason).
-_PLANNED_ENZYME_ROWS = (
-    "enzuse",
-    "the sheet's enzyme block describes the four PLANNED with-enzyme cuvettes, "
-    "which were never run. These are enzyme-free buffer titrations -- the "
-    "filenames say with_NO_E and all five sit in data/Mads/'No enzyme'/ -- and "
-    "only cuvettes 5-8, the no-enzyme half of the eight-row plan, were measured. "
-    "[enz] = 0 is correct and the block's 0.24-0.27 mM is the plan. See "
-    "DATA_VERIFICATION.md 2026-08-30."
+_ENZYME_FILENAME_CONFLICT = (
+    "enzname",
+    "the filename says with_NO_E but the cuvette table lays out the CATALYSED "
+    "design: rows 5-8 are the reference channel and they carry the same Sub and "
+    "H2O2 as the measured rows 1-4 with the enzyme volume replaced by water. "
+    "Across the archive that layout appears on 53 with_E sheets and no genuine "
+    "background run; the 14 real background runs instead omit the H2O2 from "
+    "their reference. Ruled to the sheet on 2026-08-31 -- [enz] = 0.241/0.270 mM "
+    "and the curves are catalytic increments, already net of the background. "
+    "The filename is the deviation, and it is recorded rather than corrected "
+    "because renaming an archive file would break the delivered anchor. "
+    "See DATA_VERIFICATION.md 2026-08-31."
 )
 
 _BROKEN_ENZ_COLUMN = (
@@ -140,11 +162,11 @@ _BROKEN_ENZ_COLUMN = (
 )
 
 KNOWN_ACCEPTED_DEVIATIONS = {
-    32: _PLANNED_ENZYME_ROWS,
-    34: _PLANNED_ENZYME_ROWS,
-    35: _PLANNED_ENZYME_ROWS,
-    36: _PLANNED_ENZYME_ROWS,
-    37: _PLANNED_ENZYME_ROWS,
+    32: _ENZYME_FILENAME_CONFLICT,
+    34: _ENZYME_FILENAME_CONFLICT,
+    35: _ENZYME_FILENAME_CONFLICT,
+    36: _ENZYME_FILENAME_CONFLICT,
+    37: _ENZYME_FILENAME_CONFLICT,
     58: ("bufvolume;bufcompiled",
          "the cuvettes here are 2.10-2.11 ml, not the 2 ml the volume fallback "
          "assumes, so every [buf] is about 5% high (90.0 where the sheet's own "
@@ -225,6 +247,51 @@ _ENZYME_RUN = (
 )
 for _exp in (79, 80):
     RULINGS.setdefault(_exp, {})["has_enzyme"] = _ENZYME_RUN
+
+# Exps 32 and 34-37 are catalysed runs whose FILENAMES say "with_NO_E" and which
+# the experimenter hand-sorted into data/Mads/"No enzyme"/. Ruled to the sheet on
+# 2026-08-31, reversing a 2026-08-30 ruling that had forced [enz] = 0.
+#
+# The reversal turns on what rows 5-8 of a cuvette table are. They are not a
+# second planned experiment -- they are the reference channel of a double-beam
+# measurement (DATA_VERIFICATION.md, 2026-08-29), so rows 1-4 are always the
+# cuvettes that ran and what the reference omits is what the reported curve is
+# net of. Read that way the archive splits with no overlap:
+#
+#   reference omits the enzyme  ->  53 sheets, every one named "with_E"
+#   reference omits the H2O2    ->  14 sheets, every one named "with_NO_E"
+#
+# All five of these lay out the first pattern: rows 5-8 carry the same Sub and
+# H2O2 as rows 1-4 with the enzyme volume replaced by water, exactly as in exp 10
+# or 16. No genuine background run in the archive is built that way.
+#
+# The physical confirmation is independent of any label. A raw background curve
+# cannot run backwards; a reference-subtracted one can, because the reference
+# channel is reacting too. Across the archive 0 of 65 background curves ever dip
+# below their own starting absorbance and 6 of 207 differential ones do -- and
+# exp 34 sample 4 is one of the six, dipping 0.006 AU with a negative fitted
+# slope. It had been recorded as a dead cuvette.
+#
+# Consequences, which are larger than the five rows: these curves are catalytic
+# increments, already net of the background, so they must not be pooled with the
+# raw-background runs 23-31 and 38-40; and the 4OMe-BnOH/40 C/Phosphate
+# enzyme-free block loses the only [buf] axis it had that was not collinear with
+# [sub], while the catalysed side gains one.
+_ENZYME_FILENAME_RULING = (
+    True,
+    "the filename says with_NO_E and the file is hand-sorted into "
+    "data/Mads/'No enzyme'/; ruled an enzyme run on 2026-08-31 against both. "
+    "The cuvette table lays out the catalysed design -- rows 5-8 are the "
+    "reference channel and carry the same Sub and H2O2 as rows 1-4 with the "
+    "enzyme replaced by water -- a layout that appears on 53 with_E sheets and "
+    "no genuine background run, where the reference omits the H2O2 instead. "
+    "Confirmed without labels: 0 of 65 background curves ever run below their "
+    "own starting absorbance and 6 of 207 differential ones do, exp 34 sample 4 "
+    "among them. [enz] extracts correctly and is no longer overridden. See "
+    "DATA_VERIFICATION.md 2026-08-31."
+)
+for _exp in (32, 34, 35, 36, 37):
+    RULINGS.setdefault(_exp, {})["has_enzyme"] = _ENZYME_FILENAME_RULING
 
 # Exps 84 and 85 are 4OMe-BnOH runs whose FILENAMES say BnOH. Ruled 2026-08-30
 # on four independent grounds inside the sheets, against the filename alone:
