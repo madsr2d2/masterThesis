@@ -73,10 +73,13 @@ buffer at pH 8.0-8.5. `python data/scope.py --controls`.
 
 Use them for interpretation, never for a fit or a pooled constant -- different
 buffer, and one `[H2O2]` per run. They show no rate enhancement (0.63x over 9
-live rungs). **Do not quote that as evidence the chemzyme is inactive**: the
-enzyme-free background there runs ~880x the literature's uncatalysed rate while
-the loading is 14x below the literature's, so the enhancement is hidden rather
-than absent. `python data/scope.py --literature`. And when reading a substrate order from
+live rungs). **Do not quote that as evidence the chemzyme is inactive**: at
+0.028 mM the literature's kcat predicts only a 1.3x enhancement over these
+runs' own background, which is smaller than the 1.55x by which exps 69 and 70
+-- the same experiment twice -- disagree. `python data/scope.py --literature`.
+
+For a background rate at neutral pH use `scope.FREE_BNOH_NEUTRAL` (exps 3, 6).
+They are the buffer titrations, so they give a RATE but never an ORDER. And when reading a substrate order from
 enzyme-free runs, use `scope.FREE_BNOH` (exps 65, 67, 69, 70) and **not**
 exps 3 and 6, which are buffer titrations whose rate falls with substrate for
 a reason that is not substrate. `scope.FREE_BNOH_BUFFER_TITRATIONS` records it.

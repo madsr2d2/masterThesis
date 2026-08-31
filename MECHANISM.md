@@ -604,17 +604,20 @@ buffers at the same nominal pH are not comparable without accounting for this.
   carbonate do not, to the same degree. A fourth, non-mechanistic reason for
   buffer-to-buffer differences.
 
-  There is now indirect evidence for this, from two directions. Our enzyme-free
-  runs — all phosphate and boric — are ~880× faster than the literature's
-  uncatalysed rate for the same reaction (open questions, below), which is what
-  an unsuppressed trace-metal path would look like. And matched on [HOO⁻] and
-  corrected for [H2O2] at the measured +0.87 order, catalysed **phosphate**
-  (exp 68) runs **2.3× faster** than catalysed **pyrophosphate** (exp 138)
-  despite carrying *less* enzyme, 0.028 against 0.034 mM. The chelating buffer
-  gives the slower reaction in both comparisons. Neither is proof — no metal
-  was measured, and an EDTA control would settle it in an afternoon — but the
-  direction is consistent and it bears directly on why the paired controls show
-  no enhancement.
+  There is weak indirect evidence, from two directions. Our enzyme-free runs —
+  all phosphate and boric — run a median **34×** above the literature's
+  uncatalysed rate once pH is matched (open questions, below), which is the
+  size of excess an unsuppressed trace-metal path could produce. And matched on
+  [HOO⁻] and corrected for [H2O2], catalysed **phosphate** (exp 68) runs
+  **2.3× faster** than catalysed **pyrophosphate** (exp 138) despite carrying
+  *less* enzyme, 0.028 against 0.034 mM. The chelating buffer is slower in both
+  comparisons.
+
+  Neither is proof — no metal was measured, buffer catalysis (Sander & Jencks,
+  above) would produce the same signs, and an EDTA control would separate them
+  in an afternoon. Note also that the excess is **not** what makes the paired
+  controls come out flat: that is the catalyst loading, and it would be flat at
+  a background 34× lower too.
 
 Practical consequences for the fitting work: report rate constants against
 **buffer concentration at fixed pH** within each system before interpreting the
@@ -732,10 +735,20 @@ curves faster, not sigmoidal.
 
 **The rate enhancement, however, is invisible here** — 0.63× over 9 live rungs,
 inside the 1.55× that separates exps 69 and 70. That is a statement about these
-conditions and not about the catalyst: the enzyme-free background in phosphate
-and boric runs ~880× faster than the literature's uncatalysed rate, while the
-loading is 14× below the literature's, and those two compound. See the open
-question below for the arithmetic.
+conditions and not about the catalyst: at 0.028 mM the literature's own `kcat`
+predicts an enhancement of only 1.3× over the background these runs have, which
+is smaller than their own reproducibility. See the open question below.
+
+**The uncatalysed reaction is first order in the peroxide anion.** Fitted
+across all six enzyme-free BnOH runs, which span pH 6.71 to 8.51
+(`scope.background_orders()`, 24 live curves, R² 0.96): **+0.20 ± 0.06** in
+[BnOH], +0.96 ± 0.31 in [H2O2], **+0.84 ± 0.04** in [HOO⁻]. So the background
+climbs roughly tenfold per pH unit — measured directly, the rate rises 10× for
+a 23× rise in [HOO⁻] between exps 3/6 and exps 67/69/70 at matched [H2O2].
+Any comparison of backgrounds across pH that does not correct for this is
+meaningless, and the near-zero substrate order is itself a puzzle: the
+literature's `kuncat` is first order in substrate and ours is not, so the two
+may not be the same reaction.
 
 **The substrate turnover does not.** Above 3 mM the clean enzyme-free runs give
 a local `vmax` order of −0.245, negative in both available pairs, against
@@ -771,44 +784,45 @@ signal starvation at the top rung were both excluded rather than assumed
   misfits. `data/fit_kinetics.py --profile-r` reports the cost profile over `r`
   alongside the fitted value.
 - **No rate enhancement is visible in the only paired controls, and the
-  arithmetic says why.** Over the 9 substrate rungs where both sides carry a
-  live signal, `vmax` with 0.028 mM chemzyme is **0.63× the enzyme-free value
-  (range 0.31–1.41×)**, and 3 of 12 catalysed cuvettes are dead where their
-  enzyme-free partner is alive. This is *not* a measurement of retardation:
-  exps 69 and 70 are the same experiment run twice and disagree by up to 1.55×,
-  and 0.63× is inside that.
+  arithmetic says the experiment could not have seen one.** Over the 9 substrate
+  rungs where both sides carry a live signal, `vmax` with 0.028 mM chemzyme is
+  **0.63× the enzyme-free value (range 0.31–1.41×)**. This is *not* a
+  measurement of retardation — exps 69 and 70 are the same experiment run twice
+  and disagree by up to 1.55× — and it is *not* evidence that the chemzyme is
+  inactive.
 
-  It is also **not evidence that the chemzyme is inactive.** Put our rates next
-  to item 4's, the only Bols-group kinetics retrieved in full
-  (`scope.literature_comparison()`, `python data/scope.py --literature`), at
-  [BnOH] = 3.655 mM and ε = 1.23:
+  Take item 4's `kcat` (44×10⁻⁵ s⁻¹, Km 1.25 mM, at 0.4 mM catalyst) and ask
+  what enhancement it predicts **at this archive's loading**, over the
+  background these same runs have (`scope.predicted_enhancement()`,
+  `python data/scope.py --literature`):
 
-  | | mM/s |
+  | | ratio to background alone |
   |---|---|
-  | our catalysed (exp 68) | 2.1×10⁻⁵ |
-  | literature, **at our 0.028 mM loading** | 9.2×10⁻⁶ |
-  | our enzyme-free (exp 67) | 5.0×10⁻⁵ |
-  | literature, uncatalysed | 5.7×10⁻⁸ |
+  | predicted at 0.028 mM, our loading | **1.32× median (1.15–1.87×)** |
+  | observed | 0.71× median |
+  | predicted at the literature's 0.4 mM | 6× here, 13× at pH 7.5 |
 
-  **Our catalysed rate is within 2.3× of what the literature predicts** for the
-  loading we used. **Our enzyme-free rate is ~880× faster than the literature's
-  uncatalysed rate.** The ratio came out near 1 because the denominator is
-  wrong, not because the numerator is missing — and the two errors compound,
-  since we load **14× less catalyst** than item 4 did (0.028 against 0.4 mM).
-  Against a background inflated ~880-fold, a 28,000-fold intrinsic rate ratio
-  produces an observable enhancement of about unity. That is what was measured.
+  **The predicted effect is smaller than the run-to-run reproducibility.** No
+  BnOH run in this archive is loaded above 0.069 mM, against the literature's
+  0.4 mM — **6–29× below** — and the paired controls sit at pH 8.0–8.5 where
+  the uncatalysed path is fastest. The enhancement is hidden by design, not
+  absent.
 
-  The comparison is order-of-magnitude only: different pH (7 against our 8.0–8.5),
-  different [H2O2], possibly a different catalyst, and a rate in mM/s inherits
-  whatever the absorbance question above is eventually answered with. An 880-fold
-  discrepancy survives all of that; a factor of two would not.
+  The background itself is not wildly anomalous either, once pH is handled.
+  It runs a median **34× (12–88×)** above the literature's uncatalysed rate at
+  matched pH and `[H2O2]` — a real but modest excess, plausibly buffer
+  catalysis or trace metal. An earlier version of this passage said 876×; that
+  compared a pH 8.01 background against a pH 7.0 literature value and was
+  corrected on 2026-09-01, see `DATA_VERIFICATION.md`.
 
-  So the missing experiment is sharper than "an enzyme-free control". It is an
-  enzyme-free pyrophosphate run across the scope's pH range **and** a catalysed
-  series at a loading near 0.4 mM. The primary scope cannot settle any of it,
-  because every run in it carries enzyme and spans only 4.9× in `[enz]`, all
-  between-run — regressing `log vmax` on `log[enz]` gives anything from
-  +0.04 ± 0.54 to +1.21 ± 0.37 depending on how peroxide is controlled for.
+  So the missing experiment is **a catalysed series near 0.4 mM at neutral pH**,
+  where the predicted enhancement is above tenfold and the background is
+  lowest. An enzyme-free pyrophosphate run is still wanted for the fit's stage
+  1 but would not by itself have made the enhancement visible. The primary
+  scope cannot substitute: every run in it carries enzyme and spans only 4.9×
+  in `[enz]`, all between-run, and regressing `log vmax` on `log[enz]` gives
+  anything from +0.04 ± 0.54 to +1.21 ± 0.37 depending on how peroxide is
+  controlled for.
 - **The largest catalysed block has no background.** Rate constants may be
   pooled only within one (substrate, temperature, buffer) cell — Arrhenius,
   different molecules, and the buffer section above all forbid pooling across

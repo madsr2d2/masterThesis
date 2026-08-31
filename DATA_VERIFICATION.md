@@ -8,6 +8,93 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — Correction: the 876x background excess was mostly pH
+
+Raised by the user: the uncatalysed reaction is expected to speed up with pH,
+and the Bols papers are at neutral pH — so is there anything in the archive
+testing the uncatalysed reaction at neutral pH?
+
+**There is, and the comparison published here yesterday was wrong.** Exps 3 and
+6 are enzyme-free BnOH in phosphate at **pH 6.71**, 25 °C, at 82.5 and 165 mM
+H2O2 — within 0.29 pH units and 15% in `[H2O2]` of the literature's pH 7.0 /
+72 mM. Yesterday's entry compared exp 67 instead, at **pH 8.01**, correcting
+`[H2O2]` but not pH, and reported the background as **876x** the literature's
+uncatalysed rate. That figure conflated a pH gap with an anomaly.
+
+### What the pH dependence actually is
+
+Fitted across all six enzyme-free BnOH runs, which span pH 6.71 to 8.51
+(`scope.background_orders()`, 24 live curves, R² 0.96):
+
+| | order |
+|---|---|
+| `[BnOH]` | **+0.20 ± 0.06** |
+| `[H2O2]` | +0.96 ± 0.31 |
+| `[HOO-]` | **+0.84 ± 0.04** |
+
+The uncatalysed reaction is close to first order in the peroxide anion, so its
+rate climbs about tenfold per pH unit. Between exps 3/6 and exps 67/69/70 the
+rate rises 10x for a 23x rise in `[HOO-]` at matched `[H2O2]` — measured
+directly, not modelled. A background measured at pH 8 says almost nothing about
+a background at pH 7, and using it inflated the discrepancy about 25-fold.
+
+### The corrected figure
+
+Scaling exps 3 and 6 to pH 7.0 / 72 mM with those orders
+(`scope.literature_comparison()`, `python data/scope.py --literature`), our
+enzyme-free background exceeds the literature's uncatalysed rate by a **median
+34x, range 12–88x**. Not 876x.
+
+The range is wide because the two disagree about the substrate order: ours is
+**+0.20**, essentially flat, while the literature's `kuncat` is first order. The
+excess therefore falls as `[BnOH]` rises. That mismatch is itself worth noting
+— a background nearly independent of substrate is not the same reaction the
+literature's `kuncat` describes — but with `[buf]` varying along both ladders it
+cannot be pursued here.
+
+Exps 3 and 6 are the buffer titrations `scope.FREE_BNOH` excludes. The
+collinearity between `[buf]` and `[sub]` destroys any substrate ORDER read from
+them; it does not destroy the RATE of an individual cuvette, which is all this
+comparison uses. They are exposed as `scope.FREE_BNOH_NEUTRAL` with that
+distinction recorded.
+
+### What this does to the verdict — it sharpens it
+
+The conclusion survives, and for a better reason. Take the literature's own
+`kcat` and ask what enhancement it predicts **at this archive's catalyst
+loading**, over the background these very runs have
+(`scope.predicted_enhancement()`, over exps 66, 68, 71, 73 and 83):
+
+| | ratio to background alone |
+|---|---|
+| predicted at 0.028 mM (our loading) | **1.32x median, 1.15–1.87x** |
+| observed | 0.71x median |
+| predicted at the literature's 0.4 mM | 6x at these runs' pH, 13x at pH 7.5 |
+
+**The predicted enhancement is smaller than the experiment's own
+reproducibility.** Exps 69 and 70 are the same experiment run twice and their
+`vmax` disagrees by up to 1.55x. At 0.028 mM there was never a detectable
+effect to find — not because the catalyst is inactive, and not because the
+background is anomalous, but because the archive is loaded **6–29x below** the
+literature (0.014–0.069 mM against 0.4 mM) and the reaction was run where the
+uncatalysed path is fast.
+
+So the missing experiment is not primarily an enzyme-free control. **It is a
+catalysed series at a loading near 0.4 mM, at neutral pH**, where the predicted
+enhancement is over tenfold and the background is at its lowest. An enzyme-free
+pyrophosphate run remains worth having for the fit's stage 1, but it would not
+by itself have made the enhancement visible.
+
+### What is unaffected
+
+The acceleration result. A background makes curves faster, not sigmoidal, and
+0 of 16 enzyme-free against 7 of 23 catalysed at matched `[HOO-]` is a
+difference in shape, not rate. Exps 73 and 83, catalysed at pH 7.50, add 0 of 8
+accelerating — consistent with the `[HOO-]` threshold, since they sit at 0.0122
+mM, far below the 0.1 mM where the catalysed block reaches 87%.
+
+---
+
 ## 2026-08-31 — The instrument's export header, and what it says about exps 69 and 70
 
 Raised while looking for enzyme-free BnOH runs. The `.txt` exports carry a line
@@ -141,6 +228,15 @@ never exceeding 0.089 mM, while the catalysed block only becomes strongly
 autocatalytic above 0.1 mM.
 
 ### Why the ratio is 1: the denominator, not the numerator
+
+> **SUPERSEDED 2026-09-01.** The 876x figure below compares a **pH 8.01**
+> background against a **pH 7.0** literature value, correcting `[H2O2]` but not
+> pH. The uncatalysed reaction is +0.84 order in `[HOO-]`, so that gap alone is
+> worth ~25x. The corrected figure is a median **34x**, and the reason no
+> enhancement is visible is the catalyst loading rather than the background —
+> see the 2026-09-01 entry at the top of this log. The conclusion that the
+> chemzyme is not shown inactive is unchanged. Kept for the record; do not
+> quote the numbers below.
 
 Raised by the user, asking whether this means the chemzyme is ineffective. It
 does not, and the literature says why. Item 4 of `MECHANISM.md`'s references

@@ -194,11 +194,13 @@ experiment run twice. No enhancement above about 1.6× is present at these
 conditions.
 
 That is a fact about these conditions, not about the catalyst, and it must not
-be quoted as the latter. Our enzyme-free rate here is ~880× the literature's
-uncatalysed rate while our catalyst loading is 14× below the literature's, and
-our catalysed rate is within 2.3× of what the literature predicts for the
-loading we used (`python data/scope.py --literature`). The enhancement is
-hidden, not absent. See `MECHANISM.md` and `DATA_VERIFICATION.md` (2026-08-31).
+be quoted as the latter. At 0.028 mM the literature's own `kcat` predicts an
+enhancement of only **1.3× (1.15–1.87×)** over the background these runs have —
+smaller than the 1.55× by which exps 69 and 70 disagree with each other. No
+BnOH run in this archive is loaded above 0.069 mM against the literature's
+0.4 mM. The enhancement is hidden, not absent
+(`python data/scope.py --literature`). See `MECHANISM.md` and
+`DATA_VERIFICATION.md` (2026-09-01).
 
 **A caution for F1.** F1's second row already warns that exps 3 and 6 are
 buffer titrations whose apparent substrate order is a buffer effect. That trap

@@ -561,14 +561,9 @@ def catalytic_effect():
 # The literature's own kinetics for this reaction, for scale.
 #
 # From MECHANISM.md reference 4 (ChemCatChem 2025), the only Bols-group paper
-# retrieved in full. Its conditions are NOT ours -- pH 7 phosphate against our
-# 8.01 and 8.51, and 72 mM H2O2 against our 122 -- and its catalyst (diketone
-# 8) is not necessarily the "a-diesterketon" exp 66's sheet names. So this is
-# an order-of-magnitude comparison and nothing finer.
-#
-# It is worth making anyway, because it answers the question the paired
-# controls raise and cannot settle by themselves: is the missing rate
-# enhancement a missing numerator or an inflated denominator?
+# retrieved in full. Its catalyst (diketone 8) is not necessarily the
+# "a-diesterketon" exp 66's sheet names, so this is an order-of-magnitude
+# comparison and nothing finer.
 LITERATURE = {
     "source": "ChemCatChem 2025, diketone 8 (MECHANISM.md ref 4)",
     "kcat_per_s": 44e-5,
@@ -580,48 +575,150 @@ LITERATURE = {
 }
 
 # The sheets' extinction coefficient for BnOH at 285 nm, used only to turn our
-# AU/s into mM/s for the comparison above. What the absorbance actually
-# measures is MECHANISM.md's leading open question, so treat any rate in mM/s
-# as uncertain by whatever that answer turns out to be -- the 800-fold result
-# below survives it, a factor of two would not.
+# AU/s into mM/s. What the absorbance actually measures is MECHANISM.md's
+# leading open question, so treat any rate in mM/s as uncertain by whatever
+# that answer turns out to be.
 BNOH_EPSILON = 1.23
 
+# The enzyme-free BnOH runs at NEAR-NEUTRAL pH -- the only ones comparable to
+# the literature's pH 7 without extrapolating across a decade of [HOO-].
+#
+# These are exps 3 and 6, the same buffer titrations FREE_BNOH excludes. The
+# collinearity between [buf] and [sub] destroys any SUBSTRATE ORDER read from
+# them; it does not destroy the RATE of an individual cuvette, which is what
+# this comparison needs. Do not use them for an order. See FITTING.md F1.
+FREE_BNOH_NEUTRAL = (3, 6)
 
-def literature_comparison(s0=3.655, free=67, catalysed=68):
+
+def background_orders(scope=FREE_BNOH + FREE_BNOH_NEUTRAL):
     """
-    Our paired-control rates against the literature's, in mM/s.
+    How the enzyme-free rate depends on substrate, peroxide and pH.
 
-    Returns a dict. `background_ratio` is the one that matters: our enzyme-free
-    rate over the rate the literature's kcat/kuncat implies for the uncatalysed
-    reaction. It comes out near 900, which is why the paired controls show no
-    enhancement -- the background they measure is not the background the
-    literature measured, and at our 14x lower catalyst loading it swamps the
-    catalysed contribution.
+    Fitted across all six enzyme-free BnOH runs, which span pH 6.71 to 8.51.
+    Returns a dict of orders with standard errors.
+
+    The [HOO-] order is the one that matters here: it comes out near +0.84,
+    i.e. the uncatalysed reaction is close to first order in the peroxide
+    anion, so its rate climbs about tenfold per pH unit and a background
+    measured at pH 8 says almost nothing about a background at pH 7. Ignoring
+    that is how this module first reported an 876-fold discrepancy against the
+    literature where the honest figure is nearer 34.
+
+    [H2O2] and [HOO-] are collinear (hoo = h2o2 * f(pH)), so read their sum as
+    the peroxide dependence and the [HOO-] term as the pH part.
     """
-    data = frame((free, catalysed))
-    def rate(experiment):
-        row = data[(data.experiment == experiment)
-                   & (np.isclose(data.s0, s0, rtol=RUNG_TOLERANCE))]
-        return float(row.vmax.iloc[0]) / BNOH_EPSILON
+    data = frame(scope)
+    data = data[data.live]
+    y = np.log(data.vmax.to_numpy(dtype=float))
+    columns = ("s0", "h2o2", "hoo")
+    design_matrix = np.column_stack(
+        [np.ones(len(data))] + [np.log(data[c].to_numpy(dtype=float))
+                                for c in columns])
+    coefficients, *_ = np.linalg.lstsq(design_matrix, y, rcond=None)
+    residual = y - design_matrix @ coefficients
+    dof = len(data) - design_matrix.shape[1]
+    variance = float(residual @ residual) / dof
+    stderr = np.sqrt(np.diag(variance
+                             * np.linalg.inv(design_matrix.T @ design_matrix)))
+    result = {"n": int(len(data)),
+              "r2": float(1 - (residual @ residual)
+                          / ((y - y.mean()) ** 2).sum())}
+    for name, value, error in zip(columns, coefficients[1:], stderr[1:]):
+        result[f"order_{name}"] = float(value)
+        result[f"stderr_{name}"] = float(error)
+    return result
 
-    kcat, km = LITERATURE["kcat_per_s"], LITERATURE["km_mM"]
-    kuncat = kcat / LITERATURE["kcat_over_kuncat"]
-    loading = float(data[data.experiment == catalysed].e0.iloc[0])
 
-    ours_free, ours_catalysed = rate(free), rate(catalysed)
-    theirs_uncatalysed = kuncat * s0
-    theirs_at_our_loading = kcat * loading * s0 / (km + s0)
-    return {
-        "s0_mM": s0,
-        "our_loading_mM": loading,
-        "loading_shortfall": LITERATURE["catalyst_mM"] / loading,
-        "ours_enzyme_free": ours_free,
-        "ours_catalysed": ours_catalysed,
-        "literature_uncatalysed": theirs_uncatalysed,
-        "literature_at_our_loading": theirs_at_our_loading,
-        "background_ratio": ours_free / theirs_uncatalysed,
-        "catalysed_ratio": ours_catalysed / theirs_at_our_loading,
-    }
+def literature_comparison(scope=FREE_BNOH_NEUTRAL):
+    """
+    Our enzyme-free background against the literature's uncatalysed rate.
+
+    Both are put at the literature's conditions -- pH 7.0, 72 mM H2O2 -- by
+    scaling our rates with the orders `background_orders` measures. Using the
+    pH 8.0-8.5 runs instead and correcting only [H2O2] inflates the answer
+    about 25-fold, which is a statement about [HOO-] and not about our cuvettes.
+
+    Returns a frame with one row per live cuvette plus a `summary` attribute
+    holding the median excess and the enhancement the literature's kcat would
+    produce at OUR catalyst loading -- which is the number that explains why no
+    enhancement is visible anywhere in this archive.
+    """
+    orders = background_orders()
+    h2o2_order, hoo_order = orders["order_h2o2"], orders["order_hoo"]
+    kuncat = LITERATURE["kcat_per_s"] / LITERATURE["kcat_over_kuncat"]
+
+    data = frame(scope)
+    rows = []
+    for _, row in data[data.live].iterrows():
+        # to the literature's [H2O2], then across the pH gap through [HOO-]
+        factor = ((LITERATURE["h2o2_mM"] / row.h2o2) ** h2o2_order
+                  * (10 ** (LITERATURE["pH"] - row.pH)) ** hoo_order)
+        ours = float(row.vmax) / BNOH_EPSILON * factor
+        theirs = kuncat * float(row.s0)
+        rows.append({"experiment": int(row.experiment), "pH": float(row.pH),
+                     "s0": float(row.s0), "ours_mM_s": ours,
+                     "literature_mM_s": theirs, "excess": ours / theirs})
+    table = pd.DataFrame(rows)
+    return table
+
+
+def background_model(scope=FREE_BNOH_NEUTRAL):
+    """
+    An amplitude and three orders that predict the enzyme-free rate, in mM/s.
+
+    The orders come from all six enzyme-free runs (`background_orders`); the
+    amplitude is anchored on the near-neutral ones, so the model is pinned
+    where it is compared to the literature and extrapolated -- not fitted --
+    across the pH gap to the catalysed runs.
+    """
+    orders = background_orders()
+    data = frame(scope)
+    data = data[data.live]
+    exponents = (orders["order_s0"], orders["order_h2o2"], orders["order_hoo"])
+    predicted = (data.s0 ** exponents[0] * data.h2o2 ** exponents[1]
+                 * data.hoo ** exponents[2])
+    amplitude = float(np.median(data.vmax / BNOH_EPSILON / predicted))
+    return amplitude, exponents
+
+
+def predicted_enhancement():
+    """
+    What the literature's kcat would show at THIS archive's catalyst loading.
+
+    For every live cuvette of the catalysed runs that have an enzyme-free
+    counterpart -- exps 66, 68, 71 (the paired controls) and 73, 83 -- this
+    predicts the background at that cuvette's own conditions, adds the
+    catalytic contribution kcat*E0*S/(Km+S), and reports the ratio to the
+    background alone. That ratio is what the experiment would have had to
+    resolve.
+
+    It comes out at a median 1.3x, range about 1.15-1.9x. Exps 69 and 70 are
+    the SAME experiment run twice and their vmax disagrees by up to 1.55x. So
+    the enhancement these runs were capable of detecting is smaller than their
+    own reproducibility, and the observed 0.63x is not evidence about the
+    catalyst. At the literature's own 0.4 mM the predicted ratio is above 40x,
+    which nothing could miss; no BnOH run in this archive exceeds 0.069 mM.
+    """
+    amplitude, (a, b, c) = background_model()
+    rows = []
+    for experiment in (66, 68, 71, 73, 83):
+        data = frame((experiment,))
+        for _, row in data[data.live].iterrows():
+            background = amplitude * row.s0 ** a * row.h2o2 ** b * row.hoo ** c
+            catalysed = (LITERATURE["kcat_per_s"] * row.e0 * row.s0
+                         / (LITERATURE["km_mM"] + row.s0))
+            rows.append({
+                "experiment": experiment, "pH": float(row.pH),
+                "s0": float(row.s0), "e0": float(row.e0),
+                "observed_mM_s": float(row.vmax) / BNOH_EPSILON,
+                "background_mM_s": float(background),
+                "catalysed_mM_s": float(catalysed),
+                "expected_ratio": float((background + catalysed) / background),
+                "at_literature_loading": float(
+                    (background + catalysed * LITERATURE["catalyst_mM"] / row.e0)
+                    / background),
+            })
+    return pd.DataFrame(rows)
 
 
 def main():
@@ -663,20 +760,43 @@ def main():
         return 0
 
     if arguments.literature:
-        c = literature_comparison()
-        print(f"at [BnOH] = {c['s0_mM']:.3f} mM, rates in mM/s "
-              f"(eps = {BNOH_EPSILON} mM^-1 cm^-1)\n")
-        print(f"  our enzyme-free  (exp 67)          {c['ours_enzyme_free']:.2e}")
-        print(f"  our catalysed    (exp 68)          {c['ours_catalysed']:.2e}")
-        print(f"  literature uncatalysed             {c['literature_uncatalysed']:.2e}")
-        print(f"  literature at our {c['our_loading_mM']:.3f} mM loading   "
-              f"{c['literature_at_our_loading']:.2e}")
-        print(f"\n  our background is {c['background_ratio']:.0f}x the "
-              f"literature's uncatalysed rate")
-        print(f"  our catalysed rate is within {c['catalysed_ratio']:.1f}x of "
-              f"the literature's prediction")
-        print(f"  and we load {c['loading_shortfall']:.0f}x less catalyst than "
-              f"they did")
+        orders = background_orders()
+        print(f"enzyme-free BnOH background, {orders['n']} live curves "
+              f"(R2 {orders['r2']:.2f}):")
+        for name in ("s0", "h2o2", "hoo"):
+            print(f"  order in {name:5s} {orders['order_' + name]:+.2f} "
+                  f"+/- {orders['stderr_' + name]:.2f}")
+        print(f"\n  the [HOO-] order is why pH matters: the background climbs "
+              f"about tenfold per pH unit,\n  so a background measured at pH 8 "
+              f"says little about one at pH 7.\n")
+
+        table = literature_comparison()
+        print(f"at the literature's pH {LITERATURE['pH']:.1f} / "
+              f"{LITERATURE['h2o2_mM']:.0f} mM H2O2, our near-neutral "
+              f"enzyme-free runs {FREE_BNOH_NEUTRAL} against its uncatalysed rate:")
+        with pd.option_context("display.width", 200):
+            print(table.to_string(index=False,
+                                  float_format=lambda v: f"{v:.4g}"))
+        print(f"\n  median excess: {table.excess.median():.0f}x  "
+              f"(range {table.excess.min():.0f}-{table.excess.max():.0f}x)")
+
+        enhancement = predicted_enhancement()
+        print(f"\nwhat the literature's kcat would show at this archive's "
+              f"loading:")
+        print(f"  predicted enhancement over background: median "
+              f"{enhancement.expected_ratio.median():.2f}x "
+              f"(range {enhancement.expected_ratio.min():.2f}-"
+              f"{enhancement.expected_ratio.max():.2f}x)")
+        print(f"  observed:                              median "
+              f"{(enhancement.observed_mM_s / enhancement.background_mM_s).median():.2f}x")
+        print(f"  at the literature's {LITERATURE['catalyst_mM']} mM loading:   "
+              f"    median "
+              f"{enhancement.at_literature_loading.median():.0f}x")
+        print(f"\n  exps 69 and 70 are the same experiment run twice and "
+              f"disagree by up to "
+              f"{catalytic_effect()['replicate_scatter']:.2f}x, so the "
+              f"predicted\n  enhancement is smaller than the reproducibility. "
+              f"These runs could not have seen it.")
         print(f"\n  source: {LITERATURE['source']}")
         return 0
 
