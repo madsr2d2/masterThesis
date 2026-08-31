@@ -309,9 +309,11 @@ to 4.7x the initial slope.
 
 *(The 52% figure in the table above was re-measured on 2026-08-31 over the 402
 curves the fitting code selects, by the same smoothed method, and comes out at
-**34%** — 136/402. The selections differ: the n = 326 above predates the
+**37.6%** — 151/402. The selections differ: the n = 326 above predates the
 carbonate rule, the exclusions of exps 50, 64 and 85, and the cuvette exclusions
-of 25,2 and 25,4.)*
+of 25,2 and 25,4. The figure was 136/402 until 2026-08-31, when the readings
+moved to the instrument's own .rre files; the export's 0.001 AU rounding had
+been flattening fifteen lags below the threshold.)*
 
 **And the first fit shows the error runs the other way.** Fitted on
 BnOH/25 C/phosphate, the model at its best-fit `r = 1.52` lags in 19 of 23

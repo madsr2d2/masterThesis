@@ -33,7 +33,10 @@ import pandas as pd
 
 from build_manifest import (EXCLUDED_BUFFERS, KNOWN_EXCLUSIONS,
                             KNOWN_SAMPLE_EXCLUSIONS)
+from curve_metrics import (ACCELERATION_SIGMA, QUANTISATION_SIGMA,
+                           acceleration, peak_rate)
 from fit_dataset import BASELINE_POINTS, curve_noise, read_all_curves
+from read_rre import RRE_SIGMA
 from solution_chemistry import add_solution_columns
 from curve_screen import MINIMUM_WINDOW_QUANTA, eligibility
 from summary_kinetics import (BURST_TAU_CAP, DEAD_CURVE_SNR, INITIAL_WINDOW,
@@ -213,7 +216,15 @@ def describe(times, values, noise, epsilon, s0):
     # put the drawn line up to 124 sigma away from the real one on some curves.
     intercept, v0, stderr, rms = line_fit(times[:count], values[:count])
     amplitude = float(values.max() - values.min())
+    # v0 is the rate before any catalyst has built up. On an accelerating
+    # curve that is the induction period, not the reaction, so the page
+    # also carries the steepest block's rate and says which is which.
+    accel_z, accel_where = acceleration(times, values, INITIAL_WINDOW)
+    vmax, vmax_stderr, vmax_where = peak_rate(times, values, INITIAL_WINDOW)
     return dict(
+        accel_z=accel_z, accel_where=accel_where,
+        vmax=vmax, vmax_stderr=vmax_stderr, vmax_where=vmax_where,
+        accelerates=bool(np.isfinite(accel_z) and accel_z > ACCELERATION_SIGMA),
         intercept=intercept,
         burst=fit_burst(times, values),
         window_quanta=window_quanta(times, values, INITIAL_WINDOW),
@@ -263,10 +274,22 @@ def verdicts(row, block):
     if row["window_rms"] > 2.5 * row["noise"]:
         notes.append(("shape", f"the initial-rate line misfits its own window by "
                                f"{row['window_rms'] / row['noise']:.1f}x noise"))
-    if np.isfinite(row["ratio"]) and row["ratio"] > 1.15:
-        notes.append(("shape", f"accelerates: late slope {row['ratio']:.2f}x the early one"))
-    elif np.isfinite(row["ratio"]) and 0 < row["ratio"] < 0.5:
-        notes.append(("shape", f"decelerates hard: late slope {row['ratio']:.2f}x the early one"))
+    # The verdict is the sigma statistic, not the late/early ratio. A ratio
+    # compares two windows without asking whether the difference clears
+    # their own noise, and it reads a finished sigmoid -- lag, burst, then
+    # plateau -- as a DEceleration, which is how exp 135 s3 and s4 came to
+    # look flat while accelerating at 11 and 28 sigma.
+    if row["accelerates"]:
+        notes.append(("shape",
+                      f"accelerates: steepest at {row['accel_where']:.0%} of the "
+                      f"run, {row['vmax'] / row['v0']:.1f}x the initial slope "
+                      f"({row['accel_z']:+.0f} sigma)"
+                      if np.isfinite(row["v0"]) and row["v0"] > 0 else
+                      f"accelerates: steepest at {row['accel_where']:.0%} of the "
+                      f"run ({row['accel_z']:+.0f} sigma)"))
+    elif np.isfinite(row["accel_z"]) and row["accel_z"] < -ACCELERATION_SIGMA:
+        notes.append(("shape", f"decelerates: steepest block is the first "
+                               f"({row['accel_z']:+.0f} sigma)"))
     return notes
 
 
@@ -309,6 +332,7 @@ tr.flagged td{background:#fdf6f4}
 .card h3{margin:0 0 2px;font-size:13px;font-weight:600}
 .card p{margin:0 0 6px;font-size:11.5px;color:var(--dim);
         font-variant-numeric:tabular-nums}
+p.accel{margin:2px 0 6px;font-size:11px;color:var(--muted)}
 .notes{list-style:none;padding:0;margin:0}
 .notes li{padding:7px 11px;border-left:3px solid var(--rule);margin-bottom:6px;
           background:var(--panel);font-size:13px;border-radius:0 4px 4px 0}
@@ -382,7 +406,9 @@ def render(number, rows, curves_by_sample):
             f'<div class="card"><h3><span class="swatch" style="background:{colour(index)}">'
             f'</span>sample {row["sample"]}{"  &#9888;" if tone else ""}</h3>'
             f'<p>v<sub>0</sub> = {_cell(row["v0"], ".3e")} AU/s &middot; '
-            f'SNR {_cell(row["snr"], ".0f")} &middot; ratio {_cell(row["ratio"], ".2f")}</p>'
+            f'v<sub>max</sub> = {_cell(row["vmax"], ".3e")} &middot; '
+            f'SNR {_cell(row["snr"], ".0f")}</p>'
+            f'<p class="accel">{"accelerates " + format(row["accel_z"], "+.0f") + " sigma, peak at " + format(row["accel_where"], ".0%") if row["accelerates"] else "no acceleration (" + _cell(row["accel_z"], "+.0f") + " sigma)"}</p>'
             f'{panel}</div>')
 
     # --- the ladder: rate against whatever this experiment varied
@@ -473,7 +499,11 @@ v<sub>0</sub> = v<sub>ss</sub> &minus; B/&tau; diverges.{{caveat}}</p>
     conditions_table = f'<div class="scroll"><table><tr>{head}</tr>{body}</table></div>'
 
     measure_columns = [("sample", "sample", "d"), ("v0 AU/s", "v0", ".3e"),
-                       ("+/-", "v0_stderr", ".1e"), ("window rise (quanta)",
+                       ("+/-", "v0_stderr", ".1e"),
+                       ("vmax AU/s", "vmax", ".3e"), ("+/-", "vmax_stderr", ".1e"),
+                       ("vmax at", "vmax_where", ".0%"),
+                       ("accel sigma", "accel_z", "+.1f"),
+                       ("window rise (quanta)",
                         "window_quanta", ".1f"),
                        ("amplitude AU", "amplitude", ".4f"),
                        ("noise AU", "noise", ".4f"), ("SNR", "snr", ".0f"),
@@ -563,7 +593,12 @@ same curve usually remains perfectly good for reading shape.</p>
 Absorbance is baseline-subtracted (median of the first {BASELINE_POINTS} points).
 Noise is the median absolute second difference, floored at the 0.001 AU
 quantisation. Flag thresholds: SNR &lt; {DEAD_CURVE_SNR:.0f}, backtrack &gt;
-{BACKTRACK_SIGMA:.0f} sigma, rate &gt; {OUTLIER_FACTOR:.0f}x below the experiment median.</p>
+{BACKTRACK_SIGMA:.0f} sigma, rate &gt; {OUTLIER_FACTOR:.0f}x below the experiment median.<br>
+v<sub>0</sub> is the slope of the first {INITIAL_WINDOW:.0%} of the run and
+v<sub>max</sub> the slope of the steepest such block; a curve is called
+accelerating when the two differ by more than {ACCELERATION_SIGMA:.0f} of their
+combined standard errors. That test replaces the old late/early ratio, which
+read a finished sigmoid as a deceleration.</p>
 </div></body></html>"""
 
 
@@ -589,12 +624,16 @@ def build(experiments=None, out_directory=OUTPUT_DIRECTORY,
             sample = int(row["sample"])
             if not 1 <= sample <= len(samples):
                 continue
-            times, values = samples[sample - 1]
+            times, values, source = samples[sample - 1]
             if len(times) < 3:
                 continue
             baseline = float(np.median(values[:max(1, min(BASELINE_POINTS, len(values) // 10))]))
             times, values = times - times[0], values - baseline
-            noise = curve_noise(values)
+            # The noise floor is the source's, not a constant: a .rre curve
+            # floored at the .txt export's quantisation reports 2.4x its own
+            # noise, and every flag on this page is scaled by that number.
+            noise = curve_noise(values, RRE_SIGMA if source == "rre"
+                                else QUANTISATION_SIGMA)
             entry = dict(row)
             entry["sample"] = sample
             entry["experiment"] = number

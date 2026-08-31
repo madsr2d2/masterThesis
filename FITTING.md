@@ -38,13 +38,15 @@ two axes exactly constant.
 
 | | exps 135–151 | 4OMe-BnOH / 40 °C / phosphate, the block fitted so far |
 |---|---|---|
-| log[S] variance that is within-experiment | **98.4 %** | 12.9 % (6.4 % before 2026-08-31) |
-| log[H₂O₂] variance that is within-experiment | **82.4 %** | — no peroxide axis |
+| log[S] variance that is within-experiment | **100.0 %** | 12.9 % (6.4 % before 2026-08-31) |
+| log[H₂O₂] variance that is within-experiment | **94.1 %** | — no peroxide axis |
 | weakest internal substrate ladder | 40× | — |
 | weakest internal peroxide ladder | 6.9× | — |
 | pH values in the block | **19**, 5.47 → 9.73 | 1 |
-| [HOO⁻] span | **> 4 decades**, 0.00002 → 0.635 mM | fixed |
+| [HOO⁻] span | **5.1 decades**, 4.9e-6 → 0.635 mM | fixed |
 | exclusions / accepted deviations / open questions | **0 / 0 / 0** | several |
+
+Those figures are `scope.within_experiment_share`, computed over the 119 scoped curves. An earlier draft quoted 98.4 % and 82.4 %, which are the same quantities over the 127-curve *block* — it includes exps 75 and 76, which are out of scope. The accessor caught the slip the first time it was run.
 
 The first row is the whole argument. An order measured across per-experiment
 offsets can be absorbed by those offsets; an order measured 17 times inside
@@ -88,13 +90,33 @@ pyrophosphate cell.** The sequential fit of
 here, and importing `k_can`/`k0` from a phosphate block would break the rule
 that constants pool only within a cell.
 
-The substitute is arguably better than what it replaces. Exps **150** (pH 6.26,
-5 of 7 cuvettes flat within noise) and **151** (pH 5.47, 6 of 7 flat over 8
-hours) are *catalysed* runs at pH where [HOO⁻] is four decades down. They hold
-the catalyst constant and switch off the peroxide arm, which isolates the
-background terms more cleanly than a no-enzyme control — that changes the
-catalyst instead. Stage 1 on this scope means the low-pH end, not a separate
-set of runs.
+~~The substitute is arguably better than what it replaces.~~ **Withdrawn
+2026-08-31.** Exps **150** (pH 6.26) and **151** (pH 5.47) are *catalysed* runs
+at pH where [HOO⁻] is four decades down, and this section claimed they isolate
+the background terms more cleanly than a no-enzyme control. They do not, on
+either half of the claim.
+
+*The peroxide arm is not switched off.* Cuvette 1 of exps 143-151 is the same
+composition in all nine runs — 10.82 mM BnOH, 35.24 mM H₂O₂ — with only pH
+differing, and along that matched series `log10 vmax = -4.48 + 0.50 log10
+[HOO⁻]`. Exps 150 and 151 sit within 2x and 0.5x of that line. They are the
+bottom rung of the same ladder, not a blank.
+
+*And they are not flat.* On the .txt exports exp 150 read 5 of 7 cuvettes flat
+within noise and exp 151 read 6 of 7; on the instrument's own readings it is 2
+of 7 and 4 of 7. What the extra signal turns out to be is drift:
+`scope.concentration_agreement` scores exp 150 at 0.61 and exp 149 at 0.005,
+against 0.93-0.97 for exps 135, 138, 139, 140 and 142, so their cuvettes' rates
+bear almost no relation to their cuvettes' concentrations. Exp 151's seven
+cuvettes scatter 234x with no ordering, two of them negative. **The cell's own
+wander is a few times 1e-7 AU/s**, and these runs measure that.
+
+Nothing downstream rested on it — dropping exps 136, 137, 147, 149, 150 and 151
+sharpens every order rather than removing one (DATA_VERIFICATION.md 2026-08-31)
+— but **this block still has no background data**, as the table in "What the
+archive can and cannot support" says, and stage 1 on this scope has nothing to
+stand on. The missing experiment is still an enzyme-free control in
+pyrophosphate.
 
 ### The buffer speciation is a defensibility job, not a blocker
 
@@ -295,10 +317,15 @@ answer and has not been run.
 
 *Re-measured statistic:* `MECHANISM.md` reports 52% of curves reaching peak slope
 past 15% into the run (n = 326). Over the 402 curves the fitting code selects, by
-the same smoothed method, it is **34%** (136/402). The selections differ — the
+the same smoothed method, it is **37.6%** (151/402). The selections differ — the
 n = 326 predates the carbonate rule, the exclusions of exps 50, 64 and 85, and
 the cuvette exclusions of 25,2 and 25,4. Neither excluded cuvette lagged, so the
-count of 136 is unchanged and only the denominator moved.
+count was unchanged by those and only the denominator moved.
+
+It read 136/402 (34%) until 2026-08-31, when the readings moved from the .txt
+exports to the instrument's own .rre files. The statistic did not change: the
+export rounds to 0.001 AU, and that rounding was flattening fifteen curves'
+lags below the threshold. See `data/read_rre.py` and DATA_VERIFICATION.md.
 
 ## F4 — two of six constants are lower bounds, not values
 
@@ -489,5 +516,5 @@ date. Figures rebuild from `data/fits/BnOH_25C_Phosphate.json` in seconds.
 
 Two claims made and withdrawn during the work, recorded so they are not
 resurrected: that `k_can` and `r` are non-identifiable (true only at a single
-pH — F5), and that the observed lag fraction is 52% (34% on this selection —
+pH — F5), and that the observed lag fraction is 52% (37.6% on this selection —
 F3).
