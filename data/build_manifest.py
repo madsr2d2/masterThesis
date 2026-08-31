@@ -93,6 +93,29 @@ KNOWN_EXCLUSIONS = {
     84: "hand-sorted into data/Mads/'bad data'",
 }
 
+# Exclusions finer than a whole experiment, and the one blanket rule, both of
+# which used to exist only inside the notebook's clean_experiment_dataframe.
+# Declared here for the same reason KNOWN_EXCLUSIONS is: so that the fitting
+# code and the notebook select the same rows from one source rather than from
+# two hand-maintained lists that can drift apart.
+KNOWN_SAMPLE_EXCLUSIONS = {
+    (128, 2): ("flat/no-trend replicate at the [H2O2] = 196 mM condition, while "
+               "its sibling 128,1 at the same nominal conditions reacts strongly "
+               "-- inconsistent replicates at a condition proven to work, so a "
+               "single failed measurement rather than a real zero rate"),
+    (128, 5): ("the .txt declares 5 samples but the .xls has only 4 real (kuv) "
+               "cuvettes; the 5th is the paired no-enzyme reference cuvette's own "
+               "curve (it matches ref row 5: [enz] = 0, same [buf]/[h2o2]/[sub] as "
+               "kuv 1/2), not a titration point"),
+}
+
+# Buffers excluded wholesale rather than experiment by experiment. Carbonate is
+# dropped because bicarbonate + H2O2 forms peroxymonocarbonate, a two-electron
+# oxidant roughly 300x faster than H2O2 itself, so in carbonate the effective
+# oxidant is not the one the model integrates. See MECHANISM.md, "Buffer
+# chemistry -- the buffers are not innocent".
+EXCLUDED_BUFFERS = {"Carbonate"}
+
 # Deviations that are understood and accepted, so the deep checks warn rather
 # than error on them. Keyed by experiment -> (check names, reason).
 _PLANNED_ENZYME_ROWS = (
