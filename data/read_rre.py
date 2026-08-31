@@ -20,7 +20,20 @@ reading it back reproduces `data34.txt` to the last of its three decimals in all
 four samples -- which is what licenses using this module on a run that has no
 export to check against.
 
-What this module deliberately does NOT do is add anything to the dataset. A .rre
+Since 2026-08-31 this module also supplies the READINGS for runs that were
+exported, through `read_all`. The .txt export is rounded to three decimals of
+absorbance, and on 67 of the 119 in-scope curves that rounding erases the
+point-to-point scatter entirely -- their measured noise is exactly zero, which
+is why every noise estimate in this package is floored at QUANTISATION_SIGMA
+(2.89e-4 AU). The binary stores %T at about 2.1e-4 %, or 9.3e-7 AU, and from it
+the same curves have a real noise of 1.15e-4 to 7.5e-4 AU, median 1.8e-4: the
+floor had been overstating the instrument's noise by about 1.6x.
+`fit_dataset.read_all_curves` therefore prefers the .rre wherever one exists
+AND agrees with the export, and records which source each curve came from in
+`Curve.source`, because 125 of the 402 fittable curves still have no .rre and
+keep the coarser floor.
+
+What this module still does NOT do is add CURVES to the dataset. A .rre
 carries no conditions: no pH, no temperature, no concentrations, not even which
 cuvette a sample sat in. For exp 33 those would all have to be inferred from a
 neighbouring sheet, and an inferred condition record is exactly what
@@ -197,3 +210,49 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# The smallest step seen between distinct %T values in these files, and the
+# absorbance it is worth near 100 %T. This is the .rre's resolution, and it
+# stands in for ABSORBANCE_QUANTUM wherever a curve came from one: the .txt
+# export rounds to 0.001 AU, which is about 1000x coarser.
+TRANSMITTANCE_QUANTUM = 2.1e-4
+RRE_QUANTUM = TRANSMITTANCE_QUANTUM / 100.0 / np.log(10.0)
+RRE_SIGMA = RRE_QUANTUM / np.sqrt(12)
+
+
+def experiment_number(filename):
+    """The experiment a `rate<n>.rre` belongs to, or None."""
+    match = re.fullmatch(r"rate0*(\d+)\.rre", os.path.basename(filename))
+    return int(match.group(1)) if match else None
+
+
+def read_all(archive=ARCHIVE_DIR):
+    """
+    {experiment: {sample: absorbance array}} for every rate<n>.rre in `archive`.
+
+    Only the top level is scanned. `good data BnOH/` and `done/` hold copies of
+    the same runs under the same names, and a copy quietly overwriting the
+    original is the class of error DATA_VERIFICATION.md exists to prevent.
+
+    A sample label appears twice in the binary, once for the data block and
+    once in the trailer; the first with a decodable block wins.
+    """
+    found = {}
+    if not os.path.isdir(archive):
+        return found
+    for filename in sorted(os.listdir(archive)):
+        number = experiment_number(filename)
+        if number is None:
+            continue
+        samples = {}
+        for sample, _, absorbance in read_rre(os.path.join(archive, filename)):
+            samples.setdefault(sample, absorbance)
+        if samples:
+            found[number] = samples
+    return found
+
+
+def covered(archive=ARCHIVE_DIR):
+    """The experiments a readable .rre exists for."""
+    return set(read_all(archive))

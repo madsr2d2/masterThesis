@@ -1,9 +1,159 @@
 # Data Verification Log
 
-Record of checks performed on the raw kinetics dataset (`data/data/*.txt` + `*.xls`)
+Record of checks performed on the raw kinetics dataset (`data/Mads/*.rre`,
+falling back to `data/data/*.txt`, plus the `*.xls` sheets)
 and its derived artifacts, and any corrections made as a result. New entries go at
 the top. See `MECHANISM.md` for the chemistry and `COMPUTATIONAL.md` for pending
 quantum-chemistry tasks.
+
+---
+
+## 2026-08-31 — Readings moved from the .txt exports to the instrument's .rre
+
+Raised by the user, asking whether the baseline absorbance curves were in the
+instrument's own files. They are not — and looking established something more
+useful: the files carry the same curves at about a thousand times the
+resolution the pipeline had been reading.
+
+### What the .rre files do and do not contain
+
+`data/Mads/rate<n>.rre` is a Thermo VISIONpro binary from the Evolution 600.
+Each holds **seven sample channels and nothing else**. There is no reference or
+baseline trace: the only block labels are `Sample001`..`Sample007`, with no
+`Ref`, `Blank` or `Baseline` block anywhere in the binary, and the stored
+quantity is percent transmittance **already referenced** — it starts at ~100 in
+every cuvette and above 100 in several (100.06, 103.74, 103.93, 104.75 in exp
+139), which is only possible against a baseline the instrument stored before
+the run and did not keep. The referenced `.rme` files are 670-990 byte method
+definitions; the `.rpt` are report pages. **The absolute absorbance of the
+cuvette contents is not recoverable from any of them**, so the ε = 1.23
+mM⁻¹cm⁻¹ against 10.8 mM question stays open, and `test_read_rre.py` pins this
+so it is not asked a third time.
+
+### The resolution, which is why the source changed
+
+| | `.txt` export | `.rre` |
+|---|---|---|
+| resolution | 0.001 AU | ~9.3e-7 AU (2.1e-4 %T) |
+| distinct values, exp 139 s1 | 42 of 78 | 78 of 78 |
+| point-to-point noise | **exactly 0 on 67 of 119 in-scope curves** | median 1.8e-4 AU |
+
+The export is rounded to three decimals, and on most in-scope curves that
+rounding erases the scatter completely. The package compensated with
+`QUANTISATION_SIGMA` = 2.89e-4 AU as a floor — but the real noise is 1.15e-4 to
+7.5e-4 AU, median 1.8e-4. **The floor had been overstating the instrument's
+noise by about 1.6x**, and every standard error with it.
+
+### The check that licenses the substitution
+
+All **119 in-scope curves reproduce from the .rre to within 0.00098 AU**, which
+is the export's own rounding step. This is the same measurement at finer
+resolution, not a different one. `fit_dataset._prefer_rre` therefore takes the
+.rre only where the sample has the same number of points AND tracks the export
+to within `ABSORBANCE_QUANTUM`; anything else falls back to the .txt. The two
+are different formats written by different code paths, and a misalignment would
+be invisible in the result. `test_read_rre.test_agreement` fails if the drift
+grows. **Do not widen that tolerance**: it would mean the block offset or the
+sample mapping has moved, and a curve assigned to the wrong cuvette is worse
+than no upgrade at all.
+
+Coverage is partial and must stay visible. **277 of the 402 fittable curves**
+read from a .rre; the other 125 have none and keep the coarser floor.
+`Curve.source` records which, and `curve_noise` now takes the floor as an
+argument rather than assuming one. Nothing may floor a noise at
+`QUANTISATION_SIGMA` without checking the source.
+
+### What moved
+
+| | before | after |
+|---|---|---|
+| archive lag fraction | 136/402 = 34% | **151/402 = 37.6%** |
+| in-scope live curves | 96 of 119 | **110 of 119** |
+| in-scope lagging | 24 | **39** |
+| in-scope accelerating (>3σ) | 40 of 96 | **48 of 110** |
+| v_max order in [H₂O₂] | +0.77 ± 0.07 | **+0.80 ± 0.08** |
+| v_max order in [BnOH] | +0.01 ± 0.05 | **+0.10 ± 0.05** |
+| v₀ order in [BnOH] | +0.33 ± 0.06 | **+0.44 ± 0.07** |
+| speed-up order in [BnOH] | −0.27 ± 0.05 | **−0.29 ± 0.06** |
+
+The lag statistic itself did not change; the export's rounding had been
+flattening fifteen curves' lags below the 0.15 threshold. The fourteen curves
+that became live are exps 136,3 · 137,4 · 137,7 · 139,7 · 141,7 · 143,6 ·
+145,4 · 147,4 · 149,4 · 150,1 · 150,2 · 150,7 · 151,5 · 151,7, each now clearing
+the same 20x-noise bar at 21-59x. **Six of those are exps 150 and 151**, which
+this log has been treating as the block's in-cell background. At 21-29x their
+own noise they are not background, and the claim that they are needs revisiting
+before either run is used as a baseline.
+
+Every mechanistic conclusion drawn on the .txt data survives the change: v₀'s
+substrate order still falls +1.04 → +0.61 → +0.17 across the ladder
+(saturation, Km ~1-3 mM), v_max still turns over above 3 mM at −0.386 with
+13 of 15 rung-pairs negative (p = 0.004), and the induction period is still
+18-35 min while the conversion at which it fires spans 0.28% to 12.9%.
+
+### Consolidation
+
+`data/read_rre.py` already existed, with a parser verified against `data34.txt`
+and the finding that 43 instrument runs were never exported. A second reader
+was written before that was noticed and has been deleted;
+`test_curve_metrics.test_no_duplicate_definitions` caught it, which is what it
+is for. The surviving module keeps the better parser — anchored on the
+`BestFit1` terminator, with the block offset searched rather than assumed —
+and gained `read_all`, `covered` and the `RRE_SIGMA` floor.
+
+### What followed: exps 150 and 151 are not a background
+
+Checked immediately, because the log had been calling them one.
+
+**They are not a blank.** Every scoped run carries enzyme — `e0` has 0.0%
+within-experiment contrast and one value per run, none of them zero — so
+neither run was ever enzyme-free. And the reaction has not stopped in them:
+cuvette 1 of exps 143-151 is the same composition in all nine runs (10.82 mM
+BnOH, 35.24 mM H₂O₂) with only pH differing, and along that matched series
+`log10 vmax = -4.48 + 0.50 log10 [HOO⁻]`. Exps 150 and 151 sit within 2x and
+0.5x of that line. They are the bottom rung of the pH ladder, not a baseline.
+
+**But their cuvettes carry no information either.** Within a run, pH, [HOO⁻],
+enzyme, cell and day are fixed, so the block's own orders say v_max may vary
+across seven cuvettes by at most 4.6x. `scope.concentration_agreement`
+correlates each run's observed log v_max against that prediction:
+
+```
+exp 142  0.97      exp 146  0.74      exp 150  0.61
+exp 135  0.97      exp 145  0.79      exp 147  0.55
+exp 138  0.97      exp 144  0.80      exp 136  0.24
+exp 139  0.95      exp 141  0.82      exp 137  0.19
+exp 140  0.93      exp 143  0.84      exp 149  0.005
+```
+
+Exp 151 has too few live cuvettes to score. The five weakest runs have median
+v_max of 1.1e-6 to 3.2e-6 AU/s, and exp 151's cuvettes scatter 234x with no
+concentration ordering at all — 9.5e-8 to 1.9e-6 AU/s, including two negative
+rates. **The cell's own wander is a few times 1e-7 AU/s**, about 0.003 AU over
+eight hours, and it is cuvette-specific rather than run-specific. Those runs
+measure it rather than the reaction.
+
+So the six curves that became live are real signal in the sense that they are
+above the instrument's noise, and not real in the sense that would make them
+useful: they are drift, and drift is what a background is supposed to isolate,
+not what it is made of.
+
+**Nothing rests on it.** Dropping exps 136, 137, 147, 149, 150 and 151 leaves 11
+runs and 77 live curves, and sharpens every conclusion rather than removing one:
+
+| | all 17 runs | 11 strong runs |
+|---|---|---|
+| v_max order in [BnOH] | +0.10 ± 0.05 | **+0.01 ± 0.04** |
+| v_max order in [H₂O₂] | +0.80 ± 0.08 | **+0.87 ± 0.06** |
+| speed-up order in [BnOH] | −0.29 ± 0.05 | **−0.37 ± 0.07** |
+| v_max top-rung local order | −0.386, 13/15 neg, p = 0.004 | **−0.457, 11/11 neg, p = 0.0005** |
+| curves accelerating | 48 of 110 (44%) | 40 of 77 (52%) |
+
+The weak runs were diluting the substrate result, not producing it. The scope is
+unchanged — these runs are still in it, and a fit should carry them at the
+weight their scatter earns rather than at equal weight — but no argument may
+rest on one of them alone, and the phrase "in-cell background" is withdrawn from
+`SKILL.md`.
 
 ---
 
@@ -22,9 +172,13 @@ inside a single run. Fraction of each axis's log-variance that lives
 within-experiment, over the 119 curves:
 
 ```
-log[S]      98.4%          log[E]      0.0%
-log[H2O2]   82.4%          pH          0.0%  (an experiment-level condition)
+log[S]     100.0%          log[E]      0.0%
+log[H2O2]   94.1%          pH          0.0%  (an experiment-level condition)
 ```
+
+(These are `scope.within_experiment_share` over the 119 scoped curves. This
+entry first quoted 98.4% and 82.4%, the same quantities over the 127-curve
+block, which includes the out-of-scope exps 75 and 76.)
 
 Each run carries a 40x substrate ladder and a 6.9-20x peroxide ladder in its
 own seven cuvettes. An order measured that way cannot be absorbed by a
@@ -33,7 +187,7 @@ carrying the substrate order holds **12.9%** within-experiment contrast, and
 held 6.4% before yesterday's reclassification.
 
 Across the block, pH runs 5.47 -> 9.73 in **19 distinct values**, putting
-[HOO-] over four decades inside one (substrate, temperature, buffer) cell:
+[HOO-] over **5.1 decades** inside one (substrate, temperature, buffer) cell:
 
 ```
 exp 151  pH 5.47  [HOO-] 0.0000 mM   6 of 7 cuvettes flat within noise over 8 h
@@ -568,7 +722,7 @@ At `r > 1` acceleration appears at once, up to 4.7x the initial slope.
 
 `MECHANISM.md` reports 52% of curves reaching peak slope more than 15% into the
 run. Re-measured by the same smoothed method over the 402 fittable curves the
-figure is **34%** (136/402); the two selections differ — `MECHANISM.md`'s n = 326
+figure is **37.6%** (151/402); the two selections differ — `MECHANISM.md`'s n = 326
 predates the carbonate rule, the exclusions of exps 50, 64 and 85, and the
 cuvette exclusions of 25,2 and 25,4 — and the
 number is quoted here as re-measured rather than carried over. Either way a
@@ -703,8 +857,8 @@ gives +0.007.
 
 **And the shape error runs the wrong way.** Measuring the position of peak slope
 the way `MECHANISM.md` does — smoothed over ~5% of the run before
-differentiating — this block lags in **7 of 43 curves (16%)**, against 34% across
-all 402 fittable curves. The fitted model lags in **19 of 23** enzyme-free curves
+differentiating — this block lags in **7 of 43 curves (16%)**, against 37.6%
+across all 402 fittable curves. The fitted model lags in **19 of 23** enzyme-free curves
 and **19 of 20** catalysed ones.
 
 So the model does not fail by being unable to produce the induction period. It

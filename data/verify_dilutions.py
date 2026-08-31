@@ -43,7 +43,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from kinetics_io import find_and_parse_experiment_file
+from kinetics_io import _text, find_and_parse_experiment_file
 from recompute_concentrations import (analyse as analyse_volumes, locate_table,
                                       read_rows, select_measured)
 
@@ -52,10 +52,6 @@ warnings.filterwarnings("ignore")
 DATASET_PATH = "data/experiment_data.csv"
 MANIFEST_PATH = "data/manifest.csv"
 RELATIVE_TOLERANCE = 1e-4
-
-
-def _text(value):
-    return "" if pd.isna(value) else str(value).strip().lower()
 
 
 def _number(value):

@@ -49,7 +49,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from kinetics_io import find_and_parse_experiment_file
+from kinetics_io import _text, find_and_parse_experiment_file
 
 warnings.filterwarnings("ignore")
 
@@ -61,10 +61,6 @@ VOLUME_OF = {"buf [ml]": "[buf]", "enz [ml]": "[enz]",
              "sub [ml]": "[sub]", "h2o2 [ml]": "[h2o2]"}
 SPECIES = ["[sub]", "[h2o2]", "[enz]", "[buf]"]
 RELATIVE_TOLERANCE = 1e-3
-
-
-def _text(value):
-    return "" if pd.isna(value) else str(value).strip().lower()
 
 
 def locate_table(sheet):

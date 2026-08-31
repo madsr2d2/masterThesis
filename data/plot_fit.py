@@ -29,6 +29,7 @@ import numpy as np
 
 import pandas as pd
 
+from curve_metrics import initial_rate, peak_position
 from fit_dataset import DATASET_PATH, build_curves
 from fit_kinetics import baseline_like_data
 from kinetic_model import Conditions, RateConstants, observable, simulate
@@ -101,30 +102,6 @@ def plot_stage(curves, constants, title, path):
     return path
 
 
-def _peak_position(values, times, smooth_fraction=0.05):
-    """
-    Where the steepest point sits, as a fraction of the run, smoothed over ~5%
-    of the run first -- the same method MECHANISM.md uses, so the numbers on this
-    figure are comparable to the ones in that document.
-    """
-    values = np.asarray(values, dtype=float)
-    window = max(3, int(len(values) * smooth_fraction) | 1)
-    if len(values) < window + 4:
-        return np.nan
-    smoothed = np.convolve(values, np.ones(window) / window, mode="valid")
-    centres = times[window // 2:window // 2 + len(smoothed)]
-    slope = np.gradient(smoothed, centres)
-    if slope[0] <= 0 or slope.max() <= 1.05 * slope[0]:
-        return 0.0
-    return float((centres[np.argmax(slope)] - centres[0]) / (centres[-1] - centres[0]))
-
-
-def initial_rate(times, values, fraction=0.2):
-    """Slope over the first `fraction` of a run, in absorbance per second."""
-    count = max(5, int(len(times) * fraction))
-    return float(np.polyfit(times[:count], values[:count], 1)[0])
-
-
 def substrate_orders(curves, constants, buffer_by_sample):
     """
     Effective reaction order in [S] per experiment, for data and for model.
@@ -143,12 +120,12 @@ def substrate_orders(curves, constants, buffer_by_sample):
         substrate = np.array([c.conditions.s0 for c in block])
         buffers = np.array([buffer_by_sample.get((c.experiment, c.sample), np.nan)
                             for c in block])
-        measured = np.array([initial_rate(c.times, c.absorbance) for c in block])
+        measured = np.array([initial_rate(c.times, c.absorbance)[0] for c in block])
         modelled = []
         for curve in block:
             model = _model(curve, constants)
             modelled.append(np.nan if model is None
-                            else initial_rate(curve.times, model))
+                            else initial_rate(curve.times, model)[0])
         modelled = np.array(modelled)
         varies = (np.nanmax(buffers) - np.nanmin(buffers)) / np.nanmax(buffers) > 0.05
         (confounded if varies else clean).append(
@@ -187,8 +164,8 @@ def plot_diagnostics(stages, title, path):
                 continue
             nets_measured.append(curve.absorbance[-1])
             nets_modelled.append(model[-1])
-            positions.append((_peak_position(curve.absorbance, curve.times),
-                              _peak_position(model, curve.times)))
+            positions.append((peak_position(curve.absorbance, curve.times),
+                              peak_position(model, curve.times)))
             residual.plot(curve.times / 60.0,
                           (model - curve.absorbance) / curve.noise,
                           "-", color=colour, linewidth=0.7, alpha=0.5)

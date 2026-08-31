@@ -48,7 +48,8 @@ import pandas as pd
 
 warnings.filterwarnings("ignore")
 
-from build_manifest import (BUFFER_PATTERNS, SUBSTRATE_PATTERNS,
+from curve_metrics import curve_noise
+from build_manifest import (BUFFER_PATTERNS, SUBSTRATE_PATTERNS, parse_filename,
                             read_sheet_optics)
 from kinetics_io import (EXPERIMENT_CORRECTIONS, find_header_row,
                          parse_experiment_data)
@@ -280,23 +281,6 @@ SIGNIFICANCE_SIGMA = 5.0
 MINIMUM_POINTS = 20
 
 
-def curve_noise(values):
-    """
-    Point-to-point noise, from the median absolute second difference.
-
-    The second difference annihilates any linear trend, so this measures the
-    scatter of a progress curve without being inflated by the progress itself.
-    The 1.4826 converts a median absolute deviation to a standard deviation and
-    the sqrt(6) undoes the variance the second difference introduces.
-    """
-    values = np.asarray(values, dtype=float)
-    if len(values) < 5:
-        return QUANTISATION_SIGMA
-    curvature = values[2:] - 2 * values[1:-1] + values[:-2]
-    estimate = 1.4826 * np.median(np.abs(curvature)) / np.sqrt(6)
-    return max(float(estimate), QUANTISATION_SIGMA)
-
-
 def curve_backtrack(values, window=5):
     """
     Absorbance travelled against the curve's own direction, in AU.
@@ -444,38 +428,6 @@ def _same(a, b):
         return abs(float(a) - float(b)) < 0.02
     except (TypeError, ValueError):
         return str(a).strip() == str(b).strip()
-
-
-def parse_filename(name):
-    """Pulls what the filename asserts. Filenames are ground truth here."""
-    facts = {}
-    match = re.search(r"pH[=_ ]?(\d+[.,]\d+|\d+)", name, re.I)
-    if match:
-        facts["pH"] = float(match.group(1).replace(",", "."))
-    match = re.search(r"t=(\d+)", name, re.I)
-    if match:
-        facts["T"] = float(match.group(1))
-    # Reuse build_manifest's ordered patterns rather than a second copy: they
-    # are order-sensitive ('4-meoh-bnoh' must be tested before the bare 'bnoh'
-    # it contains), and a divergent copy here reported exp 57 as a substrate
-    # conflict that does not exist.
-    lowered = name.lower()
-    for pattern, substrate in SUBSTRATE_PATTERNS:
-        if pattern in lowered:
-            facts["substrate"] = substrate
-            break
-    for pattern, buffer_name in BUFFER_PATTERNS:
-        if pattern in lowered:
-            facts["buffer"] = buffer_name
-            break
-    if re.search(r"no[_ ]E|NO[_ ]E", name):
-        facts["has_enzyme"] = False
-    elif re.search(r"with[_ ]E", name, re.I):
-        facts["has_enzyme"] = True
-    match = re.search(r"(\d+[.,]?\d*)\s*M(?![a-z])", name)
-    if match:
-        facts["buffer_stock_M"] = match.group(1).replace(",", ".")
-    return facts
 
 
 def render_experiment(number, manifest, dataset, summary=None):

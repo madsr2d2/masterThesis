@@ -75,6 +75,7 @@ reaction order in substrate.
 Current state:
 
 ```
+readings   277 rre / 125 txt curves        instrument .rre preferred; Curve.source
 compiled   454 rows / 100 experiments      data/experiment_data.csv
 fittable   402 rows /  88 experiments      clean_experiment_dataframe, less 25,2 and 25,4
 fit scope  119 curves / 17 experiments     exps 135-151; fit_dataset.PRIMARY_SCOPE
@@ -89,9 +90,9 @@ suites     test_kinetic_model 29/29; test_fit_kinetics 59/59;
 
 Fitting is scoped to **exps 135-151** — 119 curves, BnOH / 25 °C /
 pyrophosphate. They are the only runs in the archive that vary *both* the
-substrate and the peroxide inside a single run (98.4% of the block's log[S]
-variance and 82.4% of its log[H₂O₂] variance is within-experiment), and they
-span 19 pH values from 5.47 to 9.73 — four decades of [HOO⁻] — in one block,
+substrate and the peroxide inside a single run (100.0% of the scope's log[S]
+variance and 94.1% of its log[H₂O₂] variance is within-experiment), and they
+span 19 pH values from 5.47 to 9.73 — 5.1 decades of [HOO⁻] — in one block,
 with no exclusions and no open questions. `FITTING.md` sets out the full case,
 the two conditions that must be met before a fit here is quotable, and the one
 thing the scope costs: it holds no enzyme-free curves at all.

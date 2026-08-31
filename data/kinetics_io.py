@@ -280,6 +280,10 @@ def parse_file(file, sheet_name=None):
     return file.name, data
 
 
+def _text(value):
+    return "" if pd.isna(value) else str(value).strip().lower()
+
+
 def find_header_row(data, search_strings=None):
     """
     Locates the header row in a given DataFrame by searching for any of the specified strings

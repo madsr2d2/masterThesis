@@ -80,16 +80,19 @@ from dataclasses import asdict, dataclass
 import numpy as np
 import pandas as pd
 
+from curve_metrics import (INITIAL_WINDOW, LAG_THRESHOLD,
+                           MINIMUM_WINDOW_POINTS, initial_rate, line_fit,
+                           line_slope, peak_position, window_size)
 from fit_dataset import (ABSORBANCE_QUANTUM, DATASET_PATH,
                          QUANTISATION_SIGMA, build_curves)
 from solution_chemistry import add_solution_columns
 
 # Fraction of each run the rate is measured over. See the module docstring for
 # how this was chosen; it is not a free knob, and moving it moves every order.
-INITIAL_WINDOW = 0.20
+# INITIAL_WINDOW, MINIMUM_WINDOW_POINTS: imported from curve_metrics above.
 
 # A window shorter than this cannot support a slope worth reporting.
-MINIMUM_WINDOW_POINTS = 5
+
 
 # Curve-to-curve scatter in v0 at IDENTICAL conditions, from the four cuvettes
 # of experiment 26 -- the only true replicate set in the enzyme-free data. The
@@ -173,56 +176,6 @@ class Regression:
             return np.nan, np.nan
         index = self.names.index(name)
         return float(self.coefficients[index]), float(self.stderrs[index])
-
-
-def line_fit(times, values):
-    """
-    Ordinary least squares line: (intercept, slope, slope stderr, residual rms).
-
-    Time is rescaled to the window before solving. The design matrix is
-    [1, t] and t runs to a few thousand seconds, so on the raw scale the
-    normal equations are conditioned around 1e7 for no reason at all.
-
-    The residual variance is floored at the quantisation variance. Readings
-    come out of the instrument at three decimals, so a window whose points
-    happen to sit exactly on a line has a residual of zero and would otherwise
-    report an impossible standard error -- experiment 25 sample 3 rises by
-    exactly 0.004 AU per reading and produced 1.5e-20 AU/s before this floor
-    existed. A weighted fit would have given that curve essentially infinite
-    weight on the strength of the instrument's rounding.
-    """
-    times = np.asarray(times, dtype=float)
-    values = np.asarray(values, dtype=float)
-    scale = times[-1] - times[0]
-    if scale <= 0 or len(times) < 3:
-        return np.nan, np.nan, np.nan, np.nan
-    design = np.column_stack([np.ones(len(times)), (times - times[0]) / scale])
-    coefficients, *_ = np.linalg.lstsq(design, values, rcond=None)
-    residual = values - design @ coefficients
-    degrees = max(1, len(times) - 2)
-    variance = max(float(residual @ residual) / degrees, QUANTISATION_SIGMA ** 2)
-    covariance = variance * np.linalg.pinv(design.T @ design)
-    return (float(coefficients[0]),
-            float(coefficients[1] / scale),
-            float(np.sqrt(covariance[1, 1]) / scale),
-            float(np.sqrt(residual @ residual / len(times))))
-
-
-def line_slope(times, values):
-    """(slope, stderr, rms) -- `line_fit` without the intercept."""
-    _, slope, stderr, rms = line_fit(times, values)
-    return slope, stderr, rms
-
-
-def window_size(count, fraction):
-    """How many leading points `fraction` of a curve is, floored so a slope exists."""
-    return max(MINIMUM_WINDOW_POINTS, min(count, int(count * fraction)))
-
-
-def initial_rate(times, values, fraction=INITIAL_WINDOW):
-    """Slope over the first `fraction` of a run, in absorbance per second."""
-    count = window_size(len(times), fraction)
-    return line_slope(times[:count], values[:count])
 
 
 def window_quanta(times, values, fraction=INITIAL_WINDOW):

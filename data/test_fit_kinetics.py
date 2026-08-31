@@ -23,6 +23,7 @@ from fit_dataset import (BASELINE_POINTS, PRIMARY_SCOPE, PRIMARY_SCOPE_BLOCK,
 from fit_kinetics import (BOUNDS, FAILURE_RESIDUAL, INITIAL, STAGE_ONE,
                           STAGE_TWO, fit_group, residuals, sequential_fit)
 from kinetic_model import Conditions, RateConstants, observable, simulate
+from read_rre import RRE_SIGMA
 
 FAILURES = []
 
@@ -94,8 +95,20 @@ def test_curves():
     check("the baseline puts every curve near zero at t = 0",
           max(abs(curve.absorbance[0]) for curve in curves) < 0.05,
           f"worst {max(abs(c.absorbance[0]) for c in curves):.4f} AU")
-    check("noise never falls below the quantisation floor",
-          all(curve.noise >= QUANTISATION_SIGMA - 1e-15 for curve in curves))
+    # The floor is the SOURCE's, not a constant. A .txt curve is rounded to
+    # 0.001 AU and floors at QUANTISATION_SIGMA; a .rre curve carries ~1000x
+    # finer readings and must be allowed below it, or the package would go on
+    # reporting 2.89e-4 AU for curves whose real noise is 1.2e-4.
+    check("every .txt curve floors at the quantisation sigma",
+          all(curve.noise >= QUANTISATION_SIGMA - 1e-15
+              for curve in curves if curve.source == "txt"))
+    check("every .rre curve floors far below it",
+          all(curve.noise >= RRE_SIGMA - 1e-15
+              for curve in curves if curve.source == "rre"))
+    below = [c for c in curves
+             if c.source == "rre" and c.noise < QUANTISATION_SIGMA]
+    check("and most of them do fall below it, which is the point",
+          len(below) > 100, f"only {len(below)} of {len(curves)}")
     check("every curve carries a positive extinction coefficient",
           all(curve.epsilon > 0 for curve in curves))
     check("[HOO-] is positive everywhere",

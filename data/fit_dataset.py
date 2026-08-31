@@ -23,20 +23,22 @@ import pandas as pd
 
 from build_manifest import (EXCLUDED_BUFFERS, KNOWN_EXCLUSIONS,
                             KNOWN_SAMPLE_EXCLUSIONS)
+from curve_metrics import (ABSORBANCE_QUANTUM, QUANTISATION_SIGMA,
+                           curve_noise)
 from kinetic_model import Conditions
 from kinetics_io import parse_experiment_data
+from read_rre import ARCHIVE_DIR as RRE_DIRECTORY, RRE_SIGMA
+from read_rre import read_all as read_all_rre
 from solution_chemistry import add_solution_columns
 
 DATASET_PATH = "data/experiment_data.csv"
 CURVE_DIRECTORY = "data/data"
 
-# Absorbance is recorded to three decimals, so a reading's quantisation alone
-# contributes this much standard deviation. Used as a floor on the per-curve
-# noise estimate, exactly as in build_dossier.curve_flags -- a curve that sits
-# on three or four distinct levels otherwise reports zero noise, and a zero
-# denominator would give it infinite weight in the fit.
-ABSORBANCE_QUANTUM = 0.001
-QUANTISATION_SIGMA = ABSORBANCE_QUANTUM / np.sqrt(12)
+# Re-exported from curve_metrics so existing importers keep working. Curve
+# shape is measured in one module; see curve_metrics for why.
+ABSORBANCE_QUANTUM = ABSORBANCE_QUANTUM
+QUANTISATION_SIGMA = QUANTISATION_SIGMA
+curve_noise = curve_noise
 
 # How many leading points the baseline is taken from. The model's signal is
 # zero at t = 0 by construction, so the data has to be put on the same footing;
@@ -48,13 +50,13 @@ BASELINE_POINTS = 5
 # The block the fitting effort is scoped to, decided 2026-08-31.
 #
 # Exps 135-151 are the only runs in the archive that carry BOTH a substrate
-# ladder and a peroxide ladder *inside a single run*: 98.4% of the block's
-# log[S] variance and 82.4% of its log[H2O2] variance is within-experiment, so
+# ladder and a peroxide ladder *inside a single run*: 100.0% of the scope's
+# log[S] variance and 94.1% of its log[H2O2] variance is within-experiment, so
 # neither order can be absorbed by a per-experiment offset. Every other design
 # in the archive puts at most one axis inside the run, which is how the
 # 4OMe-BnOH/40 C block came to rest its substrate order on 12.9%
 # within-experiment contrast. They also span 19 pH values from 5.47 to 9.73 --
-# four decades of [HOO-] -- in one (substrate, temperature, buffer) cell, and
+# 5.1 decades of [HOO-] -- in one (substrate, temperature, buffer) cell, and
 # carry no exclusions, no accepted deviations and no open questions.
 #
 # This is NOT the same set as the hand-sorted data/Mads/'good data BnOH'
@@ -103,6 +105,7 @@ class Curve:
     baseline: float         # what was subtracted
     noise: float            # absorbance units, 1 sigma
     conditions: Conditions
+    source: str = "txt"     # "rre" where the instrument file was read
 
     @property
     def group(self):
@@ -116,25 +119,6 @@ class Curve:
 
     def __len__(self):
         return len(self.times)
-
-
-def curve_noise(values):
-    """
-    Point-to-point noise from the median absolute second difference.
-
-    The second difference annihilates any linear trend, so this measures a
-    progress curve's scatter without being inflated by the progress itself.
-    1.4826 converts a median absolute deviation to a standard deviation and the
-    sqrt(6) undoes the variance the second difference introduces. Identical to
-    build_dossier.curve_noise; duplicated rather than imported because that
-    module pulls in matplotlib and builds a 6 MB page on import.
-    """
-    values = np.asarray(values, dtype=float)
-    if len(values) < 5:
-        return QUANTISATION_SIGMA
-    curvature = values[2:] - 2 * values[1:-1] + values[:-2]
-    estimate = 1.4826 * np.median(np.abs(curvature)) / np.sqrt(6)
-    return max(float(estimate), QUANTISATION_SIGMA)
 
 
 def select_fittable(data):
@@ -166,10 +150,21 @@ def select_fittable(data):
     return selected, report
 
 
-def read_all_curves(directory=CURVE_DIRECTORY):
+def read_all_curves(directory=CURVE_DIRECTORY, rre_directory=RRE_DIRECTORY):
     """
-    Parses every instrument export once, returning {experiment: [(time, values)]}
-    indexed by sample number.
+    Every curve once, as {experiment: [(time, values, source)]} in sample order.
+
+    Values come from the instrument's own .rre where one exists and from the
+    .txt export otherwise. The .rre is the same measurement at ~1000x the
+    resolution -- the .txt is rounded to 0.001 AU, which zeroes the measured
+    noise on 67 of the 119 in-scope curves -- so it is preferred wherever it
+    is available and agrees. See rre_io.
+
+    A .rre is used only when its sample has the same number of points as the
+    export and tracks it to within the export's own rounding step. Anything
+    else falls back to the .txt and is counted, never silently substituted:
+    the two files are different formats written by different code paths and
+    a misalignment would be invisible in the result.
 
     kinetics_io.load_experiment rescans the whole directory per experiment,
     which is fine for plotting one run and quadratic for fitting a hundred.
@@ -177,6 +172,7 @@ def read_all_curves(directory=CURVE_DIRECTORY):
     the export's own header row -- the same mapping load_experiment uses, so
     sample numbers agree with the compiled dataset.
     """
+    high_precision = read_all_rre(rre_directory)
     curves = {}
     for filename in sorted(os.listdir(directory)):
         if not filename.endswith(".txt"):
@@ -184,12 +180,28 @@ def read_all_curves(directory=CURVE_DIRECTORY):
         parsed = parse_experiment_data(os.path.join(directory, filename))
         if parsed is None or parsed.get("num") is None:
             continue
-        curves[parsed["num"]] = [
-            (np.asarray(sample["time"], dtype=float),
-             np.asarray(sample["values"], dtype=float))
-            for sample in parsed["samples"].values()
-        ]
+        number = parsed["num"]
+        better = high_precision.get(number, {})
+        series = []
+        for index, sample in enumerate(parsed["samples"].values(), start=1):
+            times = np.asarray(sample["time"], dtype=float)
+            values = np.asarray(sample["values"], dtype=float)
+            series.append((times, *_prefer_rre(values, better.get(index))))
+        curves[number] = series
     return curves
+
+
+def _prefer_rre(exported, instrument):
+    """(values, source) -- the .rre when it agrees with the export."""
+    if instrument is None or len(instrument) != len(exported):
+        return exported, "txt"
+    # Both are compared as changes from their own first point: the export is
+    # rounded absorbance and the .rre is -log10(%T/100) against a baseline the
+    # instrument stored, so their offsets need not agree, only their shapes.
+    drift = np.abs((instrument - instrument[0]) - (exported - exported[0])).max()
+    if drift > ABSORBANCE_QUANTUM:
+        return exported, "txt"
+    return instrument, "rre"
 
 
 def build_curves(dataset_path=DATASET_PATH, directory=CURVE_DIRECTORY,
@@ -220,7 +232,7 @@ def build_curves(dataset_path=DATASET_PATH, directory=CURVE_DIRECTORY,
         if not 1 <= sample <= len(samples):
             dropped["no_curve"] += 1
             continue
-        times, values = samples[sample - 1]
+        times, values, source = samples[sample - 1]
         if len(times) < minimum_points:
             dropped["too_short"] += 1
             continue
@@ -241,7 +253,12 @@ def build_curves(dataset_path=DATASET_PATH, directory=CURVE_DIRECTORY,
             times=times - times[0],
             absorbance=values - baseline,
             baseline=baseline,
-            noise=curve_noise(values),
+            # The floor belongs to the source: a .rre curve floored at the
+            # export's 0.001 AU quantisation would report 2.4x its real noise.
+            noise=curve_noise(values,
+                              RRE_SIGMA if source == "rre"
+                              else QUANTISATION_SIGMA),
+            source=source,
             conditions=Conditions(
                 s0=float(row["[sub]"]),
                 h2o2=float(row["[h2o2]"]),

@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.optimize import least_squares
 
+from curve_metrics import peak_position
 from fit_dataset import (BASELINE_POINTS, PRIMARY_SCOPE,
                          PRIMARY_SCOPE_BLOCK, build_curves, group_curves,
                          in_scope)
@@ -213,26 +214,10 @@ def _per_curve(constants, curves):
             "sigma": float(np.sqrt(np.mean(error ** 2)) / curve.noise),
             "net_data": float(curve.absorbance[-1]),
             "net_model": float(model[-1]),
-            "peak_data": _peak_position(curve.absorbance, curve.times),
-            "peak_model": _peak_position(model, curve.times),
+            "peak_data": peak_position(curve.absorbance, curve.times),
+            "peak_model": peak_position(model, curve.times),
         })
     return rows
-
-
-def _peak_position(values, times):
-    """
-    Where the steepest point sits, as a fraction of the run. Returns 0.0 for a
-    curve whose slope never rises above its initial value by more than 5% --
-    without that guard a straight line's gradient is a flat array of ties and
-    argmax picks an arbitrary index, which reads as a late peak that is not
-    there.
-    """
-    if len(values) < 5:
-        return np.nan
-    slope = np.gradient(np.asarray(values, dtype=float), times)
-    if slope[0] <= 0 or slope.max() <= 1.05 * slope[0]:
-        return 0.0
-    return float(times[np.argmax(slope)] / times[-1])
 
 
 # Starting points are SCREENED rather than guessed. The cost surface has long

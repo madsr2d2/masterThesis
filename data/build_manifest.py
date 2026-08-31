@@ -35,6 +35,7 @@ import io
 import os
 import re
 
+import numpy as np
 import pandas as pd
 
 from kinetics_io import find_header_row, find_and_parse_experiment_file, load_experiment
@@ -548,6 +549,25 @@ def classify_buffer(sheet, filename):
     return design, provenance, recipe
 
 
+def _agrees(a, b, tolerance=0.02):
+    """
+    Compares two metadata values, tolerating float noise and nulls.
+
+    Canonical. validate_dataset imports this rather than keeping its own;
+    the two copies had diverged, this one handling NaN and numpy scalars
+    while build_manifest's did not.
+    """
+    a_null = a is None or (isinstance(a, float) and np.isnan(a))
+    b_null = b is None or (isinstance(b, float) and np.isnan(b))
+    if a_null or b_null:
+        return a_null and b_null
+    if isinstance(a, (bool, np.bool_)) or isinstance(b, (bool, np.bool_)):
+        return bool(a) == bool(b)
+    if isinstance(a, (int, float, np.number)) and isinstance(b, (int, float, np.number)):
+        return abs(float(a) - float(b)) < tolerance
+    return str(a) == str(b)
+
+
 def parse_filename(filename):
     """
     Extracts whatever metadata the filename declares.
@@ -753,17 +773,6 @@ def build(directory="data/data"):
         })
 
     return pd.DataFrame(rows), conflicts
-
-
-def _agrees(a, b):
-    """Compares two field values, tolerating float noise and None."""
-    if a is None or b is None:
-        return a is b
-    if isinstance(a, bool) or isinstance(b, bool):
-        return bool(a) == bool(b)
-    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-        return abs(float(a) - float(b)) < 0.02
-    return str(a) == str(b)
 
 
 if __name__ == "__main__":

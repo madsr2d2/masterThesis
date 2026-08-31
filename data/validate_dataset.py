@@ -52,6 +52,7 @@ import sys
 import numpy as np
 import pandas as pd
 
+from build_manifest import _agrees
 from kinetics_io import SUBSTRATE_PROPERTIES
 
 MANIFEST_PATH = "data/manifest.csv"
@@ -116,19 +117,6 @@ def _open_fields(open_questions):
         return set()
     return {part.split(":", 1)[0].strip()
             for part in open_questions.split("|") if ":" in part}
-
-
-def _agrees(a, b, tolerance=0.02):
-    """Compares two metadata values, tolerating float noise and nulls."""
-    a_null = a is None or (isinstance(a, float) and np.isnan(a))
-    b_null = b is None or (isinstance(b, float) and np.isnan(b))
-    if a_null or b_null:
-        return a_null and b_null
-    if isinstance(a, (bool, np.bool_)) or isinstance(b, (bool, np.bool_)):
-        return bool(a) == bool(b)
-    if isinstance(a, (int, float, np.number)) and isinstance(b, (int, float, np.number)):
-        return abs(float(a) - float(b)) < tolerance
-    return str(a) == str(b)
 
 
 def validate(dataset_path=DATASET_PATH, manifest_path=MANIFEST_PATH):
