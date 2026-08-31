@@ -307,10 +307,11 @@ every rate constant, at both `E0 = 0` and `E0 > 0`, produced **not one**
 accelerating curve at `r <= 1`. At `r > 1` acceleration appears immediately, up
 to 4.7x the initial slope.
 
-*(The 52% figure in the table above was re-measured on 2026-08-31 over the 404
+*(The 52% figure in the table above was re-measured on 2026-08-31 over the 402
 curves the fitting code selects, by the same smoothed method, and comes out at
-**34%** — 136/404. The selections differ: the n = 326 above predates the
-carbonate rule and the exclusions of exps 50, 64 and 85.)*
+**34%** — 136/402. The selections differ: the n = 326 above predates the
+carbonate rule, the exclusions of exps 50, 64 and 85, and the cuvette exclusions
+of 25,2 and 25,4.)*
 
 **And the first fit shows the error runs the other way.** Fitted on
 BnOH/25 C/phosphate, the model at its best-fit `r = 1.52` lags in 19 of 23
@@ -637,7 +638,8 @@ buffer catalysis from pH — which the existing titration data cannot do, since
   different molecules, and the buffer section above all forbid pooling across
   them. `data/fit_kinetics.py --list` shows that of eleven such cells, only two
   hold enzyme-free controls alongside catalysed runs: BnOH/25 C/phosphate
-  (23 vs 20 curves) and 4OMe-BnOH/40 C/phosphate (59 vs 4). The archive's
+  (23 vs 20 curves) and 4OMe-BnOH/40 C/phosphate (37 vs 24 — it read 59 vs 4
+  until exps 32 and 34-37 were ruled catalysed on 2026-08-31). The archive's
   biggest catalysed block — **127 BnOH pyrophosphate curves** — has no
   enzyme-free control at all, so `k_can, k3, k0` could only be imported from a
   different buffer, which is exactly what the buffer section says must not be

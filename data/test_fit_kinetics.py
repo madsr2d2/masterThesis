@@ -17,9 +17,9 @@ import sys
 import numpy as np
 import pandas as pd
 
-from fit_dataset import (BASELINE_POINTS, QUANTISATION_SIGMA, Curve,
-                         build_curves, curve_noise, group_curves,
-                         select_fittable)
+from fit_dataset import (BASELINE_POINTS, PRIMARY_SCOPE, PRIMARY_SCOPE_BLOCK,
+                         QUANTISATION_SIGMA, Curve, build_curves, curve_noise,
+                         group_curves, in_scope, select_fittable)
 from fit_kinetics import (BOUNDS, FAILURE_RESIDUAL, INITIAL, STAGE_ONE,
                           STAGE_TWO, fit_group, residuals, sequential_fit)
 from kinetic_model import Conditions, RateConstants, observable, simulate
@@ -38,8 +38,25 @@ def check(name, condition, detail=""):
 # What the notebook's clean_experiment_dataframe produces, and what README.md
 # reports. Pinned so a change to either selection shows up as a failure here
 # rather than as a quietly different fit.
-EXPECTED_ROWS = 404
+EXPECTED_ROWS = 402
 EXPECTED_EXPERIMENTS = 88
+
+# The fitting scope, pinned. See fit_dataset.PRIMARY_SCOPE for why these runs
+# and not others.
+EXPECTED_SCOPE_CURVES = 119
+EXPECTED_SCOPE_EXPERIMENTS = 17
+
+# What "well designed" means here, in numbers rather than in a folder name: a
+# run whose own cuvettes vary BOTH the substrate and the peroxide, so both
+# orders are measurable inside the run rather than across per-experiment
+# offsets. A two-fold spread is the bar, and the separation it draws is not
+# marginal -- inside the scope the smallest ladders are 40x in substrate and
+# 6.9x in peroxide, while outside it every single run holds one of the two
+# axes exactly constant. The bar could sit anywhere between 1x and 6.9x
+# without changing which runs qualify.
+LADDER_MINIMUM = np.log(2.0)
+SCOPE_SUBSTRATE_LADDER = np.log(39.9)   # the weakest substrate ladder in scope is 40.0x
+SCOPE_PEROXIDE_LADDER = np.log(6.8)     # the weakest peroxide ladder in scope
 
 
 def test_selection():
@@ -311,6 +328,71 @@ def test_residual_machinery():
           np.allclose(per_curve * np.sqrt(len(short)), per_point))
 
 
+
+def _ladder_spread(curves, attribute):
+    """Log-range of `attribute` across one run's own cuvettes."""
+    values = np.log([max(getattr(c.conditions, attribute), 1e-12) for c in curves])
+    return values.max() - values.min()
+
+
+def _two_axis_runs(curves):
+    """Experiments carrying both an internal substrate and an internal peroxide ladder."""
+    by_experiment = {}
+    for curve in curves:
+        by_experiment.setdefault(curve.experiment, []).append(curve)
+    return {experiment for experiment, group in by_experiment.items()
+            if _ladder_spread(group, "s0") >= LADDER_MINIMUM
+            and _ladder_spread(group, "h2o2") >= LADDER_MINIMUM}
+
+
+def test_scope():
+    """
+    Pins the fitting scope, and re-derives it from the designs rather than
+    trusting the list.
+
+    The last check is the one that matters: if a run outside the scope ever
+    turns out to carry the same two-axis design -- because an exclusion was
+    lifted, a sheet was re-read, or an unexported run was recovered -- this
+    fails and forces a decision, instead of leaving it silently out of the fit.
+    """
+    print("\nfitting scope")
+    curves, _ = build_curves()
+    scoped = in_scope(curves)
+
+    check(f"{EXPECTED_SCOPE_CURVES} curves in scope",
+          len(scoped) == EXPECTED_SCOPE_CURVES, f"got {len(scoped)}")
+    check(f"{EXPECTED_SCOPE_EXPERIMENTS} experiments in scope",
+          len({c.experiment for c in scoped}) == EXPECTED_SCOPE_EXPERIMENTS,
+          f"got {len({c.experiment for c in scoped})}")
+    check("every scoped experiment survived the exclusions",
+          {c.experiment for c in scoped} == set(PRIMARY_SCOPE),
+          f"missing {sorted(set(PRIMARY_SCOPE) - {c.experiment for c in scoped})}")
+    check("the scope is one block, so rate constants may be pooled across it",
+          {c.group for c in scoped} == {PRIMARY_SCOPE_BLOCK})
+    check("every scoped run carries the full seven cuvettes",
+          all(len([c for c in scoped if c.experiment == e]) == 7 for e in PRIMARY_SCOPE))
+
+    # The reason for the scope, restated as measurements.
+    check("every scoped run measures its substrate order internally, over >= 39.9x",
+          all(_ladder_spread([c for c in scoped if c.experiment == e], "s0")
+              >= SCOPE_SUBSTRATE_LADDER for e in PRIMARY_SCOPE))
+    check("every scoped run measures its peroxide order internally, over >= 6.8x",
+          all(_ladder_spread([c for c in scoped if c.experiment == e], "h2o2")
+              >= SCOPE_PEROXIDE_LADDER for e in PRIMARY_SCOPE))
+    pH_values = {c.pH for c in scoped}
+    check("the scope spans at least three pH units in one block",
+          max(pH_values) - min(pH_values) >= 3.0,
+          f"{min(pH_values)}-{max(pH_values)}")
+    hoo = [c.conditions.hoo for c in scoped]
+    check("[HOO-] spans at least three decades across the scope",
+          np.log10(max(hoo) / max(min(hoo), 1e-12)) >= 3.0)
+
+    # The guard: nothing outside the scope has the design the scope was chosen for.
+    outside = _two_axis_runs(curves) - set(PRIMARY_SCOPE)
+    check("no run outside the scope varies both axes at all",
+          not outside, f"unscoped two-axis runs: {sorted(outside)}")
+
+
 def test_configuration():
     print("\nconfiguration")
     check("every fitted parameter has bounds",
@@ -331,6 +413,7 @@ def test_configuration():
 
 if __name__ == "__main__":
     test_selection()
+    test_scope()
     test_curves()
     test_noise_estimator()
     test_parameter_recovery()

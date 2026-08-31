@@ -32,7 +32,9 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.optimize import least_squares
 
-from fit_dataset import BASELINE_POINTS, build_curves, group_curves
+from fit_dataset import (BASELINE_POINTS, PRIMARY_SCOPE,
+                         PRIMARY_SCOPE_BLOCK, build_curves, group_curves,
+                         in_scope)
 from kinetic_model import (LOG_PARAMETERS, Conditions, RateConstants,
                            observable, pack, unpack)
 
@@ -561,9 +563,21 @@ def main():
     parser.add_argument("--list", action="store_true",
                         help="list the blocks that have both stages, then exit")
     parser.add_argument("--save", default=None)
+    parser.add_argument("--scope", choices=("primary", "all"), default="primary",
+                        help="'primary' restricts to fit_dataset.PRIMARY_SCOPE "
+                             "(exps 135-151, the decided fitting scope); 'all' "
+                             "uses every fittable curve. See FITTING.md.")
     arguments = parser.parse_args()
 
     curves, _ = build_curves()
+    if arguments.scope == "primary":
+        # Restricting here rather than at the block key matters: exps 75 and 76
+        # share the block's (BnOH, 25 C, Pyrophosphate) key but carry the
+        # unresolved hexametaphosphate speciation question, so selecting the
+        # block alone would silently pull them in.
+        scoped = in_scope(curves)
+        if scoped:
+            curves = scoped
 
     if arguments.list:
         free = group_curves(curves, enzyme_free=True)
@@ -588,7 +602,10 @@ def main():
     key = (arguments.substrate, arguments.temperature, arguments.buffer)
     block = [c for c in curves if c.group == key]
     if not block:
-        print(f"no curves in block {key}; try --list")
+        print(f"no curves in block {key}" +
+              (f" within --scope primary (exps {min(PRIMARY_SCOPE)}-"
+               f"{max(PRIMARY_SCOPE)}, block {PRIMARY_SCOPE_BLOCK})"
+               if arguments.scope == "primary" else "") + "; try --list")
         return 1
 
     title = f"{arguments.substrate}, {arguments.temperature:.0f} C, {arguments.buffer}"

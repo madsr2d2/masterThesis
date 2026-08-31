@@ -45,6 +45,49 @@ QUANTISATION_SIGMA = ABSORBANCE_QUANTUM / np.sqrt(12)
 BASELINE_POINTS = 5
 
 
+# The block the fitting effort is scoped to, decided 2026-08-31.
+#
+# Exps 135-151 are the only runs in the archive that carry BOTH a substrate
+# ladder and a peroxide ladder *inside a single run*: 98.4% of the block's
+# log[S] variance and 82.4% of its log[H2O2] variance is within-experiment, so
+# neither order can be absorbed by a per-experiment offset. Every other design
+# in the archive puts at most one axis inside the run, which is how the
+# 4OMe-BnOH/40 C block came to rest its substrate order on 12.9%
+# within-experiment contrast. They also span 19 pH values from 5.47 to 9.73 --
+# four decades of [HOO-] -- in one (substrate, temperature, buffer) cell, and
+# carry no exclusions, no accepted deviations and no open questions.
+#
+# This is NOT the same set as the hand-sorted data/Mads/'good data BnOH'
+# folder, which also holds exp 50 (already excluded), exp 51 (a 4-cuvette
+# borate run) and exp 134 (a sheet with no instrument export). Exp 50 survived
+# earlier passes precisely because that folder looked authoritative, so the
+# scope is defined by the design and re-derived by test_fit_kinetics, never by
+# where a file was filed.
+#
+# Exps 75 and 76 share the block's (BnOH, 25 C, Pyrophosphate) key but are
+# excluded from the scope: they carry the unresolved hexametaphosphate
+# speciation question (DATA_VERIFICATION.md 2026-08-31).
+#
+# One condition must be met before a fit on this scope is quotable, recorded in
+# FITTING.md: the high-peroxide cuvettes of exps 135 and 138 need a ruling,
+# since they backtrack up to 0.35 AU and that lands straight in the residuals.
+#
+# The two-salt buffer (Na4P2O7 with Na2HPO4, 143-151 NaH2PO4, equimolar) is
+# still treated as pure pyrophosphate and is worth correcting -- it moves 6 of
+# the 17 runs from above Davies' 500 mM ceiling to below it, and makes the
+# unrecorded titrant recoverable by electroneutrality -- but it is not a
+# blocker: across this scope Davies' pKa_eff varies only 11.478 to 11.494, so
+# the entire ionic-strength apparatus is worth under 3.2% in [HOO-] against a
+# 129000x span driven by pH and [H2O2] alone.
+PRIMARY_SCOPE = frozenset(range(135, 152))
+PRIMARY_SCOPE_BLOCK = ("BnOH", 25.0, "Pyrophosphate")
+
+
+def in_scope(curves, scope=PRIMARY_SCOPE):
+    """The curves of `curves` whose experiment is in `scope`."""
+    return [curve for curve in curves if curve.experiment in scope]
+
+
 @dataclass
 class Curve:
     """One cuvette: what was in it, and what the instrument recorded."""
@@ -99,7 +142,7 @@ def select_fittable(data):
     The rows a fit may use, by build_manifest's declared exclusions.
 
     Returns (selected, report) where report counts what each rule removed, so a
-    caller can print why 454 rows became 404 instead of asserting it.
+    caller can print why 454 rows became 402 instead of asserting it.
     """
     report = {"rows_in": len(data), "experiments_in": data.experiment.nunique()}
 

@@ -28,6 +28,7 @@ data/fits/*.json            saved fit results (a fit costs ~30 min; these do not
 
 data/validate_dataset.py    the gate: run this before trusting anything
 data/verify_*.py            four independent cross-checks (see below)
+data/read_rre.py            reads the instrument binaries the .txt exports came from
 data/test_*.py              five test suites, including fault injection
 data/build_dossier.py       one HTML page per experiment, for review by eye
 
@@ -58,9 +59,10 @@ Fitting:
 
 ```bash
 python data/fit_dataset.py                # what is fittable, by block
-python data/fit_kinetics.py --list        # which blocks support both stages
-python data/fit_kinetics.py --substrate BnOH --temperature 25 --buffer Phosphate
-python data/fit_kinetics.py --substrate BnOH --profile-r    # profile r instead of fitting it
+python data/fit_kinetics.py --list                    # blocks in scope (exps 135-151)
+python data/fit_kinetics.py --buffer Pyrophosphate    # fit the scope
+python data/fit_kinetics.py --scope all --list        # every block, ignoring the scope
+python data/fit_kinetics.py --scope all --substrate BnOH --temperature 25 --buffer Phosphate
 python data/plot_fit.py data/fits/BnOH_25C_Phosphate.json   # -> figures/
 ```
 
@@ -74,11 +76,32 @@ Current state:
 
 ```
 compiled   454 rows / 100 experiments      data/experiment_data.csv
-fittable   404 rows /  88 experiments      after clean_experiment_dataframe
-manifest   89 use, 11 excluded, 15 rulings, 0 open questions
-checks     0 errors, 11 warnings, 9 notes; 17/17 fault injection
-suites     test_kinetic_model 24/24; test_fit_kinetics 39/39; all others pass
+fittable   402 rows /  88 experiments      clean_experiment_dataframe, less 25,2 and 25,4
+fit scope  119 curves / 17 experiments     exps 135-151; fit_dataset.PRIMARY_SCOPE
+manifest   89 use, 11 excluded, 19 ruled experiments, 0 open questions, 0 conflicts
+checks     0 errors, 23 warnings, 15 notes; 20/20 fault injection
+suites     test_kinetic_model 29/29; test_fit_kinetics 59/59;
+           test_summary_kinetics 73/73; test_curve_screen 42/42;
+           all others pass
 ```
+
+## What the fitting is scoped to
+
+Fitting is scoped to **exps 135-151** — 119 curves, BnOH / 25 °C /
+pyrophosphate. They are the only runs in the archive that vary *both* the
+substrate and the peroxide inside a single run (98.4% of the block's log[S]
+variance and 82.4% of its log[H₂O₂] variance is within-experiment), and they
+span 19 pH values from 5.47 to 9.73 — four decades of [HOO⁻] — in one block,
+with no exclusions and no open questions. `FITTING.md` sets out the full case,
+the two conditions that must be met before a fit here is quotable, and the one
+thing the scope costs: it holds no enzyme-free curves at all.
+
+The scope lives in `fit_dataset.PRIMARY_SCOPE` and is re-derived from the
+designs by `test_fit_kinetics.test_scope`, which fails if any run outside it
+ever turns out to carry the same two-axis design. It is deliberately **not**
+the hand-sorted `data/Mads/good data BnOH/` folder, which also contains an
+already-excluded run, a run from a different cell, and a sheet with no
+instrument data — see `DATA_VERIFICATION.md`, 2026-08-31.
 
 A full sequential fit takes roughly 30 minutes: the model is integrated once per
 curve per residual evaluation, and the optimiser is deliberately started from
@@ -92,7 +115,7 @@ nothing — a mistake made once here, and the reason this is stated as a rule.
 
 | module | independent source |
 |---|---|
-| `verify_enzyme.py` | the weighed mass of catalyst, through the recorded stock and cuvette volumes |
+| `verify_enzyme.py` | the weighed mass of catalyst, through the recorded stock and cuvette volumes — and, separately, the *shape* of the cuvette table, which says whether an experiment had catalyst at all without reading a single concentration |
 | `verify_rate_workbook.py` | `Rate(pH).xls`, the experimenter's own analysis, written for another purpose |
 | `verify_dilutions.py` | the recorded dilution series, traced back to weighed grams |
 | `verify_buffer.py` | each buffer stock recovered from the sheet's own cuvette volumes |
@@ -113,6 +136,14 @@ The standing precedence is **sheet over filename**. A filename gets copied
 forward between runs and only partly updated; a declared sheet value is what was
 measured. Three experiments were caught this way (75, 76, 78), and the rule is
 enforced by `verify_buffer.py`.
+
+Inverting that precedence is how the worst error in this log happened: exps 32
+and 34–37 were forced to `[enz] = 0` on 2026-08-30 because their filenames say
+`with_NO_E`, and were ruled catalysed on 2026-08-31 when the sheets were read
+properly. Twenty catalysed curves had been sitting in the enzyme-free set. The
+check that now prevents it reads the cuvette table's *layout* rather than its
+numbers — rows 5–8 are the reference channel, and what the reference omits says
+whether the experiment had catalyst.
 
 ## Known limitations
 

@@ -23,6 +23,134 @@ fit** — together with a reasonably precise account of which layer is at fault.
 - Units throughout: concentrations mM, time s. Hence `k_can` mM⁻² s⁻¹, `k3`,
   `k0` and `k6` mM⁻¹ s⁻¹, `k5'` mM⁻² s⁻¹, `r` dimensionless.
 
+## Scope — exps 135–151
+
+**Decided 2026-08-31.** The fitting effort is scoped to **exps 135–151**: 119
+curves, BnOH / 25 °C / pyrophosphate, one block. Enforced by
+`fit_dataset.PRIMARY_SCOPE` and re-derived from the designs by
+`test_fit_kinetics.test_scope`, not by a list in prose.
+
+### Why these
+
+They are the only runs in the archive that vary **both** the substrate and the
+peroxide *inside a single run*. Every other run in the archive holds one of the
+two axes exactly constant.
+
+| | exps 135–151 | 4OMe-BnOH / 40 °C / phosphate, the block fitted so far |
+|---|---|---|
+| log[S] variance that is within-experiment | **98.4 %** | 12.9 % (6.4 % before 2026-08-31) |
+| log[H₂O₂] variance that is within-experiment | **82.4 %** | — no peroxide axis |
+| weakest internal substrate ladder | 40× | — |
+| weakest internal peroxide ladder | 6.9× | — |
+| pH values in the block | **19**, 5.47 → 9.73 | 1 |
+| [HOO⁻] span | **> 4 decades**, 0.00002 → 0.635 mM | fixed |
+| exclusions / accepted deviations / open questions | **0 / 0 / 0** | several |
+
+The first row is the whole argument. An order measured across per-experiment
+offsets can be absorbed by those offsets; an order measured 17 times inside
+independent runs cannot. This is the defect that has limited every substrate
+order quoted in this document so far ([F1](#f1--the-model-is-first-order-in-substrate-and-the-data-is-not)).
+
+The autocatalytic acceleration is also sharpest here, and it is a *high-pH*
+phenomenon rather than a long-run one — the 8-hour runs (138, 146, 148–151) are
+long because they are **slow**, and they decelerate. Late-window slope ÷
+early-window slope, on curves with real signal:
+
+| | n | accelerating (> 1.5×) | median ratio |
+|---|---|---|---|
+| in scope, pH ≥ 9.0 | 39 | **44 %** | **1.30** |
+| in scope, pH < 9.0 | 57 | 12 % | 0.49 |
+| catalysed, rest of archive | 195 | 17 % | 0.89 |
+| **enzyme-free, anywhere** | 71 | **1 %** | 0.57 |
+
+So the induction phase requires catalyst *and* requires HOO⁻ — a constraint the
+mechanism has to meet, established without a fit.
+
+### What the scope is not
+
+It is **not** the hand-sorted `data/Mads/good data BnOH/` folder. That folder
+also contains exp 50 (already excluded — four descending curves with no
+substrate ordering), exp 51 (a 4-cuvette borate run) and exp 134 (a sheet whose
+instrument export was never made and whose `.rre` is absent, so it holds no
+data at all). Exp 50 survived earlier validation passes *precisely because* it
+was filed there. The scope is defined by the design and checked by a test; the
+folder is a pile.
+
+Exps 75 and 76 share the block key `(BnOH, 25 °C, Pyrophosphate)` but are out
+of scope: their buffer is named hexametaphosphate and given pyrophosphate
+pKₐ values, an open chemistry question.
+
+### The cost, and what pays it
+
+**The scope contains no enzyme-free curves — 0 of 127 in the whole
+pyrophosphate cell.** The sequential fit of
+[F7](#f7--only-two-of-eleven-blocks-support-the-sequential-fit) cannot stage
+here, and importing `k_can`/`k0` from a phosphate block would break the rule
+that constants pool only within a cell.
+
+The substitute is arguably better than what it replaces. Exps **150** (pH 6.26,
+5 of 7 cuvettes flat within noise) and **151** (pH 5.47, 6 of 7 flat over 8
+hours) are *catalysed* runs at pH where [HOO⁻] is four decades down. They hold
+the catalyst constant and switch off the peroxide arm, which isolates the
+background terms more cleanly than a no-enzyme control — that changes the
+catalyst instead. Stage 1 on this scope means the low-pH end, not a separate
+set of runs.
+
+### The buffer speciation is a defensibility job, not a blocker
+
+An earlier draft of this section called the mixed-buffer approximation
+"load-bearing" and made it a precondition on any fit here. **Measured, it is
+not.** All 17 runs are two-salt mixtures — Na₄P₂O₇·10H₂O with Na₂HPO₄·2H₂O
+(exps 143–151: NaH₂PO₄·2H₂O), equimolar to 1.0003 : 1 — currently treated as
+75.013 mM of pure pyrophosphate when the cuvette actually holds 37.507 mM of
+each. Correcting it, and the two related errors, moves the ionic strength a
+lot and [HOO⁻] almost not at all:
+
+| correction | effect on I | effect on [HOO⁻] |
+|---|---|---|
+| two salts instead of one | **−27 to −35 %** | ≤ 4.5 % |
+| the unrecorded titrant, recovered by electroneutrality | +0.6 to +23 % | ≤ 2.5 % |
+| buffer pKₐ activity-corrected self-consistently | +10 to +32 % | ≤ 2.8 % |
+
+The reason is structural. Davies' −0.3·I term nearly cancels its √I term over
+this range, so across the entire scope **pKₐ,eff(H₂O₂) varies only from 11.478
+to 11.494**. Replacing the whole ionic-strength apparatus with the single
+constant pKₐ = 11.481 changes [HOO⁻] by **at most 3.2 % anywhere in the
+scope** — against a **129 000×** span in [HOO⁻] itself, which is driven by pH
+and [H₂O₂] alone.
+
+That is worth knowing for its own sake: the most error-prone module in the
+pipeline has almost no influence on the numbers this scope will be fitted to.
+
+Two things still make the correction worth doing, neither of which gates a fit:
+
+- **Validity.** As the dataset carries it, I runs 240–653 mM and **6 of the 17
+  runs sit above Davies' ~500 mM ceiling**. Fully corrected, I runs 251–484 mM
+  and **none do**. The number barely moves, but it stops being an
+  extrapolation — which is the difference between a figure that can be
+  defended in a thesis and one that cannot.
+- **The titrant stops being unknown.** pH spans 5.47–9.73 on a fixed 1:1 salt
+  mix, so acid or base was added and never recorded. For this scope it is
+  recoverable: the sodium is fixed by what was weighed and the anion charge by
+  the measured pH, so electroneutrality gives the rest — 4 to 73 mM, up to 96 %
+  of the buffer's own concentration at the pH extremes. That closes limitation
+  2 in `solution_chemistry.py` for these 17 runs.
+
+### One condition before a fit here is quotable
+
+**The thrashing cuvettes.** Exps 135 and 138, samples 1–4 (the high-peroxide
+end), backtrack up to 0.35 AU; 138 and 140 also show step discontinuities.
+Backtracking tracks [H₂O₂] across 19 of 22 experiments, so this is physical —
+almost certainly O₂ evolution — and it hits the residuals directly. These
+cuvettes need a ruling before they carry weight.
+
+### What stays outside the scope but must not be lost
+
+Exps **65, 67, 69 and 70** are the only enzyme-free runs in the archive with a
+real within-run substrate ladder, and [F1](#f1--the-model-is-first-order-in-substrate-and-the-data-is-not)
+rests on them. They are borate and phosphate, so they cannot be pooled into
+this scope, but they remain the strongest background evidence in the dataset.
+
 ## The code
 
 | module | what it is |
@@ -36,8 +164,11 @@ fit** — together with a reasonably precise account of which layer is at fault.
 | `data/fits/*.json` | saved results — a fit costs ~30 min, the plots seconds |
 
 ```bash
-python data/fit_kinetics.py --list                          # blocks with both stages
-python data/fit_kinetics.py --substrate BnOH --save data/fits/BnOH_25C_Phosphate.json
+python data/fit_kinetics.py --list                    # blocks in scope (exps 135-151)
+python data/fit_kinetics.py --buffer Pyrophosphate    # fit the scope
+
+# the historical fits, which predate the scope and are not inside it
+python data/fit_kinetics.py --scope all --substrate BnOH --save data/fits/BnOH_25C_Phosphate.json
 python data/plot_fit.py data/fits/BnOH_25C_Phosphate.json   # -> figures/
 ```
 
@@ -163,9 +294,11 @@ Whether some intermediate `r` reproduces 16% is what `--profile-r` exists to
 answer and has not been run.
 
 *Re-measured statistic:* `MECHANISM.md` reports 52% of curves reaching peak slope
-past 15% into the run (n = 326). Over the 404 curves the fitting code selects, by
-the same smoothed method, it is **34%** (136/404). The selections differ — the
-n = 326 predates the carbonate rule and the exclusions of exps 50, 64 and 85.
+past 15% into the run (n = 326). Over the 402 curves the fitting code selects, by
+the same smoothed method, it is **34%** (136/402). The selections differ — the
+n = 326 predates the carbonate rule, the exclusions of exps 50, 64 and 85, and
+the cuvette exclusions of 25,2 and 25,4. Neither excluded cuvette lagged, so the
+count of 136 is unchanged and only the denominator moved.
 
 ## F4 — two of six constants are lower bounds, not values
 
@@ -310,9 +443,15 @@ Suites: `test_kinetic_model` 24/24, `test_fit_kinetics` 39/39.
 1. **Add a saturable substrate term and refit.** F1 is the highest-leverage
    finding, is independent of any fit, and is expected on independent grounds
    from Bols's `Km = 1.25 mM`. A small change to `kinetic_model.rhs`.
-2. **Fit the 4OMe-BnOH / 40 °C block.** 59 enzyme-free curves, more background
-   data than the block fitted here. If the substrate-order gap reproduces there,
-   F1 stops being a claim about five experiments.
+2. **Fit the 4OMe-BnOH / 40 °C block.** 37 enzyme-free curves over 10
+   experiments, more background data than the block fitted here. If the
+   substrate-order gap reproduces there, F1 stops being a claim about five
+   experiments — and it is worth checking, because the model-free order on that
+   block is +0.60 ± 0.25, further from half order than the +0.30 measured here.
+   (It was 59 curves until 2026-08-31, when exps 32 and 34-37 were ruled
+   catalysed; those 20 were buffer titrations at fixed substrate, so the block
+   lost no substrate contrast when they left. The catalysed side of the same
+   cell gained them, and with them a 64x buffer ladder it did not have.)
 3. **Run `--profile-r`.** Cheap, and it settles whether any `r` reproduces the
    observed lag fraction or whether F3 closes the door completely.
 4. **Measure `eps(benzoate)` at 285 nm** — `COMPUTATIONAL.md` task C1, or one UV

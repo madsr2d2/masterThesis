@@ -7,6 +7,509 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-31 — The fitting effort is scoped to exps 135-151
+
+Raised by the user: the data cleaning had become ad hoc, and the well-designed
+experiments — the ones the proposed autocatalytic mechanism rests on — sit in
+`data/Mads/good data BnOH/`. Correct in substance. The scope is now **exps
+135-151**, and it is enforced in code (`fit_dataset.PRIMARY_SCOPE`,
+`test_fit_kinetics.test_scope`) rather than by a folder or a paragraph.
+
+### What makes them the well-designed runs
+
+Not their length. It is that they vary **both** the substrate and the peroxide
+inside a single run. Fraction of each axis's log-variance that lives
+within-experiment, over the 119 curves:
+
+```
+log[S]      98.4%          log[E]      0.0%
+log[H2O2]   82.4%          pH          0.0%  (an experiment-level condition)
+```
+
+Each run carries a 40x substrate ladder and a 6.9-20x peroxide ladder in its
+own seven cuvettes. An order measured that way cannot be absorbed by a
+per-experiment offset. For comparison, the 4OMe-BnOH / 40 C block that has been
+carrying the substrate order holds **12.9%** within-experiment contrast, and
+held 6.4% before yesterday's reclassification.
+
+Across the block, pH runs 5.47 -> 9.73 in **19 distinct values**, putting
+[HOO-] over four decades inside one (substrate, temperature, buffer) cell:
+
+```
+exp 151  pH 5.47  [HOO-] 0.0000 mM   6 of 7 cuvettes flat within noise over 8 h
+exp 150  pH 6.26  [HOO-] 0.0002 mM   5 of 7 flat
+exp 149  pH 7.10  [HOO-] 0.0015 mM   1 of 7 flat
+exp 146  pH 8.66  [HOO-] 0.0532 mM   0 of 7 flat
+exp 142  pH 9.43  [HOO-] 0.6351 mM   0 of 7 flat
+```
+
+The reaction switches off exactly where [HOO-] does. That is a rate law read
+off the raw data with no fit.
+
+### The scope was re-derived, not accepted
+
+Every experiment in the archive was tested for the design, ignoring folders and
+filenames: does the run's own cuvette set vary both `[S]` and `[H2O2]`?
+
+```
+runs varying both axes                    17    exactly 135-151
+runs varying substrate only               15    exps 59-62, 65-71, 73-76
+runs varying peroxide only                     one axis constant in every case
+runs outside 135-151 varying both          0
+```
+
+The separation is absolute rather than marginal: outside the scope, **every
+single run holds one of the two axes exactly constant** — exp 127 has a 50x
+peroxide ladder and no substrate variation at all. `test_fit_kinetics.test_scope`
+re-runs this census, so if an exclusion is ever lifted or an unexported run
+recovered and it turns out to carry the same design, the test fails and forces
+a decision instead of leaving it silently out of the fit.
+
+### The autocatalysis is a high-pH effect, not a long-run effect
+
+The user's stated reason for the folder was that these runs "ran long enough to
+show the autocatalytic behaviour". The runs do show it, but not the long ones.
+The six 8-hour runs (138, 146, 148-151) are long because they are **slow** —
+pH 5.5-8.7 — and they decelerate. The acceleration is in the *short* high-pH
+runs: exp 143 is 51 minutes and quadruples its slope across them.
+
+Late-window slope / early-window slope, over curves whose net change exceeds
+20x their own noise:
+
+| | n | accelerating (>1.5x) | median ratio |
+|---|---|---|---|
+| in scope, pH >= 9.0 | 39 | **44%** | **1.30** |
+| in scope, pH < 9.0 | 57 | 12% | 0.49 |
+| catalysed, rest of archive | 195 | 17% | 0.89 |
+| enzyme-free, anywhere | 71 | **1%** | 0.57 |
+
+One percent of 71 background curves accelerate. The induction phase therefore
+requires the catalyst and requires HOO-, and both statements are model-free.
+
+### The folder is not the scope
+
+`data/Mads/good data BnOH/` holds 20 experiment numbers. Three do not belong:
+
+| | |
+|---|---|
+| exp 50 | already excluded — four descending curves, no substrate ordering. Its exclusion note reads *"It survived earlier passes only because it is hand-sorted into data/Mads/'good data BnOH'"* |
+| exp 51 | a 4-cuvette borate run; live, but a different cell and a different design |
+| exp 134 | a sheet only. No `data134.txt`, no `rate134.rre`. Never exported, unrecoverable |
+
+Exp 50 is the precedent that matters: the folder has already caused one bad
+call by looking authoritative. Hence the scope is a constant checked by a test.
+
+The folder also carries files the pipeline cannot see. Exps **137 and 139 exist
+there only as `.xlsx`**, and `kinetics_io.find_and_parse_experiment_file` globs
+`*.xls`. Plus `(1)` and `(Autosaved)` duplicates and two LibreOffice lock
+files.
+
+### Both copies of every sheet were checked
+
+Each of exps 135-151 has **two** `.xls` copies — one in `data/Mads/` and one in
+the folder — and they differ byte-for-byte. The pipeline reads the `data/Mads/`
+copy. Diffing Sheet1 cell by cell, with NaN normalised:
+
+```
+exps 135, 142-147, 149-151     0 differing cells
+exps 136, 138, 140, 141, 148   4-9 cells, all in rows 74-80
+exp  145                       1 cell: a title string
+```
+
+Every difference sits in the experimenter's own derived rate cells below the
+recipe block, which the extraction never reads. **The recipe blocks are
+identical in all 17**, so the compiled conditions do not depend on which copy
+is read. The folder copies additionally carry worked-up Sheet2-Sheet5 that the
+`data/Mads/` copies lack.
+
+### What this costs
+
+The pyrophosphate cell has **no enzyme-free curves at all — 0 of 127**, so the
+sequential fit cannot stage the way `FITTING.md` F7 describes. Exps 150 and 151
+stand in: catalysed runs at pH where HOO- is four decades down and the curves
+are flat within noise for eight hours. They hold the catalyst fixed and switch
+off the peroxide arm, which is a cleaner isolation of the background terms than
+a no-enzyme control, since that changes the catalyst instead.
+
+### Still open, and now load-bearing
+
+1. **The mixed buffer** — real, but **not** the blocker this entry first
+   called it. Quantified later the same day: correcting it moves I by -27 to
+   -35%, the recovered titrant by up to +23%, and a self-consistent buffer-pKa
+   correction by up to +32% -- while [HOO-] moves by under 5% in every case.
+   Davies' pKa_eff varies only 11.478-11.494 across the whole scope, so
+   replacing the entire ionic-strength apparatus with a constant pKa = 11.481
+   changes [HOO-] by at most 3.2%, against a 129000x span in [HOO-] driven by
+   pH and [H2O2] alone. Worth doing for validity -- 6 of 17 runs currently sit
+   above Davies' ~500 mM ceiling and none do after correction -- and because
+   the titrant becomes recoverable by electroneutrality (4-73 mM). Not worth
+   blocking a fit on. See FITTING.md.
+2. **The thrashing cuvettes.** Exps 135 and 138 samples 1-4 backtrack up to
+   0.35 AU, and 138 and 140 show step discontinuities. Backtracking tracks
+   [H2O2] in 19 of 22 experiments, so it is physical.
+3. **Exps 75 and 76** share the block key but stay out of scope pending the
+   hexametaphosphate speciation question.
+
+### Not to be lost outside the scope
+
+Exps **65, 67, 69, 70** are the only enzyme-free runs anywhere in the archive
+with a real within-run substrate ladder, and `FITTING.md` F1 rests on them.
+Borate and phosphate, so not poolable here, but the strongest background
+evidence in the dataset.
+
+### State after
+
+```
+scope                     exps 135-151, 119 curves, 17 experiments
+                          BnOH / 25 C / Pyrophosphate, one block
+enforced by               fit_dataset.PRIMARY_SCOPE
+re-derived by             test_fit_kinetics.test_scope (10 checks)
+exclusions in scope       0        accepted deviations  0
+open questions in scope   0        enzyme-free curves   0
+```
+
+---
+
+## 2026-08-31 — Exps 32 and 34-37 are catalysed runs, reversing yesterday's ruling
+
+Yesterday these five were forced to `[enz] = 0` and described as *"enzyme-free
+buffer titrations"*. That was wrong. They are catalysed runs, they have been
+sitting in the enzyme-free set, and the correction moves 20 of the 57 curves in
+the 4OMe-BnOH / 40 °C / Phosphate background block out of it.
+
+Raised by the user, who read the sheets and said the enzyme concentrations were
+plainly there. They are.
+
+### The mistake was in reading rows 5-8 as a second experiment
+
+Every sheet lays out twice as many cuvette rows as the `.txt` has samples. The
+2026-08-30 ruling read that as an eight-cuvette *plan* — four with catalyst,
+four without — of which only half was run, and then used the filename to decide
+which half. But this log already established, on 2026-08-29, what those rows
+actually are: **the reference channel of a double-beam measurement.** Rows 1-4
+are always the cuvettes that ran. What rows 5-8 omit is what the reported curve
+is net of.
+
+Read that way the archive separates cleanly, and the separation is structural —
+it uses no filename, no folder, and no declared concentration:
+
+| the reference channel omits | sheets | what the curve means | filenames |
+|---|---|---|---|
+| the enzyme | 53 | catalytic increment, background already subtracted | all `with_E` |
+| the H₂O₂ | 14 | the raw non-enzymatic reaction | all `with_NO_E` |
+
+There is no overlap. Exps 32 and 34-37 lay out the first pattern: rows 5-8 carry
+the **same Sub and H₂O₂** as rows 1-4 with the enzyme volume replaced by water —
+byte for byte the design of exp 10 or exp 16. No genuine background run in the
+archive is built that way; the fourteen real ones drop the H₂O₂ instead.
+
+### A confirmation that uses no labels at all
+
+A raw background curve cannot run backwards — there is nothing in the reference
+to consume. A reference-subtracted curve can, whenever the reference channel
+outruns the sample. Across the archive:
+
+| design | curves | ever dip below their own starting absorbance |
+|---|---|---|
+| background (reference omits H₂O₂) | 65 | **0** |
+| differential (reference omits enzyme) | 207 | 6 |
+
+**Exp 34 sample 4 is one of the six** — it dips 0.006 AU and fits a negative
+initial slope, and `summary_kinetics.experiment_outliers` flags it as a failed
+cuvette. It was never formally excluded, so nothing downstream has to change,
+but the reading was wrong: a cuvette whose catalyst channel briefly lags its own
+reference is something only a differential measurement can produce, and a raw
+background curve never does. Whether it is *also* a bad cuvette is a separate
+question the flag cannot answer.
+
+### What the filename evidence was worth
+
+The earlier ruling rested on three human acts: the `with_NO_E` filenames, the
+hand-sorted `data/Mads/No enzyme/` folder, and a `kuv` cell left un-zeroed. The
+first two are the repository's weakest evidence class and the standing precedence
+is *sheet over filename*; that precedence was inverted here and should not have
+been. The five filenames are wrong together because they were copied together —
+the same lineage that gives exps 32, 34, 35 and 36 the byte-identical enzyme
+fingerprint `0.240683 mM` traceable to exp 16's workbook, while exp 37 carries
+`0.270324` from the newer `0.0228 g` stock that then runs on through exps 41-49.
+Three consecutive runs on one afternoon (35, 36, 37 on Apr 27) cannot have used
+two different enzyme stocks.
+
+### The check that would have caught it
+
+`verify_enzyme.reference_design` now classifies every sheet by what its reference
+channel omits, and `analyse` compares that against both the compiled `[enz]`
+(`enzdesign`) and the filename (`enzname`). The first is a defect and is now
+silent everywhere; the second fires on exactly these five and is recorded as an
+accepted deviation, since renaming a delivered archive file would break the
+anchor. It reads the table's shape, not any concentration, which is what lets it
+check the concentrations.
+
+### Consequences, which are larger than 20 cells
+
+**The background block shrinks and improves.** 57 curves → 37, 12 experiments →
+10. The 20 that left were buffer titrations at a *fixed* substrate, so they
+contributed per-experiment offsets and no substrate contrast:
+
+| on the enzyme-free block | before | after |
+|---|---|---|
+| within-experiment variance surviving in log[S] | 6.4% — absorbed | **12.9% — resolved** |
+| substrate order | +0.194 ± 0.065 | **+0.603 ± 0.252** |
+| window sensitivity of that order | +0.13 to +0.43 | +0.60 to +0.64 |
+| systematic vs statistical error | ±0.11 vs ±0.07 | ±0.02 vs ±0.25 |
+
+The order is now larger, honestly less precise, and no longer depends on where
+the window is drawn. `test_summary_kinetics` had two checks asserting the old
+behaviour — that [S] was absorbed, and that the order moved with the window —
+and both have been inverted with the reason recorded in the test.
+
+**It does not touch F1.** The "data is roughly half order" argument in
+`FITTING.md` and `README.md` rests on within-experiment orders measured on the
+BnOH / 25 °C / Phosphate block — exps 3, 6, 67, 69, 70 — none of which is
+involved here. That evidence is unchanged. What changed is the model-free order
+on the *other* both-stage block: on 4OMe-BnOH / 40 °C it no longer excludes
+first order sharply (1.6σ, against 12σ before), though it never carried F1. The
+two blocks now disagree less than they did, which is worth knowing before either
+is quoted alone.
+
+**The buffer axis changes sides.** The 2026-08-30 entry recorded that `[buf]` and
+`[sub]` are collinear inside every titration, so a buffer effect could not be
+isolated. These five were the exception — and they are catalysed. The
+enzyme-free block is now left with `[buf]` spanning 1.8× at ρ(log[S], log[buf])
+= −0.70, while the *catalysed* 4OMe-BnOH / 40 °C block gains a 64× ladder
+(3.125-200 mM) carrying 25.1% within-experiment variance. Any buffer-order
+result from this archive is a catalysed result.
+
+### Exp 33: an instrument run nobody knew about
+
+Chasing whether exp 34 had an unrecorded partner turned up `data/Mads/rate033.rre`
+— an instrument run with no `.txt` export and no `.xls` sheet, so nothing in the
+repository recorded it. `data/read_rre.py` reads the VisPro binary directly
+(`[t0, dt, %T…]` as little-endian float64; `A = -log10(%T/100)`) and reproduces
+all four samples of `data34.txt` to the last of its three decimals, which is what
+licenses trusting it on a file with no export to check against.
+
+Exp 33 is four cuvettes, 61 points at 60 s, run on 2010-04-25 and saved 17
+minutes before exp 34's first cuvette started. **It has not been added to the
+dataset.** A `.rre` carries no conditions at all — no pH, no temperature, no
+concentrations — so every one would have to be inferred from a neighbouring
+sheet, and an inferred condition record is the thing this log exists to prevent.
+The curves are recoverable; whether they are usable is an open question.
+
+`read_rre.py` with no arguments reports the general finding: 43 instrument runs
+were never exported, and exps 33 and 133 are the two that no sheet records
+either.
+
+### The fault injection found a second hole while proving the first
+
+`test_validator` gained three deep cases: a catalysed run zeroed to look
+enzyme-free (exp 34), the same on a run whose filename agrees with its sheet
+(exp 16, so the check cannot be passing by way of the filename conflict), and a
+background run given a catalyst it never had (exp 23). All three are invisible
+to every other check, because zero is a perfectly consistent enzyme
+concentration and the arithmetic chain has nothing to disagree with.
+
+The exp 34 case failed on its first run. The harness had been suppressing
+accepted deviations **per experiment**, so the `enzname` finding these five raise
+by design was masking every other check on the same run — including an injected
+fault. Suppression is now keyed by (check, experiment). 20/20.
+
+### State after
+
+```
+compiled   454 rows / 100 experiments      unchanged in shape; 20 [enz] cells changed
+manifest   89 use, 11 excluded, 19 ruled experiments, 0 open questions, 0 conflicts
+checks     0 errors, 23 warnings, 15 notes; 20/20 fault injection
+```
+
+---
+
+## 2026-08-31 — Per-use eligibility replaces a single exclusion flag
+
+`data/curve_screen.py` and `data/test_curve_screen.py` (43 checks). The screen
+separates two questions that were previously conflated, because conflating them
+is how real chemistry gets deleted.
+
+### Eligibility is about measurement power, not about failure
+
+Absorbance is reported to three decimals. A fitting window that climbs fewer
+than three of those 0.001 AU steps cannot constrain a slope — and that is true
+of experiment 25's dead sample 2 (0.8 quanta) and equally true of the legitimate
+bottom rung of a titration (0.2 quanta). Both are useless for a substrate order;
+only one is broken.
+
+So eligibility attaches to a **use**, never to the curve:
+
+| use | needs | 402 curves |
+|---|---|---|
+| `rate` — orders, Km, anything fitted to v₀ | a measurable slope | 308 eligible |
+| `shape` — lag fraction, burst amplitude, τ | amplitude, not slope | 394 eligible |
+
+**86 curves carry no measurable rate but a perfectly readable shape.** Those are
+the slow rungs. They are not broken, and a lag or burst study still needs them.
+`build_dossier.curve_findings` already made this argument in prose — *"the
+flattest cuvette in a titration is usually its lowest rung, not a failure"* — and
+this makes it operational.
+
+### The power cut is validated per block, and one block fails
+
+`validate_power_cut` refits every group with and without its low-power curves.
+If a fitted order moves by more than a standard error, the cut is selecting on
+the outcome rather than on power:
+
+| block | dropped | order before | after | shift |
+|---|---|---|---|---|
+| 4OMe-BnOH / 40 / Phosphate | 1/61 | +0.215 | +0.215 | +0.00σ |
+| BnOH / 25 / Boric | 5/32 | +0.628 | +0.675 | +0.27σ |
+| BnOH / 25 / Phosphate | 11/43 | +0.350 | +0.300 | −0.50σ |
+| **BnOH / 25 / Pyrophosphate** | **48/127** | **+0.406** | **+0.112** | **−3.24σ** |
+
+The last one fails. The cut there removes **12 of the 16 curves below the 10th
+percentile of `[sub]`**, truncating the bottom of the substrate ladder — textbook
+selection bias. On the 4OMe/40 block the single dropped curve is at *high*
+`[sub]` and none of the low end goes, which is why it moves nothing.
+
+`unsafe_blocks()` reports this and the CLI prints it. **The cut is applied per
+block, never globally.**
+
+### Defects are screened in three layers of very different reach
+
+| layer | test | coverage | may convict |
+|---|---|---|---|
+| 1 | condition-free faults | 100% | yes |
+| 2 | ladder dip or spike vs **both** neighbours | 68% | **no** |
+| 3 | disagreement with condition-matched peers | 6% | yes |
+
+Layer 2 is symmetric — a rung above both neighbours is as impossible in a
+monotone titration as one below — but it **nominates and never convicts**. Where
+two adjacent rungs fail, the sound cuvette between them reads as a spike:
+experiment 25 sample 3 does exactly that, at 10×. Only layer 3 assigns blame.
+
+Exclusion requires layers 1 and 3 to agree. Nothing in the current dataset does,
+which is the expected state after the exp 25 curation.
+
+**Layer 3 reaches 6% of the data** (26% of the enzyme-free subset). That is a
+fact about the experimental design, not something a rule can fix: 424 of 451
+curves have no cuvette anywhere at matched conditions to be compared against.
+It is the strongest available argument for building replication into future runs.
+
+### Curve shape is never a defect
+
+Tested and rejected as a screening criterion. Against the three cuvettes we know
+are broken and the six we know are sound:
+
+```
+  criterion                        fires   % | known-BAD | known-GOOD | shape
+    window rise < 3 quanta          118  26% |    3/3    |    0/6     |  5/11
+    backtrack >= 50% of net          38   8% |    0/3    |    0/6     |  1/11
+    worst step > 8x typical          65  14% |    0/3    |    0/6     |  4/11
+    fewer than 20 points              8   2% |    0/3    |    4/6     |  0/11
+```
+
+Both shape criteria catch **none** of the known failures while hitting the
+candidate chemistry. There is a structural reason: at 49–60 s sampling every
+real kinetic feature here is slow and smooth, so no timescale separates
+chemistry from artefact for shape to exploit.
+
+Note also that a `< 20 points` rule fires on **four of the six known-good
+curves** — it would delete experiment 26, the only true replicate set in the
+enzyme-free data. `MINIMUM_POINTS` here is 8.
+
+Initial dips, lags and bursts are reported always and screened out never. A dip
+may be substrate sequestered into the cyclodextrin cavity before turnover
+begins; that hypothesis is live and untested (see the open question below).
+
+### Still open
+
+**No experiment anywhere titrates `[enz]` at otherwise fixed conditions** — all
+100 were checked, and only exp 128 even contains both `[enz] = 0` and
+`[enz] > 0` rows. So the sequestration hypothesis for the initial dip cannot be
+tested from this dataset at all. The control that would settle it is catalyst
+plus substrate with **no H₂O₂**: binding without reaction. If it is
+sequestration the absorbance steps down and stays down, scaling with `[CD]` and
+saturating in `[sub]`, and the experiment yields Δε and the binding constant as
+a bonus. A peroxide-derived optical transient — the competing explanation, and
+the one the present correlations weakly favour — would show nothing.
+
+Measured on the 13 curves that do dip early and recover: the dip is 1.63 µM in
+substrate equivalents against a median `[enz]` of 28 µM, i.e. an ~8% extinction
+change on complexation, bottoming out at 186 s. All chemically reasonable, and
+all untestable at n = 13 with 2 of them enzyme-free.
+
+## 2026-08-31 — Two dead cuvettes in exp 25, and why they are not substrate inhibition
+
+Cuvettes **25,2** and **25,4** are now in `KNOWN_SAMPLE_EXCLUSIONS`. The fittable
+set drops from 404 rows to **402**, and the 4OMe-BnOH / 40 °C / Phosphate
+enzyme-free block from 59 curves to **57**.
+
+This is the first place the code deliberately excludes more than the notebook's
+`clean_experiment_dataframe`. `test_fit_kinetics.py` pins 402 so the divergence
+stays visible.
+
+### What exp 25 looks like
+
+Its four cuvettes run a standard ladder — substrate rising, buffer falling —
+and the rates alternate:
+
+| sample | [sub] mM | [buf] mM | v₀ (AU/s) | amplitude | |
+|---|---|---|---|---|---|
+| 1 | 2.063 | 80 | 8.78e-05 | 0.0760 AU | normal |
+| 2 | 4.125 | 70 | **4.08e-06** | 0.0030 AU | **dead** |
+| 3 | 6.188 | 60 | 8.16e-05 | 0.0790 AU | normal |
+| 4 | 8.251 | 50 | **8.16e-06** | 0.0160 AU | **dead** |
+
+Samples 1 and 3 are not fast — they are ordinary. Against every other
+experiment at the same rung: at 2.063 mM exp 25 gives 8.78e-05 where others
+give 5.52e-05–9.26e-05; at 6.188 mM it gives 8.16e-05 where others give
+6.02e-05–9.26e-05. Only 2 and 4 are anomalous.
+
+### Why not substrate inhibition
+
+The hypothesis was raised and tested. Four independent reasons reject it.
+
+**The ladder is not monotone.** 2.06 fast → 4.13 slow → 6.19 fast → 8.25 slow.
+Along that ladder `[sub]` rises and `[buf]` falls, both monotonically, so any
+smooth function of the conditions must itself be monotone. Alternating
+fast/slow/fast/slow cannot be produced by a rate law at all; it requires
+something that varies cuvette by cuvette.
+
+**Eight independent cuvettes at exactly 4.125 mM disagree with 25,2.** Exps 23,
+24, 27, 28 and all four replicates of exp 26 give 5.93e-05 to 8.75e-05 at the
+same concentration, pH 7.00 and [HOO⁻] ≈ 2.5e-03. Sample 25,2 sits 17× below
+their median. Experiment 26 in particular is four cuvettes at precisely this
+condition agreeing within 9% — it establishes that 4.125 mM is a *fast*
+condition, and so refutes 25,2 rather than corroborating it.
+
+**No substrate law reaches the value.** The block's lowest rung is 0.095 mM —
+43× less substrate than 25,2 — and still runs at 3.69e-05, 9× faster. No
+monotone dependence on `[sub]` passes through both points.
+
+**The top of the range accelerates, not inhibits.** Median v₀ is 6.45e-05 below
+0.5 mM and 4.94e-04 above 50 mM. The fastest curves in the block are its most
+concentrated. (Those high-`[sub]` runs are also at higher `[HOO⁻]`, so this is
+not a clean comparison on its own — it is the fourth argument, not the first.)
+
+Four other experiments run the identical ladder and give substrate orders of
+−0.03, −0.08, −0.02 and +0.05. Exp 25 alone gives **−1.03**.
+
+What the data *do* show in this region is saturation, already recorded above:
+the substrate order falls from about +0.9 at 0.1 mM to ≈0 at 2–8 mM. Zero order
+is not negative order, and nothing here turns over.
+
+### Consequences
+
+The lag statistic is unchanged in count: neither excluded cuvette lagged, so
+`136/404 = 34%` becomes `136/402 = 34%`. Counts pinned in `README.md`,
+`FITTING.md`, `MECHANISM.md` and the two test suites were updated to match.
+
+### Still open
+
+Exps 7, 34, 141, 142 and 143 hold **seven curves that are non-monotone with
+large amplitude** — they move 0.026–0.103 AU, at 43–170× their own noise, yet
+begin with a negative slope. Those are not dead cuvettes and are not excluded.
+They break the assumption behind measuring an initial rate as an early slope,
+and they need a decision of their own.
+
 ## 2026-08-31 — The ODE fitter, and three structural results it forced
 
 `MECHANISM.md` had reduced the 7-step mechanism to 3 ODEs and 4 rate constants
@@ -64,9 +567,10 @@ both `E0 = 0` and `E0 > 0`, produced **not one** accelerating curve at `r <= 1`.
 At `r > 1` acceleration appears at once, up to 4.7x the initial slope.
 
 `MECHANISM.md` reports 52% of curves reaching peak slope more than 15% into the
-run. Re-measured by the same smoothed method over the 404 fittable curves the
-figure is **34%** (136/404); the two selections differ — `MECHANISM.md`'s n = 326
-predates the carbonate rule and the exclusions of exps 50, 64 and 85 — and the
+run. Re-measured by the same smoothed method over the 402 fittable curves the
+figure is **34%** (136/402); the two selections differ — `MECHANISM.md`'s n = 326
+predates the carbonate rule, the exclusions of exps 50, 64 and 85, and the
+cuvette exclusions of 25,2 and 25,4 — and the
 number is quoted here as re-measured rather than carried over. Either way a
 third of the archive lags, so the model requires
 `eps(benzoate) > eps(benzaldehyde)` at 285/300 nm, against a band-shape bracket
@@ -200,7 +704,7 @@ gives +0.007.
 **And the shape error runs the wrong way.** Measuring the position of peak slope
 the way `MECHANISM.md` does — smoothed over ~5% of the run before
 differentiating — this block lags in **7 of 43 curves (16%)**, against 34% across
-all 404 fittable curves. The fitted model lags in **19 of 23** enzyme-free curves
+all 402 fittable curves. The fitted model lags in **19 of 23** enzyme-free curves
 and **19 of 20** catalysed ones.
 
 So the model does not fail by being unable to produce the induction period. It
@@ -295,9 +799,11 @@ enzyme-free control in pyrophosphate**, and it is cheap.
 else: the sample-level exclusions (128,2 and 128,5) and the carbonate rule.
 Those are now `KNOWN_SAMPLE_EXCLUSIONS` and `EXCLUDED_BUFFERS` in
 `build_manifest.py`, alongside `KNOWN_EXCLUSIONS`, and `fit_dataset.select_fittable`
-reads all three. `test_fit_kinetics.py` pins the result at **404 rows / 88
-experiments**, the same numbers the notebook produces, so the two cannot drift
-apart silently. `validate_dataset.py` is unchanged at 0 errors, 11 warnings,
+reads all three. `test_fit_kinetics.py` pins the result at **402 rows / 88
+experiments**. That was 404, matching the notebook exactly, until cuvettes 25,2
+and 25,4 were excluded on 2026-08-31 (see the entry for that date); the code is
+now deliberately two rows tighter than `clean_experiment_dataframe`, and the
+pinned count is what keeps that divergence visible rather than silent. `validate_dataset.py` is unchanged at 0 errors, 11 warnings,
 9 notes.
 
 ---
@@ -1167,6 +1673,11 @@ or 187.03. Where there is no `kuv` row, the volume route supplies the cuvette
 value.
 
 ### What fires, and why it is right
+
+> **Superseded 2026-08-31.** The `[enz] = 0` half of this ruling is wrong: rows
+> 5-8 are the reference channel, not an unrun half of the plan, so rows 1-4 are
+> the cuvettes that ran and these five are catalysed. The `[buf]` half stands.
+> See the 2026-08-31 entry at the top of this log.
 
 Only exps 32, 34, 35, 36 and 37 — the recovered buffer titrations. Their enzyme
 block describes the four **planned** with-enzyme cuvettes, which were never run:
@@ -2176,6 +2687,11 @@ extraction.** Three separate defects, all now fixed.
 
 ### 1. Experiments 32, 34, 35, 36, 37 — `[enz]` and `[buf]` both wrong
 
+> **Superseded 2026-08-31.** The `[enz] = 0` half of this ruling is wrong: rows
+> 5-8 are the reference channel, not an unrun half of the plan, so rows 1-4 are
+> the cuvettes that ran and these five are catalysed. The `[buf]` half stands.
+> See the 2026-08-31 entry at the top of this log.
+
 These five are phosphate / 4OMe-BnOH / 40 °C buffer-concentration titrations at
 constant `[sub]`, `[h2o2]`, `[enz]`, pH and T. One bug corrupted two columns:
 
@@ -2807,6 +3323,12 @@ No warnings or extraction failures were emitted across any of the 98 files.
   the meantime.
 
 ### 3. Buffer-titration experiments were silently flattened — fixed
+
+
+> **Superseded 2026-08-31.** The `[enz] = 0` half of this ruling is wrong: rows
+> 5-8 are the reference channel, not an unrun half of the plan, so rows 1-4 are
+> the cuvettes that ran and these five are catalysed. The `[buf]` half stands.
+> See the 2026-08-31 entry at the top of this log.
 
 Experiments 32, 34, 35, 36, 37 are buffer-concentration titrations: their `.xls`
 files label each sample `1 (0.1M)`, `2 (0.2M)`, `3 (0.3M)`, `4 (0.4M)` (confirmed
