@@ -10,3 +10,6 @@ dossier*.html
 
 # symbolic-regression run directories
 outputs/
+
+# fit figures -- rebuild in seconds with data/plot_fit.py from data/fits/*.json
+figures/
