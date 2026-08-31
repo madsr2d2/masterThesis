@@ -12,6 +12,14 @@ the literature and the dataset cannot.
 reduces the mechanism to a 3-ODE / 4-parameter system and records the tests it
 has been put to against the progress curves — read that section before fitting.
 
+**That reduction has since been implemented and fitted, and it does not fit.**
+See `FITTING.md`: the model is first order in `[S]` by construction while the
+data is roughly half order, the `E0 = 0` limit as written below is a fixed point
+that never starts, and `signal = [A] + r[BA]` can only produce an induction
+period if `r > 1`. The chemistry below is not yet convicted — the deficiencies
+found so far sit in the reduction and the observation equation — but nothing in
+this document should be fitted without reading that one first.
+
 The catalyst ("chemzyme") is a cyclodextrin scaffold bearing a ketone at its active
 site — this is the artificial-enzyme platform developed by the Bols group (see
 [References](#references), items 1–9), reported to accelerate benzylic alcohol
@@ -254,6 +262,85 @@ signal(t) = [A] + r * [BA]          r = eps_BA / eps_A,  fitted or measured
 question**. If `r` converges on a physically sensible value (~0.5 at 280 nm),
 that is independent corroboration of the whole picture. Final model: **3 ODEs,
 4 rate constants + 1 chromophore ratio.**
+
+### The observation equation does not rescue the lag
+
+*(Added 2026-08-31, when the reduced system was implemented as
+`data/kinetic_model.py`. Two structural results came out of writing it down;
+neither depends on any fitted number, and both are pinned as tests in
+`data/test_kinetic_model.py`.)*
+
+**1. The enzyme-free limit needs a third constant, not two.** The reduction
+above says that at `E0 = 0` the system "collapses to 2 ODEs and 2 parameters
+(`k_can, k3`)". That is true of the algebra and false of the trajectory: with
+`A = PBA = 0` at `t = 0`, both `v_can` (which goes as `[A]^2`) and `v3` (which
+goes as `[PBA]`) are zero, so the system sits at a fixed point and never starts.
+Seeding it with a trace of aldehyde does not help either — steps 1–2 destroy two
+aldehydes per peracid while step 3 returns one, so the catalyst-free loop is a
+net aldehyde **sink** and the trace decays. This is the same fact stated above
+as "step 5 is the only net source of aldehyde", followed to its conclusion.
+
+Since the enzyme-free controls demonstrably do react, an **E0-independent
+source** is required: the uncatalysed direct oxidation `S + H2O2 -> A`, i.e. the
+`E0 -> 0` limit of step 5. Writing the seed as `(k0 + k5' E0)[H2O2][S]` keeps the
+model exactly linear in E0 as the reduction promises, with an intercept rather
+than through the origin. Stage 1 therefore fits **three** rate constants plus
+`r`, not two.
+
+**2. The observable can only accelerate if `r > 1`.** Differentiating
+`signal = [A] + r[BA]` along the reduced system, with `W = v3 + v6`:
+
+```
+d(signal)/dt = v_seed + (1 + r) W - 2 v_can
+dPBA/dt      = v_can - W  >=  0        while peracid accumulates
+=>  d(signal)/dt  <=  v_seed + (r - 1) v_can  <=  v_seed(0)     for r <= 1
+```
+
+and `v_seed = (k0 + k5' E0)[H2O2][S]` only ever decreases, since `S` and `H2O2`
+only deplete. So for any `r <= 1` the signal's steepest point is at `t = 0`:
+**concave throughout, no lag, no upward inflection** — precisely the bound
+derived above for `[A]` alone. The observation equation inherits the
+falsification rather than escaping it.
+
+A random search over 227 parameter sets spanning eight orders of magnitude in
+every rate constant, at both `E0 = 0` and `E0 > 0`, produced **not one**
+accelerating curve at `r <= 1`. At `r > 1` acceleration appears immediately, up
+to 4.7x the initial slope.
+
+*(The 52% figure in the table above was re-measured on 2026-08-31 over the 404
+curves the fitting code selects, by the same smoothed method, and comes out at
+**34%** — 136/404. The selections differ: the n = 326 above predates the
+carbonate rule and the exclusions of exps 50, 64 and 85.)*
+
+**And the first fit shows the error runs the other way.** Fitted on
+BnOH/25 C/phosphate, the model at its best-fit `r = 1.52` lags in 19 of 23
+enzyme-free curves and 19 of 20 catalysed ones, where that block's data lags in
+7 of 43. So `r <= 1` produces no lag anywhere and the fitted `r > 1` produces one
+almost everywhere, with the data in between. See `DATA_VERIFICATION.md`
+2026-08-31.
+
+**What this costs the mechanism.** Against the measured 52% of curves that reach
+peak slope more than 15% into the run, the model requires
+`eps(benzoate) > eps(benzaldehyde)` at 285/300 nm. The band-shape bracket
+recorded above puts `r ~ 0.08–0.33`, and benzaldehyde's n->pi* band is the
+stronger of the two by every account — so `r > 1` is not a value the
+spectroscopy will support. The three ways out, in order of how cheaply they can
+be tested:
+
+- **The chromophore is neither A nor BA.** Perbenzoic acid is the one species in
+  the mechanism whose concentration genuinely accelerates, and no extinction
+  coefficient for it at 285 nm has been sought. Adding `r_PBA [PBA]` to the
+  observation equation is a one-line change to `kinetic_model.observable`.
+- **A step is missing.** Any route in which the product catalyses its own
+  formation — rather than merely accumulating — would lift the bound. The
+  radical/O2 chain of S3 is the standing candidate and is not in the model.
+- **The reduction is too aggressive.** Stage 2's C1 pre-equilibrium removes the
+  one species whose build-up could itself produce a lag. Restoring C1 explicitly
+  costs two rate constants and is worth trying before abandoning the mechanism.
+
+This is a sharper statement of the open question below than the one it replaces:
+it is no longer "what does the absorbance measure?" but "**the absorbance cannot
+be a non-decreasing combination of A and BA alone**".
 
 ### Lag-scaling test of the seed step
 
@@ -533,8 +620,29 @@ buffer catalysis from pH — which the existing titration data cannot do, since
   300 nm for 4OMe-BnOH -- each sheet declares it) and benzaldehyde's eps is known
   from the literature; **eps of benzoate at 285 nm is the one missing number**.
   Tracked as task C1 in `COMPUTATIONAL.md`, which also records why a naive
-  TD-DFT calculation would answer it wrongly. Until then, `r = eps_BA/eps_A` is
-  carried as a fitted parameter.
+  TD-DFT calculation would answer it wrongly. Fitting `r` is possible but rests
+  on varying the pH (established 2026-08-31): at a **single** pH and `[H2O2]`,
+  `k_can` and `r` come out -0.999 correlated at a Jacobian condition number of
+  6e7 — they enter the observable almost purely as the product `k_can*r`.
+  Varying the pH breaks that, because pH enters only through `[HOO-]`, which
+  multiplies `k_can` and not `r`. The real BnOH/25 C/phosphate block spans
+  pH 6.71–8.01 and does separate them (`corr = +0.05`, condition number 523).
+  So a designed pH series is what makes `r` estimable at all, and a measured
+  `eps(benzoate)` would still be worth far more than a fitted one — the fitted
+  value is only as good as the model producing it, and that model currently
+  misfits. `data/fit_kinetics.py --profile-r` reports the cost profile over `r`
+  alongside the fitted value.
+- **The largest catalysed block has no background.** Rate constants may be
+  pooled only within one (substrate, temperature, buffer) cell — Arrhenius,
+  different molecules, and the buffer section above all forbid pooling across
+  them. `data/fit_kinetics.py --list` shows that of eleven such cells, only two
+  hold enzyme-free controls alongside catalysed runs: BnOH/25 C/phosphate
+  (23 vs 20 curves) and 4OMe-BnOH/40 C/phosphate (59 vs 4). The archive's
+  biggest catalysed block — **127 BnOH pyrophosphate curves** — has no
+  enzyme-free control at all, so `k_can, k3, k0` could only be imported from a
+  different buffer, which is exactly what the buffer section says must not be
+  done. An enzyme-free pyrophosphate control is a cheap experiment and would
+  unlock the largest single block in the dataset.
 - **No E0 titration exists.** Only one experiment varies enzyme concentration
   across its own samples, so the mechanism's cleanest prediction — that the
   reduced model is exactly linear in E0, and that the induction period shortens

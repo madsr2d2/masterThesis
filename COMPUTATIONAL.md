@@ -2,7 +2,8 @@
 
 Pending, running and completed quantum-chemistry work for this thesis, with the
 reasoning behind each task and a dated log of what was actually run. Companion
-to `MECHANISM.md` (the chemistry) and `DATA_VERIFICATION.md` (the data).
+to `MECHANISM.md` (the chemistry), `FITTING.md` (the model fits) and
+`DATA_VERIFICATION.md` (the data).
 
 A task earns a place here when a question cannot be settled from the literature
 or the existing dataset, and a calculation could settle it. Each entry states

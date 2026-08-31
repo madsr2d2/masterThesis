@@ -7,6 +7,301 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-31 — The ODE fitter, and three structural results it forced
+
+`MECHANISM.md` had reduced the 7-step mechanism to 3 ODEs and 4 rate constants
+and worked out the observation equation, but nothing was implemented. It is now:
+
+| module | what it is |
+|---|---|
+| `data/kinetic_model.py` | the reduced system as ODEs. No I/O, no fitting, no data |
+| `data/fit_dataset.py` | which curves are fittable, and what each one is |
+| `data/fit_kinetics.py` | the sequential fit, its diagnostics and its r profile |
+| `data/test_kinetic_model.py` | 24 checks on the chemistry |
+| `data/test_fit_kinetics.py` | selection counts, and parameter recovery |
+
+Writing the reduction down as code turned up two things about the mechanism that
+are not visible in the algebra as `MECHANISM.md` states it, and a third about what
+the curves can identify. The first two are structural
+— no fitted number is involved — and both are now pinned as tests.
+
+### 1. The enzyme-free limit is a fixed point, so it needs a third constant
+
+`MECHANISM.md` says the `E0 = 0` limit "collapses to 2 ODEs and 2 parameters
+(`k_can, k3`)". True of the algebra, false of the trajectory. With
+`A = PBA = 0` at `t = 0`, `v_can` goes as `[A]^2` and `v3` goes as `[PBA]`, so
+both are zero and the system never leaves its initial state. Integrated to
+`t = 1e5` s it returns `A = PBA = 0` exactly.
+
+Seeding it with a trace of aldehyde does not rescue it either. Steps 1–2 consume
+two aldehydes per peracid and step 3 returns one, so the catalyst-free loop is a
+net aldehyde **sink**: an initial `A = 1e-4` mM decays, reaching `PBA = 1.2e-12`
+and `BA = 1.0e-9` mM after 1e5 s. This is `MECHANISM.md`'s own "step 5 is the
+only net source of aldehyde", carried to its conclusion.
+
+Since the enzyme-free controls demonstrably react, an E0-independent source is
+required. The model now carries `k0`, the uncatalysed `S + H2O2 -> A` — the
+`E0 -> 0` limit of step 5 — with the seed written `(k0 + k5' E0)[H2O2][S]` so the
+system stays exactly linear in E0 as the reduction promises, with an intercept
+rather than through the origin. **Stage 1 fits three rate constants plus `r`,
+not two.**
+
+### 2. The observation equation does not rescue the lag
+
+`MECHANISM.md` proposed `signal = [A] + r[BA]` to escape the bound
+`dA/dt <= v5(0)` that falsifies the pure-aldehyde reading, and expected the fit
+to adjudicate `r`. The same bound survives for every `r <= 1`:
+
+```
+d(signal)/dt = v_seed + (1 + r)(v3 + v6) - 2 v_can
+dPBA/dt      = v_can - (v3 + v6) >= 0        while peracid accumulates
+=>  d(signal)/dt <= v_seed + (r - 1) v_can <= v_seed(0)      for r <= 1
+```
+
+Checked numerically as well as algebraically: a random search over **227
+parameter sets** spanning eight orders of magnitude in every rate constant, at
+both `E0 = 0` and `E0 > 0`, produced **not one** accelerating curve at `r <= 1`.
+At `r > 1` acceleration appears at once, up to 4.7x the initial slope.
+
+`MECHANISM.md` reports 52% of curves reaching peak slope more than 15% into the
+run. Re-measured by the same smoothed method over the 404 fittable curves the
+figure is **34%** (136/404); the two selections differ — `MECHANISM.md`'s n = 326
+predates the carbonate rule and the exclusions of exps 50, 64 and 85 — and the
+number is quoted here as re-measured rather than carried over. Either way a
+third of the archive lags, so the model requires
+`eps(benzoate) > eps(benzaldehyde)` at 285/300 nm, against a band-shape bracket
+of `r ~ 0.08–0.33`. **The observation equation inherits the falsification rather
+than escaping it.**
+
+*A false start worth recording:* the first random search reported nine
+"violations" of this bound at `r <= 1`, with peak slopes up to 91% into the run.
+All nine were artefacts. Their conversion was 0.00% and their slope ratio
+`max/initial` was exactly 1.000 — flat lines, on which `np.gradient` returns an
+array of ties and `argmax` picks an arbitrary index. Requiring a slope rise of
+more than 5% before calling a peak a peak removed all nine. The same guard is
+now in `fit_kinetics._peak_position`, where the identical mistake would have
+been made against real data.
+
+### 3. Only four of the six constants are identifiable
+
+Anticipated by neither document. Two of the six saturate: above a threshold they
+stop affecting the observable at all, so progress curves bound them from below
+and say nothing above that bound.
+
+**`k3` (step 3, uncatalysed peracid oxidation).** Step 3 consumes the peracid
+steps 1–2 make. Once `k3` is large enough that `[PBA]` reaches quasi-steady
+state, `v3 -> v_can`; benzoate is produced at `v3`, so the observable is then set
+by `v_can` alone and `k3` has dropped out of it. Raising `k3` further only lowers
+the standing `[PBA]` in exact inverse proportion, which nothing measures.
+Measured: raising `k3` a thousandfold moves the signal by **0.39%**, lowering it
+a hundredfold moves it by **25%**, and `[PBA]` tracks `1/k3` to within 2%.
+
+**`k5'` (step 5, the catalysed seed).** The same phenomenon one step round the
+loop: once the seed is fast enough that starting the loop is not what limits the
+observable, making it faster changes almost nothing. Cost at the true value
+against `x0.1` and `x100`: **1.3e3 / 3.5e-6 / 7.6**. Steep below, flat above.
+
+| | status |
+|---|---|
+| `k_can`, `k0`, `r`, `k6` | determined |
+| `k3`, `k5'` | lower bounds only |
+
+This is consistent with `MECHANISM.md`'s own instinct that `k5` be "treated as
+free/unconstrained", and it extends the same verdict to `k3`. It also explains
+the real block's `corr(k_can, k3) = -0.979`: near the quasi-steady-state
+threshold the two trade off.
+
+**A correction to an earlier draft of this entry.** It reported `k_can` and `r`
+as -0.999 correlated and concluded the fit "cannot adjudicate `r`". That figure
+is real but was measured on synthetic curves at a **single** pH and `[H2O2]`,
+and it does not carry over. pH enters the model only through `[HOO-]`, which
+multiplies `k_can` and not `r`, so varying the pH separates them. On the real
+BnOH/25 C/phosphate block, which spans pH 6.71–8.01 and `[H2O2]` 82.5–165:
+
+| | k_can | k3 | k0 | r |
+|---|---|---|---|---|
+| **k_can** | 1.000 | **-0.979** | -0.341 | 0.048 |
+| **k3** | -0.979 | 1.000 | 0.376 | -0.115 |
+| **k0** | -0.341 | 0.376 | 1.000 | -0.902 |
+| **r** | 0.048 | -0.115 | **-0.902** | 1.000 |
+
+Condition number **523**, not 6e7, and `k_can`/`r` are essentially uncorrelated.
+The degeneracy that survives is `k_can`/`k3`, which is the saturation above.
+Recovery from synthetic curves at the block's real noise (0.0006 AU, curves
+0.004–0.12 AU) is accordingly good for three of the four — across noise seeds
+7, 11 and 23, `k_can` lands within -0.02/-0.10/+0.16 decades, `k0` within
+0.00/+0.01/+0.01 and `r` within +0.03/+0.01/-0.13, while `k3` swings
++0.10/+1.06/-0.97.
+
+*Why the wrong number was believed for a while:* the first noisy recovery test
+used 0.002 AU noise on synthetic curves topping out at 0.014 AU — a
+signal-to-noise near 1, about thirty times worse than the instrument delivers on
+these curves (0.005–0.088 AU net against 0.0006 AU noise). Everything was
+unidentifiable at that noise level, and the -0.999 figure from a single-condition
+Jacobian looked like the explanation. Matching the synthetic amplitude and noise
+to the real block was what separated the two.
+
+### Three bugs the tests caught, all of which would have biased every fit
+
+**The model was not baseline-subtracted.** `fit_dataset` subtracts a baseline
+from each measured curve — the median of its first few readings — because the
+model's signal is zero at `t = 0` by construction and the instrument's is not.
+But the median of the first five readings is not the value at `t = 0`: the
+reaction has already moved. Comparing a model that starts at exactly zero
+against data that has had its own early points subtracted leaves a systematic
+offset on every curve. On noiseless synthetic data the cost at the *generating*
+parameters was **2.03 instead of 0**. `fit_kinetics._baselined` now applies the
+identical median subtraction to the model. The cost at truth fell to **5.2e-16**.
+Only a noiseless recovery test could have found this — with real data the
+residual is small and looks like model error.
+
+**The optimiser could not find the optimum it was given, twice.** From the
+default start, the first recovery attempt returned `k_can = 0.0055` against a
+true 5.0 (three decades out), `k3 = 0.31` against 0.02, and `r` pinned at its
+upper bound of 5, at cost 0.357 where the truth sits at 5e-16. Adding a ladder of
+starts at `r = 0.1, 0.5, 1.0, 2.0, 3.5` — spanning both sides of the `r = 1`
+boundary — fixed that one: recovery became exact to machine precision.
+
+It did not fix the real data. Stage 2 on BnOH/25 C/phosphate then returned a
+**converged** fit, no parameter at a bound, at cost **4.07e7** — when cost
+**7.67e3** was available at `k5, k6 -> 0`, a factor of **5300** worse. A blind
+multi-start had walked into a bad local minimum and reported success. Since
+"converged" is exactly what a reader would trust, this is the most dangerous of
+the three bugs.
+
+`fit_kinetics` now **screens** its starting points instead of guessing them: a
+64-point Latin hypercube over the whole bounded parameter box, plus the nominal
+start and the `r` ladder, each costed with one residual evaluation, and the
+optimiser run only from the best few. Roughly 25 s of screening. Stage 2 rerun
+that way reaches cost **5.63e3** — better than the `k5, k6 -> 0` reference and
+7200x better than the blind result.
+
+### The first fit: the reduced mechanism does not fit
+
+BnOH / 25 C / phosphate, the one block where the sequential strategy is fully
+supported. Both stages converged, no parameter at a bound.
+
+| stage | curves | fitted | rms residual |
+|---|---|---|---|
+| 1, enzyme-free | 23 / 5 exps | `k_can` 10.86, `k3` 23.8, `k0` 2.14e-9, `r` 1.523 | 0.0147 AU = **24.0x** the curves' own noise |
+| 2, catalysed | 20 / 5 exps | `k5'` 1.4e-7, `k6` 4.4e-3 | 0.0140 AU = **20.6x** the curves' own noise |
+
+Units: `k_can` mM^-2 s^-1, `k3` and `k6` mM^-1 s^-1, `k0` mM^-1 s^-1, `k5'`
+mM^-2 s^-1, `r` dimensionless. `k3` and `k5'` are lower bounds, not values (see
+above), so only `k_can`, `k0`, `r` and `k6` are quoted as determined — and none
+of them should be quoted at all while the fit is this bad.
+
+**A 20-24x misfit is a decisive failure, not a rough fit.** The per-curve noise
+here is 0.0003-0.0006 AU and the residual is 0.014 AU. On the worst curves the
+model produces a fraction of the observed signal: exp 69 sample 1 rises +0.047 AU
+where the model gives +0.001, and exp 74 sample 2 rises +0.049 where the model
+gives +0.007.
+
+**And the shape error runs the wrong way.** Measuring the position of peak slope
+the way `MECHANISM.md` does — smoothed over ~5% of the run before
+differentiating — this block lags in **7 of 43 curves (16%)**, against 34% across
+all 404 fittable curves. The fitted model lags in **19 of 23** enzyme-free curves
+and **19 of 20** catalysed ones.
+
+So the model does not fail by being unable to produce the induction period. It
+fails by producing one almost everywhere, in a block that mostly does not have
+one. Together with the `r > 1` bound this closes off both directions:
+
+| `r` | model's lag behaviour | matches this block's 16%? |
+|---|---|---|
+| `<= 1` | no lag possible in any curve, at any rate constants (227 draws) | no |
+| `1.52` (best fit) | lag in 19/23 and 19/20 curves | no |
+
+Whether some intermediate `r` reproduces 16% is exactly what
+`--profile-r` is for and has not yet been run; it is the obvious next step, and
+it is cheap relative to what it settles.
+
+**The plots name the failure: the model is first order in substrate and the
+data is not.** `data/plot_fit.py` draws data against model per experiment, and
+the catalysed panels show it plainly — the model's curves fan out in proportion
+to `[S]` while the measured ones sit almost on top of each other across a
+twentyfold substrate range. Quantified as the effective order in `[S]` (slope of
+log initial rate against log `[S]`, within each experiment so pH, buffer and
+temperature are all held fixed):
+
+| | experiments | data | model |
+|---|---|---|---|
+| `[buf]` held constant | 8 | **+0.30** (range 0.08–0.49) | **+1.01** |
+| `[buf]` varied along the ladder | 2 (exps 3, 6) | -0.23 | +1.03 |
+
+The second row is the `[buf]`/`[sub]` collinearity this log has flagged since
+2026-08-29 and must not be read as a substrate order: in those two series buffer
+falls from 85 to 25 mM as substrate rises, so exp 3's rate *decreasing*
+monotonically with `[S]` is a buffer effect wearing substrate's clothes. They
+are reported separately and never pooled.
+
+On the eight clean experiments the model is first order in `[S]` to within 1%,
+because every one of its rate terms is — `v_seed` and `v3` both carry `[S]`
+linearly and nothing divides by it. The data is roughly half order or less, and
+**this holds for the enzyme-free runs too** (exps 67, 69, 70: +0.49, +0.37,
++0.28), so it is not only the catalyst that saturates.
+
+That is the shape of substrate saturation, and it is expected here: the Bols
+group reports `Km = 1.25 mM` for benzyl alcohol (`MECHANISM.md` item 4) and these
+ladders span 0.21–14.31 mM, straddling it. An order near +0.3 is what
+Michaelis–Menten gives across such a range. The reduction has no saturable term
+in `[S]` anywhere — stage 3 makes the catalyst states algebraic and stage 4 drops
+the remaining denominator — so no choice of the six rate constants can produce
+it. **This is a structural deficiency of the reduced model, not a bad fit**, and
+it is the first thing to change.
+
+**What this does and does not license saying.** It is evidence against *this
+reduction* of the mechanism on *this block* — not yet against the chemistry.
+Three things could be wrong before the mechanism is, in rough order of how
+cheaply they can be tested: the observable may include `[PBA]`, whose
+concentration genuinely accelerates and whose extinction coefficient nobody has
+looked for; stage 2 of the reduction pre-equilibrates C1, which removes the one
+species whose build-up could itself produce a lag; and the radical/O2 chain of
+S3 is not in the model at all. The fitter now exists to test each of them, and
+each is a small change to `kinetic_model.rhs` or `observable`.
+
+**On `k5' -> 1.4e-7`.** Stage 2 drives the catalysed seed to effectively zero and
+carries the catalysed loop entirely on `k6`. Given that `k5'` is only bounded
+from below, the honest reading is that the catalysed runs give no evidence for a
+seed step at all, not that the seed constant is small.
+
+### What the dataset can actually support
+
+Rate constants may be pooled only within one (substrate, temperature, buffer)
+cell: temperature moves every constant through Arrhenius, the substrates are
+different molecules, and `MECHANISM.md`'s buffer section argues the four buffers
+are chemically different reagents. Of the eleven cells that exist, only **two**
+have enzyme-free controls in the same cell as catalysed runs:
+
+| cell | E0 = 0 | E0 > 0 | sequential fit |
+|---|---|---|---|
+| BnOH, 25 C, phosphate | 23 | 20 | yes |
+| 4OMe-BnOH, 40 C, phosphate | 59 | 4 | yes, but almost no catalysed data |
+| 4OMe-BnOH, 25 C, phosphate | 8 | 52 | weak background |
+| BnOH, 25 C, boric | 4 | 28 | weak background |
+| BnOH, 25 C, pyrophosphate | 0 | **127** | no background at all |
+| the other six | 0 | 4–40 | no background at all |
+
+The largest catalysed block in the archive — 127 BnOH pyrophosphate curves — has
+no enzyme-free counterpart, so its background constants can only be imported
+from a different buffer, which the buffer-chemistry section says is exactly what
+must not be done. This is a sharper form of the standing complaint that
+`[buf]` and `[sub]` were varied together: **the missing experiment is an
+enzyme-free control in pyrophosphate**, and it is cheap.
+
+### Selection is now declared, not retyped
+
+`clean_experiment_dataframe` in the notebook held two rules that existed nowhere
+else: the sample-level exclusions (128,2 and 128,5) and the carbonate rule.
+Those are now `KNOWN_SAMPLE_EXCLUSIONS` and `EXCLUDED_BUFFERS` in
+`build_manifest.py`, alongside `KNOWN_EXCLUSIONS`, and `fit_dataset.select_fittable`
+reads all three. `test_fit_kinetics.py` pins the result at **404 rows / 88
+experiments**, the same numbers the notebook produces, so the two cannot drift
+apart silently. `validate_dataset.py` is unchanged at 0 errors, 11 warnings,
+9 notes.
+
+---
+
 ## 2026-08-31 — Repository cleanup, and what the pristine zip caught
 
 Housekeeping, with one finding worth recording.

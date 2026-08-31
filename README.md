@@ -20,12 +20,19 @@ data/kinetics_io.py         sheet + instrument-export reader; builds the dataset
 data/build_manifest.py      declared ground truth: rulings, exclusions, provenance
 data/solution_chemistry.py  ionic strength, pKa activity correction, [HOO-]
 
+data/kinetic_model.py       the reduced mechanism as ODEs; no I/O, no fitting
+data/fit_dataset.py         which curves are fittable, and what each one is
+data/fit_kinetics.py        the sequential fit: enzyme-free first, then catalysed
+data/plot_fit.py            draws a saved fit against the curves it was fitted to
+data/fits/*.json            saved fit results (a fit costs ~30 min; these do not)
+
 data/validate_dataset.py    the gate: run this before trusting anything
 data/verify_*.py            four independent cross-checks (see below)
-data/test_*.py              three test suites, including fault injection
+data/test_*.py              five test suites, including fault injection
 data/build_dossier.py       one HTML page per experiment, for review by eye
 
 MECHANISM.md                the 7-step mechanism, its reduction, and the evidence
+FITTING.md                  what has been fitted, and what the fits established
 COMPUTATIONAL.md            quantum-chemistry task register (C1 pending)
 DATA_VERIFICATION.md        dated log of every check and every ruling
 computational/hellowater/   ORCA smoke test, proves the toolchain runs
@@ -41,9 +48,27 @@ python data/validate_dataset.py --deep    # adds the four independent chains
 python data/test_validator.py             # fault injection: corrupt, expect a catch
 python data/test_solution_chemistry.py
 python data/test_curve_flags.py
+python data/test_kinetic_model.py
+python data/test_fit_kinetics.py
 python data/build_manifest.py --write     # rebuild data/manifest.csv
 python data/build_dossier.py              # rebuild dossier.html
 ```
+
+Fitting:
+
+```bash
+python data/fit_dataset.py                # what is fittable, by block
+python data/fit_kinetics.py --list        # which blocks support both stages
+python data/fit_kinetics.py --substrate BnOH --temperature 25 --buffer Phosphate
+python data/fit_kinetics.py --substrate BnOH --profile-r    # profile r instead of fitting it
+python data/plot_fit.py data/fits/BnOH_25C_Phosphate.json   # -> figures/
+```
+
+`plot_fit.py` refits nothing, so it is seconds. It writes three figures: the
+enzyme-free curves against the model, the catalysed ones, and a six-panel
+diagnostic showing *how* the fit fails — parity, residuals in units of each
+curve's own noise, lag position, the species the model proposes, and the
+reaction order in substrate.
 
 Current state:
 
@@ -51,8 +76,13 @@ Current state:
 compiled   454 rows / 100 experiments      data/experiment_data.csv
 fittable   404 rows /  88 experiments      after clean_experiment_dataframe
 manifest   89 use, 11 excluded, 15 rulings, 0 open questions
-checks     0 errors; 17/17 fault injection; all suites pass
+checks     0 errors, 11 warnings, 9 notes; 17/17 fault injection
+suites     test_kinetic_model 24/24; test_fit_kinetics 39/39; all others pass
 ```
+
+A full sequential fit takes roughly 30 minutes: the model is integrated once per
+curve per residual evaluation, and the optimiser is deliberately started from
+many points (see `fit_kinetics._guaranteed_points`).
 
 ## Why there are four verification modules
 
@@ -93,6 +123,17 @@ enforced by `verify_buffer.py`.
   treated as pure pyrophosphate.
 - **Exps 75, 76** name their buffer hexametaphosphate but are given
   pyrophosphate pK<sub>a</sub> values.
-- **No ODE fitter yet.** `MECHANISM.md` reduces the 7-step system to 6 states
-  with three conservation laws and works out the observation equation; the
-  implementation does not exist.
+- **The reduced mechanism does not fit**, and the sharpest reason needs no fit
+  at all: every rate term carries `[S]` linearly, so the model is first order in
+  substrate by construction, while the data is roughly half order. On the fitted
+  block it misfits at **20–24x the curves' own noise**. What this does and does
+  not license saying — the reduction and the observation equation are deficient,
+  the chemistry is not yet convicted — is set out in `FITTING.md`.
+- **Two of the six rate constants are lower bounds, not values.** `k3` and `k5'`
+  each stop affecting the observable once their step is no longer rate-limiting.
+  Only `k_can`, `k0`, `r` and `k6` are determined.
+- **Only two blocks support the sequential fit.** Rate constants may only be
+  pooled within one (substrate, temperature, buffer) cell, and enzyme-free
+  controls exist in the same cell as catalysed runs for just two of eleven:
+  BnOH/25 C/phosphate and 4OMe-BnOH/40 C/phosphate. The largest catalysed
+  block, 127 BnOH pyrophosphate curves, has no background data at all.
