@@ -53,7 +53,7 @@ not record what would be needed to do better:
      70% of this dataset's live rows exceed that and the pyrophosphate runs
      reach 1069 mM, an order of magnitude beyond it. The default was therefore
      changed to Davies on 2026-08-31, which is claimed to roughly 500 mM. The
-     two differ by up to 0.60 pKa units, a factor of 4 in [HOO-], at the top
+     two differ by up to 0.60 pKa units, a actor of 4 in [HOO-], at the top
      of the range.
 
      Davies has its own ceiling, and it is worth stating plainly rather than
@@ -78,6 +78,7 @@ Usage:
     python data/solution_chemistry.py      # recompute and compare against the
                                            # stored columns in the dataset
 """
+
 import numpy as np
 import pandas as pd
 
@@ -99,10 +100,10 @@ BUFFER_CHARGES = {
     "Carbonate": [0, -1, -2],
 }
 
-PKA_H2O2 = 11.75        # H2O2 <-> H+ + HOO-, 25 C, zero ionic strength
+PKA_H2O2 = 11.75  # H2O2 <-> H+ + HOO-, 25 C, zero ionic strength
 DEBYE_HUCKEL_A = 0.509  # mol/L^-0.5, water at 25 C
 DEBYE_HUCKEL_B = 0.328  # extended Debye-Huckel denominator constant
-DELTA_Z_SQUARED = 2     # (+1)^2 + (-1)^2 - 0^2 for a neutral acid dissociating
+DELTA_Z_SQUARED = 2  # (+1)^2 + (-1)^2 - 0^2 for a neutral acid dissociating
 
 # Ionic strength beyond which the extended Debye-Huckel equation is being used
 # outside its established range. Not an error -- there is no better model here
@@ -182,7 +183,7 @@ def ionic_strength(buffer_name, pH, buffer_mM):
             f"{buffer_name}: {len(BUFFER_PKA[buffer_name])} pKa values imply "
             f"{len(alpha)} species but {len(charges)} charges are declared"
         )
-    anion_term = float(np.sum(alpha * charges ** 2))
+    anion_term = float(np.sum(alpha * charges**2))
     counter_ion_term = float(np.sum(alpha * np.abs(charges)))
     return 0.5 * float(buffer_mM) * (anion_term + counter_ion_term)
 
@@ -279,8 +280,13 @@ def out_of_range_fraction(ionic_strengths_mM, limit=DEBYE_HUCKEL_RELIABLE_mM):
     return float((values > limit).mean())
 
 
-def add_solution_columns(dataframe, buffer_col="buffer", ph_col="pH",
-                         buffer_conc_col="[buf]", h2o2_col="[h2o2]"):
+def add_solution_columns(
+    dataframe,
+    buffer_col="buffer",
+    ph_col="pH",
+    buffer_conc_col="[buf]",
+    h2o2_col="[h2o2]",
+):
     """
     Returns a copy of the dataframe with 'I' and '[HOO-]' columns added.
 
@@ -293,16 +299,22 @@ def add_solution_columns(dataframe, buffer_col="buffer", ph_col="pH",
     Returns:
         pd.DataFrame: A copy with 'I' and '[HOO-]' appended.
     """
-    missing = [c for c in (buffer_col, ph_col, buffer_conc_col, h2o2_col)
-               if c not in dataframe.columns]
+    missing = [
+        c
+        for c in (buffer_col, ph_col, buffer_conc_col, h2o2_col)
+        if c not in dataframe.columns
+    ]
     if missing:
         raise KeyError(f"dataframe is missing required columns: {missing}")
 
     out = dataframe.copy()
-    out["I"] = [ionic_strength(b, p, c) for b, p, c
-                in zip(out[buffer_col], out[ph_col], out[buffer_conc_col])]
-    out["[HOO-]"] = [hydroperoxide(p, h, i) for p, h, i
-                     in zip(out[ph_col], out[h2o2_col], out["I"])]
+    out["I"] = [
+        ionic_strength(b, p, c)
+        for b, p, c in zip(out[buffer_col], out[ph_col], out[buffer_conc_col])
+    ]
+    out["[HOO-]"] = [
+        hydroperoxide(p, h, i) for p, h, i in zip(out[ph_col], out[h2o2_col], out["I"])
+    ]
     return out
 
 
@@ -310,7 +322,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Recompute I and [HOO-] and compare against stored columns.")
+        description="Recompute I and [HOO-] and compare against stored columns."
+    )
     parser.add_argument("--csv", default="data/experiment_data.csv")
     args = parser.parse_args()
 
@@ -319,17 +332,24 @@ if __name__ == "__main__":
 
     print(f"{len(recomputed)} rows, {recomputed.experiment.nunique()} experiments\n")
     summary = recomputed.groupby("buffer").agg(
-        rows=("I", "size"), pH_min=("pH", "min"), pH_max=("pH", "max"),
-        I_min=("I", "min"), I_max=("I", "max"),
-        HOO_min=("[HOO-]", "min"), HOO_max=("[HOO-]", "max"))
+        rows=("I", "size"),
+        pH_min=("pH", "min"),
+        pH_max=("pH", "max"),
+        I_min=("I", "min"),
+        I_max=("I", "max"),
+        HOO_min=("[HOO-]", "min"),
+        HOO_max=("[HOO-]", "max"),
+    )
     print(summary.round(4).to_string())
 
     over = recomputed["I"] > DEBYE_HUCKEL_RELIABLE_mM
-    print(f"\nDebye-Huckel range: {int(over.sum())} of {len(recomputed)} rows "
-          f"({out_of_range_fraction(recomputed['I']):.0%}) exceed "
-          f"{DEBYE_HUCKEL_RELIABLE_mM:.0f} mM, across "
-          f"{recomputed.loc[over, 'experiment'].nunique()} experiments; "
-          f"the maximum is {recomputed['I'].max():.0f} mM")
+    print(
+        f"\nDebye-Huckel range: {int(over.sum())} of {len(recomputed)} rows "
+        f"({out_of_range_fraction(recomputed['I']):.0%}) exceed "
+        f"{DEBYE_HUCKEL_RELIABLE_mM:.0f} mM, across "
+        f"{recomputed.loc[over, 'experiment'].nunique()} experiments; "
+        f"the maximum is {recomputed['I'].max():.0f} mM"
+    )
 
     for column in ("I", "[HOO-]"):
         if column not in data.columns:
