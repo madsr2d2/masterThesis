@@ -140,6 +140,48 @@ pyrophosphate, which is the scope's buffer and a metal chelator; and `[HOO-]`
 never exceeding 0.089 mM, while the catalysed block only becomes strongly
 autocatalytic above 0.1 mM.
 
+### Why the ratio is 1: the denominator, not the numerator
+
+Raised by the user, asking whether this means the chemzyme is ineffective. It
+does not, and the literature says why. Item 4 of `MECHANISM.md`'s references
+(ChemCatChem 2025) reports kcat = 44e-5 s^-1, Km = 1.25 mM and
+kcat/kuncat = 28,000 for benzyl alcohol at pH 7 phosphate, 25 °C, 72 mM H2O2
+and **0.4 mM catalyst**. Ours is 0.028 mM. At [BnOH] = 3.655 mM, converting our
+AU/s at the sheets' eps = 1.23 (`scope.literature_comparison()`,
+`python data/scope.py --literature`):
+
+| | mM/s |
+|---|---|
+| our catalysed, exp 68 | 2.07e-05 |
+| literature **at our 0.028 mM loading** | 9.18e-06 |
+| our enzyme-free, exp 67 | 5.03e-05 |
+| literature **uncatalysed** | 5.74e-08 |
+
+**Our catalysed rate is within 2.3× of the literature's prediction for the
+loading we used.** **Our enzyme-free rate is 876× the literature's uncatalysed
+rate.** The two errors compound: a background inflated ~880-fold, against a
+catalytic contribution cut 14-fold by under-loading, turns a 28,000-fold
+intrinsic ratio into an observable enhancement of about one.
+
+The comparison is order-of-magnitude only — pH 7 against our 8.01, 72 mM H2O2
+against 122, a catalyst that may not be the "a-diesterketon" exp 66's sheet
+names, and a rate in mM/s that inherits whatever the absorbance question is
+eventually answered with. An 876-fold gap survives all of that; a factor of two
+would not.
+
+**What inflates the background.** Untested, but consistent from two directions
+and already suspected in `MECHANISM.md`'s buffer section: trace Fe/Cu, which
+pyrophosphate chelates and phosphate and boric do not. Every enzyme-free run
+here is phosphate or boric. And matched on `[HOO-]`, corrected for `[H2O2]` at
+the measured +0.87 order, catalysed phosphate (exp 68) runs **2.3× faster** than
+catalysed pyrophosphate (exp 138) while carrying *less* enzyme, 0.028 against
+0.034 mM. The chelating buffer is slower in both comparisons. An EDTA control
+would settle it.
+
+**What this does not touch.** The acceleration result stands on its own: a fast
+background makes curves faster, not sigmoidal, and 0 of 16 against 7 of 23 is a
+difference in shape.
+
 ### Autocatalysis does track the chemzyme
 
 At matched `[HOO-]` of 0.03–0.10 mM, **0 of 16 enzyme-free curves accelerate

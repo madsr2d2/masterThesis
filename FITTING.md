@@ -191,7 +191,14 @@ all, because every run in it carries enzyme. Over the 9 rungs where both sides
 are live, `vmax` with chemzyme is **0.63× the enzyme-free value (0.31–1.41×)**,
 which is inside the 1.55× disagreement between exps 69 and 70 — the *same*
 experiment run twice. No enhancement above about 1.6× is present at these
-conditions. See `MECHANISM.md` and `DATA_VERIFICATION.md` (2026-08-31).
+conditions.
+
+That is a fact about these conditions, not about the catalyst, and it must not
+be quoted as the latter. Our enzyme-free rate here is ~880× the literature's
+uncatalysed rate while our catalyst loading is 14× below the literature's, and
+our catalysed rate is within 2.3× of what the literature predicts for the
+loading we used (`python data/scope.py --literature`). The enhancement is
+hidden, not absent. See `MECHANISM.md` and `DATA_VERIFICATION.md` (2026-08-31).
 
 **A caution for F1.** F1's second row already warns that exps 3 and 6 are
 buffer titrations whose apparent substrate order is a buffer effect. That trap

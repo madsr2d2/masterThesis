@@ -557,6 +557,73 @@ def catalytic_effect():
     }
 
 
+# ---------------------------------------------------------------------------
+# The literature's own kinetics for this reaction, for scale.
+#
+# From MECHANISM.md reference 4 (ChemCatChem 2025), the only Bols-group paper
+# retrieved in full. Its conditions are NOT ours -- pH 7 phosphate against our
+# 8.01 and 8.51, and 72 mM H2O2 against our 122 -- and its catalyst (diketone
+# 8) is not necessarily the "a-diesterketon" exp 66's sheet names. So this is
+# an order-of-magnitude comparison and nothing finer.
+#
+# It is worth making anyway, because it answers the question the paired
+# controls raise and cannot settle by themselves: is the missing rate
+# enhancement a missing numerator or an inflated denominator?
+LITERATURE = {
+    "source": "ChemCatChem 2025, diketone 8 (MECHANISM.md ref 4)",
+    "kcat_per_s": 44e-5,
+    "km_mM": 1.25,
+    "kcat_over_kuncat": 28000,
+    "catalyst_mM": 0.4,
+    "h2o2_mM": 72.0,
+    "pH": 7.0,
+}
+
+# The sheets' extinction coefficient for BnOH at 285 nm, used only to turn our
+# AU/s into mM/s for the comparison above. What the absorbance actually
+# measures is MECHANISM.md's leading open question, so treat any rate in mM/s
+# as uncertain by whatever that answer turns out to be -- the 800-fold result
+# below survives it, a factor of two would not.
+BNOH_EPSILON = 1.23
+
+
+def literature_comparison(s0=3.655, free=67, catalysed=68):
+    """
+    Our paired-control rates against the literature's, in mM/s.
+
+    Returns a dict. `background_ratio` is the one that matters: our enzyme-free
+    rate over the rate the literature's kcat/kuncat implies for the uncatalysed
+    reaction. It comes out near 900, which is why the paired controls show no
+    enhancement -- the background they measure is not the background the
+    literature measured, and at our 14x lower catalyst loading it swamps the
+    catalysed contribution.
+    """
+    data = frame((free, catalysed))
+    def rate(experiment):
+        row = data[(data.experiment == experiment)
+                   & (np.isclose(data.s0, s0, rtol=RUNG_TOLERANCE))]
+        return float(row.vmax.iloc[0]) / BNOH_EPSILON
+
+    kcat, km = LITERATURE["kcat_per_s"], LITERATURE["km_mM"]
+    kuncat = kcat / LITERATURE["kcat_over_kuncat"]
+    loading = float(data[data.experiment == catalysed].e0.iloc[0])
+
+    ours_free, ours_catalysed = rate(free), rate(catalysed)
+    theirs_uncatalysed = kuncat * s0
+    theirs_at_our_loading = kcat * loading * s0 / (km + s0)
+    return {
+        "s0_mM": s0,
+        "our_loading_mM": loading,
+        "loading_shortfall": LITERATURE["catalyst_mM"] / loading,
+        "ours_enzyme_free": ours_free,
+        "ours_catalysed": ours_catalysed,
+        "literature_uncatalysed": theirs_uncatalysed,
+        "literature_at_our_loading": theirs_at_our_loading,
+        "background_ratio": ours_free / theirs_uncatalysed,
+        "catalysed_ratio": ours_catalysed / theirs_at_our_loading,
+    }
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
@@ -566,6 +633,8 @@ def main():
                         help="print the apparent reaction orders")
     parser.add_argument("--controls", action="store_true",
                         help="print the +/- chemzyme paired controls")
+    parser.add_argument("--literature", action="store_true",
+                        help="compare the paired controls against the literature")
     arguments = parser.parse_args()
 
     if arguments.design:
@@ -591,6 +660,24 @@ def main():
         print(f"same experiment run twice (exps 69 vs 70) disagrees by up to "
               f"{effect['replicate_scatter']:.2f}x -- the ratio is not "
               f"resolved from no effect")
+        return 0
+
+    if arguments.literature:
+        c = literature_comparison()
+        print(f"at [BnOH] = {c['s0_mM']:.3f} mM, rates in mM/s "
+              f"(eps = {BNOH_EPSILON} mM^-1 cm^-1)\n")
+        print(f"  our enzyme-free  (exp 67)          {c['ours_enzyme_free']:.2e}")
+        print(f"  our catalysed    (exp 68)          {c['ours_catalysed']:.2e}")
+        print(f"  literature uncatalysed             {c['literature_uncatalysed']:.2e}")
+        print(f"  literature at our {c['our_loading_mM']:.3f} mM loading   "
+              f"{c['literature_at_our_loading']:.2e}")
+        print(f"\n  our background is {c['background_ratio']:.0f}x the "
+              f"literature's uncatalysed rate")
+        print(f"  our catalysed rate is within {c['catalysed_ratio']:.1f}x of "
+              f"the literature's prediction")
+        print(f"  and we load {c['loading_shortfall']:.0f}x less catalyst than "
+              f"they did")
+        print(f"\n  source: {LITERATURE['source']}")
         return 0
 
     facts = summary()
