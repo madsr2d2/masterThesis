@@ -37,8 +37,11 @@ from fit_dataset import (PRIMARY_SCOPE, PRIMARY_SCOPE_BLOCK, build_curves,
 LADDER_MINIMUM = 2.0
 
 # Net change below this multiple of a curve's own noise is not a measurement of
-# anything. Exps 150 and 151 are mostly flat by this rule, which is the point:
-# they are the block's in-cell background.
+# anything. Exps 150 and 151 are mostly flat by this rule. That does NOT make
+# them a background: every run in PRIMARY_SCOPE carries enzyme, and their
+# cuvettes carry no concentration information either (concentration_agreement
+# 0.61 and 0.005). The block has no enzyme-free control -- see
+# DATA_VERIFICATION.md, 2026-08-31.
 LIVE_SIGNAL_NOISE_MULTIPLE = 20.0
 
 
@@ -352,6 +355,32 @@ def concentration_agreement(scope=PRIMARY_SCOPE, parameter="vmax"):
 # order says how the autocatalysis itself depends on each concentration.
 ORDER_PARAMETERS = ("v0", "vmax", "net", "gain")
 
+# A run has to predict its own cuvettes this well before its orders are worth
+# reading. concentration_agreement correlates each run's observed log vmax
+# against the log rate its own cuvette concentrations imply; a run that scores
+# low is telling you its cuvettes differ by something other than what was put
+# in them -- drift, a bad blank, or a signal too small to carry the ladder.
+#
+# The archive separates cleanly here, which is why the threshold is not fine-
+# tuned: the eleven runs above it score 0.724 to 0.974, and the five below
+# score 0.609 down to 0.005. Exp 151 does not appear at all -- its cuvettes
+# scatter 234-fold with two negative rates.
+AGREEMENT_FLOOR = 0.70
+
+
+def strong_runs(scope=PRIMARY_SCOPE, floor=AGREEMENT_FLOOR):
+    """
+    The experiments whose own cuvettes predict their own rates.
+
+    Returns a sorted tuple of experiment numbers. Orders quoted in MECHANISM.md
+    are measured over these; quoting them over all 17 runs moves the substrate
+    order of vmax from +0.01 to +0.11 and drops the fit's R2 from 0.88 to 0.81,
+    because the runs that fail this test contribute scatter and no signal.
+    """
+    table = concentration_agreement(scope)
+    return tuple(sorted(int(e) for e in
+                        table.index[table.agreement >= floor]))
+
 
 def orders(parameter="v0", scope=PRIMARY_SCOPE, within=True, live_only=True):
     """
@@ -420,6 +449,114 @@ def order_table(scope=PRIMARY_SCOPE, parameters=ORDER_PARAMETERS):
     return pd.DataFrame(rows).set_index(["parameter", "fit"])
 
 
+
+# ---------------------------------------------------------------------------
+# The +/- chemzyme controls.
+#
+# Exps 65-71 are consecutive runs from June 2010 in which the same substrate
+# ladder, [H2O2], buffer, pH and temperature were run twice, once without the
+# chemzyme and once with it at 0.028 mM. They are the only paired controls in
+# the archive on BnOH: every other enzyme-free BnOH run (exps 3 and 6) sits at
+# a pH and [H2O2] no catalysed run shares.
+#
+# They are NOT in PRIMARY_SCOPE and cannot be pooled with it -- phosphate and
+# boric buffer, and only one value of [H2O2] per run, so they carry no
+# peroxide order. What they carry is the one comparison the primary scope
+# cannot make at all: the same chemistry with and without the catalyst.
+#
+# (enzyme-free experiments, catalysed partner, label)
+PAIRED_CONTROLS = (
+    ((65,), 66, "boric pH 8.51"),
+    ((67,), 68, "phosphate pH 8.01"),
+    ((69, 70), 71, "phosphate pH 8.01, low rungs"),
+)
+
+# Enzyme-free BnOH runs whose [buf] is CONSTANT along the substrate ladder,
+# and so the only ones from which a substrate order may be read.
+FREE_BNOH = (65, 67, 69, 70)
+
+# The archive holds two more enzyme-free BnOH runs, and they are a trap. Exps 3
+# and 6 are buffer titrations: [buf] falls 85 -> 25 mM as [sub] rises 1.28 ->
+# 8.98 mM, r = -0.91 and -0.98 against log[sub]. Their rate falls with
+# substrate, which looks like the turnover the catalysed block shows and is a
+# buffer effect wearing substrate's clothes -- FITTING.md F1 has said so since
+# 2026-08-29. Pooling them into FREE_BNOH turns 2 clean rung-pairs above 3 mM
+# into 7 and swings the median order from -0.245 to -0.431. Do not.
+FREE_BNOH_BUFFER_TITRATIONS = (3, 6)
+
+# Rungs count as the same rung if their [BnOH] agrees to this relative
+# tolerance. The ladders were made from one dilution series, so matching is
+# exact in practice; the tolerance only absorbs rounding in the sheets.
+RUNG_TOLERANCE = 0.02
+
+
+def paired_controls():
+    """
+    One row per substrate rung that exists both with and without the chemzyme.
+
+    Columns: pair, s0, v0_free, v0_enz, vmax_free, vmax_enz, ratio (the
+    catalysed vmax over the enzyme-free one), accel_free, accel_enz, live --
+    where `live` is True only if BOTH sides carry a signal. Read `ratio` only
+    on live rows: a ratio against a dead curve is a ratio against noise, and
+    three of the twelve catalysed cuvettes are dead where their enzyme-free
+    partner is alive.
+
+    For scale when reading `ratio`: exps 69 and 70 are the same experiment run
+    twice, and their vmax disagrees by up to 1.55x rung for rung. Nothing
+    inside that factor is a measurement of anything.
+    """
+    scope = tuple(sorted({e for free, cat, _ in PAIRED_CONTROLS
+                          for e in (*free, cat)}))
+    data = frame(scope)
+    rows = []
+    for free, catalysed, label in PAIRED_CONTROLS:
+        left = data[data.experiment.isin(free)]
+        right = data[data.experiment == catalysed]
+        for s0 in sorted(right.s0.unique()):
+            a = left[np.isclose(left.s0, s0, rtol=RUNG_TOLERANCE)]
+            b = right[np.isclose(right.s0, s0, rtol=RUNG_TOLERANCE)]
+            if not len(a) or not len(b):
+                continue
+            b = b.iloc[0]
+            both_live = bool(a.live.all() and b.live)
+            rows.append({
+                "pair": label, "s0": float(s0),
+                "v0_free": float(a.v0.median()), "v0_enz": float(b.v0),
+                "vmax_free": float(a.vmax.median()), "vmax_enz": float(b.vmax),
+                "ratio": float(b.vmax / a.vmax.median()) if both_live else np.nan,
+                "accel_free": float(a.accel_z.max()),
+                "accel_enz": float(b.accel_z),
+                "live": both_live,
+            })
+    return pd.DataFrame(rows)
+
+
+def catalytic_effect():
+    """
+    What adding 0.028 mM chemzyme does to BnOH oxidation, on the paired runs.
+
+    Returns the median vmax ratio over the live matched rungs, its range, the
+    count, and -- as the yardstick that decides whether the ratio means
+    anything -- the largest vmax disagreement between exps 69 and 70, which
+    are the same experiment run twice.
+    """
+    table = paired_controls()
+    live = table[table.live]
+    data = frame((69, 70))
+    repeats = []
+    for s0 in sorted(data[data.experiment == 69].s0.unique()):
+        a = float(data[(data.experiment == 69) & (data.s0 == s0)].vmax.iloc[0])
+        b = float(data[(data.experiment == 70) & (data.s0 == s0)].vmax.iloc[0])
+        repeats.append(max(a, b) / min(a, b))
+    return {
+        "rungs": int(len(live)),
+        "median_ratio": float(live.ratio.median()),
+        "ratio_range": (float(live.ratio.min()), float(live.ratio.max())),
+        "replicate_scatter": float(max(repeats)),
+        "dead_with_enzyme": int((~table.live).sum()),
+    }
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
@@ -427,6 +564,8 @@ def main():
                         help="print the per-experiment design table")
     parser.add_argument("--orders", action="store_true",
                         help="print the apparent reaction orders")
+    parser.add_argument("--controls", action="store_true",
+                        help="print the +/- chemzyme paired controls")
     arguments = parser.parse_args()
 
     if arguments.design:
@@ -438,6 +577,20 @@ def main():
     if arguments.orders:
         with pd.option_context("display.width", 200):
             print(order_table().to_string(float_format=lambda v: f"{v:.3f}"))
+        return 0
+
+    if arguments.controls:
+        with pd.option_context("display.width", 200):
+            print(paired_controls().to_string(
+                index=False, float_format=lambda v: f"{v:.4g}"))
+        effect = catalytic_effect()
+        print(f"\nvmax(+chemzyme)/vmax(-chemzyme) over "
+              f"{effect['rungs']} live matched rungs: "
+              f"median {effect['median_ratio']:.2f}x, range "
+              f"{effect['ratio_range'][0]:.2f}-{effect['ratio_range'][1]:.2f}x")
+        print(f"same experiment run twice (exps 69 vs 70) disagrees by up to "
+              f"{effect['replicate_scatter']:.2f}x -- the ratio is not "
+              f"resolved from no effect")
         return 0
 
     facts = summary()

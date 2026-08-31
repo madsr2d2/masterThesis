@@ -611,6 +611,119 @@ above; and note that a buffer-dilution series is the only clean way to separate
 buffer catalysis from pH — which the existing titration data cannot do, since
 `[buf]` and `[sub]` were varied together (see `DATA_VERIFICATION.md`).
 
+## What the data says without a model
+
+Everything below is measured, not fitted. It comes from `data/scope.py` and
+`data/curve_metrics.py`; `DATA_VERIFICATION.md` (2026-08-31) carries the
+working. None of it depends on the reduced system in this document being right,
+so none of it moves if the fit changes.
+
+### Reaction orders, measured within runs
+
+The primary scope (exps 135–151, BnOH / 25 °C / pyrophosphate) is the only
+block in the archive that varies both substrate and peroxide *inside* single
+runs: 100.0% of its log[S] variance and 94.1% of its log[H2O2] variance is
+within-experiment, so neither order can be absorbed by a per-experiment offset.
+Orders are read off ladders — cuvettes of one run sharing a value of the
+partner axis — over the eleven runs whose own cuvettes predict their own rates
+(`scope.strong_runs()`: `concentration_agreement` ≥ 0.70, which separates the
+block cleanly — the eleven score 0.72–0.97, the five excluded score 0.61 down
+to 0.005, and exp 151 cannot be scored at all, its cuvettes scattering 234-fold
+with two negative rates):
+
+| | in [BnOH] | in [H2O2] |
+|---|---|---|
+| `v0`, the pre-catalytic rate | +0.43 | +0.69 |
+| `vmax`, the developed rate | **+0.01 ± 0.04** | **+0.87 ± 0.06** |
+| `gain` = `vmax`/`v0` | **−0.37 ± 0.07** | +0.18 |
+
+Fitting `vmax` within experiments gives R² = 0.88 against 0.53 for the same
+eleven runs pooled; across all seventeen it is 0.82 against 0.29. That gap is
+the whole argument for scoping — pooled, most of the variance is between runs,
+and a per-experiment offset would absorb the order being measured.
+`python data/scope.py --orders` reproduces the table.
+
+**The `vmax` substrate order of +0.01 is not saturation.** Saturation and
+inhibition both flatten an average order, and only the order *as a function of
+concentration* tells them apart — which is what `scope.local_orders` returns,
+as the log-log slope between adjacent rungs:
+
+| [BnOH] band | `v0` | `vmax` |
+|---|---|---|
+| below 1 mM | +1.04 | +0.30 |
+| 1–3 mM | +0.60 | +0.35 |
+| above 3 mM | +0.17 (6 of 15 negative) | **−0.386 (13 of 15 negative)** |
+
+(The bands above pool all 17 runs, to keep the rung counts usable. On the 11
+strong runs alone the top band is sharper still: **−0.457, negative in 11 of
+11**.)
+
+`v0` decays toward zero and stays positive — ordinary saturation, apparent Km
+around 2–3 mM. `vmax` **turns over**. The developed catalyst is inhibited by
+its own substrate at concentrations where the pre-catalytic rate is merely
+saturating.
+
+The obvious reading is substrate crowding the cyclodextrin cavity so the
+peracid cannot bind — but see the paired controls below, which show the same
+turnover with no cyclodextrin present. It should not be asserted as the
+explanation.
+
+### Autocatalysis
+
+**48 of 110 live in-scope curves are steeper later than at the start by more
+than 3σ.** It tracks the peroxide anion: 87% of the 30 curves above 0.1 mM
+[HOO⁻] accelerate, against 28% of the 80 below. Exps 140–143 accelerate hardest (median z of +4 to
++14, 19 of their 28 live curves); exps 146, 149 and 150 decelerate outright
+(median z near −20). The block-slope statistic (`curve_metrics.acceleration`) is used
+rather than a point-wise gradient because a point-wise gradient is too noisy to
+locate anything here: its own scatter is a median 12% of the largest gradient
+in the curve, and resampling a curve's noise moves the gradient's argmax by a
+median 14% of the run. Where the rate peaks is partly a draw; whether the curve
+is steeper later than at the start is not.
+
+The induction period — the time to reach half the eventual rate,
+`curve_metrics.lag_time` — has a **median of 23 minutes and an interquartile
+range of 18–35**, measured over the 35 accelerating curves in the 8 strong runs
+that carry at least three of them. Two things about it matter.
+
+**It does not track substrate**: r = +0.03 against log[BnOH]. And **it does not
+track conversion**: the fraction converted when the rate switches spans 332-fold
+across those same curves, 0.11% to 37%. A product-derived autocatalyst —
+benzaldehyde → perbenzoic acid, the obvious candidate — would have to fire at a
+roughly fixed conversion, and does not.
+
+**Nor is it a per-run clock.** If the induction were set by mixing or thermal
+equilibration it would be a property of the run, but the spread *within* a run
+(median 27 min) is as large as the spread of run medians (48 min, 16 to 64).
+
+What it does track, weakly, is peroxide: r = −0.35 against log[HOO⁻] and +0.40
+against log[H2O2] — one effect, not two, since the two axes move together, and
+weak enough that it constrains little. What survives is that the active oxidant
+must be *assembled* before it works, on a timescale set by something other than
+how much substrate has been consumed.
+
+### The +/− chemzyme controls
+
+Exps 65–71 run the same substrate ladder, `[H2O2]`, buffer, pH and temperature
+twice, once without the chemzyme and once with it at 0.028 mM
+(`scope.PAIRED_CONTROLS`, `python data/scope.py --controls`). They sit outside
+the primary scope — phosphate and boric buffer — so they inform interpretation
+and cannot be pooled into a fit. Two results bear directly on this document:
+
+**Autocatalysis needs the chemzyme.** At matched [HOO⁻] of 0.03–0.10 mM, 0 of
+16 enzyme-free curves accelerate against 7 of 23 catalysed (Fisher p = 0.029).
+No enzyme-free run reaches [HOO⁻] above 0.1 mM, where the catalysed block
+reaches 87%, so the strongest regime is untested without enzyme.
+
+**The substrate turnover does not.** Above 3 mM the clean enzyme-free runs give
+a local `vmax` order of −0.245, negative in both available pairs, against
+−0.386 catalysed; below 3 mM, +0.182 against +0.338. Two pairs settle nothing
+and this does not exclude cavity binding — but the turnover appears with no
+cyclodextrin in the cuvette, so **substrate crowding the cavity is not the
+required explanation** and should not be asserted as one. Cuvette position and
+signal starvation at the top rung were both excluded rather than assumed
+(`DATA_VERIFICATION.md`, 2026-08-31).
+
 ## Open questions
 
 - **What does the absorbance actually measure?** This is now the single most
@@ -635,6 +748,21 @@ buffer catalysis from pH — which the existing titration data cannot do, since
   value is only as good as the model producing it, and that model currently
   misfits. `data/fit_kinetics.py --profile-r` reports the cost profile over `r`
   alongside the fitted value.
+- **No rate enhancement is visible in the only paired controls.** Over the 9
+  substrate rungs where both sides carry a live signal, `vmax` with 0.028 mM
+  chemzyme is **0.63× the enzyme-free value (range 0.31–1.41×)**, and 3 of 12
+  catalysed cuvettes are dead where their enzyme-free partner is alive. This is
+  *not* a measurement of retardation: exps 69 and 70 are the same experiment run
+  twice and disagree by up to 1.55×, and 0.63× is inside that. What it does say
+  is that an enhancement above about 1.6× would have been visible and is not
+  there — at pH 8.0–8.5, one loading, in phosphate and boric buffer, with
+  [HOO⁻] never above 0.089 mM. Reference 1 reports very large rate enhancements
+  for this chemistry, so either these conditions are far from where the
+  chemzyme works, or the enhancement is smaller here than the literature
+  implies. The primary scope cannot settle it, because every run in it carries
+  enzyme. An enzyme-free pyrophosphate run across the scope's pH range is the
+  single most valuable missing experiment, and it would answer this and the
+  background question below at the same time.
 - **The largest catalysed block has no background.** Rate constants may be
   pooled only within one (substrate, temperature, buffer) cell — Arrhenius,
   different molecules, and the buffer section above all forbid pooling across

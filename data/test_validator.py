@@ -154,6 +154,43 @@ BUFFER_CASES = [
 ]
 
 
+# The instrument's Substrate Conc. header is the only concentration record in
+# the archive that is not the workbook, so it catches the one thing the
+# workbook-based checks structurally cannot: a workbook copied forward from
+# another run. A copied workbook is perfectly self-consistent, so every
+# arithmetic check passes on it.
+INSTRUMENT_CASES = [
+    # The shape the exps 69/70 finding took: a run wearing another run's
+    # ladder. Exp 67's header agrees with its sheet, so corrupting the compiled
+    # value must break that agreement.
+    ("[sub] replaced by another run's ladder",
+     lambda d: _set(_set(_set(_set(d, 67, "[sub]", 2.108, sample=1),
+                              67, "[sub]", 1.054, sample=2),
+                         67, "[sub]", 0.422, sample=3),
+                    67, "[sub]", 0.211, sample=4), "instconc"),
+    # A single cuvette wrong, which no per-experiment summary sees.
+    ("one cuvette's [sub] wrong",
+     lambda d: _set(d, 68, "[sub]", 42.0, sample=2), "instconc"),
+    # A wholesale rescaling -- the factor-of-two dilution mistake exp 40's
+    # header turned out to record.
+    ("[sub] halved across a run",
+     lambda d: _set(d, 71, "[sub]",
+                    float(d.loc[d.experiment == 71, "[sub]"].iloc[0]) / 2,
+                    sample=1), "instconc"),
+]
+
+
+def _run_instrument(corrupt, tmpdir):
+    """Applies a corruption and returns verify_instrument's findings."""
+    from verify_instrument import analyse as analyse_instrument
+    data = pd.read_csv(DATASET_PATH)
+    corrupt(data)
+    path = os.path.join(tmpdir, "instrument.csv")
+    data.to_csv(path, index=False)
+    findings, _ = analyse_instrument(path)
+    return findings
+
+
 def _run_buffer(corrupt, tmpdir):
     """Applies a corruption and returns verify_buffer's findings."""
     from verify_buffer import analyse as analyse_buffer
@@ -232,6 +269,17 @@ def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         for name, corrupt, expected_check in BUFFER_CASES:
             findings = _run_buffer(corrupt, tmpdir)
+            caught = [f for f in findings if f[1] == expected_check]
+            if caught:
+                passed += 1
+                print(f"  PASS  {name:38s} -> {expected_check}: {caught[0][2][:56]}")
+            else:
+                failed += 1
+                print(f"  FAIL  {name:38s} -> nothing raised under '{expected_check}'")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for name, corrupt, expected_check in INSTRUMENT_CASES:
+            findings = _run_instrument(corrupt, tmpdir)
             caught = [f for f in findings if f[1] == expected_check]
             if caught:
                 passed += 1

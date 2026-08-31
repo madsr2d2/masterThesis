@@ -64,6 +64,19 @@ Add it to `scope.py` (a selection or a derived column) or `curve_metrics.py`
 a throwaway one — throwaway numbers end up in documents. If it was worth
 computing once it will be asked for again.
 
+## The +/- chemzyme controls
+
+The scope has no enzyme-free run — every one of exps 135-151 carries enzyme.
+The nearest thing is `scope.PAIRED_CONTROLS` (exps 65/66, 67/68, 69+70/71):
+the same ladder run with and without 0.028 mM chemzyme, in phosphate and boric
+buffer at pH 8.0-8.5. `python data/scope.py --controls`.
+
+Use them for interpretation, never for a fit or a pooled constant -- different
+buffer, and one `[H2O2]` per run. And when reading a substrate order from
+enzyme-free runs, use `scope.FREE_BNOH` (exps 65, 67, 69, 70) and **not**
+exps 3 and 6, which are buffer titrations whose rate falls with substrate for
+a reason that is not substrate. `scope.FREE_BNOH_BUFFER_TITRATIONS` records it.
+
 ## Conventions that are already settled
 
 - **Sheet over filename.** A declared sheet value beats a filename; filenames

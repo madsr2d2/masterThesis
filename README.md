@@ -27,7 +27,7 @@ data/plot_fit.py            draws a saved fit against the curves it was fitted t
 data/fits/*.json            saved fit results (a fit costs ~30 min; these do not)
 
 data/validate_dataset.py    the gate: run this before trusting anything
-data/verify_*.py            four independent cross-checks (see below)
+data/verify_*.py            five independent cross-checks (see below)
 data/read_rre.py            reads the instrument binaries the .txt exports came from
 data/test_*.py              five test suites, including fault injection
 data/build_dossier.py       one HTML page per experiment, for review by eye
@@ -45,7 +45,7 @@ From the repository root:
 
 ```bash
 python data/validate_dataset.py           # fast: metadata, optics, exclusions
-python data/validate_dataset.py --deep    # adds the four independent chains
+python data/validate_dataset.py --deep    # adds the five independent chains
 python data/test_validator.py             # fault injection: corrupt, expect a catch
 python data/test_solution_chemistry.py
 python data/test_curve_flags.py
@@ -120,6 +120,7 @@ nothing — a mistake made once here, and the reason this is stated as a rule.
 | `verify_rate_workbook.py` | `Rate(pH).xls`, the experimenter's own analysis, written for another purpose |
 | `verify_dilutions.py` | the recorded dilution series, traced back to weighed grams |
 | `verify_buffer.py` | each buffer stock recovered from the sheet's own cuvette volumes |
+| `verify_instrument.py` | the instrument's own `Substrate Conc.` export header — the only concentration record that is not the workbook, so the only one that can catch a workbook copied forward from another run |
 
 `data/experiment_data.csv` is fully reproducible from `data/data`: rebuilding it
 gives zero differing cells. Rebuilds are therefore safe, and any hand-patch has

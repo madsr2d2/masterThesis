@@ -36,9 +36,15 @@ four files when the scoped figures are 100.0% / 94.1%.
 
 ## Precedence and provenance
 
-- **Sheet over filename.** A declared sheet value beats a filename. Filenames
-  get copied forward between runs and only partly updated. Inverting this is
-  how the worst error in `DATA_VERIFICATION.md` happened.
+- **Sheet over filename, and sheet over the instrument's header.** A declared
+  sheet value beats a filename. Filenames get copied forward between runs and
+  only partly updated. Inverting this is how the worst error in
+  `DATA_VERIFICATION.md` happened. The `.txt` exports' `Substrate Conc.` header
+  copies forward the same way — exp 72's is a truncated copy of exp 71's — so
+  it loses to the sheet too. It is still worth reading: it is the only
+  concentration record that is not the workbook, it corroborates 60 of 75
+  experiments, and it is what caught exps 69 and 70
+  (`data/verify_instrument.py`).
 - Every judgement call is recorded **twice**: as a `RULINGS` or
   `KNOWN_EXCLUSIONS` entry in `data/build_manifest.py` with its reasoning, and
   as a dated entry in `DATA_VERIFICATION.md` with the evidence. Nothing is

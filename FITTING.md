@@ -173,6 +173,38 @@ real within-run substrate ladder, and [F1](#f1--the-model-is-first-order-in-subs
 rests on them. They are borate and phosphate, so they cannot be pooled into
 this scope, but they remain the strongest background evidence in the dataset.
 
+They are also **half of a paired control**, which this document had not
+recorded. Exps 65–71 are consecutive runs from 6–8 June 2010 in which the same
+substrate ladder, `[H2O2]`, buffer, pH and temperature were run twice, once
+without the chemzyme and once with it at 0.028 mM:
+
+| enzyme-free | + chemzyme | buffer | pH | ladder (mM) |
+|---|---|---|---|---|
+| 65 | 66 | boric | 8.51 | 0.365–7.31 |
+| 67 | 68 | phosphate | 8.01 | 0.365–7.31 |
+| 69, 70 | 71 | phosphate | 8.01 | 0.211–2.108 |
+
+`scope.PAIRED_CONTROLS` holds them; `python data/scope.py --controls` prints
+the comparison. They carry no peroxide order — one `[H2O2]` per run — so they
+cannot inform a fit, but they answer something the primary scope cannot ask at
+all, because every run in it carries enzyme. Over the 9 rungs where both sides
+are live, `vmax` with chemzyme is **0.63× the enzyme-free value (0.31–1.41×)**,
+which is inside the 1.55× disagreement between exps 69 and 70 — the *same*
+experiment run twice. No enhancement above about 1.6× is present at these
+conditions. See `MECHANISM.md` and `DATA_VERIFICATION.md` (2026-08-31).
+
+**A caution for F1.** F1's second row already warns that exps 3 and 6 are
+buffer titrations whose apparent substrate order is a buffer effect. That trap
+was walked into again on 2026-08-31 while measuring the enzyme-free substrate
+turnover: including exps 3 and 6 swings the local `vmax` order above 3 mM from
+−0.245 to −0.431 and turns 2 clean rung-pairs into 7. `scope.FREE_BNOH` now
+holds only exps 65, 67, 69, 70, with the reason recorded beside it.
+
+**And a provenance note.** Exps 69 and 70's `.txt` export headers declare exp
+68's substrate ladder rather than their own; ruled to the sheet on 2026-08-31,
+with the evidence in `verify_instrument.ADJUDICATED`. No number changes, but
+anyone reading the raw exports will hit it.
+
 ## The code
 
 | module | what it is |

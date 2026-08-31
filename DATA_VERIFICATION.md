@@ -8,6 +8,169 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-08-31 — The instrument's export header, and what it says about exps 69 and 70
+
+Raised while looking for enzyme-free BnOH runs. The `.txt` exports carry a line
+the pipeline had never read:
+
+```
+Substrate Conc.  7.3100 mmol/L   Substrate Conc.  3.6550 mmol/L   ...
+```
+
+This matters because it is **the only concentration record in the archive that
+is not the workbook**. `recompute_concentrations.py`, `verify_dilutions.py` and
+`verify_buffer.py` all re-derive a cuvette's concentration from cells in the
+same workbook the value came from. They catch arithmetic errors. They cannot
+catch a workbook copied forward from the previous run, because a copied
+workbook is perfectly self-consistent — and this archive copies things forward
+repeatedly.
+
+`data/verify_instrument.py` reads it; `validate_dataset.py --deep` runs it.
+**75 of the 100 exports carry the header and 60 agree** with the compiled
+`[sub]` within 2%. Those 60 experiments now rest on two independent records.
+
+### The header is not an authority
+
+It is an operator-typed method field, and it goes stale exactly the way a
+filename does. **Exp 72 is the proof**: its header holds exp 71's first three
+values with the fourth missing — a truncated copy of the previous run — while
+the two workbooks compile different ladders. A field that can be a truncated
+copy of the previous run is not evidence about this run.
+
+So the precedence rule is the one already stated for filenames: **the sheet
+wins.** The header is a tripwire, not a verdict — a disagreement says one of
+the two records is stale and the experiment needs a look.
+
+### The 15 disagreements
+
+Fourteen are adjudicated to the sheet, with the evidence per experiment in
+`verify_instrument.ADJUDICATED`. They fall into three kinds:
+
+| kind | experiments | evidence |
+|---|---|---|
+| stale copy of an earlier run | 40, 58, 69, 70, 72, 83 | header holds another experiment's values verbatim — the immediately preceding run in every case but exp 83, whose header is exp 62's ladder. Exp 40's is exp 39's, and exp 40 compiles exactly half of it at every rung, which is the dilution exp 40 adds |
+| the field reused for something else | 127, 129, 130, 131 | header holds 102 or 196 mmol/L in two cuvettes and ~1–4 in two, against a constant compiled 9.47 — not a substrate concentration at all (130 and 131 additionally repeat 129's verbatim) |
+| a typo, or a different series | 30, 57, 82, 84 | exp 30 sample 3 reads `2856.0000` where the sheet has `0.2856`, one misplaced decimal, the other three cuvettes agreeing to four figures. Exp 82's header and sheet hold different dilution series off the same starting value (header 1, 4/5, 2/3, 4/9; sheet 1, 5/6, 5/7, 1/2), sample 1 agreeing |
+
+**Exps 69 and 70 are the find.** Their headers carry exp 68's ladder
+(7.31/3.655/1.827/0.3655) while their sheets compile 2.108/1.054/0.422/0.211.
+Nothing in the manifest had recorded this. Ruled to the sheet, on three
+grounds: exps 67–72 all ran on 6/8/2010 in sequence; exp 71's header *was*
+updated to the low ladder and agrees with its own sheet; and exps 69, 70 and 71
+form a coherent set — two enzyme-free runs and their catalysed partner at one
+ladder — where the alternative leaves exp 71 unpaired and makes exps 69 and 70
+a third replicate of exp 67. No number changes; the dataset already held the
+sheet value.
+
+### One that stays open
+
+**Exp 36**: the header reads 59.8997 mmol/L in all four cuvettes against a
+compiled 57.90 — a uniform 3.5% gap. It is not stale, since exps 34, 35 and 41
+declare something else, so neither record is obviously the copy. Recorded in
+`verify_instrument.OPEN_QUESTIONS` and graded as a warning, not waved through.
+
+### A stale block inside a workbook, too
+
+Exp 66's workbook carries the same failure internally: `Sheet1` is headed `67`,
+and `Sheet2` is an instrument block from **exp 62** (batch `rate062.rre`, exp
+62's ladder, dated two days earlier). The pipeline reads neither — it takes
+`data/data/data66.txt` and `rate066.rre`, whose own header declares the correct
+7.3100/3.6550/1.8275/0.3655. No number is affected, but it is the same
+copy-forward, and exp 83's header carries that same exp-62 template.
+
+---
+
+## 2026-08-31 — The +/- chemzyme controls, and what they say
+
+Raised by the user, asking what the enzyme-free runs can settle. The answer
+turned out not to be the enzyme-free runs alone.
+
+### The clean enzyme-free BnOH runs are four, not six
+
+Six enzyme-free BnOH runs exist: exps 3, 6, 65, 67, 69, 70. **Exps 3 and 6 must
+not be read as a substrate order.** They are buffer titrations — `[buf]` falls
+85 → 25 mM as `[sub]` rises 1.28 → 8.98 mM, r = −0.91 and −0.98 against
+log[sub] — which `FITTING.md` F1 has recorded since 2026-08-29. Their rate
+falls with substrate, which looks exactly like the turnover the catalysed block
+shows and is a buffer effect wearing substrate's clothes.
+
+Pooling them swings the local order of `vmax` above 3 mM from **−0.245** (2
+clean rung-pairs) to **−0.431** (7 pairs, 5 of them the titrations). This was
+done wrong once during this session before F1 was re-read. `scope.FREE_BNOH`
+now holds only exps 65, 67, 69, 70, with the trap recorded beside it in
+`scope.FREE_BNOH_BUFFER_TITRATIONS`.
+
+### The paired controls
+
+Exps 65–71 are consecutive runs from 6–8 June 2010 in which the same substrate
+ladder, `[H2O2]`, buffer, pH and temperature were run **twice, once without the
+chemzyme and once with it at 0.028 mM**:
+
+| enzyme-free | + chemzyme | buffer | pH | ladder (mM) |
+|---|---|---|---|---|
+| 65 | 66 | boric | 8.51 | 0.365–7.31 |
+| 67 | 68 | phosphate | 8.01 | 0.365–7.31 |
+| 69, 70 | 71 | phosphate | 8.01 | 0.211–2.108 |
+
+All seven are on `.rre`. The catalyst is named in exp 66's sheet —
+**"a-diesterketon", MW 1054.29 g/mol**, 0.028 mM in cuvette, inside the
+0.014–0.069 mM range the primary scope uses. `scope.PAIRED_CONTROLS` holds
+them; `python data/scope.py --controls` prints the comparison.
+
+They are **not** in `PRIMARY_SCOPE` and cannot be pooled with it: phosphate and
+boric buffer, and one `[H2O2]` per run, so they carry no peroxide order. What
+they carry is the one comparison the primary scope cannot make at all.
+
+### No detectable rate enhancement
+
+Over the **9 substrate rungs where both sides carry a live signal**,
+`vmax(+chemzyme) / vmax(−chemzyme)` is **0.63× median, range 0.31–1.41×**.
+Three of the twelve catalysed cuvettes are dead where their enzyme-free partner
+is alive.
+
+**This is not a measurement of retardation.** Exps 69 and 70 are the same
+experiment run twice and their `vmax` disagrees by up to **1.55×** rung for
+rung. 0.63× is inside that. The defensible statement is the negative one: at
+pH 8.0–8.5, 0.028 mM, in phosphate and boric buffer, **a rate enhancement above
+about 1.6× would have been visible and is not there.**
+
+Every caveat that matters: three catalysed runs; **half a pH unit** (8.01 and
+8.51) against the primary scope's four; a single enzyme loading; not
+pyrophosphate, which is the scope's buffer and a metal chelator; and `[HOO-]`
+never exceeding 0.089 mM, while the catalysed block only becomes strongly
+autocatalytic above 0.1 mM.
+
+### Autocatalysis does track the chemzyme
+
+At matched `[HOO-]` of 0.03–0.10 mM, **0 of 16 enzyme-free curves accelerate
+against 7 of 23 in-scope catalysed ones** (Fisher p = 0.029). Within the paired
+runs alone it is 0/16 against 2/9, p = 0.12. No enzyme-free run reaches
+`[HOO-]` above 0.1 mM, which is exactly where the catalysed block reaches 87%,
+so the regime where the effect is largest is untested without enzyme.
+
+### The substrate turnover is not evidence for cavity binding
+
+The catalysed block's `vmax` turns over above 3 mM substrate — local order
+**−0.386**, negative in 13 of 15 rung-pairs. The obvious reading is substrate
+crowding the cyclodextrin cavity so the peracid cannot bind.
+
+The clean enzyme-free runs do the same thing. Above 3 mM their local order is
+**−0.245, negative in both available pairs**; below 3 mM the two sets agree as
+well (+0.182 enzyme-free against +0.338 catalysed). Two rung-pairs settle
+nothing, and this does not exclude cavity binding — but it removes it as the
+*required* explanation, since the turnover appears with no cyclodextrin in the
+cuvette.
+
+Two confounds were excluded rather than assumed. **Cuvette position**: the
+position-to-concentration mapping runs one way in exps 3 and 6 (s0 rises with
+sample number) and the other in exps 65–70, and the turnover appears in both.
+**Signal starvation at the top rung**: net absorbance is *largest* at high
+substrate in exps 65 and 67 (0.0355 and 0.0404 AU), and those two runs carry
+essentially no substrate baseline at their top rung (0.002 and 0.007 AU) while
+still turning over.
+
+---
+
 ## 2026-08-31 — Readings moved from the .txt exports to the instrument's .rre
 
 Raised by the user, asking whether the baseline absorbance curves were in the

@@ -29,7 +29,9 @@ back through the recorded dilution chain (verify_dilutions.py), and traces
 [enz] back to the weighed mass of catalyst (verify_enzyme.py), and cross-checks
 [enz] against the experimenter's own Rate(pH).xls analysis
 (verify_rate_workbook.py), and recovers each buffer stock from the sheet's own
-cuvette volumes (verify_buffer.py). This is slower
+cuvette volumes (verify_buffer.py), and checks [sub] against the instrument's
+own export header (verify_instrument.py) -- the one concentration source in the
+archive that is not the workbook. This is slower
 -- it reopens all 98 spreadsheets several times -- so it is opt-in.
 
 Findings are graded:
@@ -362,6 +364,24 @@ if __name__ == "__main__":
             else:
                 findings.error("deep:buf", number, message)
 
+        from verify_instrument import analyse as analyse_instrument
+        instrument_findings, instrument_summary = analyse_instrument(
+            args.csv, args.manifest)
+        for number, check, message in instrument_findings:
+            # The instrument's Substrate Conc. header is the only concentration
+            # source in this archive that is not the workbook, so it is worth
+            # checking -- but it is an operator-typed method field that copies
+            # forward between runs exactly as a filename does, and exp 72 holds
+            # a truncated copy of exp 71's. The sheet wins, as it does against
+            # a filename; verify_instrument.py carries the evidence per
+            # experiment.
+            if check == "instnote":
+                findings.note("deep:inst", number, message)
+            elif check == "instopen":
+                findings.warn("deep:inst", number, message)
+            else:
+                findings.error("deep:inst", number, message)
+
         if not args.quiet:
             with_blocks = dilution_summary[dilution_summary.blocks > 0]
             traced = int(with_blocks[["sub", "h2o2"]].fillna(0).to_numpy().sum())
@@ -371,6 +391,9 @@ if __name__ == "__main__":
             confirmed = int(workbook_summary.matched.apply(bool).sum()) if len(workbook_summary) else 0
             print(f"deep check: {confirmed} of {len(workbook_summary)} pH points in "
                   f"Rate(pH).xls confirm the dataset's [enz] independently")
+            print(f"deep check: {instrument_summary['agreeing']} of "
+                  f"{instrument_summary['checked']} experiments have their "
+                  f"[sub] confirmed by the instrument's own export header")
             recovered = buffer_summary[buffer_summary["stock_mM"].notna()]
             evidenced = int((recovered["source"] == "sheet-arithmetic").sum())
             named = int(buffer_summary["buffer_name"].notna().sum())
