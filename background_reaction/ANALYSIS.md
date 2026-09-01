@@ -248,7 +248,7 @@ step or an artefact of splitting one variable in two is not settled here; the
 two terms are separable in this design (VIF 1.3 and 3.1) but the split is a
 modelling choice, not a measurement.
 
-### 6b. Why first order in buffer? Two mechanisms, and this design cannot separate them
+### 6b. Why first order in buffer? Catalysis, not a buffer-made oxidant
 
 The obvious reading of a first-order buffer dependence is that the buffer anion
 is *making an oxidant* — phosphate + H₂O₂ → **peroxomonophosphate**, the way
@@ -282,8 +282,8 @@ kinetically useful one.
 That is an argument, not a measurement, and the possibility is not zero: a tiny
 equilibrium concentration of a *much* faster oxidant can still carry a rate.
 
-**What this dataset can say: nothing.** Both mechanisms are first order in a
-buffer *species*, and the design cannot resolve a species from the total.
+**The phosphate runs cannot separate them.** Both mechanisms are first order
+in a buffer *species*, and the design cannot resolve a species from the total.
 Within the titration runs (exps 3 and 6, the only sweep of `[buf]` at fixed pH)
 the pH is constant, so log[buf], log[H₂PO₄⁻] and log[HPO₄²⁻] are the same
 variable — correlation **1.000000**, identical ranges. The measured +1.29 is
@@ -316,6 +316,86 @@ arithmetic, not evidence".
 `scope.frame` now carries `buf_acid`, `buf_base` and `buf_pka`
 (`solution_chemistry.dominant_buffer_pair`) so all of this is a query rather
 than an argument.
+
+**But the boric run can, and it answers (2) no.** Added 2026-09-01,
+`scope.peroxo_buffer_test`, `python data/scope.py --buffer`.
+
+Borate is the buffer where the peroxo route is not a hypothesis: MECHANISM.md
+item 39 has B(OH)₃ + H₂O₂ → peroxoborate with K = 2.0e-8, significant above
+pH ≈ 7.7, and the anionic peroxoborates are *much faster oxidants than H₂O₂
+itself*. Exp 65 is boric buffer at **pH 8.51** — 0.8 units above that
+threshold, at 122 mM H₂O₂. If a buffer-derived peroxo oxidant is what carries a
+first-order buffer term, exp 65 has to run far above a rate law fitted without
+one.
+
+The archive happens to hold the controlled comparison. **Exps 65 and 67 are
+matched cuvette for cuvette**: the same substrate ladder (7.310 / 3.655 /
+1.827 / 0.365 mM), the same [H₂O₂] (122.426 mM), the same temperature, the same
+instrument, the same `.rre` source, 87.5 against 85.0 mM buffer. Only the salt
+and the pH differ. Because [S] and [H₂O₂] match exactly, the predicted ratio
+depends only on the `[buf]` and `[HOO⁻]` orders — the substrate and peroxide
+orders, the two worst determined here, drop out — and the law is fitted on
+`FREE_BNOH_PHOSPHATE`, so exp 65 is out of sample.
+
+| estimator | predicted | observed | excess |
+|---|---|---|---|
+| `v0` | 1.89× | 1.25× | **0.66×** |
+| `vmax` | 1.85× | 2.50× | **1.35×** |
+| `v0_whole` | 1.73× | 1.44× | **0.83×** |
+| `v0_quad` | 1.83× | 0.36× | **0.20×** (2 of 4 cuvettes) |
+
+**No excess.** Three of four estimators put boric *below* the phosphate law and
+one puts it 1.35× above. The test is not short of power: a peroxo species
+present at tens of mM and even ten times faster than H₂O₂ would show as a
+multiple, not as scatter about 1. And the first-order buffer term is itself a
+phosphate result — dropping exp 65 from `buffer_dependence`'s anchor as well
+leaves **+1.31 ± 0.23** (`vmax`), **+1.29 ± 0.25** (`v0_quad`).
+
+So the buffer is **catalysing**, not supplying the oxidant. That is the
+standing Sander & Jencks reading, now with evidence rather than only an
+argument from preparative chemistry.
+
+**What it does not settle.** pH is not matched, so the prediction leans on the
+`[HOO⁻]` order holding from 8.01 up to 8.51 — an extrapolation, and exp 65 is
+the only run there. One run of four cuvettes against one run of four, on a day
+and a cell that are not controlled; exp 65 is the run neither rate form fits
+(§3a) and its noise runs 1.5–2.8× exp 67's. And strictly it shows the peroxo
+mechanism does not appear *where it certainly operates*, which is evidence
+against it for phosphate but not a measurement on phosphate. The ³¹P NMR below
+is still the direct test and still cheap.
+
+**So what IS the buffer catalysing? Not settled, and the standing citation has
+a gap.** Sander & Jencks is the right *physics* — a buffer species in the
+transition state of the rate-determining step, which is what a first-order
+buffer term means and all it means — but their catalysis is of H₂O₂ addition to
+a **carbonyl**, and the enzyme-free background has no carbonyl at t = 0. Two
+ways out:
+
+- **Benzaldehyde supplies it as it accumulates.** That route is autocatalytic,
+  and this background does not accelerate — 1 of 16 at the fixed-buffer anchor
+  against 50 of 110 catalysed increments, with exps 67, 69 and 70 actively
+  decelerating (§7). Disfavoured by the data.
+- **The buffer catalyses the oxidant's formation, before the substrate is
+  involved.** The rate law has that shape: total peroxide ≈ **+2.3** at fixed
+  pH against a substrate order of **+0.32**. Two peroxide-derived species in
+  the rate-determining step, the substrate barely in it — making the oxidant
+  is slow and oxidising BnOH is fast. A general base assisting the proton
+  transfer that makes it is first order in buffer, which is what is measured.
+
+The second is a hypothesis consistent with the orders, not a result, and it is
+recorded as one in `MECHANISM.md`. What **is** established: the order is
+**+1.19 ± 0.21** (`vmax`) and **+1.30 ± 0.25** (`v0_quad`) — 5σ from zero,
+under 1.2σ from exactly one — independently **+0.83 ± 0.29** on the
+4OMe-BnOH / 40 °C block; it survives dropping boric from both arms; and it is
+catalysis rather than oxidant-making.
+
+**A consequence worth stating plainly.** An order of 1 with no sign of
+flattening means the buffer-free term is small over 25–85 mM: the background
+is not a property of BnOH and H₂O₂, it is roughly *proportional to how much
+buffer was in the cuvette*. Two "uncatalysed rates" measured in different
+buffer concentrations are not comparable — and adding a buffer term to
+`scope.literature_comparison` does move the median excess over the literature's
+uncatalysed rate, from **34× to 25×** (§9).
 
 ### 6a. What the boric run carries
 

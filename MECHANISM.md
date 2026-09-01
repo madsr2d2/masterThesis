@@ -601,6 +601,29 @@ buffers at the same nominal pH are not comparable without accounting for this.
   independently of pH. This is exactly the general acid/base catalysis expected
   at steps 1, 4 and 6, and it means buffer concentration is a real kinetic
   variable, not a nuisance parameter.
+- **WHICH step the buffer catalyses in the ENZYME-FREE background is NOT
+  settled** (noted 2026-09-01; reasoning, not sourced). Sander & Jencks is
+  cited above for the first-order buffer term, and it is the right physics --
+  a buffer species in the transition state of the rate-determining step -- but
+  it is catalysis of H2O2 addition to a CARBONYL, and the background has no
+  carbonyl at t = 0. There are two ways out and the data prefers the second:
+    * *Benzaldehyde, the product, supplies the carbonyl as it accumulates.*
+      That route is autocatalytic, and the background does not accelerate:
+      1 of 16 curves at the fixed-buffer anchor, against 50 of 110 in-scope
+      catalysed increments, and exps 67, 69 and 70 actively DECELERATE
+      (background_reaction/ANALYSIS.md section 7). Disfavoured.
+    * *The buffer catalyses the oxidant's formation, before the substrate is
+      involved at all.* The measured rate law fits that shape: total peroxide
+      order ~ +2.3 at fixed pH (+1.49 in [H2O2] plus +0.82 in [HOO-]) with a
+      substrate order of only +0.32. Two peroxide-derived species in the
+      rate-determining step and the substrate barely in it -- making the
+      oxidant is slow, oxidising BnOH is fast. A general base assisting the
+      proton transfer that makes it is then first order in buffer, which is
+      what is measured.
+  The second is a hypothesis consistent with the orders, not a result. What is
+  established is the order itself (+1.19 to +1.31, 5 sigma from zero and
+  indistinguishable from exactly 1) and that it is catalysis rather than the
+  buffer supplying the oxidant -- the boric probe, next.
 - **Does phosphate form a peroxo species too?** Raised 2026-09-01, and it is
   the right question to ask of a first-order buffer dependence: if
   HPO4^2- + H2O2 <-> HPO5^2- + H2O ran at all, the buffer would be a REAGENT
@@ -619,13 +642,31 @@ buffers at the same nominal pH are not comparable without accounting for this.
   measurement, and it is not conclusive: a tiny concentration of a much faster
   oxidant can still carry a rate.
 
-  **The kinetics cannot decide it.** Both this and general acid/base catalysis
-  are first order in a buffer SPECIES, and the enzyme-free design cannot
-  resolve a species from the total: within exps 3 and 6, the only sweep of
-  [buf] at fixed pH, log[buf], log[H2PO4-] and log[HPO4^2-] are the same
+  **The phosphate kinetics cannot decide it.** Both this and general acid/base
+  catalysis are first order in a buffer SPECIES, and the enzyme-free design
+  cannot resolve a species from the total: within exps 3 and 6, the only sweep
+  of [buf] at fixed pH, log[buf], log[H2PO4-] and log[HPO4^2-] are the same
   variable (correlation 1.000000). Across pH there are two phosphate levels and
   everything moves together -- substituting the basic form for the total drives
   its VIF to 30.2 against 2.8. See background_reaction/ANALYSIS.md section 6b.
+
+  **The BORIC run can decide it, and the answer is no** (2026-09-01,
+  `scope.peroxo_buffer_test`). Borate is where the peroxo route is not a
+  hypothesis: item 39 above, K = 2.0e-8, significant above pH ~7.7, and the
+  peroxoborates are much faster oxidants than H2O2 itself. Exp 65 is boric at
+  pH 8.51. Exps 65 and 67 are matched cuvette for cuvette -- same substrate
+  ladder, same 122.426 mM H2O2, same temperature, instrument and .rre source,
+  87.5 against 85.0 mM buffer -- so predicting exp 65 from a law fitted on
+  phosphate alone needs only the [buf] and [HOO-] orders. Excess over
+  prediction: 0.66x (v0), 1.35x (vmax), 0.83x (v0_whole), 0.20x (v0_quad).
+  NO EXCESS, where tens of mM of a much faster oxidant would show as a
+  multiple. And the first-order buffer term is itself a phosphate number:
+  dropping exp 65 from the anchor too leaves +1.31 +/- 0.23 (vmax).
+
+  So the buffer CATALYSES; it does not supply the oxidant. This does not
+  measure phosphate directly -- it shows the mechanism failing to appear where
+  it certainly operates -- and it leans on the [HOO-] order extrapolating from
+  pH 8.01 to 8.51. The 31P NMR below is still the direct test.
 
   **Decisive test: 31P NMR of the buffer under run conditions.**
   Peroxomonophosphate is a distinct resonance; one spectrum settles presence or

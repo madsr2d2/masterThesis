@@ -1044,6 +1044,96 @@ def buffer_cross_check(scope=FREE_4OME_40C):
     """
     return background_orders(scope, terms=("s0", "buf"), within=False)
 
+# The one matched pair in the enzyme-free archive that changes the buffer SALT
+# and almost nothing else. Exps 65 and 67 ran the same substrate ladder
+# (7.310 / 3.655 / 1.827 / 0.365 mM) at the same [H2O2] (122.426 mM), the same
+# temperature, the same instrument, and the same .rre source, at 87.5 against
+# 85.0 mM buffer. Only the salt -- boric against phosphate -- and the pH
+# (8.51 against 8.01) differ.
+PEROXO_PAIR = (65, 67)
+
+
+def peroxo_buffer_test(pair=PEROXO_PAIR, orders_scope=FREE_BNOH_PHOSPHATE,
+                       estimators=("v0", "vmax", "v0_whole", "v0_quad")):
+    """
+    Does a buffer that DOES form a peroxo species run faster than the law?
+
+    THE QUESTION. The enzyme-free rate is first order in buffer
+    (`buffer_dependence`), and two mechanisms give that: general acid/base
+    catalysis, or the buffer making an oxidant -- phosphate + H2O2 ->
+    peroxomonophosphate. Within the phosphate runs those are indistinguishable
+    (see background_reaction/ANALYSIS.md section 6b: log[buf], log[H2PO4-] and
+    log[HPO4^2-] are the same variable, correlation 1.000000).
+
+    THE WAY ROUND IT. Borate is the buffer where the peroxo route is not a
+    hypothesis. MECHANISM.md item 39 has B(OH)3 + H2O2 -> peroxoborate with
+    K = 2.0e-8, "significant above pH ~ 7.7", and the anionic peroxoborates
+    are much faster oxidants than H2O2 itself. Exp 65 is boric buffer at
+    pH 8.51 -- above that threshold, at 122 mM H2O2 -- so a substantial part
+    of its boron is peroxoborate. If a buffer-derived peroxo oxidant is what
+    carries a first-order buffer term, exp 65 must run far above a rate law
+    fitted without one. It does not.
+
+    HOW THE PREDICTION IS MADE. The rate law is fitted on `orders_scope`,
+    which excludes the boric run, so exp 65 is out of sample. Because the two
+    runs share [S] and [H2O2] exactly, the predicted ratio depends only on the
+    [buf] and [HOO-] orders; the substrate and peroxide orders, the two worst
+    determined here, drop out. Matching is per cuvette on `s0`, not on run
+    medians.
+
+    WHAT IT DOES NOT SETTLE. pH is not matched, so the prediction leans on the
+    [HOO-] order holding from 8.01 up to 8.51 -- an extrapolation, and exp 65
+    is the only run there. It is one run of four cuvettes against one run of
+    four, on a day and a cell that are not controlled. Exp 65 is also the run
+    neither rate form fits (section 3a) and its noise runs 1.5-2.8x exp 67's.
+    A null result here is evidence against the peroxo route, not proof, and it
+    says nothing directly about phosphate: it says the mechanism does not show
+    up where it certainly operates.
+
+    Returns a DataFrame indexed by estimator: `predicted` (boric/phosphate
+    from the phosphate-only law), `observed` (median over matched cuvettes),
+    `excess` = observed / predicted, `n` matched cuvettes, and the per-cuvette
+    ratios in `ratios`.
+    """
+    boric_experiment, phosphate_experiment = pair
+    data = frame(tuple(sorted(set(pair))))
+    data = data[data.live]
+    left = data[data.experiment == boric_experiment]
+    right = data[data.experiment == phosphate_experiment]
+
+    rows = []
+    for estimator in estimators:
+        law = background_orders(orders_scope, parameter=estimator,
+                                terms=("s0", "h2o2", "hoo", "buf"))
+        # [S] and [H2O2] are identical between the two runs, so only these two
+        # terms survive the ratio. Asserted rather than assumed: a pair that
+        # did not match on them would need the other two orders as well.
+        predicted = ((float(left.buf.median()) / float(right.buf.median()))
+                     ** law["order_buf"]
+                     * (float(left.hoo.median()) / float(right.hoo.median()))
+                     ** law["order_hoo"])
+        ratios = {}
+        for s0 in sorted(set(left.s0) & set(right.s0), reverse=True):
+            # A log-log order is undefined for a non-positive rate, and
+            # `v0_quad` returns one on two of exp 65's cuvettes: skip the
+            # cuvette rather than propagate a nan into the median.
+            a = left[left.s0 == s0][estimator].to_numpy(dtype=float)
+            b = right[right.s0 == s0][estimator].to_numpy(dtype=float)
+            if len(a) != 1 or len(b) != 1 or not (a[0] > 0 and b[0] > 0):
+                continue
+            ratios[float(s0)] = float(a[0] / b[0])
+        observed = float(np.median(list(ratios.values()))) if ratios else np.nan
+        rows.append({"estimator": estimator,
+                     "order_buf": law["order_buf"],
+                     "order_hoo": law["order_hoo"],
+                     "predicted": float(predicted),
+                     "observed": observed,
+                     "excess": observed / float(predicted),
+                     "n": len(ratios),
+                     "ratios": ratios})
+    return pd.DataFrame(rows).set_index("estimator")
+
+
 def literature_comparison(scope=FREE_BNOH_NEUTRAL, orders_scope=FREE_BNOH_ALL,
                           orders_terms=("s0", "h2o2", "hoo")):
     """
@@ -1256,6 +1346,31 @@ def main():
               f"{check['stderr_buf']:.2f}   (VIF {check['vif_buf']:.1f})")
         print(f"      order in [sub]  {check['order_s0']:+.2f} +/- "
               f"{check['stderr_s0']:.2f}")
+        phosphate = buffer_dependence(
+            anchor=tuple(e for e in BUFFER_FIXED if e not in BORIC_BUFFER))
+        print(f"\n  and it is a PHOSPHATE result: dropping the one boric run "
+              f"from the anchor leaves\n      order in [buf]  "
+              f"{phosphate['order_buf']:+.2f} +/- "
+              f"{phosphate['stderr_buf']:.2f}   (n={phosphate['n_fixed']})")
+
+        print(f"\n  WHAT MAKES IT FIRST ORDER. Catalysis by a buffer species, "
+              f"or the buffer making an\n  oxidant? Borate is where the "
+              f"second is not a hypothesis -- exp 65 sits at pH 8.51,\n  "
+              f"above the pH ~7.7 where peroxoborate becomes significant. "
+              f"Predicting it from a\n  law fitted on phosphate alone "
+              f"({PEROXO_PAIR[0]} against {PEROXO_PAIR[1]}, cuvette for "
+              f"cuvette at matched [S] and\n  [H2O2]):\n")
+        peroxo = peroxo_buffer_test()
+        for estimator, row in peroxo.iterrows():
+            print(f"      {estimator:9s} predicted {row['predicted']:.2f}x   "
+                  f"observed {row['observed']:.2f}x   "
+                  f"excess {row['excess']:.2f}x   (n={int(row['n'])})")
+        print(f"\n  No excess. A buffer that certainly forms a peroxo species "
+              f"is not faster than a\n  law fitted without one, so the "
+              f"first-order term is CATALYSIS, not oxidant-making.\n  "
+              f"See background_reaction/ANALYSIS.md section 6b for what this "
+              f"does and does not settle.")
+
         print(f"\n  The in-scope block is UNAFFECTED: [buf] = 75.013 mM in "
               f"all 119 of its curves,\n  so no buffer variation can reach "
               f"its substrate order.")

@@ -31,6 +31,10 @@ DOCUMENT = os.path.join(HERE, "ANALYSIS.md")
 # became per-curve, and nothing noticed, because every check here read
 # ANALYSIS.md and the stale sentence lived in build_figures.py.
 CURVES_PAGE = os.path.join(HERE, "progress_curves.html")
+# MECHANISM.md carries the same boric-probe numbers, in ASCII. A figure quoted
+# in two documents is two copies, and this project has had a number go stale in
+# one file while the other stayed right.
+MECHANISM_DOC = os.path.join(os.path.dirname(HERE), "MECHANISM.md")
 ESTIMATORS_ALL = ("v0_quad", "v0_burst", "vmax", "v0", "v0_whole")
 FAILURES = []
 
@@ -247,6 +251,51 @@ def main():
           f"`[H2PO4-]` {span.acid.iloc[0]:.1f} -> {span.acid.iloc[1]:.1f}, "
           f"`[HPO4^2-]` {span.base.iloc[0]:.1f} -> {span.base.iloc[1]:.1f}, "
           f"`[HOO-]` {span.hoo.iloc[0]:.4f} -> {span.hoo.iloc[1]:.3f}")
+
+    print("\nthe boric probe: does a peroxo-forming buffer run fast?")
+    # Section 6b's answer to "why first order in buffer" now rests on this
+    # table, in ANALYSIS.md AND in MECHANISM.md. Both are checked.
+    peroxo = scope.peroxo_buffer_test()
+    for estimator, row in peroxo.iterrows():
+        note = " (2 of 4 cuvettes)" if int(row["n"]) < 4 else ""
+        claim(f"boric probe, {estimator}",
+              f"| `{estimator}` | {row['predicted']:.2f}x | "
+              f"{row['observed']:.2f}x | **{row['excess']:.2f}x**{note} |")
+        claim(f"boric probe in MECHANISM.md, {estimator}",
+              f"{row['excess']:.2f}x ({estimator})", document=MECHANISM_DOC)
+    # The claim that three of four fall BELOW the law, which is the sentence
+    # the conclusion is written on.
+    below = int((peroxo.excess < 1).sum())
+    ok = below == 3
+    print(f"  {'pass' if ok else 'FAIL'}  three of four estimators put boric "
+          f"below the phosphate law: {below} of {len(peroxo)}")
+    if not ok:
+        FAILURES.append("the boric probe no longer puts 3 of 4 estimators below "
+                        "the phosphate law; section 6b's conclusion needs rewriting")
+    # And that the pair really is matched, which is what lets the substrate and
+    # peroxide orders cancel out of the prediction.
+    pair = scope.frame(tuple(sorted(scope.PEROXO_PAIR)))
+    pair = pair[pair.live]
+    matched = (pair.groupby("experiment").h2o2.nunique().eq(1).all()
+               and pair.h2o2.nunique() == 1
+               and len(set(pair[pair.experiment == scope.PEROXO_PAIR[0]].s0)
+                       ^ set(pair[pair.experiment == scope.PEROXO_PAIR[1]].s0)) == 0)
+    print(f"  {'pass' if matched else 'FAIL'}  exps {scope.PEROXO_PAIR} are "
+          f"matched in [S] and [H2O2]")
+    if not matched:
+        FAILURES.append("exps 65 and 67 no longer match in [S] and [H2O2]; the "
+                        "boric probe's prediction needs the other two orders")
+
+    print("\nthe buffer order is a phosphate number")
+    # buffer_dependence's default anchor includes the boric run. Section 6b
+    # says the order survives dropping it; that is checked, not asserted.
+    for estimator, key in (("vmax", "vmax"), ("v0_quad", "v0_quad")):
+        without = scope.buffer_dependence(
+            anchor=tuple(e for e in scope.BUFFER_FIXED
+                         if e not in scope.BORIC_BUFFER),
+            parameter=estimator)
+        claim(f"buffer order without boric, {estimator}",
+              f"**+{without['order_buf']:.2f} +/- {without['stderr_buf']:.2f}**")
 
     print("\nwhat the boric run carries")
     spread = scope.boric_spread()

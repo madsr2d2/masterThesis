@@ -8,6 +8,100 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — The first-order buffer term is catalysis: the boric run settles it
+
+**The question.** "How do we explain the first order in buffer?" The standing
+answer was general acid/base catalysis (Sander & Jencks, MECHANISM.md item 45);
+the live alternative, raised in the entry below, was that the buffer *makes* an
+oxidant — phosphate + H₂O₂ → peroxomonophosphate. That entry concluded the
+phosphate runs cannot separate the two, because within them log[buf],
+log[H₂PO₄⁻] and log[HPO₄²⁻] are the same variable (correlation 1.000000).
+
+**The way round it, and it was already in the archive.** Borate is the buffer
+where a peroxo species is not a hypothesis: MECHANISM.md item 39 gives
+B(OH)₃ + H₂O₂ → peroxoborate, K = 2.0e-8, significant above pH ≈ 7.7, with the
+anionic peroxoborates *much faster oxidants than H₂O₂ itself*. Exp 65 is boric
+buffer at **pH 8.51**, 0.8 units above that threshold, at 122 mM H₂O₂.
+
+And exps 65 and 67 turn out to be a **cuvette-for-cuvette matched pair**: the
+same substrate ladder (7.310 / 3.655 / 1.827 / 0.365 mM), the same [H₂O₂]
+(122.426 mM), the same temperature, the same instrument, the same `.rre`
+source, 87.5 against 85.0 mM buffer. Only the salt and the pH differ. Because
+[S] and [H₂O₂] match *exactly*, predicting exp 65 from a law fitted on
+`FREE_BNOH_PHOSPHATE` — so out of sample — needs only the `[buf]` and `[HOO⁻]`
+orders; the substrate and peroxide orders, the two worst determined in this
+block, cancel in the ratio.
+
+**Result** (`scope.peroxo_buffer_test`, `python data/scope.py --buffer`):
+
+| estimator | predicted | observed | excess | n |
+|---|---|---|---|---|
+| `v0` | 1.89× | 1.25× | 0.66× | 4 |
+| `vmax` | 1.85× | 2.50× | 1.35× | 4 |
+| `v0_whole` | 1.73× | 1.44× | 0.83× | 4 |
+| `v0_quad` | 1.83× | 0.36× | 0.20× | 2 |
+
+**No excess.** Three of four estimators put boric *below* the phosphate law and
+one puts it 1.35× above. The test does not lack power: a peroxo species present
+at tens of mM and even tenfold faster than H₂O₂ would read as a multiple, not
+as scatter about 1. So the buffer **catalyses**; it does not supply the
+oxidant. The Sander & Jencks reading now has evidence behind it rather than
+only an argument from preparative chemistry.
+
+**Also checked: the buffer order is a phosphate number.** `buffer_dependence`'s
+anchor (`BUFFER_FIXED`) includes the boric run. Dropping it leaves
+**+1.31 ± 0.23** (`vmax`, was +1.19 ± 0.21) and **+1.29 ± 0.25** (`v0_quad`,
+was +1.30 ± 0.25) — so the first-order term was never resting on exp 65.
+
+**What this does not settle**, recorded because the temptation is to overread
+it: pH is not matched, so the prediction leans on the `[HOO⁻]` order holding
+from 8.01 up to 8.51, an extrapolation, and exp 65 is the only run there. It is
+one run of four cuvettes against one of four, on a day and a cell that are not
+controlled; exp 65 is the run neither rate form fits and its noise runs 1.5–2.8×
+exp 67's. And strictly it shows the peroxo mechanism failing to appear *where
+it certainly operates*, which is evidence against it for phosphate but not a
+measurement on phosphate. **³¹P NMR of the buffer under run conditions is still
+the direct test and still cheap**, and the entry below still recommends it.
+
+### A gap in the standing citation, now recorded
+
+Sander & Jencks is the right *physics* — a buffer species in the transition
+state of the rate-determining step, which is what a first-order buffer term
+means and all it means. But their catalysis is of H₂O₂ addition to a
+**carbonyl**, and the enzyme-free background has no carbonyl at t = 0. Two ways
+out, and the data prefers the second:
+
+- **Benzaldehyde supplies it as it accumulates.** Autocatalytic, and this
+  background does not accelerate — 1 of 16 at the fixed-buffer anchor against
+  50 of 110 catalysed increments, with exps 67, 69 and 70 actively
+  decelerating. Disfavoured.
+- **The buffer catalyses the oxidant's formation, before the substrate is
+  involved.** The rate law has that shape: total peroxide ≈ **+2.3** at fixed
+  pH against a substrate order of **+0.32** — two peroxide-derived species in
+  the rate-determining step and the substrate barely in it.
+
+The second is a hypothesis consistent with the orders, not a result, and it is
+recorded as one (MECHANISM.md, "WHICH step the buffer catalyses"). What *is*
+established: the order is +1.19 ± 0.21 / +1.30 ± 0.25, **5σ from zero and under
+1.2σ from exactly one**, independently +0.83 ± 0.29 on the 4OMe-BnOH / 40 °C
+block, and it is catalysis rather than oxidant-making.
+
+**Consequence worth stating plainly.** An order of 1 with no sign of flattening
+means the buffer-free term is small over 25–85 mM: the background is not a
+property of BnOH and H₂O₂ but is roughly *proportional to how much buffer was
+in the cuvette*. Two "uncatalysed rates" measured at different buffer
+concentrations are not comparable.
+
+**Changed:** `scope.peroxo_buffer_test` and `scope.PEROXO_PAIR` added;
+`python data/scope.py --buffer` extended; ANALYSIS.md §6b retitled and
+extended; MECHANISM.md gained the "WHICH step" bullet and the boric-probe
+paragraph; `check_numbers.py` pins the table, the boric-dropped orders, the
+three-of-four-below claim and the fact that the pair is matched in [S] and
+[H2O2] — and now reads MECHANISM.md as a second document, because the same
+figures are quoted there.
+
+---
+
 ## 2026-09-01 — Phosphate is the headline rate law; does phosphate make a peroxo species?
 
 Two rulings from the user, one editorial and one chemical.
