@@ -124,6 +124,13 @@ class Curve:
     noise: float            # absorbance units, 1 sigma
     conditions: Conditions
     source: str = "txt"     # "rre" where the instrument file was read
+    # mM. Not in Conditions: that dataclass is the kinetic model's contract and
+    # the model has no buffer term. Buffer concentration is nonetheless a real
+    # kinetic variable -- H2O2 addition to a carbonyl is general acid AND
+    # general base catalysed (MECHANISM.md, Sander & Jencks) -- and in the
+    # enzyme-free titrations it moves in lockstep with [sub], so an analysis
+    # that cannot see it will report it as a substrate order.
+    buf: float = float("nan")
 
     @property
     def group(self):
@@ -275,6 +282,7 @@ def build_curves(dataset_path=DATASET_PATH, directory=CURVE_DIRECTORY,
             # export's 0.001 AU quantisation would report 2.4x its real noise.
             noise=curve_noise(values, source_floor(source)),
             source=source,
+            buf=float(row["[buf]"]),
             conditions=Conditions(
                 s0=float(row["[sub]"]),
                 h2o2=float(row["[h2o2]"]),

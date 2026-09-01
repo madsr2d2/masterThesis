@@ -335,6 +335,128 @@ def fit_burst(times, values, cap=BURST_TAU_CAP, floor=BURST_TAU_FLOOR,
     )
 
 
+# How wide the v0 profile interval may be, as a fraction of v0, before the
+# initial rate counts as unbounded. 0.30 is where the enzyme-free BnOH curves
+# separate: the curves inside it agree with their own line fit to 1.02-2.14x,
+# the ones outside disagree by up to 28x.
+BURST_V0_HALFWIDTH = 0.30
+
+
+@dataclass(frozen=True)
+class BoundedBurstFit:
+    """
+    The burst/lag form fitted with B <= 0, and v0 profiled rather than quoted.
+
+    TWO CHANGES FROM `fit_burst`, both aimed at the initial rate.
+
+    1. `B <= 0`. The unconstrained fit is free to choose a LAG -- a rate that
+       rises -- and on a near-straight curve it sometimes does, with a
+       collapsed tau, returning a NEGATIVE v0 where the line gives a firmly
+       positive one (5 of the 27 enzyme-free BnOH curves; exp 67 sample 3 gave
+       -2.07e-4 against a line's +3.35e-6). Those curves do not accelerate --
+       0 of 16 pass the `acceleration` test -- so the lag branch is excluded on
+       evidence, not convenience. Set `constrain=False` to recover the
+       unconstrained behaviour.
+
+    2. `v0_low`/`v0_high` come from profiling v0 across every tau whose cost is
+       within the 95% band, NOT from a standard error at the optimum. This is
+       the diagnostic that matters and `fit_burst.resolved` is not a substitute
+       for it: `resolved` asks whether TAU is located, and those are different
+       questions. Exps 6's four cuvettes have tau unresolved yet v0 pinned to a
+       0.00 half-width -- as tau -> inf the curve is a straight line, which
+       kills tau and B but leaves v0 -> v_ss perfectly determined.
+
+    WHAT THE CONSTRAINT DOES NOT FIX. It raises the number of bounded curves
+    from 13 to 21 of 27 and removes every negative v0, but it trades the
+    tau -> inf degeneracy for the tau -> 0 one: exp 65 samples 1 and 2 come
+    back at 10x and 28x their line rate, with intervals to match. v0 is an
+    extrapolation to the boundary, so its uncertainty is set by the assumed
+    shape near t = 0, and no fitting refinement recovers information the curve
+    does not carry. Read `bounded` before quoting `v0`.
+    """
+    c: float
+    v_ss: float
+    B: float
+    tau: float
+    v0: float
+    v0_low: float
+    v0_high: float
+    sse: float
+    rms: float
+    points: int
+    bounded: bool
+
+    @property
+    def half_width(self):
+        """v0's profile half-width as a fraction of v0."""
+        if not np.isfinite(self.v0) or self.v0 == 0:
+            return np.inf
+        return float((self.v0_high - self.v0_low) / (2 * abs(self.v0)))
+
+    def predict(self, times):
+        times = np.asarray(times, dtype=float)
+        if not np.isfinite(self.tau) or self.tau <= 0:
+            return np.full(len(times), np.nan)
+        return self.c + self.v_ss * times - self.B * (1 - np.exp(-times / self.tau))
+
+
+def _burst_solve(times, values, tau, constrain):
+    """(sse, beta) for one tau, clamping B to 0 if a positive B is forbidden."""
+    design = _burst_design(times, tau)
+    beta, *_ = np.linalg.lstsq(design, values, rcond=None)
+    if constrain and beta[2] > 0:
+        # B > 0 is a lag. Forbidden: refit as a straight line, which is the
+        # constrained optimum whenever the unconstrained one wants B > 0.
+        line, *_ = np.linalg.lstsq(design[:, :2], values, rcond=None)
+        beta = np.array([line[0], line[1], 0.0])
+    residual = values - design @ beta
+    return float(residual @ residual), beta
+
+
+def fit_burst_bounded(times, values, cap=BURST_TAU_CAP, floor=BURST_TAU_FLOOR,
+                      points=BURST_GRID_POINTS, constrain=True,
+                      half_width=BURST_V0_HALFWIDTH):
+    """
+    Fit the burst/lag form with B <= 0 and profile v0. Returns a BoundedBurstFit.
+
+    `bounded` is True only when the whole 95% profile interval on v0 is
+    positive AND narrower than `half_width` either side. Quote `v0` only then.
+    """
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    times = times - times[0]
+    span = times[-1] if len(times) else 0.0
+    blank = BoundedBurstFit(*([np.nan] * 9 + [len(times), False]))
+    if span <= 0 or len(times) < BURST_MINIMUM_POINTS:
+        return blank
+
+    grid = np.logspace(np.log10(span * floor), np.log10(span * cap), points)
+    costs = np.empty(len(grid))
+    rates = np.empty(len(grid))
+    solutions = []
+    for index, tau in enumerate(grid):
+        cost, beta = _burst_solve(times, values, tau, constrain)
+        costs[index] = cost
+        rates[index] = beta[1] - beta[2] / tau
+        solutions.append(beta)
+
+    best = int(np.argmin(costs))
+    degrees = max(1, len(times) - 4)
+    inside = costs <= costs[best] * (1 + CHI2_95 / degrees)
+    low, high = float(rates[inside].min()), float(rates[inside].max())
+    c, v_ss, B = (float(v) for v in solutions[best])
+    v0 = float(rates[best])
+    relative = (high - low) / (2 * abs(v0)) if v0 != 0 else np.inf
+    return BoundedBurstFit(
+        c=c, v_ss=v_ss, B=B, tau=float(grid[best]), v0=v0,
+        v0_low=low, v0_high=high,
+        sse=float(costs[best]),
+        rms=float(np.sqrt(costs[best] / len(times))),
+        points=len(times),
+        bounded=bool(low > 0 and relative < half_width),
+    )
+
+
 def buffer_concentrations(dataset_path=DATASET_PATH):
     """{(experiment, sample): [buf] in mM} -- the one axis `Curve` does not carry."""
     data = add_solution_columns(pd.read_csv(dataset_path))

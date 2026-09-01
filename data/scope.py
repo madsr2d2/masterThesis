@@ -28,7 +28,8 @@ import pandas as pd
 
 from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            acceleration, initial_rate, lag_time,
-                           peak_position, peak_rate)
+                           peak_position, peak_rate, quadratic_rate,
+                           whole_slope)
 from fit_dataset import (PRIMARY_SCOPE, PRIMARY_SCOPE_BLOCK, build_curves,
                          in_scope, source_floor)
 
@@ -56,7 +57,8 @@ def frame(scope=PRIMARY_SCOPE):
     """
     One row per in-scope curve, with every derived quantity already attached.
 
-    Columns: experiment, source, sample, pH, s0, h2o2, e0, hoo, duration_s,
+    Columns: experiment, source, sample, substrate, buffer, temperature, buf,
+    pH, s0, h2o2, e0, hoo, duration_s,
     points,
     noise, net, live, v0, v0_stderr, v0_rms, vmax, vmax_stderr, vmax_where,
     gain, vmax_time_s, lag_time_s, conversion, peak, lags, accel_z, accel_where, accelerates,
@@ -93,10 +95,28 @@ def frame(scope=PRIMARY_SCOPE):
         peak = peak_position(values, times)
         accel_z, accel_where = acceleration(times, values, floor=floor)
         vmax, vmax_stderr, vmax_where = peak_rate(times, values, floor=floor)
+        # Three more rate estimators, so that "does this conclusion depend on
+        # how the rate was measured" is a groupby rather than an argument.
+        # v0 uses the first 20% of the run, v0_whole every point with no bend
+        # allowed, v0_quad every point with one bend allowed.
+        v0_whole, v0_whole_stderr = whole_slope(times, values, floor=floor)
+        v0_quad, v0_quad_stderr, curvature_t = quadratic_rate(
+            times, values, floor=floor)
         rows.append({
             "experiment": curve.experiment,
             "source": curve.source,
             "sample": curve.sample,
+            # The block a curve belongs to, carried per row rather than
+            # assumed: once `scope` is a free parameter a frame may span
+            # several (substrate, temperature, buffer) cells, and a caller
+            # that pools across one without meaning to has no way to notice.
+            "substrate": curve.substrate,
+            "buffer": curve.buffer,
+            "temperature": curve.temperature,
+            # Buffer CONCENTRATION, mM -- distinct from `buffer`, the salt.
+            # In every enzyme-free titration this falls as `s0` rises, because
+            # substrate volume displaced buffer volume; see BUFFER_CONFOUNDED.
+            "buf": curve.buf,
             "pH": curve.pH,
             "s0": curve.conditions.s0,
             "h2o2": curve.conditions.h2o2,
@@ -110,6 +130,11 @@ def frame(scope=PRIMARY_SCOPE):
             "v0": v0,
             "v0_stderr": v0_stderr,
             "v0_rms": v0_rms,
+            "v0_whole": v0_whole,
+            "v0_whole_stderr": v0_whole_stderr,
+            "v0_quad": v0_quad,
+            "v0_quad_stderr": v0_quad_stderr,
+            "curvature_t": curvature_t,
             "vmax": vmax,
             "vmax_stderr": vmax_stderr,
             "vmax_where": vmax_where,
@@ -212,11 +237,31 @@ def design(scope=PRIMARY_SCOPE):
     return pd.DataFrame(rows).set_index("experiment")
 
 
+def blocks(scope=PRIMARY_SCOPE):
+    """
+    The (substrate, temperature, buffer) cells a scope spans, with counts.
+
+    Rate constants may be pooled only within one cell (FITTING.md F7), so a
+    scope that returns more than one row here is a scope no fit may be run on
+    as a unit. PRIMARY_SCOPE returns exactly one; the enzyme-free BnOH set
+    returns two, phosphate and boric, which is why it is a background
+    characterisation and not a fit.
+    """
+    data = frame(scope)
+    return (data.groupby(["substrate", "temperature", "buffer"])
+            .agg(curves=("experiment", "size"),
+                 experiments=("experiment", "nunique"))
+            .sort_values("curves", ascending=False))
+
+
 def summary(scope=PRIMARY_SCOPE):
     """The scope in one paragraph of numbers, for printing."""
     data = frame(scope)
+    cells = blocks(scope)
     return {
-        "block": PRIMARY_SCOPE_BLOCK,
+        # Read off the curves, not assumed: with `scope` a free parameter this
+        # was reporting PRIMARY_SCOPE_BLOCK for every scope it was handed.
+        "block": cells.index[0] if len(cells) == 1 else tuple(cells.index),
         "experiments": int(data.experiment.nunique()),
         "curves": len(data),
         "live_curves": int(data.live.sum()),
@@ -496,7 +541,7 @@ FREE_BNOH_BUFFER_TITRATIONS = (3, 6)
 RUNG_TOLERANCE = 0.02
 
 
-def paired_controls():
+def paired_controls(controls=PAIRED_CONTROLS):
     """
     One row per substrate rung that exists both with and without the chemzyme.
 
@@ -511,11 +556,11 @@ def paired_controls():
     twice, and their vmax disagrees by up to 1.55x rung for rung. Nothing
     inside that factor is a measurement of anything.
     """
-    scope = tuple(sorted({e for free, cat, _ in PAIRED_CONTROLS
+    scope = tuple(sorted({e for free, cat, _ in controls
                           for e in (*free, cat)}))
     data = frame(scope)
     rows = []
-    for free, catalysed, label in PAIRED_CONTROLS:
+    for free, catalysed, label in controls:
         left = data[data.experiment.isin(free)]
         right = data[data.experiment == catalysed]
         for s0 in sorted(right.s0.unique()):
@@ -537,7 +582,14 @@ def paired_controls():
     return pd.DataFrame(rows)
 
 
-def catalytic_effect():
+# The same experiment run twice: exps 69 and 70 share every declared
+# condition. Their disagreement is the archive's only direct measure of
+# run-to-run reproducibility on BnOH, and so the yardstick any ratio has to
+# clear before it means anything.
+REPLICATE_PAIR = (69, 70)
+
+
+def catalytic_effect(controls=PAIRED_CONTROLS, replicate=REPLICATE_PAIR):
     """
     What adding 0.028 mM chemzyme does to BnOH oxidation, on the paired runs.
 
@@ -546,13 +598,14 @@ def catalytic_effect():
     anything -- the largest vmax disagreement between exps 69 and 70, which
     are the same experiment run twice.
     """
-    table = paired_controls()
+    table = paired_controls(controls)
     live = table[table.live]
-    data = frame((69, 70))
+    first, second = replicate
+    data = frame(replicate)
     repeats = []
-    for s0 in sorted(data[data.experiment == 69].s0.unique()):
-        a = float(data[(data.experiment == 69) & (data.s0 == s0)].vmax.iloc[0])
-        b = float(data[(data.experiment == 70) & (data.s0 == s0)].vmax.iloc[0])
+    for s0 in sorted(data[data.experiment == first].s0.unique()):
+        a = float(data[(data.experiment == first) & (data.s0 == s0)].vmax.iloc[0])
+        b = float(data[(data.experiment == second) & (data.s0 == s0)].vmax.iloc[0])
         repeats.append(max(a, b) / min(a, b))
     return {
         "rungs": int(len(live)),
@@ -596,7 +649,15 @@ BNOH_EPSILON = 1.23
 FREE_BNOH_NEUTRAL = (3, 6)
 
 
-def background_orders(scope=FREE_BNOH + FREE_BNOH_NEUTRAL):
+# Every enzyme-free BnOH run the manifest keeps: the four with a constant-[buf]
+# substrate ladder and the two buffer titrations. Exp 64 is NOT here -- it is
+# excluded as an aborted run (7 minutes at dt = 28 s), which is why the boric
+# pair 64/65 cannot supply a within-pair [H2O2] contrast.
+FREE_BNOH_ALL = FREE_BNOH + FREE_BNOH_NEUTRAL
+
+
+def background_orders(scope=FREE_BNOH_ALL, terms=("s0", "h2o2", "hoo"),
+                      within=False, parameter="vmax"):
     """
     How the enzyme-free rate depends on substrate, peroxide and pH.
 
@@ -612,30 +673,196 @@ def background_orders(scope=FREE_BNOH + FREE_BNOH_NEUTRAL):
 
     [H2O2] and [HOO-] are collinear (hoo = h2o2 * f(pH)), so read their sum as
     the peroxide dependence and the [HOO-] term as the pH part.
+
+    `terms` is the list of axes to fit. IT DOES NOT DEFAULT TO EVERYTHING, and
+    the omission that matters is `buf`. Exps 3 and 6 are buffer titrations --
+    [buf] falls 85 -> 25 mM as [sub] rises -- so a fit without a `buf` term
+    does not drop the buffer effect, it RELABELS it as a substrate order. See
+    BUFFER_CONFOUNDED and `buffer_dependence`. Every returned order carries a
+    `vif_` alongside it for the same reason: an order whose variance is
+    inflated tenfold is a number the design cannot support, and it looks
+    exactly like one that can.
     """
     data = frame(scope)
     data = data[data.live]
-    y = np.log(data.vmax.to_numpy(dtype=float))
-    columns = ("s0", "h2o2", "hoo")
-    design_matrix = np.column_stack(
-        [np.ones(len(data))] + [np.log(data[c].to_numpy(dtype=float))
-                                for c in columns])
+    # A log-log order is undefined for a non-positive rate, and some
+    # estimators produce them: `v0_quad` extrapolates to t = 0 and returns a
+    # negative rate on the two exp 65 cuvettes whose curvature the quadratic
+    # cannot hold. Dropping them here rather than propagating a nan means the
+    # `n` this function reports is the count it actually fitted.
+    data = data[(data[parameter] > 0) & np.isfinite(data[parameter])]
+    y = np.log(data[parameter].to_numpy(dtype=float))
+    axes = [np.log(data[c].to_numpy(dtype=float)) for c in terms]
+    if within:
+        # One indicator per experiment instead of a single intercept, as in
+        # `orders`. Anything constant across a run -- pH, [HOO-], [H2O2], the
+        # cell, the day -- is absorbed, so the remaining orders are measured
+        # only from contrast BETWEEN CUVETTES OF THE SAME RUN. A term that is
+        # itself constant within every run is then unidentifiable and must not
+        # be in `terms`; it would be collinear with the indicators.
+        labels = np.unique(data.experiment.to_numpy())
+        design_matrix = np.column_stack(
+            axes + [(data.experiment.to_numpy() == e).astype(float)
+                    for e in labels])
+    else:
+        design_matrix = np.column_stack([np.ones(len(data))] + axes)
     coefficients, *_ = np.linalg.lstsq(design_matrix, y, rcond=None)
     residual = y - design_matrix @ coefficients
-    dof = len(data) - design_matrix.shape[1]
+    dof = max(1, len(data) - np.linalg.matrix_rank(design_matrix))
     variance = float(residual @ residual) / dof
     stderr = np.sqrt(np.diag(variance
-                             * np.linalg.inv(design_matrix.T @ design_matrix)))
-    result = {"n": int(len(data)),
+                             * np.linalg.pinv(design_matrix.T @ design_matrix)))
+    result = {"n": int(len(data)), "terms": tuple(terms), "within": bool(within),
+              "dof": int(dof),
               "r2": float(1 - (residual @ residual)
                           / ((y - y.mean()) ** 2).sum())}
-    for name, value, error in zip(columns, coefficients[1:], stderr[1:]):
+    # The orders are the LEADING coefficients in both layouts: `within` puts
+    # the indicators after them, the pooled fit puts the intercept first.
+    offset = 0 if within else 1
+    inflation = variance_inflation(data, terms, within=within)
+    for name, value, error in zip(terms, coefficients[offset:], stderr[offset:]):
         result[f"order_{name}"] = float(value)
         result[f"stderr_{name}"] = float(error)
+        result[f"vif_{name}"] = inflation[name]
     return result
 
 
-def literature_comparison(scope=FREE_BNOH_NEUTRAL):
+def variance_inflation(data, terms, within=False):
+    """
+    Each term's variance inflation factor against the others, on log axes.
+
+    VIF = 1/(1 - R2) where R2 is from regressing one term on the rest. It is
+    the factor by which collinearity widens that coefficient's standard error,
+    so it says whether an order is measured or merely reported. Above about 10
+    the coefficient is arithmetic, not evidence.
+    """
+    logged = {name: np.log(data[name].to_numpy(dtype=float)) for name in terms}
+    result = {}
+    for name in terms:
+        others = [logged[o] for o in terms if o != name]
+        if within:
+            labels = np.unique(data.experiment.to_numpy())
+            others = others + [(data.experiment.to_numpy() == e).astype(float)
+                               for e in labels]
+        elif not others:
+            result[name] = 1.0
+            continue
+        matrix = np.column_stack([np.ones(len(data))] + others)
+        target = logged[name]
+        coefficients, *_ = np.linalg.lstsq(matrix, target, rcond=None)
+        residual = target - matrix @ coefficients
+        total = float(((target - target.mean()) ** 2).sum())
+        r2 = 1 - float(residual @ residual) / total if total > 0 else 0.0
+        result[name] = float(1.0 / (1.0 - r2)) if r2 < 1 else float("inf")
+    return result
+
+
+# The two enzyme-free BnOH designs, named by what they can and cannot measure.
+#
+# BUFFER_CONFOUNDED (exps 3, 6) move [buf] 85 -> 25 mM DOWN as [sub] moves
+# 1.28 -> 8.98 mM UP, because substrate volume displaced buffer volume in the
+# cuvette. BUFFER_FIXED (exps 65, 67, 69, 70) hold [buf] at 85-87.5 mM along
+# their substrate ladder. Neither design varies [buf] at constant [sub] --
+# no enzyme-free run in the archive does, in any block -- so the buffer order
+# is not directly measurable and has to be recovered from the disagreement
+# between these two, which is what `buffer_dependence` does.
+BUFFER_CONFOUNDED = FREE_BNOH_NEUTRAL
+BUFFER_FIXED = FREE_BNOH
+
+
+def buffer_dependence(anchor=BUFFER_FIXED, titration=BUFFER_CONFOUNDED,
+                      parameter="vmax"):
+    """
+    The order in buffer concentration, from the substrate order it corrupts.
+
+    THE DESIGN PROBLEM. No enzyme-free run varies [buf] at constant [sub], so
+    no single run measures a buffer order. Two things are measurable instead:
+
+      a   the substrate order where [buf] is CONSTANT (`anchor`), and
+      a'  the substrate order where [buf] falls as [sub] rises (`titration`),
+
+    both read within experiments, so both are free of pH, [H2O2], cell and day.
+    If the rate goes as [sub]^a [buf]^d, and within the titration runs
+    log[buf] = g log[sub] + constant, then fitting the titrations without a
+    buffer term returns a' = a + d g, and so
+
+        d = (a' - a) / g.
+
+    WHY NOT JUST FIT BOTH TERMS. Because the titrations cannot carry it: on
+    those eight live curves [sub] and [buf] run at VIF 11-14, and the joint fit
+    returns d = +0.73 +/- 0.62, consistent with anything from zero to two.
+    Pooling all six runs instead does return a tight d, but there [buf] is 85+
+    in every pH 8.0-8.5 run and sweeps only in the pH 6.71 ones, so [buf] is
+    partly a label for pH -- and the [HOO-] order drops from +0.84 to +0.74
+    when the buffer term is added, which is that theft made visible. This
+    route uses only within-run contrast on both sides and never asks one
+    regression to separate the two.
+
+    THE ASSUMPTION IT RESTS ON, stated because it is not testable here: that
+    the substrate order is the same at the titrations' pH 6.71 as at the
+    anchor's pH 8.01-8.51. The archive has no run that could check it.
+
+    Returns a dict: order_s0_fixed, order_s0_titration, coupling (g),
+    order_buf and its standard error, and the counts behind each.
+    """
+    clean = background_orders(anchor, terms=("s0",), within=True,
+                              parameter=parameter)
+    dirty = background_orders(titration, terms=("s0",), within=True,
+                              parameter=parameter)
+
+    # g: how [buf] tracks [sub] inside the titration runs, on log axes, with a
+    # free offset per run -- the same within-experiment contrast the orders use.
+    data = frame(titration)
+    data = data[data.live]
+    labels = np.unique(data.experiment.to_numpy())
+    design_matrix = np.column_stack(
+        [np.log(data.s0.to_numpy(dtype=float))]
+        + [(data.experiment.to_numpy() == e).astype(float) for e in labels])
+    coefficients, *_ = np.linalg.lstsq(
+        design_matrix, np.log(data.buf.to_numpy(dtype=float)), rcond=None)
+    coupling = float(coefficients[0])
+
+    gap = dirty["order_s0"] - clean["order_s0"]
+    # g is measured from concentrations that were pipetted, not from a noisy
+    # observable, so its own error is negligible beside the two rate orders'.
+    error = float(np.hypot(clean["stderr_s0"], dirty["stderr_s0"]) / abs(coupling))
+    return {
+        "order_s0_fixed": clean["order_s0"],
+        "stderr_s0_fixed": clean["stderr_s0"],
+        "n_fixed": clean["n"],
+        "order_s0_titration": dirty["order_s0"],
+        "stderr_s0_titration": dirty["stderr_s0"],
+        "n_titration": dirty["n"],
+        "coupling": coupling,
+        "order_buf": float(gap / coupling),
+        "stderr_buf": error,
+    }
+
+
+# The 4OMe-BnOH / 40 C enzyme-free runs. Exp 31 is deliberately NOT here: it
+# is the same design at 35 C, and temperature moves every rate constant through
+# Arrhenius, so including it would pool two cells (FITTING.md F7).
+FREE_4OME_40C = (23, 24, 25, 26, 27, 28, 29, 30, 38, 39)
+
+
+def buffer_cross_check(scope=FREE_4OME_40C):
+    """
+    The buffer order again, on the 4OMe-BnOH / 40 C block, independently.
+
+    That block is the only other place with buffer contrast: three substrate
+    values recur at two buffer levels each across its experiments (0.38 mM at
+    75 and 90, 2.06 at 80 and 85, 4.12 at 70 and 75). The contrast is BETWEEN
+    experiments, so this fit takes no per-experiment offsets -- offsets would
+    absorb the very thing being measured. pH (6.97-7.00) and [H2O2] (82.5 mM)
+    are constant across the block, so there is no pH for [buf] to proxy.
+
+    Different substrate and temperature, so this checks the SIGN and rough
+    SIZE of `buffer_dependence`, not its value.
+    """
+    return background_orders(scope, terms=("s0", "buf"), within=False)
+
+def literature_comparison(scope=FREE_BNOH_NEUTRAL, orders_scope=FREE_BNOH_ALL,
+                          orders_terms=("s0", "h2o2", "hoo")):
     """
     Our enzyme-free background against the literature's uncatalysed rate.
 
@@ -649,7 +876,7 @@ def literature_comparison(scope=FREE_BNOH_NEUTRAL):
     produce at OUR catalyst loading -- which is the number that explains why no
     enhancement is visible anywhere in this archive.
     """
-    orders = background_orders()
+    orders = background_orders(orders_scope, terms=orders_terms)
     h2o2_order, hoo_order = orders["order_h2o2"], orders["order_hoo"]
     kuncat = LITERATURE["kcat_per_s"] / LITERATURE["kcat_over_kuncat"]
 
@@ -668,7 +895,8 @@ def literature_comparison(scope=FREE_BNOH_NEUTRAL):
     return table
 
 
-def background_model(scope=FREE_BNOH_NEUTRAL):
+def background_model(scope=FREE_BNOH_NEUTRAL, orders_scope=FREE_BNOH_ALL,
+                     orders_terms=("s0", "h2o2", "hoo")):
     """
     An amplitude and three orders that predict the enzyme-free rate, in mM/s.
 
@@ -677,7 +905,7 @@ def background_model(scope=FREE_BNOH_NEUTRAL):
     where it is compared to the literature and extrapolated -- not fitted --
     across the pH gap to the catalysed runs.
     """
-    orders = background_orders()
+    orders = background_orders(orders_scope, terms=orders_terms)
     data = frame(scope)
     data = data[data.live]
     exponents = (orders["order_s0"], orders["order_h2o2"], orders["order_hoo"])
@@ -687,7 +915,14 @@ def background_model(scope=FREE_BNOH_NEUTRAL):
     return amplitude, exponents
 
 
-def predicted_enhancement():
+# The catalysed runs that have an enzyme-free counterpart to be judged against:
+# the three paired-control partners plus exps 73 and 83.
+CATALYSED_WITH_BACKGROUND = (66, 68, 71, 73, 83)
+
+
+def predicted_enhancement(scope=CATALYSED_WITH_BACKGROUND,
+                          background_scope=FREE_BNOH_NEUTRAL,
+                          orders_scope=FREE_BNOH_ALL):
     """
     What the literature's kcat would show at THIS archive's catalyst loading.
 
@@ -705,9 +940,9 @@ def predicted_enhancement():
     catalyst. At the literature's own 0.4 mM the predicted ratio is above 40x,
     which nothing could miss; no BnOH run in this archive exceeds 0.069 mM.
     """
-    amplitude, (a, b, c) = background_model()
+    amplitude, (a, b, c) = background_model(background_scope, orders_scope)
     rows = []
-    for experiment in (66, 68, 71, 73, 83):
+    for experiment in scope:
         data = frame((experiment,))
         for _, row in data[data.live].iterrows():
             background = amplitude * row.s0 ** a * row.h2o2 ** b * row.hoo ** c
@@ -727,9 +962,50 @@ def predicted_enhancement():
     return pd.DataFrame(rows)
 
 
+# The scopes worth a name. Anything else is spelled out on the command line as
+# experiment numbers, so a one-off question does not need a constant.
+NAMED_SCOPES = {
+    "primary": PRIMARY_SCOPE,
+    "free-bnoh": FREE_BNOH,
+    "free-bnoh-all": FREE_BNOH_ALL,
+    "free-bnoh-neutral": FREE_BNOH_NEUTRAL,
+    "paired": tuple(sorted({e for free, cat, _ in PAIRED_CONTROLS
+                            for e in (*free, cat)})),
+}
+
+
+def parse_scope(text):
+    """
+    A scope from a name, or from experiment numbers: "3,6" or "135-151".
+
+    Returns a frozenset. Raises ValueError on anything it cannot read, rather
+    than quietly returning an empty scope -- an empty scope produces an empty
+    frame, and an empty frame is a table of zeroes that looks like a result.
+    """
+    if text in NAMED_SCOPES:
+        return frozenset(NAMED_SCOPES[text])
+    experiments = set()
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part.lstrip("-"):
+            low, high = part.split("-", 1)
+            experiments.update(range(int(low), int(high) + 1))
+        else:
+            experiments.add(int(part))
+    if not experiments:
+        raise ValueError(f"empty scope: {text!r}")
+    return frozenset(experiments)
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
+    parser.add_argument("--scope", default="primary",
+                        help="a named scope (%s) or experiment numbers "
+                             "(\"3,6\", \"135-151\"); default primary"
+                             % ", ".join(NAMED_SCOPES))
     parser.add_argument("--design", action="store_true",
                         help="print the per-experiment design table")
     parser.add_argument("--orders", action="store_true",
@@ -738,17 +1014,21 @@ def main():
                         help="print the +/- chemzyme paired controls")
     parser.add_argument("--literature", action="store_true",
                         help="compare the paired controls against the literature")
+    parser.add_argument("--buffer", action="store_true",
+                        help="the enzyme-free rate's dependence on [buf]")
     arguments = parser.parse_args()
+    chosen = parse_scope(arguments.scope)
 
     if arguments.design:
-        table = design()
+        table = design(chosen)
         with pd.option_context("display.width", 200, "display.max_columns", 20):
             print(table.to_string(float_format=lambda v: f"{v:.3g}"))
         return 0
 
     if arguments.orders:
         with pd.option_context("display.width", 200):
-            print(order_table().to_string(float_format=lambda v: f"{v:.3f}"))
+            print(order_table(chosen).to_string(
+                float_format=lambda v: f"{v:.3f}"))
         return 0
 
     if arguments.controls:
@@ -763,6 +1043,37 @@ def main():
         print(f"same experiment run twice (exps 69 vs 70) disagrees by up to "
               f"{effect['replicate_scatter']:.2f}x -- the ratio is not "
               f"resolved from no effect")
+        return 0
+
+    if arguments.buffer:
+        print("enzyme-free BnOH: the substrate order depends on what the "
+              "BUFFER was doing\n")
+        result = buffer_dependence()
+        print(f"  [buf] held constant   exps {BUFFER_FIXED}, "
+              f"n={result['n_fixed']:2d}:  order in [sub] "
+              f"{result['order_s0_fixed']:+.3f} +/- {result['stderr_s0_fixed']:.3f}")
+        print(f"  [buf] falling         exps {BUFFER_CONFOUNDED}, "
+              f"n={result['n_titration']:2d}:  order in [sub] "
+              f"{result['order_s0_titration']:+.3f} +/- "
+              f"{result['stderr_s0_titration']:.3f}")
+        print(f"\n  The same reaction reads a POSITIVE substrate order where "
+              f"[buf] is held and a\n  NEGATIVE one where [buf] falls as "
+              f"[sub] rises. The difference is the buffer.\n")
+        print(f"  coupling  dlog[buf]/dlog[sub] within the titrations: "
+              f"{result['coupling']:+.3f}")
+        print(f"  => order in [buf] = {result['order_buf']:+.2f} +/- "
+              f"{result['stderr_buf']:.2f}   (approximately FIRST order)\n")
+        check = buffer_cross_check()
+        print(f"  independent cross-check, 4OMe-BnOH / 40 C / phosphate, "
+              f"n={check['n']} (between-run\n  contrast at fixed pH and "
+              f"[H2O2], different substrate and temperature):")
+        print(f"      order in [buf]  {check['order_buf']:+.2f} +/- "
+              f"{check['stderr_buf']:.2f}   (VIF {check['vif_buf']:.1f})")
+        print(f"      order in [sub]  {check['order_s0']:+.2f} +/- "
+              f"{check['stderr_s0']:.2f}")
+        print(f"\n  The in-scope block is UNAFFECTED: [buf] = 75.013 mM in "
+              f"all 119 of its curves,\n  so no buffer variation can reach "
+              f"its substrate order.")
         return 0
 
     if arguments.literature:
@@ -806,9 +1117,15 @@ def main():
         print(f"\n  source: {LITERATURE['source']}")
         return 0
 
-    facts = summary()
-    print(f"scope        exps {min(PRIMARY_SCOPE)}-{max(PRIMARY_SCOPE)}, "
-          f"block {facts['block'][0]} / {facts['block'][1]:.0f} C / {facts['block'][2]}")
+    facts = summary(chosen)
+    cells = blocks(chosen)
+    span = (f"exps {min(chosen)}-{max(chosen)}"
+            if sorted(chosen) == list(range(min(chosen), max(chosen) + 1))
+            else "exps " + ",".join(str(e) for e in sorted(chosen)))
+    print(f"scope        {span}")
+    for (substrate, temperature, buffer_name), row in cells.iterrows():
+        print(f"block        {substrate} / {temperature:.0f} C / {buffer_name}"
+              f"  ({row.curves} curves, {row.experiments} experiments)")
     print(f"curves       {facts['curves']} over {facts['experiments']} experiments, "
           f"{facts['live_curves']} with a live signal")
     print(f"pH           {facts['pH_range'][0]:.2f} to {facts['pH_range'][1]:.2f}, "

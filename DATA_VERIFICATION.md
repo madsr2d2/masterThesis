@@ -8,6 +8,255 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — The background's substrate order is a buffer order wearing its clothes
+
+Raised by the user, asking what the uncatalysed BnOH + H2O2 reaction is, so
+that the in-scope curves — which were recorded against it — can be read. The
+first question was how much of the enzyme-free rate belongs to the buffer.
+
+### The design problem, stated exactly
+
+Of the 83 enzyme-free curves in the archive, the BnOH ones fall into two
+designs, and **neither varies `[buf]` at constant `[sub]`**:
+
+| design | experiments | `[buf]` | `[sub]` |
+|---|---|---|---|
+| `scope.BUFFER_FIXED` | 65, 67, 69, 70 | held at 85–87.5 mM | ladder |
+| `scope.BUFFER_CONFOUNDED` | 3, 6 | falls 85 → 25 mM | ladder, rising |
+
+In exps 3 and 6 the substrate volume displaced buffer volume, so `[buf]` falls
+as `[sub]` rises. No enzyme-free run in **any** block varies buffer at fixed
+substrate — the five that once did (32, 34–37) were ruled catalysed on
+2026-08-31, which is what the withdrawal in the 2026-08-30 entry above records.
+
+### What it costs, measured
+
+The same reaction, read within runs so that pH, `[H2O2]`, cell and day are all
+absorbed by a per-experiment offset:
+
+| where `[buf]` is | order in `[sub]` | n |
+|---|---|---|
+| held constant (65, 67, 69, 70) | **+0.297 ± 0.080** | 16 |
+| falling as `[sub]` rises (3, 6) | **−0.210 ± 0.092** | 8 |
+
+**The apparent substrate order changes sign with the buffer design.** The gap
+is 0.507 ± 0.122, about 4.2 sigma. `FITTING.md` F1 has warned since 2026-08-29
+that exps 3 and 6 are a trap; this is the size of the trap.
+
+### The buffer order
+
+Within the titration runs `log[buf] = g log[sub] + constant` with
+**g = −0.432**, so a fit without a buffer term returns `a' = a + d g` and
+
+    d = (a' - a) / g = (-0.210 - 0.297) / (-0.432) = +1.17 +/- 0.28
+
+Both inputs are within-run contrast, so nothing in this route asks one
+regression to separate `[buf]` from `[sub]`, and nothing lets `[buf]` proxy pH.
+Five routes, and every one is positive and near unity:
+
+| route | order in `[buf]` |
+|---|---|
+| BnOH within-run, anchor 65/67/69/70 | **+1.17 ± 0.28** |
+| BnOH within-run, anchor 67/69/70 (phosphate only) | +1.40 ± 0.30 |
+| BnOH within-run, anchor 65 only (boric) | +0.65 ± 0.23 |
+| BnOH pooled 6 runs, `buf` as a 4th power-law term | +0.95 ± 0.44 (VIF 3.3) |
+| **4OMe-BnOH / 40 °C / phosphate, between-run, n = 37** | **+0.83 ± 0.27** (VIF 2.0) |
+
+The last is independent of the first four in substrate, temperature and design
+geometry: that block's buffer contrast is *between* experiments at fixed pH
+(6.97–7.00) and fixed `[H2O2]` (82.5 mM), so no offsets are taken and there is
+no pH for `[buf]` to stand in for. **The enzyme-free rate is approximately
+first order in buffer concentration** — which is what general acid/base
+catalysis of the H2O2/carbonyl addition predicts (Sander & Jencks; see
+`MECHANISM.md`).
+
+The spread 0.65–1.40 is driven entirely by which runs anchor the substrate
+order: boric (exp 65) reads a much flatter substrate order (+0.071) than
+phosphate (+0.397). That is one more reason to treat boric as suspect.
+
+### Two routes that look better than they are, and why they were not used
+
+- **Fitting `[sub]` and `[buf]` jointly on exps 3 and 6.** VIF 14.2 and 11.4 on
+  eight live curves; returns `d = +0.73 ± 0.62`, consistent with anything from
+  zero to two. The design cannot carry it.
+- **Fitting `[buf]` as a fourth term across all six BnOH runs.** Returns a
+  tight `+0.95 ± 0.44`, but `[buf]` is 85+ in every pH 8.0–8.5 run and sweeps
+  only in the pH 6.71 ones, so it is partly a label for pH. The tell is that
+  `order_hoo` falls **+0.836 → +0.739** when the buffer term is added. That is
+  the buffer term stealing the pH effect, and it is why the default
+  `background_orders` terms are left at `("s0", "h2o2", "hoo")`.
+
+### What this does and does not change for the in-scope block
+
+**It does not contaminate it.** `[buf]` = 75.013 mM in **all 119 in-scope
+curves across all 17 experiments** — zero variation, `buf_max/buf_min` = 1 in
+every run. No buffer variation can reach the in-scope substrate order, and the
+correction developed here is needed for exps 3 and 6, not for exps 135–151.
+
+**It is also already subtracted.** Every run is double-beam and the catalysed
+sheets' reference omits *only* the enzyme (`kinetics_io.py`,
+`verify_enzyme.py`), so an in-scope curve is a catalytic increment taken
+against a background at *identical* buffer, substrate, `[H2O2]` and pH. The
+buffer's contribution to the background cancels in the recorded curve. What the
+background is still needed for is the **absolute** rate — the increment plus
+what was removed — and that remains unavailable in pyrophosphate, for the
+reason `FITTING.md` F7 gives: 0 enzyme-free curves in 127.
+
+### What the background looks like, and what it is not
+
+The rate law, from the enzyme-free BnOH runs (`scope.background_orders`; the
+substrate order from the constant-`[buf]` runs alone, the rest pooled):
+
+    v_background  ~  [S]^+0.30  [H2O2]^+0.96  [HOO-]^+0.84  [buf]^+1.17
+
+So it is roughly **first order in peroxide and in buffer, 0.8 order in
+[HOO-]** — the rate climbs about tenfold per pH unit — and markedly
+**sub-linear in substrate**, +0.297 ± 0.080.
+
+**It does not accelerate, and the in-scope curves do.** Source-matched, which
+this comparison has to be (`.txt` curves carry a 1096x higher variance floor
+and their acceleration z is suppressed by it):
+
+| set | source | accelerating, >3 sigma |
+|---|---|---|
+| enzyme-free BnOH, `[buf]` fixed (65, 67, 69, 70) | 16/16 `.rre` | **0 of 16** |
+| in-scope catalysed increments (135–151) | 119/119 `.rre` | **51 of 110 live** |
+
+Exps 67, 69 and 70 do not merely fail to accelerate, they **decelerate** —
+median `accel_z` of −1.67, −5.15 and −2.26 — which is what an ordinary reaction
+consuming its substrate does. Both sets are entirely `.rre`, so the contrast is
+not the floor artefact of the 2026-09-01 entry below. **The autocatalytic
+signature in the in-scope block is not inherited from the background.** (The
+two accelerating curves in the enzyme-free set are both exp 6, which is `.txt`
+and whose z is suppressed if anything.)
+
+For scale against the in-scope block, on `vmax`, within runs:
+
+| set | order in `[S]` |
+|---|---|
+| enzyme-free background, `[buf]` fixed | +0.297 ± 0.080 |
+| in-scope catalysed increment, all 110 live | +0.097 ± 0.052 |
+| in-scope, 11 strong runs | +0.012 ± 0.044 |
+
+The recorded increment is flatter in substrate than the background it was
+measured against — worth carrying into `FITTING.md` F1, which argues the
+reduced mechanism is first order in `[S]` by construction while the data is
+not. This entry does not restate F1; it adds that the background is not the
+source of the flatness, since the background is the steeper of the two.
+
+### One number in the documents moves, and is deliberately not moved yet
+
+`literature_comparison` scales our rates to the literature's pH 7 / 72 mM H2O2
+using the `[H2O2]` and `[HOO-]` orders. Including the buffer term changes those
+(+0.956 → +1.230 and +0.836 → +0.739) and the median excess over the
+literature's uncatalysed rate goes **34x → 25x** (range 12–88x → 11–80x). The
+qualitative reading is unchanged — still an order of magnitude above, still
+consistent with an unsuppressed trace-metal path — but the headline figure is
+quoted in `MECHANISM.md` and `FITTING.md`. The default is therefore left at the
+un-buffered orders and the alternative is reachable as
+`literature_comparison(orders_terms=("s0", "h2o2", "hoo", "buf"))`. Neither is
+complete: correcting our rates to the literature's buffer concentration would
+need that concentration, which the paper does not give us here.
+
+### The rate estimator was chosen against the objection, not around it
+
+The 20% window behind `initial_rate` and `peak_rate` is arbitrary, which the
+user raised, and the natural whole-curve alternative is the burst/lag form
+`summary_kinetics.fit_burst` already implements. **It was tested and rejected as
+a source of rates**, on this evidence:
+
+- Unconstrained, **5 of the 27 enzyme-free BnOH curves return a negative v0**
+  where the line fit is firmly positive; exp 67 sample 3 gives -2.07e-4 against
+  +3.35e-6.
+- `resolved` does not catch them -- exp 3 sample 3 and exp 67 sample 3 are both
+  `resolved = True`. It asks whether **tau** is located, which is a different
+  question from whether **v0** is. Exps 6's four cuvettes are the converse:
+  `resolved = False` with v0 pinned to a 0.00 half-width, because as tau -> inf
+  the curve is a straight line, which kills tau and B and leaves v0 -> v_ss
+  exact.
+- **A close fit does not license the extrapolation.** Exp 3 sample 3 fits to
+  *better than its own noise* (rms/noise 0.73), yet across tau values that are
+  statistically indistinguishable (rms/noise 0.73 to 0.74) its v0 spans
+  **-1.62e-5 to +5.79e-7** -- a factor of 28 and a change of sign.
+- Constraining **B <= 0**, justified because 0 of 16 of these curves pass the
+  `acceleration` test, removes every negative v0 and raises the bounded count
+  from **13 to 21 of 27**. It does not solve it: it trades the tau -> inf
+  degeneracy for tau -> 0, and exps 65 samples 1 and 2 return 10x and 28x their
+  line rate.
+
+What replaced it is `curve_metrics.quadratic_rate`: A = c + v0.t + a.t^2 over
+every point. No window is chosen anywhere, and being linear in its parameters
+it is always identified. It is the headline estimator, and the conclusion does
+not depend on it:
+
+| estimator | window | order in `[buf]`, BnOH | 4OMe-BnOH 40 C |
+|---|---|---|---|
+| `v0_quad` | none | **+1.33 ± 0.25** | +0.87 ± 0.38 |
+| `vmax` | steepest 20% block | +1.17 ± 0.28 | +0.83 ± 0.27 |
+| `v0` | first 20% | +1.67 ± 0.52 | +0.77 ± 0.26 |
+| `v0_whole` | none | **-3.90 ± 2.25** | -2.63 ± 3.45 |
+
+The last row is worth keeping. A straight line through the whole curve chooses
+no window and uses every point, and it is the only estimator that is badly
+wrong -- because 22 of 27 curves genuinely decelerate, so it reads the average
+rate, and that bias scales with run length and curvature, which differ between
+cuvettes and so do not cancel in a log-log slope. **Using the whole curve helps
+only if the form may bend.**
+
+A related finding, not yet explained: the deceleration is **not substrate
+depletion**. Conversion runs 0.05-8% across these curves, yet 22 of 27 show
+curvature at |t| > 3 and exp 69 sample 3 roughly halves its rate at 3.9%
+conversion. Something else decays during these runs -- peroxide, or the cell.
+
+### The analysis is written up in its own folder
+
+`background_reaction/` holds `ANALYSIS.md` (the argument and the fitting
+procedure), `index.html` and `progress_curves.html` (hand-generated inline SVG,
+no matplotlib and no JavaScript, in `curve_dossier.py`'s style), the generator
+`build_figures.py`, and `check_numbers.py` -- which re-derives every number
+quoted in `ANALYSIS.md` from the modules and fails if the document and the code
+disagree. 22 checks, all passing.
+
+### Code
+
+- `fit_dataset.Curve` gains `buf` (mM), populated in `build_curves`. It is
+  deliberately not in `Conditions`, which is the kinetic model's contract and
+  has no buffer term.
+- `scope.frame` gains `substrate`, `buffer`, `temperature` and `buf`. The first
+  three are carried per row because `scope` is now a free parameter and a frame
+  may span several `(substrate, temperature, buffer)` cells.
+- `scope.blocks(scope)` reports those cells, so a caller pooling across one can
+  notice. `scope.summary` no longer reports `PRIMARY_SCOPE_BLOCK` regardless of
+  the scope it was handed.
+- `scope.background_orders` gains `terms` and `within`, and returns a `vif_`
+  beside every order. `scope.variance_inflation` is the diagnostic.
+- `scope.buffer_dependence`, `scope.buffer_cross_check`, and the constants
+  `BUFFER_FIXED`, `BUFFER_CONFOUNDED`, `FREE_BNOH_ALL`, `FREE_4OME_40C`,
+  `CATALYSED_WITH_BACKGROUND`, `REPLICATE_PAIR`, `NAMED_SCOPES`.
+- `curve_metrics.quadratic_rate` and `curve_metrics.whole_slope`, exposed on
+  `scope.frame` as `v0_quad`, `v0_quad_stderr`, `curvature_t`, `v0_whole` and
+  `v0_whole_stderr`. `background_orders` and `buffer_dependence` take a
+  `parameter`, so "does this conclusion depend on how the rate was measured" is
+  a loop rather than an argument.
+- `summary_kinetics.fit_burst_bounded`: the burst/lag form with B <= 0 and v0
+  profiled rather than quoted (`v0_low`, `v0_high`, `bounded`). Added ALONGSIDE
+  `fit_burst`, which is untouched, so `curve_dossier` and
+  `test_summary_kinetics` are unaffected.
+- `paired_controls`, `catalytic_effect`, `background_model`,
+  `literature_comparison` and `predicted_enhancement` take their scopes as
+  arguments instead of hardcoding them. `python data/scope.py --scope <name|
+  3,6|135-151>` sets the scope for `--design`, `--orders` and the summary;
+  `--buffer` prints this entry's result.
+
+Checks after the change: `validate_dataset.py --deep` 0 errors,
+`test_curve_metrics`, `test_fit_kinetics`, `test_curve_screen` 0 failures,
+`test_validator` 23/23. The primary scope is bit-for-bit unchanged — 119
+curves, 110 live, 51 accelerating, 100.0% / 94.1% within-experiment — and
+`--controls` still reports 0.63x over 9 rungs against a 1.55x replicate
+scatter.
+
+---
+
 ## 2026-09-01 — The variance floor belongs to the source, and it reached only half way
 
 Raised by the user, asking whether the in-scope curves are the `.rre`-derived
@@ -3300,13 +3549,20 @@ and `[50, 25, 12.5, 6.25]` — those are the **stock** concentrations, uniformly
 2× the cuvette values every other row in the dataset uses — and never touched
 `[enz]` at all. Replaced.
 
-**Why this matters more than any other correction so far.** Corrected, these
+~~**Why this matters more than any other correction so far.** Corrected, these
 five are enzyme-free buffer titrations spanning **3.125–200 mM (64-fold) at
 constant substrate**. They are simultaneously the `E0 = 0` data needed to fit
 the catalyst-free loop (`k_can`, `k3` in `MECHANISM.md`) and the only real
 evidence on buffer catalysis anywhere in the project — with no catalyst present
-to confound either. Scope caveat: 4OMe-BnOH at 40 °C, pH 7.00–7.53, so the
-buffer constant they pin is for the methoxy substrate at that temperature.
+to confound either.~~ **Withdrawn 2026-09-01.** The `[buf]` values stand, but
+the sentence built on them does not: these five carry the catalysed
+reference-channel layout and were ruled catalysed on 2026-08-31 (the note at
+the head of this section). Their curves are catalytic *increments*, already net
+of the background at matched buffer, so they measure how buffer moves the
+**increment** — not the background, and not "with no catalyst present". With
+them reclassified the archive holds **no enzyme-free run that varies `[buf]` at
+constant `[sub]` in any block**. Scope caveat, unchanged: 4OMe-BnOH at 40 °C,
+pH 7.00–7.53. See the 2026-09-01 entry at the top of this log.
 
 Fixed in `data/kinetics_io.py` as `EXPERIMENT_CORRECTIONS` +
 `apply_experiment_corrections()`, applied by both

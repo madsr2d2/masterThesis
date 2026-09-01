@@ -629,6 +629,23 @@ above; and note that a buffer-dilution series is the only clean way to separate
 buffer catalysis from pH — which the existing titration data cannot do, since
 `[buf]` and `[sub]` were varied together (see `DATA_VERIFICATION.md`).
 
+**Measured 2026-09-01, and it is first order.** The dilution series does not
+exist, but the buffer order is still recoverable, because the archive holds
+*two* enzyme-free BnOH designs that disagree: exps 65/67/69/70 hold `[buf]`
+constant along their substrate ladder and read a substrate order of
+**+0.297 ± 0.080**, while exps 3/6 let `[buf]` fall 85 → 25 mM as `[sub]` rises
+and read **−0.210 ± 0.092**. The order changes *sign* with the buffer design,
+and the gap divided by the runs' own `dlog[buf]/dlog[sub]` gives an order in
+buffer of **+1.17 ± 0.28** — confirmed independently at **+0.83 ± 0.27** on the
+4OMe-BnOH / 40 °C block, whose buffer contrast sits between experiments at
+fixed pH and fixed `[H2O2]`. First order in buffer is exactly what Sander &
+Jencks predict. `python data/scope.py --buffer`; `scope.buffer_dependence`.
+
+This does **not** reach exps 135–151: `[buf]` is 75.013 mM in all 119 of their
+curves, so the in-scope substrate order carries none of this. It also does not
+change what the catalysed curves *are* — the reference channel omits only the
+enzyme, so the background is already subtracted at matched buffer.
+
 ## What the data says without a model
 
 Everything below is measured, not fitted. It comes from `data/scope.py` and

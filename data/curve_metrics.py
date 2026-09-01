@@ -240,6 +240,51 @@ def peak_rate(times, values, fraction=INITIAL_WINDOW,
     return float(slopes[best]), float(stderrs[best]), float(centres[best])
 
 
+def whole_slope(times, values, floor=QUANTISATION_SIGMA):
+    """
+    Least-squares slope through the ENTIRE curve. Returns `(slope, stderr)`.
+
+    No window to choose, and it uses every point -- but it is the average rate
+    over the run, not the initial one, so on a curve that decelerates it reads
+    low by however much the curve bends. Quote it beside `initial_rate` rather
+    than instead of it: the gap between the two IS the curvature.
+    """
+    return line_fit(times, values, floor)[:2]
+
+
+def quadratic_rate(times, values, floor=QUANTISATION_SIGMA):
+    """
+    Initial rate from a whole-curve quadratic: `(v0, stderr, curvature_t)`.
+
+    Fits A = c + v0 t + a t^2 over every point, so v0 is the slope at t = 0
+    with no window chosen anywhere -- the answer to the objection that
+    `INITIAL_WINDOW` is arbitrary. `curvature_t` is a/se(a); |t| > 3 means the
+    curve measurably bends, and its SIGN says which way (negative decelerates).
+
+    WHAT IT IS NOT. A quadratic is a two-term Taylor series, so it is only the
+    right shape while the bend is gentle. On the enzyme-free BnOH curves it
+    misses by 2-7x the noise wherever the deceleration is strong, and a form
+    that does not fit within noise cannot have its extrapolation to t = 0
+    trusted far. Read `curvature_t` and the residual before quoting v0.
+    """
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    times = times - times[0]
+    if len(times) < 4:
+        return np.nan, np.nan, np.nan
+    design = np.column_stack([np.ones(len(times)), times, times ** 2])
+    beta, *_ = np.linalg.lstsq(design, values, rcond=None)
+    residual = values - design @ beta
+    degrees = max(1, len(times) - 3)
+    # Floored exactly as line_fit does, and for the same reason: below the
+    # source's digitisation the residual variance is quantisation, not scatter.
+    variance = max(float(residual @ residual) / degrees, floor ** 2)
+    covariance = variance * np.linalg.pinv(design.T @ design)
+    stderr = np.sqrt(np.diag(covariance))
+    curvature_t = float(beta[2] / stderr[2]) if stderr[2] > 0 else np.nan
+    return float(beta[1]), float(stderr[1]), curvature_t
+
+
 # The rolling window a lag time is read through, as a fraction of the run, and
 # the fraction of the rise that defines "the reaction has started".
 LAG_WINDOW = 0.10
