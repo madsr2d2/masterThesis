@@ -263,6 +263,47 @@ def hydroperoxide(pH, h2o2_mM, ionic_strength_mM):
     return hydroperoxide_fraction(pH, ionic_strength_mM) * float(h2o2_mM)
 
 
+def dominant_buffer_pair(buffer_name, pH, buffer_mM):
+    """
+    The conjugate acid/base pair that straddles this pH: `(acid, base, pKa)`.
+
+    Concentrations in mM, `pKa` the dissociation step between them. A
+    polyprotic buffer holds several pairs; the one that matters kinetically is
+    the pair around the pKa nearest the pH, because the others are >99% on one
+    side and cannot vary independently of the total.
+
+    WHY THIS EXISTS. General acid/base catalysis -- Sander and Jencks on H2O2
+    addition to carbonyls, MECHANISM.md item 45 -- is first order in the
+    CATALYSING SPECIES, not in total buffer. So is a route through a peroxo
+    adduct of the buffer anion. Both predict the first-order buffer dependence
+    this dataset measures, and telling them apart needs the species rather
+    than the total.
+
+    IT WILL NOT TELL THEM APART HERE, and the reason is in the design. Within
+    a single run the pH is constant, so every species is a fixed multiple of
+    the total and the order in any one of them equals the order in the total,
+    exactly. Only a comparison ACROSS pH separates them, and this set has two
+    phosphate pH values (6.71 and 8.01) with [buf], ionic strength and [HOO-]
+    all moving between them. The column is here so the claim can be checked
+    rather than asserted, and so a future run at a third pH has somewhere to
+    land.
+
+    Args:
+        buffer_name (str): One of the keys of BUFFER_PKA.
+        pH (float): Solution pH.
+        buffer_mM (float): Total buffer concentration in mM.
+
+    Returns:
+        tuple: (acid_mM, base_mM, pKa) -- the protonated member first.
+    """
+    pKa_list = BUFFER_PKA[buffer_name]
+    alpha = speciation(buffer_name, pH)
+    step = int(np.argmin([abs(float(pH) - pKa) for pKa in pKa_list]))
+    return (float(alpha[step] * buffer_mM),
+            float(alpha[step + 1] * buffer_mM),
+            float(pKa_list[step]))
+
+
 def out_of_range_fraction(ionic_strengths_mM, limit=DEBYE_HUCKEL_RELIABLE_mM):
     """
     Fraction of the given ionic strengths that exceed the Debye-Huckel range.

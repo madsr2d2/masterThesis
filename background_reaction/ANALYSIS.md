@@ -219,16 +219,103 @@ is a stronger claim than the evidence needs.
 
 ## 6. The rate law
 
+**Headline — phosphate buffer only** (`scope.FREE_BNOH_PHOSPHATE`, exps 3, 6,
+67, 69, 70; boric excluded for the reasons in §6a):
+
+    v_background  ~  [S]^+0.32  [H2O2]^+1.49  [HOO-]^+0.82  [buf]^+1.29     (v0_quad)
+    v_background  ~  [S]^+0.34  [H2O2]^+1.14  [HOO-]^+0.84  [buf]^+1.31     (vmax)
+
+**All six runs, boric included** — wider in pH, and the version to quote if the
+pH range matters more than the agreement:
+
     v_background  ~  [S]^+0.33  [H2O2]^+1.87  [HOO-]^+0.63  [buf]^+1.30     (v0_quad)
     v_background  ~  [S]^+0.28  [H2O2]^+1.15  [HOO-]^+0.84  [buf]^+1.19     (vmax)
 
-Roughly first order in peroxide and in buffer, sub-linear in substrate, and about
-0.6–0.8 order in [HOO⁻] — so the background climbs nearly tenfold per pH unit, and
-a background measured at pH 8 says little about one at pH 7.
+Sub-linear in substrate, first order in buffer, and about 0.8 order in [HOO⁻] —
+so the background climbs nearly tenfold per pH unit, and a background measured
+at pH 8 says little about one at pH 7.
 
-The two estimators disagree on the peroxide and pH orders, and `vmax` is the
-better conditioned of them (pooled R² 0.974 against 0.903). **That disagreement
-is one experiment**, and §6a is about which.
+Two estimators agreeing is the reason the phosphate version leads: on the
+headline scope they differ by 0.02 in [S], 0.35 in [H₂O₂] and 0.02 in [HOO⁻],
+against 0.05, 0.72 and 0.21 with boric in. `v0_quad`'s pooled R² is 0.968
+against `vmax`'s 0.966; with boric in it is 0.903 against 0.974.
+
+**On "first order in peroxide".** That names the `[H2O2]` coefficient with
+[HOO⁻] carried separately. Since [HOO⁻] = f(pH)·[H₂O₂], the dependence on TOTAL
+peroxide at fixed pH is the sum of the two, ≈ **+2.3** — second order, not
+first. Whether that is two peroxide-derived species in one rate-determining
+step or an artefact of splitting one variable in two is not settled here; the
+two terms are separable in this design (VIF 1.3 and 3.1) but the split is a
+modelling choice, not a measurement.
+
+### 6b. Why first order in buffer? Two mechanisms, and this design cannot separate them
+
+The obvious reading of a first-order buffer dependence is that the buffer anion
+is *making an oxidant* — phosphate + H₂O₂ → **peroxomonophosphate**, the way
+borate gives peroxoborate and carbonate gives peroxymonocarbonate. If that were
+happening, the buffer would not be catalysing the reaction; it would be a
+reagent in it, and "background" would mean something different.
+
+**Two mechanisms predict exactly this dependence:**
+
+1. **General acid/base catalysis.** Sander & Jencks (MECHANISM.md item 45)
+   showed H₂O₂ addition to carbonyls is subject to *both* general acid and
+   general base catalysis. Buffer species accelerate adduct formation
+   independently of pH, first order in the catalysing species. Already the
+   repo's standing explanation.
+2. **A buffer-derived peroxo oxidant.** A pre-equilibrium
+   HPO₄²⁻ + H₂O₂ ⇌ HPO₅²⁻ + H₂O gives a rate first order in phosphate and
+   first order in H₂O₂ while the equilibrium is far to the left.
+
+**On the chemistry, (2) is much weaker than for borate or carbonate.**
+Peroxomonophosphoric acid is a real and competent oxidant, but it is not made
+by mixing inorganic phosphate with H₂O₂ in water — it is prepared from P₄O₁₀ or
+from concentrated H₂O₂ with strong acid, and in dilute near-neutral solution it
+*hydrolyses* to phosphate + H₂O₂. That is the thermodynamically downhill
+direction. Borate is different because B(OH)₃ is a Lewis acid that adds HOO⁻
+directly; carbonate is different because its carbon is electrophilic
+(K ≈ 0.3 M⁻¹, formed in minutes). Phosphate at pH 7–8 is H₂PO₄⁻/HPO₄²⁻ — an
+anion, so attack by HOO⁻ at a tetrahedral phosphorus is both electrostatically
+disfavoured and slow. Expect a very small equilibrium constant, not a
+kinetically useful one.
+
+That is an argument, not a measurement, and the possibility is not zero: a tiny
+equilibrium concentration of a *much* faster oxidant can still carry a rate.
+
+**What this dataset can say: nothing.** Both mechanisms are first order in a
+buffer *species*, and the design cannot resolve a species from the total.
+Within the titration runs (exps 3 and 6, the only sweep of `[buf]` at fixed pH)
+the pH is constant, so log[buf], log[H₂PO₄⁻] and log[HPO₄²⁻] are the same
+variable — correlation **1.000000**, identical ranges. The measured +1.29 is
+simultaneously an order in the total, in the acid form and in the base form.
+
+Across pH there are only two phosphate levels (6.71 and 8.01), and everything
+moves at once — medians over the live curves: `[buf]` 58 -> 85 mM, `[H2PO4-]`
+43.4 -> 11.4, `[HPO4^2-]` 14.1 -> 73.6, `[HOO-]` 0.0013 -> 0.041 mM. (The
+pH 6.71 runs are the titration, so their `[buf]` sweeps 85 → 25 mM; 58 is its
+median, not a setpoint.) Substituting `buf_base` for `buf` in the rate
+law drives the variance inflation factor to **30.2**, against **2.8** for the
+total — above the package's own threshold of 10, where "the coefficient is
+arithmetic, not evidence".
+
+**The experiments that would settle it**, cheapest first:
+
+- **³¹P NMR of the buffer under run conditions.** Peroxomonophosphate is a
+  distinct resonance. Present or absent, one spectrum, no kinetics required.
+  This is the decisive test and it should be done before the interpretation is
+  written up either way.
+- **Saturation in [H₂O₂].** A pre-equilibrium peroxo adduct saturates when
+  buffer is limiting; general catalysis does not. Our peroxide order is ≥ 1
+  everywhere measured, which is *not* what saturation looks like — weak
+  evidence against (2), and confounded.
+- **A Brønsted plot**: several buffers at one pH. General catalysis predicts
+  the catalytic constant tracks the buffer's pKa; a peroxo route does not.
+- **`[buf]` swept at a third pH**, which would break the species/total
+  degeneracy that stops this dataset from answering at all.
+
+`scope.frame` now carries `buf_acid`, `buf_base` and `buf_pka`
+(`solution_chemistry.dominant_buffer_pair`) so all of this is a query rather
+than an argument.
 
 ### 6a. What the boric run carries
 

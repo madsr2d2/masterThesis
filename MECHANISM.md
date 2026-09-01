@@ -601,6 +601,41 @@ buffers at the same nominal pH are not comparable without accounting for this.
   independently of pH. This is exactly the general acid/base catalysis expected
   at steps 1, 4 and 6, and it means buffer concentration is a real kinetic
   variable, not a nuisance parameter.
+- **Does phosphate form a peroxo species too?** Raised 2026-09-01, and it is
+  the right question to ask of a first-order buffer dependence: if
+  HPO4^2- + H2O2 <-> HPO5^2- + H2O ran at all, the buffer would be a REAGENT
+  making an oxidant, not a catalyst, and the enzyme-free rate law would mean
+  something different.
+
+  Peroxomonophosphoric acid (H3PO5) is real and a competent oxidant, but the
+  case is much weaker than for borate or carbonate. It is prepared from P4O10
+  or from concentrated H2O2 with strong acid, and in dilute near-neutral
+  solution it HYDROLYSES to phosphate + H2O2 -- that is the downhill
+  direction. Borate is different because B(OH)3 is a Lewis acid that adds HOO-
+  directly; carbonate because its carbon is electrophilic (K ~ 0.3 M^-1, formed
+  in minutes). Phosphate at pH 7-8 is H2PO4-/HPO4^2-, an anion, so attack by
+  HOO- at tetrahedral phosphorus is electrostatically disfavoured and slow.
+  Expect a very small equilibrium constant. That is an argument, not a
+  measurement, and it is not conclusive: a tiny concentration of a much faster
+  oxidant can still carry a rate.
+
+  **The kinetics cannot decide it.** Both this and general acid/base catalysis
+  are first order in a buffer SPECIES, and the enzyme-free design cannot
+  resolve a species from the total: within exps 3 and 6, the only sweep of
+  [buf] at fixed pH, log[buf], log[H2PO4-] and log[HPO4^2-] are the same
+  variable (correlation 1.000000). Across pH there are two phosphate levels and
+  everything moves together -- substituting the basic form for the total drives
+  its VIF to 30.2 against 2.8. See background_reaction/ANALYSIS.md section 6b.
+
+  **Decisive test: 31P NMR of the buffer under run conditions.**
+  Peroxomonophosphate is a distinct resonance; one spectrum settles presence or
+  absence with no kinetics at all. Do this before writing the interpretation up
+  either way. Supporting tests: saturation in [H2O2] (a pre-equilibrium adduct
+  saturates, general catalysis does not -- our peroxide order is >= 1
+  everywhere, which is weak evidence against); a Brønsted plot across buffers
+  at one pH; and [buf] swept at a THIRD pH, which would break the
+  species/total degeneracy outright.
+
 - **Pyrophosphate is probably acting as a metal chelator** (reasoning, not
   sourced): trace Fe/Cu catalyse H2O2 decomposition, which is why essentially
   every dioxirane paper adds EDTA. Pyrophosphate chelates; phosphate and

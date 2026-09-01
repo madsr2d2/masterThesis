@@ -33,6 +33,7 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            quadratic_rate, whole_slope)
 from fit_dataset import (PRIMARY_SCOPE, PRIMARY_SCOPE_BLOCK, build_curves,
                          in_scope, source_floor)
+from solution_chemistry import dominant_buffer_pair
 from summary_kinetics import fit_burst_bounded
 
 # A run's own cuvettes have to move an axis by at least this much before that
@@ -156,6 +157,8 @@ def frame(scope=PRIMARY_SCOPE):
         # and the run-masking above still hides it from `isolated`.
         outlier_z = local_outlier_z(times, values, noise)
         first_z = float(outlier_z[0]) if len(outlier_z) else np.nan
+        buf_acid, buf_base, buf_pka = dominant_buffer_pair(
+            curve.buffer, curve.pH, curve.buf)
         rows.append({
             "experiment": curve.experiment,
             "source": curve.source,
@@ -171,6 +174,14 @@ def frame(scope=PRIMARY_SCOPE):
             # In every enzyme-free titration this falls as `s0` rises, because
             # substrate volume displaced buffer volume; see BUFFER_CONFOUNDED.
             "buf": curve.buf,
+            # The conjugate pair straddling this pH, in mM. General acid/base
+            # catalysis and a peroxo-adduct route are both first order in a
+            # SPECIES, not in the total -- see
+            # solution_chemistry.dominant_buffer_pair, which also says why
+            # this dataset cannot separate them.
+            "buf_acid": buf_acid,
+            "buf_base": buf_base,
+            "buf_pka": buf_pka,
             "pH": curve.pH,
             "s0": curve.conditions.s0,
             "h2o2": curve.conditions.h2o2,

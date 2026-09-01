@@ -18,8 +18,8 @@ import pandas as pd
 from solution_chemistry import (
     ACTIVITY_MODEL, BUFFER_CHARGES, BUFFER_PKA, DAVIES_B, DEBYE_HUCKEL_A,
     DEBYE_HUCKEL_B, PKA_H2O2,
-    add_solution_columns, effective_pka_h2o2, hydroperoxide,
-    hydroperoxide_fraction, ionic_strength, speciation,
+    add_solution_columns, dominant_buffer_pair, effective_pka_h2o2,
+    hydroperoxide, hydroperoxide_fraction, ionic_strength, speciation,
 )
 
 FAILURES = []
@@ -79,6 +79,53 @@ def test_speciation():
     mean_high = float(np.dot(high, np.arange(len(high))))
     check("higher pH means more deprotonated on average", mean_high > mean_low,
           f"{mean_low:.3f} -> {mean_high:.3f}")
+
+
+def test_dominant_buffer_pair():
+    print("\ndominant buffer pair")
+    # At pH = pKa the pair is half and half, and the pair chosen is that pKa's.
+    acid, base, pKa = dominant_buffer_pair("Phosphate", 7.20, 100.0)
+    check("at pH = pKa2 phosphate's pair is equal", close(acid, base, 1e-12),
+          f"{acid:.4f}/{base:.4f}")
+    check("and the pair reported is pKa2", close(pKa, 7.20, 1e-12))
+    # NOT 50.0 each. The pair is the dominant one, not the whole buffer: H3PO4
+    # and PO4(3-) hold the remaining 8e-5 of it here. That is the function
+    # behaving correctly -- a pair is a pair -- and a caller that needs the
+    # total must use `buf`, which is why scope.frame carries both.
+    check("the pair is very nearly, but not exactly, the whole buffer",
+          99.9 < acid + base < 100.0, f"{acid + base:.4f} of 100")
+
+    # The pair straddling the pH is chosen, not the first one.
+    _, _, pKa_low = dominant_buffer_pair("Phosphate", 2.5, 100.0)
+    check("at pH 2.5 phosphate reports pKa1", close(pKa_low, 2.15, 1e-12))
+
+    # A pair never exceeds the total, and at a pH far from every pKa it is
+    # nearly all of it -- the species that matter are the ones near the pH.
+    acid, base, _ = dominant_buffer_pair("Phosphate", 8.01, 85.0)
+    check("the pair does not exceed the total", acid + base <= 85.0 + 1e-9,
+          f"{acid + base:.4f}")
+    # 10^(8.01 - 7.20) = 6.46, which is what this must equal -- an earlier
+    # draft of this test asserted > 8 and was simply wrong about the arithmetic.
+    check("at pH 8.01 phosphate is mostly the basic form",
+          close(base / acid, 10.0 ** (8.01 - 7.20), 1e-6),
+          f"{acid:.2f} vs {base:.2f}, ratio {base / acid:.3f}")
+
+    # Scaling: both members are linear in the total, which is the property
+    # that makes the order in a species equal the order in the total at fixed
+    # pH -- the degeneracy ANALYSIS.md section 6b rests on.
+    one = dominant_buffer_pair("Phosphate", 6.71, 25.0)
+    two = dominant_buffer_pair("Phosphate", 6.71, 85.0)
+    ratio = 85.0 / 25.0
+    check("both members scale with the total, so log-orders coincide",
+          close(two[0] / one[0], ratio, 1e-9) and close(two[1] / one[1], ratio,
+                                                        1e-9))
+
+    # Unknown buffers must raise, for the reason speciation documents.
+    try:
+        dominant_buffer_pair("Tris", 8.0, 50.0)
+        check("an unknown buffer raises", False)
+    except KeyError:
+        check("an unknown buffer raises", True)
 
 
 # --- ionic strength -------------------------------------------------------
@@ -242,6 +289,7 @@ def test_dataset(path="data/experiment_data.csv"):
 if __name__ == "__main__":
     test_tables()
     test_speciation()
+    test_dominant_buffer_pair()
     test_ionic_strength()
     test_debye_huckel()
     test_regressions()

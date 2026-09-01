@@ -8,6 +8,85 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — Phosphate is the headline rate law; does phosphate make a peroxo species?
+
+Two rulings from the user, one editorial and one chemical.
+
+### The headline
+
+Report both scopes, lead with phosphate. ANALYSIS.md section 6 now gives the
+phosphate-only law first and the all-six-runs law second, labelled as the
+version to quote when pH range matters more than estimator agreement. Both are
+pinned by `check_numbers.py`.
+
+Justification restated in one line: on the phosphate scope `v0_quad` and `vmax`
+differ by 0.02 in [S], 0.35 in [H2O2] and 0.02 in [HOO-], against 0.05, 0.72
+and 0.21 with boric in.
+
+### "First order in peroxide" was understating it
+
+Noticed while rewriting. The phrase names the `[H2O2]` COEFFICIENT with [HOO-]
+carried separately, but [HOO-] = f(pH)[H2O2], so the dependence on TOTAL
+peroxide at fixed pH is the SUM: **+1.49 + 0.82 = +2.3**. Second order, not
+first. The two terms are separable in this design (VIF 1.3 and 3.1), so the
+split is legitimate, but it is a modelling choice and the text now says so
+rather than letting "first order in peroxide" stand unqualified.
+
+### Does phosphate form a peroxo species, and is that WHY the rate is first
+### order in buffer?
+
+Asked by the user, and it is the right question to ask of a first-order buffer
+dependence: if HPO4^2- + H2O2 <-> HPO5^2- + H2O ran at all, the buffer would be
+a reagent making an oxidant rather than a catalyst.
+
+**The chemistry argues no, but not conclusively.** Peroxomonophosphoric acid is
+real and a competent oxidant, but it is prepared from P4O10 or concentrated
+H2O2 with strong acid, and in dilute near-neutral solution it HYDROLYSES to
+phosphate + H2O2 -- the downhill direction. Borate differs because B(OH)3 is a
+Lewis acid that adds HOO- directly; carbonate because its carbon is
+electrophilic (K ~ 0.3 M^-1, minutes). Phosphate at pH 7-8 is an anion, so
+attack by HOO- at tetrahedral P is electrostatically disfavoured and slow.
+Argument, not measurement -- and a tiny concentration of a much faster oxidant
+can still carry a rate.
+
+**The kinetics cannot decide it, and that is a fact about the design.** Both
+this and the standing explanation -- Sander and Jencks general acid/base
+catalysis, MECHANISM.md item 45 -- are first order in a buffer SPECIES.
+Measured:
+
+- Within exps 3 and 6, the only sweep of [buf] at fixed pH, log[buf],
+  log[H2PO4-] and log[HPO4^2-] are the same variable: correlation
+  **1.000000**, identical ranges. The +1.29 is simultaneously an order in the
+  total, in the acid form and in the base form.
+- Across pH there are only **two** phosphate levels, with everything moving at
+  once. Substituting the basic form for the total drives its variance
+  inflation factor to **30.2**, against **2.8** for the total -- past the
+  package's own threshold of 10, where "the coefficient is arithmetic, not
+  evidence".
+
+So the hypothesis is recorded as OPEN, in MECHANISM.md beside the borate and
+carbonate entries, with the tests that would close it. Cheapest and decisive:
+**31P NMR of the buffer under run conditions** -- peroxomonophosphate is a
+distinct resonance, one spectrum, no kinetics. Supporting: saturation in
+[H2O2] (a pre-equilibrium adduct saturates, general catalysis does not; our
+peroxide order is >= 1 everywhere, weak evidence against); a Bronsted plot
+across buffers at one pH; and [buf] swept at a THIRD pH, which would break the
+species/total degeneracy outright.
+
+### What was added
+
+`solution_chemistry.dominant_buffer_pair(buffer, pH, mM)` returns the conjugate
+pair straddling the pH, and `scope.frame` carries `buf_acid`, `buf_base`,
+`buf_pka`. Tested -- including two expectations I got wrong first time and
+corrected rather than loosened: the pair is 99.99% of the buffer and not all of
+it (H3PO4 and PO4^3- hold the rest), and at pH 8.01 the base/acid ratio is
+10^0.81 = 6.46, where the test had asserted > 8.
+
+`check_numbers.py` pins the correlation, both inflation factors, the two-level
+count and the four concentration spans. 60 -> 64 checks.
+
+---
+
 ## 2026-09-01 — What the boric-buffer run carries, and a stale rate law found doing it
 
 Asked: what happens if the boric-acid buffer experiments are excluded. In the

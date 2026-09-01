@@ -211,6 +211,43 @@ def main():
             claim(f"pooled R2, {estimator}, {label}",
                   f"{law['r2']:.3f}")
 
+    print("\nthe species/total degeneracy behind the buffer order")
+    # Section 6b claims the design cannot separate a buffer SPECIES from the
+    # total. That claim is the reason the peroxophosphate hypothesis is left
+    # open rather than tested, so it is checked rather than asserted.
+    live = scope.frame(scope.FREE_BNOH_PHOSPHATE)
+    live = live[live.live]
+    titration = live[live.experiment.isin(scope.BUFFER_CONFOUNDED)]
+    logs = {name: np.log(titration[name].to_numpy())
+            for name in ("buf", "buf_acid", "buf_base")}
+    worst = min(float(np.corrcoef(logs["buf"], logs[name])[0, 1])
+                for name in ("buf_acid", "buf_base"))
+    claim("species and total are one variable in the titration",
+          f"correlation **{worst:.6f}**")
+    inflation_total = scope.variance_inflation(
+        live, ("s0", "h2o2", "hoo", "buf"))["buf"]
+    inflation_base = scope.variance_inflation(
+        live, ("s0", "h2o2", "hoo", "buf_base"))["buf_base"]
+    claim("substituting the basic form inflates the variance",
+          f"factor to **{inflation_base:.1f}**, against **{inflation_total:.1f}** for the")
+    # The two pH levels, and that there are only two of them.
+    levels = sorted(live.pH.unique())
+    ok = len(levels) == 2
+    print(f"  {'pass' if ok else 'FAIL'}  the phosphate set has two pH levels: "
+          f"{levels}")
+    if not ok:
+        FAILURES.append("the phosphate set no longer has exactly two pH levels; "
+                        "section 6b's degeneracy argument needs rewriting")
+    span = live.groupby("pH").agg(buf=("buf", "median"),
+                                  acid=("buf_acid", "median"),
+                                  base=("buf_base", "median"),
+                                  hoo=("hoo", "median"))
+    claim("what moves between the two pH levels",
+          f"`[buf]` {span.buf.iloc[0]:.0f} -> {span.buf.iloc[1]:.0f} mM, "
+          f"`[H2PO4-]` {span.acid.iloc[0]:.1f} -> {span.acid.iloc[1]:.1f}, "
+          f"`[HPO4^2-]` {span.base.iloc[0]:.1f} -> {span.base.iloc[1]:.1f}, "
+          f"`[HOO-]` {span.hoo.iloc[0]:.4f} -> {span.hoo.iloc[1]:.3f}")
+
     print("\nwhat the boric run carries")
     spread = scope.boric_spread()
     for term, name in (("s0", "`[S]`"), ("h2o2", "`[H2O2]`"),
