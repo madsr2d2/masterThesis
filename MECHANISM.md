@@ -685,11 +685,18 @@ explanation.
 
 ### Autocatalysis
 
-**48 of 110 live in-scope curves are steeper later than at the start by more
+**51 of 110 live in-scope curves are steeper later than at the start by more
 than 3σ.** It tracks the peroxide anion: 87% of the 30 curves above 0.1 mM
-[HOO⁻] accelerate, against 28% of the 80 below. Exps 140–143 accelerate hardest (median z of +4 to
+[HOO⁻] accelerate, against 31% of the 80 below. Exps 140–143 accelerate hardest (median z of +5 to
 +14, 19 of their 28 live curves); exps 146, 149 and 150 decelerate outright
-(median z near −20). The block-slope statistic (`curve_metrics.acceleration`) is used
+(median z near −20).
+
+(It read 48 and 28% until 2026-09-01, when `line_fit`'s variance floor stopped
+being hardcoded at the .txt export's quantisation on curves read from the
+instrument's own `.rre`. The z-score divides by two standard errors that floor
+sets, so the export's rounding had been suppressing it on data a thousand times
+finer. `DATA_VERIFICATION.md` carries the working; three curves changed verdict
+and nothing else in this section moved.) The block-slope statistic (`curve_metrics.acceleration`) is used
 rather than a point-wise gradient because a point-wise gradient is too noisy to
 locate anything here: its own scatter is a median 12% of the largest gradient
 in the curve, and resampling a curve's noise moves the gradient's argmax by a

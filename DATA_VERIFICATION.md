@@ -8,6 +8,127 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — The variance floor belongs to the source, and it reached only half way
+
+Raised by the user, asking whether the in-scope curves are the `.rre`-derived
+ones and then whether the floor should come from the `.rre` data. Both answers
+were yes, and the second exposed a place where it did not.
+
+### What was wrong
+
+`curve_metrics.curve_noise` has taken its floor as an argument since
+2026-08-31, precisely because the floor is a property of the SOURCE: the `.txt`
+export rounds to 0.001 AU and needs `QUANTISATION_SIGMA = 2.887e-4`, while the
+instrument's own `.rre` carries readings at ~9.3e-7 AU and needs
+`read_rre.RRE_SIGMA = 2.633e-7`. The two differ by **1096x**.
+`fit_dataset.build_curves` chose correctly per curve and `scope.frame` was
+careful to use `curve.noise` rather than recompute it.
+
+`curve_metrics.line_fit` was not given the same treatment. It floored its
+residual variance at a hardcoded `QUANTISATION_SIGMA ** 2` for every curve
+regardless of source, and every rate in the package is built on it —
+`line_slope`, `initial_rate`, `block_slopes`, `peak_rate`, `rolling_slope`,
+`acceleration`, `lag_time`. So the source-awareness stopped at `noise` and
+never reached the rates.
+
+Its docstring's justification had also gone stale: "Readings come out of the
+instrument at three decimals" was true of all 402 curves when it was written
+and is now true of 125.
+
+### What it cost
+
+Measured over the 110 live in-scope curves, every one of which is `.rre`:
+
+| | |
+|---|---|
+| curves whose residual rms is below `QUANTISATION_SIGMA`, so the floor bound | **52 of 110** |
+| median inflation of their slope standard error | **1.4x** |
+| curves whose measured noise is below `QUANTISATION_SIGMA` | 95 of 110 |
+| median measured noise against the floor applied | 1.83e-4 vs 2.887e-4 |
+
+`acceleration` divides by `hypot(stderr[first block], stderr[steepest block])`,
+so an inflated floor shrinks the z-score directly and the statistic was
+**under-counting**. The correction moves it the right way:
+
+| | before | after |
+|---|---|---|
+| in-scope accelerating (> 3σ) | 48 of 110 | **51 of 110** |
+| accelerating, [HOO⁻] > 0.1 mM | 87 % of 30 | 87 % of 30 |
+| accelerating, [HOO⁻] ≤ 0.1 mM | 28 % of 80 | **31 % of 80** |
+| accelerating, 11 strong runs | 40 of 77 | 40 of 77 |
+
+Three curves changed verdict. **Nothing else moved**, which was checked rather
+than assumed:
+
+- the archive lag fraction stays 151/402 — `peak_position` uses a smoothed
+  point-wise gradient and never calls `line_fit`;
+- `strong_runs()` returns the same eleven experiments;
+- the orders are unchanged to three decimals (`scope.orders` is unweighted, so
+  it never reads a standard error): `vmax` +0.012 ± 0.044 in [BnOH] and
+  +0.868 ± 0.062 in [H₂O₂] over the strong eleven;
+- the induction period is unchanged — 8 strong runs carrying ≥ 3 accelerating
+  curves, 35 curves, median 23.0 min, IQR 17.5–35, r = +0.03 against
+  log[BnOH], −0.35 against log[HOO⁻], and a 332-fold span of conversion at the
+  switch;
+- the paired controls are unchanged — 0.63x over 9 live matched rungs, range
+  0.31–1.41x, against the 1.55x separating exps 69 and 70;
+- the autocatalysis-needs-chemzyme result is unchanged — at matched [HOO⁻] of
+  0.03–0.10 mM, 0 of 16 enzyme-free against 7 of 23 catalysed, Fisher
+  p = 0.0287.
+
+### What was changed
+
+- **`curve_metrics`**: `line_fit`, `line_slope`, `initial_rate`,
+  `block_slopes`, `acceleration`, `peak_rate`, `rolling_slope` and `lag_time`
+  all take `floor` now. The default stays `QUANTISATION_SIGMA`, so a caller
+  that has not been told about a source still gets the old, conservative
+  behaviour rather than a silently optimistic one.
+- **`fit_dataset.source_floor(source)`** is the one place the mapping lives.
+  It is not put in `curve_metrics` because that module's stated contract is
+  "pure numpy, no I/O, so anything may import it", and the constant lives in
+  `read_rre`. `curve_dossier` carried a second copy of the same conditional and
+  now calls it.
+- **`scope.frame`** and **`curve_dossier.describe`** pass the curve's own floor
+  through to the rates, not just to the noise.
+- **`test_curve_metrics.test_floor_belongs_to_the_source`** fails if the floor
+  is hardcoded again: it checks that a smaller floor gives a proportionally
+  smaller standard error, that the default is still the export's, and — the one
+  that matters — that a rise of a tenth of one export quantum is judged
+  *not* accelerating at the export's floor and accelerating at the instrument's.
+
+### Why the floor is right where it now sits
+
+The floor exists only to stop a degenerate zero — exp 25 sample 3 rises by
+exactly 0.004 AU per reading and produced a standard error of 1.5e-20 AU/s
+before it existed. So the correct value is the source's own digitisation limit,
+which then almost never binds and lets the measured scatter speak. Flooring
+`.rre` curves at the *export's* quantum instead made half of the in-scope block
+report the export's precision when the instrument's is a thousand times better.
+
+### An unrelated observation, recorded so it is not lost
+
+Chasing this turned up two things about `scope.orders` that are not bugs and are
+not yet written down anywhere:
+
+1. It is **unweighted** OLS and never reads `v0_stderr` or `vmax_stderr`,
+   though both are in the frame. Under inverse-variance weighting on all 110
+   live curves `v0`'s substrate order moves from +0.442 ± 0.070 to
+   +0.044 ± 0.058 — a far larger move than the strong-run screen causes. That
+   is not evidence the weighted number is the true one; it is evidence that a
+   single pooled order is not a well-defined quantity on a block whose local
+   order runs +1.33 → +0.71 → +0.15 across the ladder. The claims that survive
+   any weighting are the local ones from `scope.local_orders`.
+2. `strong_runs()` correlates with the peroxide axis it is used to measure:
+   `corr(agreement, log10[HOO⁻]) = +0.67`, and screening cuts the block's
+   [HOO⁻] span from 4.3 decades to 2.1. The six dropped runs are the low-pH
+   end. It moves `vmax`'s peroxide order by under 1σ (+0.796 → +0.868), so it
+   is not manufacturing the result, but the peroxide order is measured on a
+   truncated range and should say so.
+
+Neither is acted on here. Both need their own entry.
+
+---
+
 ## 2026-09-01 — Correction: the 876x background excess was mostly pH
 
 Raised by the user: the uncatalysed reaction is expected to speed up with pH,
@@ -371,7 +492,7 @@ argument rather than assuming one. Nothing may floor a noise at
 | archive lag fraction | 136/402 = 34% | **151/402 = 37.6%** |
 | in-scope live curves | 96 of 119 | **110 of 119** |
 | in-scope lagging | 24 | **39** |
-| in-scope accelerating (>3σ) | 40 of 96 | **48 of 110** |
+| in-scope accelerating (>3σ) | 40 of 96 | **48 of 110** — SUPERSEDED 2026-09-01, now 51 of 110 |
 | v_max order in [H₂O₂] | +0.77 ± 0.07 | **+0.80 ± 0.08** |
 | v_max order in [BnOH] | +0.01 ± 0.05 | **+0.10 ± 0.05** |
 | v₀ order in [BnOH] | +0.33 ± 0.06 | **+0.44 ± 0.07** |
@@ -448,7 +569,7 @@ runs and 77 live curves, and sharpens every conclusion rather than removing one:
 | v_max order in [H₂O₂] | +0.80 ± 0.08 | **+0.87 ± 0.06** |
 | speed-up order in [BnOH] | −0.29 ± 0.05 | **−0.37 ± 0.07** |
 | v_max top-rung local order | −0.386, 13/15 neg, p = 0.004 | **−0.457, 11/11 neg, p = 0.0005** |
-| curves accelerating | 48 of 110 (44%) | 40 of 77 (52%) |
+| curves accelerating | 48 of 110 (44%) — SUPERSEDED 2026-09-01, now 51 of 110 (46%) | 40 of 77 (52%) |
 
 The weak runs were diluting the substrate result, not producing it. The scope is
 unchanged — these runs are still in it, and a fit should carry them at the

@@ -16,10 +16,18 @@ Pure numpy. No I/O, no dataset, no pandas -- so anything may import it.
 """
 import numpy as np
 
-# Absorbance is recorded to three decimals, so a reading's quantisation alone
-# contributes this much standard deviation. Used as a floor on every noise and
-# residual estimate: a curve sitting on three or four distinct levels otherwise
-# reports zero noise, and a zero denominator would give it infinite weight.
+# The .txt EXPORT records absorbance to three decimals, so a reading's
+# quantisation alone contributes this much standard deviation. It is the floor
+# on a noise or residual estimate for a curve read from an export: one sitting
+# on three or four distinct levels otherwise reports zero noise, and a zero
+# denominator would give it infinite weight.
+#
+# IT IS NOT THE FLOOR FOR EVERY CURVE. Since 2026-08-31 most readings come from
+# the instrument's own .rre at ~1e-6 AU, and read_rre.RRE_SIGMA -- 1096x smaller
+# -- is the floor those need. Every function here that floors takes the value as
+# an argument for that reason; fit_dataset.source_floor maps a Curve.source to
+# the right one. Passing the default on .rre data overstates a curve's noise by
+# up to 2.4x and its slope error by a median 1.4x.
 ABSORBANCE_QUANTUM = 0.001
 QUANTISATION_SIGMA = ABSORBANCE_QUANTUM / np.sqrt(12)
 
@@ -40,8 +48,9 @@ def curve_noise(values, floor=QUANTISATION_SIGMA):
     `floor` is a property of the SOURCE, not of the chemistry: the .txt
     exports are rounded to 0.001 AU and need QUANTISATION_SIGMA, while a
     curve read from a .rre carries ~1000x finer readings and must be given
-    rre_io.RRE_SIGMA instead. Leaving the default in place on .rre data
-    would report 2.89e-4 AU for curves whose real noise is 1.2e-4.
+    `read_rre.RRE_SIGMA` instead -- `fit_dataset.source_floor` maps a
+    `Curve.source` to the right one. Leaving the default in place on .rre
+    data would report 2.89e-4 AU for curves whose real noise is 1.2e-4.
 
     The second difference annihilates any linear trend, so this measures a
     progress curve's scatter without being inflated by the progress itself.
@@ -78,7 +87,7 @@ def peak_position(values, times, smooth_fraction=0.05):
         return 0.0
     return float((centres[np.argmax(slope)] - centres[0]) / (centres[-1] - centres[0]))
 
-def line_fit(times, values):
+def line_fit(times, values, floor=QUANTISATION_SIGMA):
     """
     Ordinary least squares line: (intercept, slope, slope stderr, residual rms).
 
@@ -86,13 +95,26 @@ def line_fit(times, values):
     [1, t] and t runs to a few thousand seconds, so on the raw scale the
     normal equations are conditioned around 1e7 for no reason at all.
 
-    The residual variance is floored at the quantisation variance. Readings
-    come out of the instrument at three decimals, so a window whose points
-    happen to sit exactly on a line has a residual of zero and would otherwise
-    report an impossible standard error -- experiment 25 sample 3 rises by
-    exactly 0.004 AU per reading and produced 1.5e-20 AU/s before this floor
-    existed. A weighted fit would have given that curve essentially infinite
-    weight on the strength of the instrument's rounding.
+    The residual variance is floored at `floor ** 2`, so that a window whose
+    points happen to sit exactly on a line cannot report an impossible standard
+    error -- experiment 25 sample 3 rises by exactly 0.004 AU per reading and
+    produced 1.5e-20 AU/s before this floor existed. A weighted fit would have
+    given that curve essentially infinite weight on the strength of the
+    instrument's rounding.
+
+    `floor` IS A PROPERTY OF THE SOURCE, exactly as it is in `curve_noise`, and
+    the default here is the .txt export's. A .rre curve must be given
+    `read_rre.RRE_SIGMA` instead -- `fit_dataset.source_floor` maps one to the
+    other. The floor's only job is to stop a degenerate zero, so the right
+    value is the source's own digitisation limit, which then almost never
+    binds and lets the measured scatter speak.
+
+    Until 2026-09-01 this floor was hardcoded at QUANTISATION_SIGMA for every
+    curve, which is 1096x RRE_SIGMA. It bound on 52 of the 110 live in-scope
+    curves and inflated their slope errors by a median 1.4x, and since
+    `acceleration` divides by exactly these errors it was suppressing the
+    z-scores it is measured by: the in-scope acceleration count read 48/110
+    where the instrument's own readings say 51/110.
     """
     times = np.asarray(times, dtype=float)
     values = np.asarray(values, dtype=float)
@@ -103,33 +125,35 @@ def line_fit(times, values):
     coefficients, *_ = np.linalg.lstsq(design, values, rcond=None)
     residual = values - design @ coefficients
     degrees = max(1, len(times) - 2)
-    variance = max(float(residual @ residual) / degrees, QUANTISATION_SIGMA ** 2)
+    variance = max(float(residual @ residual) / degrees, float(floor) ** 2)
     covariance = variance * np.linalg.pinv(design.T @ design)
     return (float(coefficients[0]),
             float(coefficients[1] / scale),
             float(np.sqrt(covariance[1, 1]) / scale),
             float(np.sqrt(residual @ residual / len(times))))
 
-def line_slope(times, values):
+def line_slope(times, values, floor=QUANTISATION_SIGMA):
     """(slope, stderr, rms) -- `line_fit` without the intercept."""
-    _, slope, stderr, rms = line_fit(times, values)
+    _, slope, stderr, rms = line_fit(times, values, floor)
     return slope, stderr, rms
 
 def window_size(count, fraction):
     """How many leading points `fraction` of a curve is, floored so a slope exists."""
     return max(MINIMUM_WINDOW_POINTS, min(count, int(count * fraction)))
 
-def initial_rate(times, values, fraction=INITIAL_WINDOW):
+def initial_rate(times, values, fraction=INITIAL_WINDOW,
+                 floor=QUANTISATION_SIGMA):
     """Slope over the first `fraction` of a run, in absorbance per second."""
     count = window_size(len(times), fraction)
-    return line_slope(times[:count], values[:count])
+    return line_slope(times[:count], values[:count], floor)
 
 # A curve accelerates when a later block of it is steeper than its first block
 # by this many combined standard errors. 3.0 leaves room for the fact that the
 # steepest block is a maximum over four candidates, not a single pre-chosen one.
 ACCELERATION_SIGMA = 3.0
 
-def acceleration(times, values, fraction=INITIAL_WINDOW):
+def acceleration(times, values, fraction=INITIAL_WINDOW,
+                 floor=QUANTISATION_SIGMA):
     """
     How much steeper a curve gets after its start, in standard errors.
 
@@ -150,8 +174,12 @@ def acceleration(times, values, fraction=INITIAL_WINDOW):
     The blocks are consecutive and non-overlapping, `fraction` of the run each.
     Overlapping windows would let the maximum roam over many correlated
     candidates and inflate every z.
+
+    `floor` reaches the two standard errors this z divides by, so it changes
+    the verdict directly -- pass the curve's SOURCE floor, not the default.
+    See `line_fit`.
     """
-    slopes, stderrs, centres = block_slopes(times, values, fraction)
+    slopes, stderrs, centres = block_slopes(times, values, fraction, floor)
     if len(slopes) < 2:
         return np.nan, np.nan
     if not np.isfinite(slopes[0]) or not np.isfinite(stderrs[0]):
@@ -163,7 +191,8 @@ def acceleration(times, values, fraction=INITIAL_WINDOW):
     return float((slopes[best] - slopes[0]) / combined), float(centres[best])
 
 
-def block_slopes(times, values, fraction=INITIAL_WINDOW):
+def block_slopes(times, values, fraction=INITIAL_WINDOW,
+                 floor=QUANTISATION_SIGMA):
     """
     Straight-line slopes over consecutive, non-overlapping blocks of a curve.
 
@@ -183,14 +212,15 @@ def block_slopes(times, values, fraction=INITIAL_WINDOW):
     slopes, stderrs, centres = [], [], []
     for index in range(blocks):
         a, b = index * count, (index + 1) * count
-        slope, stderr, _ = line_slope(times[a:b], values[a:b])
+        slope, stderr, _ = line_slope(times[a:b], values[a:b], floor)
         slopes.append(slope)
         stderrs.append(stderr)
         centres.append((0.5 * (times[a] + times[b - 1]) - times[0]) / span)
     return np.array(slopes), np.array(stderrs), np.array(centres)
 
 
-def peak_rate(times, values, fraction=INITIAL_WINDOW):
+def peak_rate(times, values, fraction=INITIAL_WINDOW,
+              floor=QUANTISATION_SIGMA):
     """
     The steepest block's slope, its standard error, and where it sits.
 
@@ -203,7 +233,7 @@ def peak_rate(times, values, fraction=INITIAL_WINDOW):
 
     Returns `(slope, stderr, where)`, `where` as a fraction of the run.
     """
-    slopes, stderrs, centres = block_slopes(times, values, fraction)
+    slopes, stderrs, centres = block_slopes(times, values, fraction, floor)
     if not len(slopes):
         return np.nan, np.nan, np.nan
     best = int(np.argmax(slopes))
@@ -215,7 +245,8 @@ def peak_rate(times, values, fraction=INITIAL_WINDOW):
 LAG_WINDOW = 0.10
 LAG_LEVEL = 0.5
 
-def rolling_slope(times, values, fraction=LAG_WINDOW):
+def rolling_slope(times, values, fraction=LAG_WINDOW,
+                  floor=QUANTISATION_SIGMA):
     """
     Least-squares slope through a window of `fraction` of the run, at every
     point it fits. Returns `(centres, slopes)`.
@@ -233,13 +264,14 @@ def rolling_slope(times, values, fraction=LAG_WINDOW):
     centres, slopes = [], []
     for start in range(0, len(times) - count + 1):
         stop = start + count
-        slope, _, _ = line_slope(times[start:stop], values[start:stop])
+        slope, _, _ = line_slope(times[start:stop], values[start:stop], floor)
         centres.append(0.5 * (times[start] + times[stop - 1]))
         slopes.append(slope)
     return np.array(centres), np.array(slopes)
 
 
-def lag_time(times, values, fraction=LAG_WINDOW, level=LAG_LEVEL):
+def lag_time(times, values, fraction=LAG_WINDOW, level=LAG_LEVEL,
+             floor=QUANTISATION_SIGMA):
     """
     When the reaction reaches half its eventual speed, in SECONDS.
 
@@ -255,10 +287,10 @@ def lag_time(times, values, fraction=LAG_WINDOW, level=LAG_LEVEL):
     +0.84 with run length, so it measures the schedule as much as the
     chemistry.
     """
-    z, _ = acceleration(times, values)
+    z, _ = acceleration(times, values, floor=floor)
     if not np.isfinite(z) or z <= ACCELERATION_SIGMA:
         return np.nan
-    centres, slopes = rolling_slope(times, values, fraction)
+    centres, slopes = rolling_slope(times, values, fraction, floor)
     if len(slopes) < 3:
         return np.nan
     start, peak = slopes[0], slopes.max()

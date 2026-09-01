@@ -20,6 +20,8 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            QUANTISATION_SIGMA, acceleration, curve_noise,
                            initial_rate, line_fit, line_slope, peak_position,
                            window_size)
+from fit_dataset import source_floor
+from read_rre import RRE_SIGMA
 
 FAILURES = []
 
@@ -166,10 +168,65 @@ def test_acceleration():
           not np.isfinite(acceleration(times[:6], times[:6] * 1e-4)[0]))
 
 
+def test_floor_belongs_to_the_source():
+    """
+    The variance floor is an argument, and it changes the verdict.
+
+    `curve_noise` has taken its floor as an argument since 2026-08-31, but
+    `line_fit` hardcoded QUANTISATION_SIGMA until 2026-09-01 -- so every
+    standard error in the package, and the acceleration z-score that divides
+    by two of them, was floored at the .txt export's 0.001 AU rounding even on
+    .rre curves read a thousand times finer. It bound on 52 of the 110 live
+    in-scope curves and cost 3 of them their acceleration verdict (48/110 read
+    where the instrument says 51/110).
+
+    These checks fail if the floor is ever hardcoded again.
+    """
+    print("\nthe floor is a property of the source")
+    times = np.linspace(0, 1000, 80)
+    fine = RRE_SIGMA
+
+    # A signal below the export's quantisation but far above the .rre's: real
+    # to the instrument, invisible to the export. This is the regime the whole
+    # 2026-08-31 .rre swap was about.
+    straight = 1e-7 * times
+
+    _, _, coarse_stderr, _ = line_fit(times, straight)
+    _, _, fine_stderr, _ = line_fit(times, straight, fine)
+    check("line_fit takes a floor and a smaller one gives a smaller stderr",
+          fine_stderr < coarse_stderr,
+          f"{fine_stderr:.3e} vs {coarse_stderr:.3e}")
+    check("and the ratio is the ratio of the floors, since both are floored",
+          abs(coarse_stderr / fine_stderr
+              - QUANTISATION_SIGMA / RRE_SIGMA) < 1e-6 * (QUANTISATION_SIGMA / RRE_SIGMA),
+          f"ratio {coarse_stderr / fine_stderr:.1f}")
+
+    check("line_fit's default is still the export's floor",
+          line_fit(times, straight) == line_fit(times, straight,
+                                                QUANTISATION_SIGMA))
+
+    # The verdict itself moves: a rise of a few .rre quanta accelerates when
+    # judged against the instrument's own floor and does not when judged
+    # against the export's.
+    # Total rise 1e-4 AU: a tenth of one export quantum, ~380 .rre quanta.
+    ramp = np.concatenate([np.zeros(40), 2e-7 * (times[40:] - times[40])])
+    check("a sub-quantum acceleration is invisible at the export's floor",
+          acceleration(times, ramp)[0] < ACCELERATION_SIGMA,
+          f"z={acceleration(times, ramp)[0]:.2f}")
+    check("and visible at the instrument's",
+          acceleration(times, ramp, floor=fine)[0] > ACCELERATION_SIGMA,
+          f"z={acceleration(times, ramp, floor=fine)[0]:.2f}")
+
+    check("source_floor maps the sources to the two constants",
+          source_floor("rre") == RRE_SIGMA
+          and source_floor("txt") == QUANTISATION_SIGMA)
+
+
 if __name__ == "__main__":
     test_no_duplicate_definitions()
     test_lag_statistic()
     test_noise_and_rate()
     test_acceleration()
+    test_floor_belongs_to_the_source()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

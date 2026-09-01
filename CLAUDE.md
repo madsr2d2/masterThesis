@@ -25,9 +25,18 @@ lag statistic's copies disagreed on 96 of 402 curves — one would have reported
 is defined at top level in two modules.
 
 Readings come from the instrument's own `.rre` where one exists and from the
-`.txt` export otherwise; `Curve.source` says which, and the noise floor differs
-by a factor of 1000 between them. Never floor a noise at `QUANTISATION_SIGMA`
-without checking the source — see `data/read_rre.py`.
+`.txt` export otherwise; `Curve.source` says which, and the floor differs by a
+factor of 1096 between them. Never floor a noise **or a residual variance** at
+`QUANTISATION_SIGMA` without checking the source: call
+`fit_dataset.source_floor(curve.source)` and pass the result. Everything in
+`curve_metrics` that floors takes the value as an argument, and the default is
+the `.txt` export's.
+
+This is not only about the noise column. `line_fit` floors the variance behind
+every standard error in the package, and `acceleration` divides by two of them,
+so a floor left at the export's quantisation on `.rre` data suppresses the
+z-score it is measured by — that is how the in-scope acceleration count read
+48/110 until 2026-09-01 when the instrument's own readings say 51/110.
 
 If you need a quantity that does not exist, add it to `scope.py` or
 `curve_metrics.py`. Never compute it inline in a script, including a throwaway

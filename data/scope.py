@@ -30,7 +30,7 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            acceleration, initial_rate, lag_time,
                            peak_position, peak_rate)
 from fit_dataset import (PRIMARY_SCOPE, PRIMARY_SCOPE_BLOCK, build_curves,
-                         in_scope)
+                         in_scope, source_floor)
 
 # A run's own cuvettes have to move an axis by at least this much before that
 # axis counts as measured inside the run rather than across experiments.
@@ -82,11 +82,17 @@ def frame(scope=PRIMARY_SCOPE):
         # by the curve's SOURCE, and a .rre curve floored at the .txt
         # export's quantisation reports 2.4x its real noise.
         noise = curve.noise
+        # The same floor has to reach the RATES, not just the noise. Every one
+        # of these divides by a standard error that line_fit floors, and until
+        # 2026-09-01 that floor was hardcoded at the export's quantisation for
+        # every curve -- suppressing the acceleration z on the .rre data this
+        # scope is entirely made of. See fit_dataset.source_floor.
+        floor = source_floor(curve.source)
         net = float(values[-1] - values[0])
-        v0, v0_stderr, v0_rms = initial_rate(times, values)
+        v0, v0_stderr, v0_rms = initial_rate(times, values, floor=floor)
         peak = peak_position(values, times)
-        accel_z, accel_where = acceleration(times, values)
-        vmax, vmax_stderr, vmax_where = peak_rate(times, values)
+        accel_z, accel_where = acceleration(times, values, floor=floor)
+        vmax, vmax_stderr, vmax_where = peak_rate(times, values, floor=floor)
         rows.append({
             "experiment": curve.experiment,
             "source": curve.source,
@@ -120,7 +126,7 @@ def frame(scope=PRIMARY_SCOPE):
             # `vmax_where` reports, and fractions are not comparable between
             # runs of 51 and 480 minutes; a mechanism predicts a time.
             "vmax_time_s": vmax_where * float(times[-1] - times[0]),
-            "lag_time_s": lag_time(times, values),
+            "lag_time_s": lag_time(times, values, floor=floor),
             "conversion": (net / (curve.epsilon * curve.conditions.s0)
                            if curve.epsilon > 0 and curve.conditions.s0 > 0
                            else np.nan),

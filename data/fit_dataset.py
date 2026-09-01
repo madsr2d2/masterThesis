@@ -40,6 +40,24 @@ ABSORBANCE_QUANTUM = ABSORBANCE_QUANTUM
 QUANTISATION_SIGMA = QUANTISATION_SIGMA
 curve_noise = curve_noise
 
+
+def source_floor(source):
+    """
+    The digitisation floor belonging to a `Curve.source`.
+
+    Everything in curve_metrics that floors a noise or a residual variance --
+    curve_noise, line_fit and everything built on it -- needs this, and needs
+    it per curve rather than per package: the .rre carries readings at ~9.3e-7
+    AU where the .txt export rounds to 0.001, a factor of 1096 between their
+    floors. curve_metrics cannot choose for itself without importing read_rre,
+    which would cost it the "pure numpy, anything may import it" property, so
+    the mapping lives here, once, and is passed in.
+
+    Defined in this module alone; test_curve_metrics.test_no_duplicate_defs
+    fails if a second copy appears.
+    """
+    return RRE_SIGMA if source == "rre" else QUANTISATION_SIGMA
+
 # How many leading points the baseline is taken from. The model's signal is
 # zero at t = 0 by construction, so the data has to be put on the same footing;
 # a median over a few points rather than the first point alone keeps one noisy
@@ -255,9 +273,7 @@ def build_curves(dataset_path=DATASET_PATH, directory=CURVE_DIRECTORY,
             baseline=baseline,
             # The floor belongs to the source: a .rre curve floored at the
             # export's 0.001 AU quantisation would report 2.4x its real noise.
-            noise=curve_noise(values,
-                              RRE_SIGMA if source == "rre"
-                              else QUANTISATION_SIGMA),
+            noise=curve_noise(values, source_floor(source)),
             source=source,
             conditions=Conditions(
                 s0=float(row["[sub]"]),

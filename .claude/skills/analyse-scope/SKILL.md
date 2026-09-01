@@ -25,9 +25,18 @@ if a duplicate reappears.
 
 That archive figure is now **37.6%** (151/402), not because the statistic
 changed but because the readings did: since 2026-08-31 they come from the
-instrument's own `.rre` files rather than the 0.001 AU `.txt` exports. Use
-`curve.noise`, never a fresh `curve_noise(values)` — the floor depends on
-`curve.source` and `frame()` already applies the right one.
+instrument's own `.rre` files rather than the 0.001 AU `.txt` exports. All 119
+in-scope curves are `.rre`; only exps 2–32 are still on the export, and no
+`.rre` survives for them.
+
+Use `curve.noise`, never a fresh `curve_noise(values)` — the floor depends on
+`curve.source` and `frame()` already applies the right one. **If you call
+anything in `curve_metrics` directly, pass `floor=source_floor(curve.source)`**
+(from `fit_dataset`). The default is the `.txt` export's quantisation, which is
+1096× too coarse for a `.rre` curve, and it reaches every standard error, not
+just the noise: until 2026-09-01 `line_fit` hardcoded it and the in-scope
+acceleration count read 48/110 where the instrument's own readings say
+**51/110**.
 
 The same failure has already happened in prose: the within-experiment contrast
 figures were computed once in a throwaway script over the wrong curve set and

@@ -35,8 +35,8 @@ from build_manifest import (EXCLUDED_BUFFERS, KNOWN_EXCLUSIONS,
                             KNOWN_SAMPLE_EXCLUSIONS)
 from curve_metrics import (ACCELERATION_SIGMA, QUANTISATION_SIGMA,
                            acceleration, peak_rate)
-from fit_dataset import BASELINE_POINTS, curve_noise, read_all_curves
-from read_rre import RRE_SIGMA
+from fit_dataset import (BASELINE_POINTS, curve_noise, read_all_curves,
+                         source_floor)
 from solution_chemistry import add_solution_columns
 from curve_screen import MINIMUM_WINDOW_QUANTA, eligibility
 from summary_kinetics import (BURST_TAU_CAP, DEAD_CURVE_SNR, INITIAL_WINDOW,
@@ -208,19 +208,20 @@ def backtrack(values, noise):
     return float(drop.max() / noise)
 
 
-def describe(times, values, noise, epsilon, s0):
+def describe(times, values, noise, epsilon, s0, floor=QUANTISATION_SIGMA):
     """Everything the page reports about one cuvette."""
     count = window_size(len(times), INITIAL_WINDOW)
     # line_fit, not initial_rate: the page draws the fitted line, so it needs
     # the intercept the fit actually chose. Reconstructing it from the baseline
     # put the drawn line up to 124 sigma away from the real one on some curves.
-    intercept, v0, stderr, rms = line_fit(times[:count], values[:count])
+    intercept, v0, stderr, rms = line_fit(times[:count], values[:count], floor)
     amplitude = float(values.max() - values.min())
     # v0 is the rate before any catalyst has built up. On an accelerating
     # curve that is the induction period, not the reaction, so the page
     # also carries the steepest block's rate and says which is which.
-    accel_z, accel_where = acceleration(times, values, INITIAL_WINDOW)
-    vmax, vmax_stderr, vmax_where = peak_rate(times, values, INITIAL_WINDOW)
+    accel_z, accel_where = acceleration(times, values, INITIAL_WINDOW, floor)
+    vmax, vmax_stderr, vmax_where = peak_rate(times, values, INITIAL_WINDOW,
+                                              floor)
     return dict(
         accel_z=accel_z, accel_where=accel_where,
         vmax=vmax, vmax_stderr=vmax_stderr, vmax_where=vmax_where,
@@ -632,13 +633,16 @@ def build(experiments=None, out_directory=OUTPUT_DIRECTORY,
             # The noise floor is the source's, not a constant: a .rre curve
             # floored at the .txt export's quantisation reports 2.4x its own
             # noise, and every flag on this page is scaled by that number.
-            noise = curve_noise(values, RRE_SIGMA if source == "rre"
-                                else QUANTISATION_SIGMA)
+            # The same floor goes on to the rates, whose standard errors
+            # line_fit floors by it -- see fit_dataset.source_floor.
+            floor = source_floor(source)
+            noise = curve_noise(values, floor)
             entry = dict(row)
             entry["sample"] = sample
             entry["experiment"] = number
             entry.update(describe(times, values, noise,
-                                  float(row["e"] or 0.0), float(row["[sub]"])))
+                                  float(row["e"] or 0.0), float(row["[sub]"]),
+                                  floor=floor))
             rows.append(entry)
             curves_by_sample[sample] = (times, values)
         if not rows:
