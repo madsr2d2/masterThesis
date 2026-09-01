@@ -240,6 +240,100 @@ def peak_rate(times, values, fraction=INITIAL_WINDOW,
     return float(slopes[best]), float(stderrs[best]), float(centres[best])
 
 
+# A reading is suspect when it sits this many of the curve's own noise away
+# from a local fit through its neighbours. 5 is where the isolated flags stop
+# growing quickly: 0.66% of all readings are isolated single spikes at 5 sigma.
+OUTLIER_SIGMA = 5.0
+# Neighbours each side, and the local polynomial degree. DEGREE 2 IS LOAD
+# BEARING. A local LINE is wrong wherever the curve bends, so it reads real
+# kinetics as outliers -- on exp 65 sample 3 it flags the flat-to-rise
+# transition at -6.5 sigma. The quadratic scores that same point -2.7 and
+# leaves it alone while still catching the 11 sigma bump four points earlier.
+OUTLIER_NEIGHBOURS = 4
+OUTLIER_DEGREE = 2
+
+
+def local_outlier_z(times, values, noise, half=OUTLIER_NEIGHBOURS,
+                    degree=OUTLIER_DEGREE):
+    """
+    Each reading's leave-one-out residual against its neighbours, in `noise`.
+
+    The point being scored is EXCLUDED from the fit that predicts it, so a
+    genuine spike cannot drag the curve toward itself and hide. The window is
+    one-sided at the ends, which is the whole reason this exists: the first
+    reading is the worst-behaved in the archive -- 15.9% of curves have one
+    beyond 5 sigma against 7.5% for the last reading on the identical test --
+    and it carries more leverage than any interior point because v0 is an
+    extrapolation to t = 0.
+
+    Returns an array of z-scores, nan where a window could not be formed.
+    """
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    count = len(times)
+    out = np.full(count, np.nan)
+    if count < degree + 3 or noise <= 0:
+        return out
+    for index in range(count):
+        low, high = max(0, index - half), min(count, index + half + 1)
+        window = [j for j in range(low, high) if j != index]
+        if len(window) < degree + 2:
+            low, high = max(0, index - 2 * half), min(count, index + 2 * half + 1)
+            window = [j for j in range(low, high) if j != index]
+        if len(window) < degree + 2:
+            continue
+        coefficients = np.polyfit(times[window], values[window], degree)
+        out[index] = (values[index]
+                      - np.polyval(coefficients, times[index])) / noise
+    return out
+
+
+def isolated_outliers(times, values, noise, sigma=OUTLIER_SIGMA, **kwargs):
+    """
+    Indices of suspect readings that stand ALONE, and of those that do not.
+
+    Returns `(isolated, in_runs)`. Only the first is evidence of an artefact,
+    and the distinction is a timescale argument rather than a statistical one.
+    At 30-60 s sampling nothing chemical can move in one interval and revert in
+    the next, so a single reading out of line with both neighbours is not
+    chemistry. Two or more consecutive ones are not separated from chemistry at
+    all, and this dataset's striking shapes are live hypotheses -- see
+    curve_screen.py, "CURVE SHAPE IS NEVER A DEFECT". Across the archive the
+    split is 463 isolated against 1470 in runs, the longest run being 16
+    consecutive readings.
+
+    NOTHING HERE EXCLUDES ANYTHING. This nominates; convictions go into
+    build_manifest.KNOWN_SAMPLE_EXCLUSIONS by hand, with their evidence.
+
+    THREE KNOWN LIMITATIONS, none fatal for an advisory flag:
+
+      masking     two adjacent spikes each sit in the other's fitting window
+                  and pull it toward themselves, so the second often falls
+                  under the threshold. Injected at +9 sigma each they score
+                  +5.4 and +4.9.
+      endpoint    a bad first reading drags its neighbour past the threshold,
+                  and the pair then reads as a run rather than as one isolated
+                  spike. That happens on 21 of the 86 real curves whose first
+                  reading is flagged, which is why `first_point_flagged` in
+                  scope.frame is taken from z[0] directly rather than from
+                  membership of `isolated`.
+      sharp kink  an INSTANTANEOUS change of slope is flagged, scoring -6.3 on
+                  a synthetic one-reading kink. Real transitions here are
+                  gradual -- exp 65 sample 3's flat-to-rise spans several
+                  readings and scores -2.7 -- but a genuinely abrupt feature
+                  would be nominated, which is one more reason nothing is
+                  removed automatically.
+    """
+    z = local_outlier_z(times, values, noise, **kwargs)
+    flagged = np.flatnonzero(np.isfinite(z) & (np.abs(z) > sigma))
+    if not len(flagged):
+        return np.array([], dtype=int), np.array([], dtype=int)
+    groups = np.split(flagged, np.flatnonzero(np.diff(flagged) != 1) + 1)
+    isolated = np.array([g[0] for g in groups if len(g) == 1], dtype=int)
+    in_runs = np.array([i for g in groups if len(g) > 1 for i in g], dtype=int)
+    return isolated, in_runs
+
+
 def whole_slope(times, values, floor=QUANTISATION_SIGMA):
     """
     Least-squares slope through the ENTIRE curve. Returns `(slope, stderr)`.

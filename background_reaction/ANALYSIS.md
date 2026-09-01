@@ -204,6 +204,46 @@ the cell. This is an open question, not a settled finding.
 3. **The amplitude is still missing.** There are 0 enzyme-free curves in the 127-curve pyrophosphate cell, so the absolute size of what was subtracted cannot be recovered without importing it from another buffer, which `MECHANISM.md` forbids. This remains `FITTING.md` F7: *the missing experiment is an enzyme-free control in pyrophosphate.*
 4. **For scale**, on `vmax` within runs, the recorded increment is *flatter* in substrate than the background it was measured against: +0.097 ± 0.052 over all 110 live in-scope curves (+0.012 ± 0.044 on the 11 strong runs) against +0.297 ± 0.080 for the background. Relevant to `FITTING.md` F1, which is not restated here.
 
+## 8a. Suspect readings are flagged, never removed
+
+Each reading is scored by its **leave-one-out residual against a local
+quadratic through its 8 neighbours**, in units of the curve's own noise
+(`curve_metrics.local_outlier_z`). Readings beyond 5σ are ringed in red on
+`progress_curves.html`. **Nothing is excluded** — every fit on every panel is
+computed on every point, and the rings say which readings to discount by eye.
+
+Two rules make that safe:
+
+- **The local fit is quadratic, not linear.** A line is wrong wherever the
+  curve bends, so it reads real kinetics as outliers: on exp 65 sample 3 a
+  local line flags the genuine flat-to-rise transition at −6.5σ, where the
+  quadratic scores it −2.7σ and leaves it alone.
+- **Only *isolated* flags are ringed.** At 30–60 s sampling nothing chemical
+  moves in one interval and reverts in the next, so a single reading out of
+  line with both neighbours is an artefact; two or more consecutive ones are
+  not separated from chemistry at all. Across the archive that splits **463
+  isolated against 1470 in runs**, the longest run being 16 readings. Runs are
+  counted in the panel footer and never ringed — `curve_screen.py` is explicit
+  that curve shape is never a defect.
+
+The first reading is the exception and gets its own flag, on independent
+evidence: **15.9% of first readings exceed 5σ against 7.5% of last readings**
+on the identical extrapolation test, and v₀ is an extrapolation *to* t = 0, so
+that point carries leverage no interior reading has.
+
+This is what exp 70 sample 2 turned out to be. Its first reading sits 11.5σ
+below the trend while every later step is smooth; removing it takes the burst
+v₀ profile from a half-width of 0.327 (unbounded) to 0.068 (bounded) and the
+fit from 1.51× its own noise to 0.93×. It remains in every fit, and is ringed.
+
+Known limitations, none fatal for an advisory flag: adjacent spikes mask each
+other; a bad first reading can drag its neighbour so the pair reads as a run;
+and a genuinely instantaneous kink would be flagged. All three are pinned by
+`test_curve_metrics.test_outlier_flagging`.
+
+In the enzyme-free BnOH set this ringed 10 isolated readings across 27
+curves. In-scope it is 222 over 119 curves, 23 of them a first reading.
+
 ## 9. Caveats
 
 - The quadratic does not fit within noise where deceleration is strongest (rms/noise 2–7 on exps 65, 67, 69), so its v₀ is an extrapolation from an approximate form. This is why three estimators are reported rather than one.

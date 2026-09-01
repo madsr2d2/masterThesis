@@ -27,7 +27,8 @@ import numpy as np
 import pandas as pd
 
 from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
-                           acceleration, initial_rate, lag_time,
+                           OUTLIER_SIGMA, acceleration, initial_rate,
+                           isolated_outliers, lag_time, local_outlier_z,
                            peak_position, peak_rate, quadratic_rate,
                            whole_slope)
 from fit_dataset import (PRIMARY_SCOPE, PRIMARY_SCOPE_BLOCK, build_curves,
@@ -59,7 +60,7 @@ def frame(scope=PRIMARY_SCOPE):
 
     Columns: experiment, source, sample, substrate, buffer, temperature, buf,
     pH, s0, h2o2, e0, hoo, duration_s,
-    points,
+    points, outliers, outliers_in_runs, first_point_z, first_point_flagged,
     noise, net, live, v0, v0_stderr, v0_rms, vmax, vmax_stderr, vmax_where,
     gain, vmax_time_s, lag_time_s, conversion, peak, lags, accel_z, accel_where, accelerates,
     late_over_early.
@@ -102,6 +103,20 @@ def frame(scope=PRIMARY_SCOPE):
         v0_whole, v0_whole_stderr = whole_slope(times, values, floor=floor)
         v0_quad, v0_quad_stderr, curvature_t = quadratic_rate(
             times, values, floor=floor)
+        # Suspect readings. `outliers` counts the ISOLATED ones -- a single
+        # reading out of line with both neighbours, which nothing chemical can
+        # produce at this sampling rate. `outliers_in_runs` counts flagged
+        # readings with a flagged neighbour, which may be real structure and
+        # are never treated as artefacts. Neither excludes anything.
+        isolated, in_runs = isolated_outliers(times, values, noise)
+        # The first reading gets its own flag, taken from z[0] rather than
+        # from membership of `isolated`: a bad first point drags its neighbour
+        # past the threshold on 21 of the 86 curves where it is flagged, and
+        # the pair then reads as a run. The independent evidence for
+        # distrusting point 0 is strong -- 15.9% of first readings exceed 5
+        # sigma against 7.5% of LAST readings on the identical test.
+        outlier_z = local_outlier_z(times, values, noise)
+        first_z = float(outlier_z[0]) if len(outlier_z) else np.nan
         rows.append({
             "experiment": curve.experiment,
             "source": curve.source,
@@ -135,6 +150,11 @@ def frame(scope=PRIMARY_SCOPE):
             "v0_quad": v0_quad,
             "v0_quad_stderr": v0_quad_stderr,
             "curvature_t": curvature_t,
+            "outliers": len(isolated),
+            "outliers_in_runs": len(in_runs),
+            "first_point_z": first_z,
+            "first_point_flagged": bool(np.isfinite(first_z)
+                                        and abs(first_z) > OUTLIER_SIGMA),
             "vmax": vmax,
             "vmax_stderr": vmax_stderr,
             "vmax_where": vmax_where,

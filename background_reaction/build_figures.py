@@ -18,7 +18,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "data"))
 sys.path.insert(0, HERE)
 
 import scope
-from curve_metrics import ACCELERATION_SIGMA, INITIAL_WINDOW
+from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, OUTLIER_SIGMA,
+                           isolated_outliers, local_outlier_z)
 from fit_dataset import source_floor
 from summary_kinetics import BURST_V0_HALFWIDTH, fit_burst_bounded
 from svgplot import ACCENT, GRID, INK, MUTED, PALETTE, Axes, esc, page
@@ -163,6 +164,7 @@ WINDOW_COLOUR = "#2f6fb0"      # the 20% window line          -- blue
 QUAD_COLOUR = "#c25e00"        # the whole-curve quadratic    -- amber (headline)
 BURST_COLOUR = "#7a4bb8"       # the burst/lag form           -- purple
 WHOLE_COLOUR = "#3f8a5a"       # straight line, whole curve   -- green
+OUTLIER_COLOUR = "#c0392b"     # ring round a suspect reading -- red
 
 
 def curve_panel(curve, width=330, height=210):
@@ -191,7 +193,11 @@ def curve_panel(curve, width=330, height=210):
 
     lo, hi = float(values.min()), float(values.max())
     margin = max((hi - lo) * 0.16, 4 * curve.noise)
-    axes = Axes(width, height, (0.0, float(times[-1])),
+    # A little room to the left of t = 0. The first reading sits exactly there,
+    # it is the one most often ringed, and t = 0 is where all four fits are
+    # contested -- drawn hard against the axis its marker is half clipped.
+    span = float(times[-1])
+    axes = Axes(width, height, (-0.035 * span, span),
                 (lo - margin, hi + margin), pad=(56, 12, 32, 12))
 
     cut = float(times[-1]) * INITIAL_WINDOW
@@ -233,6 +239,24 @@ def curve_panel(curve, width=330, height=210):
     step = max(1, len(times) // 110)
     axes.points(times[::step], values[::step], INK, radius=1.7, opacity=0.85)
 
+    # Suspect readings, ringed rather than removed. Nothing is excluded: the
+    # fits above are computed on every point, and these rings say which ones a
+    # reader should discount by eye. Only ISOLATED flags are ringed -- a run of
+    # two or more may be real structure, and this dataset's shapes are live
+    # hypotheses (curve_screen.py).
+    isolated, in_runs = isolated_outliers(times, values, curve.noise)
+    # Point 0 is ringed on its own z, not on isolation: a bad first reading
+    # often drags its neighbour into a run, and the evidence for distrusting
+    # first readings is independent and strong.
+    outlier_z = local_outlier_z(times, values, curve.noise)
+    ringed = list(isolated)
+    if len(outlier_z) and np.isfinite(outlier_z[0]) \
+            and abs(outlier_z[0]) > OUTLIER_SIGMA and 0 not in ringed:
+        ringed.append(0)
+    for index in sorted(ringed):
+        axes.ring(times[index], values[index], OUTLIER_COLOUR,
+                  title=f"suspect reading: point {index} at t={times[index]:.0f} s")
+
     svg = axes.render("time / s", "\u0394A")
 
     # The burst row names BOTH endpoints and the shape, because v0 alone is
@@ -271,8 +295,17 @@ def curve_panel(curve, width=330, height=210):
            f"[H2O2] {curve.conditions.h2o2:.4g} mM · "
            f"{curve.temperature:.0f} °C · "
            f"{curve.source} · noise {curve.noise:.1e} AU")
+    marks = []
+    if ringed:
+        marks.append(f"{len(ringed)} suspect reading"
+                     f"{'s' if len(ringed) > 1 else ''} ringed"
+                     + (" (incl. the first)" if 0 in ringed else ""))
+    unringed = [i for i in in_runs if i not in ringed]
+    if unringed:
+        marks.append(f"{len(unringed)} more in runs, not ringed")
     foot = (f"curvature t {curvature:+.1f}"
-            + (f" · burst τ {burst.tau:.3g} s" if np.isfinite(burst.tau) else ""))
+            + (f" · burst τ {burst.tau:.3g} s" if np.isfinite(burst.tau) else "")
+            + (" · " + " · ".join(marks) if marks else ""))
     return (f"<div class='fig panel'>"
             f"<div class='ph'>exp {curve.experiment} · sample {curve.sample}</div>"
             f"<div class='ps'>{esc(sub)}</div>{svg}"
@@ -524,6 +557,7 @@ curves. These are the empirical rate measurements the analysis rests on.</p>
   <span><i class='sw' style='background:{WINDOW_COLOUR}'></i>least-squares line over the first {INITIAL_WINDOW:.0%} (shaded)</span>
   <span><i class='sw' style='background:{BURST_COLOUR}'></i>burst/lag form, dashed; shaded fan = v0 profile interval</span>
   <span><i class='sw' style='background:{WHOLE_COLOUR}'></i>straight line through the whole curve</span>
+  <span><i class='sw' style='background:{OUTLIER_COLOUR};height:11px;width:11px;border-radius:50%;background:none;border:2px solid {OUTLIER_COLOUR}'></i>ringed = suspect reading, still included in every fit</span>
 </div>
 <p>The <b>quadratic</b> is A = c + v<sub>0</sub>t + at². It chooses no window, uses every
 point, and is linear in its parameters, so v<sub>0</sub> is always identified. Its

@@ -19,7 +19,9 @@ import numpy as np
 from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            QUANTISATION_SIGMA, acceleration, curve_noise,
                            initial_rate, line_fit, line_slope, peak_position,
-                           quadratic_rate, whole_slope, window_size)
+                           OUTLIER_SIGMA, isolated_outliers,
+                           local_outlier_z, quadratic_rate, whole_slope,
+                           window_size)
 from fit_dataset import source_floor
 from read_rre import RRE_SIGMA
 
@@ -274,6 +276,96 @@ def test_whole_curve_estimators_return_rates():
           f"curvature t {quadratic_rate(times, offset + bend)[2]:.1f}")
 
 
+def test_outlier_flagging():
+    """
+    A single spike is found; a real kinetic feature is not.
+
+    The distinction is a timescale argument. At 30-60 s sampling nothing
+    chemical moves in one interval and reverts in the next, so ONE reading out
+    of line with both neighbours is an artefact. Two or more consecutive ones
+    are not separated from chemistry, and `curve_screen` is explicit that curve
+    shape is never a defect -- so `isolated_outliers` reports the two
+    separately and neither is ever removed here.
+    """
+    print("\noutlier flagging")
+    noise = 3e-4
+    times = np.linspace(0.0, 1200.0, 40)
+    clean = 4e-5 * times
+    rng = np.random.default_rng(11)
+    noisy = clean + rng.normal(0, noise, len(times))
+
+    isolated, in_runs = isolated_outliers(times, noisy, noise)
+    check("a clean noisy line flags nothing",
+          len(isolated) == 0 and len(in_runs) == 0,
+          f"isolated {list(isolated)}, runs {list(in_runs)}")
+
+    spiked = noisy.copy()
+    spiked[17] += 12 * noise
+    isolated, in_runs = isolated_outliers(times, spiked, noise)
+    check("an interior spike is found and called isolated",
+          list(isolated) == [17] and len(in_runs) == 0,
+          f"isolated {list(isolated)}, runs {list(in_runs)}")
+
+    # The endpoint case, which is the whole reason the window is one-sided:
+    # the first reading is the archive's worst-behaved and carries the most
+    # leverage on v0, so it has to be SCORABLE at all.
+    first = noisy.copy()
+    first[0] -= 14 * noise
+    scores = local_outlier_z(times, first, noise)
+    check("a bad FIRST reading is scored, not skipped",
+          np.isfinite(scores[0]) and abs(scores[0]) > OUTLIER_SIGMA,
+          f"z[0] = {scores[0]:.1f}")
+    # ...but it drags its neighbour past the threshold, so the pair reads as a
+    # RUN and not as an isolated spike. This is exactly why scope.frame takes
+    # `first_point_flagged` from z[0] rather than from `isolated`.
+    isolated, in_runs = isolated_outliers(times, first, noise)
+    check("a bad first reading can drag its neighbour into a run",
+          list(in_runs) == [0, 1] and len(isolated) == 0,
+          f"isolated {list(isolated)}, runs {list(in_runs)}")
+
+    # A GRADUAL induction period must survive, which is the real case: exp 65
+    # sample 3's flat-to-rise spans several readings and scores -2.7.
+    ramp = np.clip((times - times[18]) / (times[24] - times[18]), 0, 1)
+    gradual = 8e-5 * ramp * (times - times[18]) + rng.normal(0, noise, len(times))
+    isolated, _ = isolated_outliers(times, gradual, noise)
+    check("a gradual flat-then-rise transition is not called an artefact",
+          len(isolated) == 0, f"isolated {list(isolated)}")
+
+    # A genuinely INSTANTANEOUS kink is flagged. Stated rather than asserted
+    # away: it is a real limitation, and one more reason nothing is removed
+    # automatically.
+    # Its own generator, so this does not depend on how many draws the checks
+    # above happened to consume.
+    kink_noise = np.random.default_rng(5).normal(0, noise, len(times))
+    kinked = np.concatenate([np.zeros(18),
+                             1.6e-4 * (times[18:] - times[18])]) + kink_noise
+    scores = local_outlier_z(times, kinked, noise)
+    check("an instantaneous kink IS flagged -- a known limitation",
+          abs(scores[18]) > OUTLIER_SIGMA, f"z[18] = {scores[18]:.1f}")
+
+    # Degree 2 is load bearing: a local LINE reads a GRADUAL transition as an
+    # outlier, which is how an automatic filter deletes real chemistry.
+    straight_fit = local_outlier_z(times, gradual, noise, degree=1)
+    curved_fit = local_outlier_z(times, gradual, noise, degree=2)
+    check("a local line scores a gradual transition worse than a quadratic",
+          np.nanmax(np.abs(straight_fit)) > np.nanmax(np.abs(curved_fit)),
+          f"line {np.nanmax(np.abs(straight_fit)):.1f} vs "
+          f"quadratic {np.nanmax(np.abs(curved_fit)):.1f}")
+
+    # Masking: adjacent spikes sit in each other's fitting windows and pull
+    # them toward themselves, so the second often falls under the threshold.
+    two = noisy.copy()
+    two[20] += 9 * noise
+    two[21] += 9 * noise
+    scores = local_outlier_z(times, two, noise)
+    check("adjacent spikes mask each other, so both scores shrink",
+          abs(scores[20]) < 9 and abs(scores[21]) < 9,
+          f"z[20] = {scores[20]:.1f}, z[21] = {scores[21]:.1f}")
+    check("...and at least one of them is still caught",
+          max(abs(scores[20]), abs(scores[21])) > OUTLIER_SIGMA,
+          f"z[20] = {scores[20]:.1f}, z[21] = {scores[21]:.1f}")
+
+
 if __name__ == "__main__":
     test_no_duplicate_definitions()
     test_lag_statistic()
@@ -281,5 +373,6 @@ if __name__ == "__main__":
     test_acceleration()
     test_floor_belongs_to_the_source()
     test_whole_curve_estimators_return_rates()
+    test_outlier_flagging()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

@@ -8,6 +8,93 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — Suspect readings are flagged and ringed, and nothing is removed
+
+Raised by the user, looking at exp 70 sample 2: the curve is well behaved and
+only the very first reading makes it look off, yet its burst v0 comes back
+UNBOUNDED. It does, and the first reading is why. That point sits **11.5 sigma
+below** the trend while every later step is smooth; drop it and the v0 profile
+half-width goes 0.327 -> 0.068 (unbounded -> bounded), the fit goes from 1.51x
+its own noise to 0.93x, and burst v0, `v0_quad` and the window rate converge on
+3.2-3.4e-5 where they had disagreed by 60%.
+
+### The first reading is untrustworthy across the archive
+
+Scored by extrapolating a line through the following 8 readings, against the
+LAST reading scored the identical way as a control:
+
+| | median \|z\| | beyond 5 sigma |
+|---|---|---|
+| **first reading** | **2.06** | **15.9%** |
+| last reading | 1.11 | 7.5% |
+
+Twice the scatter on the same test, so this is an instrument artefact and not
+an artefact of the method. It also carries leverage no interior point has,
+because v0 is an extrapolation TO t = 0: exp 3 sample 7's first reading is only
++1.7 sigma, yet removing it flips that curve's unconstrained burst v0 from
+-1.06e-5 to +5.28e-7.
+
+### What was added
+
+`curve_metrics.local_outlier_z` scores every reading by its leave-one-out
+residual against a local QUADRATIC through its 8 neighbours, in units of the
+curve's own noise. `isolated_outliers` splits the flags into isolated single
+readings and runs of two or more.
+
+Two choices carry the safety argument:
+
+- **Quadratic, not linear.** A local line is wrong wherever the curve bends and
+  so reads real kinetics as outliers -- on exp 65 sample 3 it flags the genuine
+  flat-to-rise transition at -6.5 sigma, where the quadratic scores it -2.7 and
+  leaves it alone.
+- **Only ISOLATED flags are treated as artefacts.** At 30-60 s sampling nothing
+  chemical moves in one interval and reverts in the next, so one reading out of
+  line with both neighbours is not chemistry; two or more consecutive ones are
+  not separated from chemistry at all. Across the archive: **463 isolated
+  against 1470 in runs**, longest run 16 readings.
+
+The first reading is the exception and is flagged on its own z, because a bad
+first point drags its neighbour past the threshold on 21 of the 86 curves where
+it is flagged and the pair then reads as a run.
+
+**NOTHING IS EXCLUDED.** Every fit is still computed on every point. The rings
+on `progress_curves.html` say which readings to discount by eye, and the panel
+footer counts the runs it did not ring. This follows `curve_screen.py`'s
+standing rule -- screens nominate, convictions go into
+`build_manifest.KNOWN_SAMPLE_EXCLUSIONS` by hand with their evidence -- and its
+warning that curve shape is never a defect.
+
+Counts: **10 isolated readings** over the 27 enzyme-free BnOH curves,
+**222** over the 119 in-scope curves, 23 of those a first reading.
+
+### Why a general filter was NOT adopted
+
+Flagging at 5 sigma marks 3.5% of all readings, and **77% of them sit in 10% of
+the curves** -- among them exps 135 samples 1-4, which are IN SCOPE and in the
+strong-run set, with 20-26% of their readings flagged. A curve with a quarter
+of its points beyond 5 sigma does not have outliers; it has an underestimated
+noise or real fine structure. A blanket point filter would have carved 20% out
+of four in-scope curves. **Exps 135 s1-s4 are worth a look in their own right.**
+
+### Known limitations, pinned rather than papered over
+
+`test_curve_metrics.test_outlier_flagging` asserts all three: adjacent spikes
+mask each other (+9 sigma each score +5.4 and +4.9); a bad first reading drags
+its neighbour into a run; and a genuinely instantaneous kink is flagged. Real
+transitions here are gradual and survive, but an abrupt one would be nominated
+-- one more reason nothing is removed automatically.
+
+### Also found, and not chased
+
+Exps 65 samples 3 and 4 are not an outlier problem. Both rise, fall back, sit
+flat for ~500 s and then climb cleanly -- a genuine induction period the
+burst/lag form cannot describe, which is why it fits them at 4.5x their noise.
+Their `accel_z` is +2.8 and +2.5, just under the 3.0 gate, so the lag branch was
+shut on two curves that visibly lag. That is the knife-edge noted in the
+previous entry, biting.
+
+---
+
 ## 2026-09-01 — `v0` from a lag curve is the induction rate, and the panels said "v0"
 
 Raised by the user, looking at the progress curves: some have lag and some have

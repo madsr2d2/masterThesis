@@ -58,6 +58,18 @@ class Axes:
                 f"stroke='white' stroke-width='0.8'>{tip}</circle>")
         return self
 
+    def ring(self, x, y, colour, radius=6.0, width=1.7, title=None):
+        """An open circle, for marking a point without hiding its value."""
+        for xi, yi in zip(np.atleast_1d(x), np.atleast_1d(y)):
+            if not (np.isfinite(xi) and np.isfinite(yi)):
+                continue
+            tip = f"<title>{esc(title)}</title>" if title else ""
+            self.parts.append(
+                f"<circle cx='{self._fx(xi):.2f}' cy='{self._fy(yi):.2f}' "
+                f"r='{radius}' fill='none' stroke='{colour}' "
+                f"stroke-width='{width}'>{tip}</circle>")
+        return self
+
     def line(self, x, y, colour, width=1.8, dash=None, opacity=1.0):
         pairs = [(self._fx(xi), self._fy(yi)) for xi, yi in zip(x, y)
                  if np.isfinite(xi) and np.isfinite(yi)]
