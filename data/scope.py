@@ -30,7 +30,8 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            OUTLIER_SIGMA, acceleration, initial_rate,
                            isolated_outliers, lag_time, local_outlier_z,
                            model_residual, peak_position, peak_rate,
-                           quadratic_rate, whole_slope)
+                           quadratic_rate, segmented_fit, SEGMENT_RATIO_STEEP,
+                           whole_slope)
 from fit_dataset import (PRIMARY_SCOPE, PRIMARY_SCOPE_BLOCK, build_curves,
                          in_scope, source_floor)
 from solution_chemistry import dominant_buffer_pair
@@ -141,6 +142,8 @@ def frame(scope=PRIMARY_SCOPE):
         # produce at this sampling rate. `outliers_in_runs` counts flagged
         # readings with a flagged neighbour, which may be real structure and
         # are never treated as artefacts. Neither excludes anything.
+        break_time, slope_before, slope_after, break_ratio = segmented_fit(
+            times, values, floor=floor)
         isolated, in_runs = isolated_outliers(times, values, noise)
         # The leading reading gets its own flag, taken from z[0] rather than
         # from membership of `isolated`: a bad leading point drags its
@@ -241,6 +244,17 @@ def frame(scope=PRIMARY_SCOPE):
             "accelerates": bool(accel_z > ACCELERATION_SIGMA)
             if np.isfinite(accel_z) else False,
             "late_over_early": _late_over_early(times, values),
+            # The two-line split. Every other shape column here compares the
+            # curve's start to its end, and a curve that breaks upward in the
+            # MIDDLE and then plateaus defeats all of them -- exp 65 sat
+            # mid-pack on `late_over_early` while steepening 1.8-15.9x across
+            # a break its four cuvettes share to 56 s. `break_ratio` is the
+            # one to read; see curve_metrics.segmented_fit and
+            # `synchronised_break`.
+            "break_time": break_time,
+            "slope_before": slope_before,
+            "slope_after": slope_after,
+            "break_ratio": break_ratio,
         })
     return pd.DataFrame(rows)
 
@@ -1051,6 +1065,53 @@ def buffer_cross_check(scope=FREE_4OME_40C):
 # 85.0 mM buffer. Only the salt -- boric against phosphate -- and the pH
 # (8.51 against 8.01) differ.
 PEROXO_PAIR = (65, 67)
+# The SAME pair with enzyme, and the reason it is needed: exp 65's curves have
+# a synchronised mid-run break that no other run in the block has, so its rate
+# numbers do not describe one process (`synchronised_break`,
+# DATA_VERIFICATION.md 2026-09-01). Exps 66 and 68 match on enzyme (0.028 mM),
+# buffer (85.0 mM), peroxide (122.426 mM), substrate (2.741 mM BnOH) and
+# temperature, differing only in salt and pH, and both run smooth.
+CATALYSED_PEROXO_PAIR = (66, 68)
+
+
+def synchronised_break(scope=FREE_BNOH_ALL):
+    """
+    Per run: do its cuvettes break at the same TIME, and do they steepen?
+
+    A run's four cuvettes differ only in substrate -- same buffer, same
+    peroxide, same cell, same day. So a breakpoint they SHARE cannot be driven
+    by the substrate, and a break that is also a STEEPENING cannot be the
+    reaction decelerating toward conversion. The two together are the
+    signature this function reports.
+
+    Returns a DataFrame indexed by experiment: `span` (max - min break time,
+    in seconds), `median_break`, `max_ratio`, `steep` (how many cuvettes
+    exceed SEGMENT_RATIO_STEEP), `n`, and the sorted break times and ratios.
+
+    WHAT IT FOUND. Across the enzyme-free BnOH set plus the boric block, every
+    run decelerates after its break -- ratios 0.12 to 1.23 -- except exp 65,
+    whose four cuvettes steepen by 1.82, 2.04, 5.59 and 15.94 across breaks
+    spanning 56 s, two of its 28 s sampling intervals and the tightest span in
+    the block. The steepening is LARGEST at the lowest substrate (15.94 at
+    0.365 mM against 1.82 at 7.310 mM), which is the wrong way round for
+    anything the substrate drives. See DATA_VERIFICATION.md 2026-09-01.
+    """
+    data = frame(scope)
+    data = data[data.live & np.isfinite(data.break_time)]
+    rows = []
+    for experiment, group in data.groupby("experiment"):
+        order = group.sort_values("break_time")
+        rows.append({
+            "experiment": int(experiment),
+            "n": int(len(group)),
+            "span": float(group.break_time.max() - group.break_time.min()),
+            "median_break": float(group.break_time.median()),
+            "max_ratio": float(group.break_ratio.max()),
+            "steep": int((group.break_ratio > SEGMENT_RATIO_STEEP).sum()),
+            "breaks": [int(v) for v in order.break_time],
+            "ratios": [round(float(v), 2) for v in order.break_ratio],
+        })
+    return pd.DataFrame(rows).set_index("experiment")
 
 
 def peroxo_buffer_test(pair=PEROXO_PAIR, orders_scope=FREE_BNOH_PHOSPHATE,
@@ -1073,6 +1134,19 @@ def peroxo_buffer_test(pair=PEROXO_PAIR, orders_scope=FREE_BNOH_PHOSPHATE,
     of its boron is peroxoborate. If a buffer-derived peroxo oxidant is what
     carries a first-order buffer term, exp 65 must run far above a rate law
     fitted without one. It does not.
+
+    READ THIS BEFORE QUOTING THAT. On the default pair the test is WEAK, and
+    it is weak for a reason found after it was written: exp 65's four cuvettes
+    share a mid-run breakpoint at 504-560 s across which every one of them
+    STEEPENS, by 1.82 to 15.94x, most at the LOWEST substrate. No other run in
+    the block does this -- every other one decelerates -- so a single rate
+    number does not describe exp 65 at all: `vmax` reads the post-break
+    stretch and `v0` the pre-break one, and they are not the same process. The
+    excesses below are therefore a comparison between two different things,
+    and the right reading of them is "borate is nowhere fast", not "borate
+    matches the law". Use CATALYSED_PEROXO_PAIR, whose curves are smooth, as
+    the second and better-conditioned probe. See `synchronised_break` and
+    DATA_VERIFICATION.md 2026-09-01.
 
     HOW THE PREDICTION IS MADE. The rate law is fitted on `orders_scope`,
     which excludes the boric run, so exp 65 is out of sample. Because the two
@@ -1103,8 +1177,17 @@ def peroxo_buffer_test(pair=PEROXO_PAIR, orders_scope=FREE_BNOH_PHOSPHATE,
 
     rows = []
     for estimator in estimators:
-        law = background_orders(orders_scope, parameter=estimator,
-                                terms=("s0", "h2o2", "hoo", "buf"))
+        if orders_scope is None:
+            # UNCORRECTED, for the catalysed pair. The enzyme-free rate law
+            # does not describe a catalysed comparison and there is no
+            # catalysed law in this buffer to put in its place, so quote the
+            # raw ratio against the [HOO-] ratio and let the reader correct:
+            # boric carries 2.19x the hydroperoxide, so anything at or below
+            # 1.00 is boric running SLOWER than pH alone would give it.
+            law = {"order_buf": 0.0, "order_hoo": 0.0}
+        else:
+            law = background_orders(orders_scope, parameter=estimator,
+                                    terms=("s0", "h2o2", "hoo", "buf"))
         # [S] and [H2O2] are identical between the two runs, so only these two
         # terms survive the ratio. Asserted rather than assumed: a pair that
         # did not match on them would need the other two orders as well.

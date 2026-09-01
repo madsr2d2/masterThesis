@@ -21,6 +21,7 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            initial_rate, line_fit, line_slope, peak_position,
                            OUTLIER_SIGMA, isolated_outliers,
                            local_outlier_z, model_residual, quadratic_rate,
+                           segmented_fit, SEGMENT_RATIO_STEEP,
                            whole_slope, window_size)
 from fit_dataset import source_floor
 from read_rre import RRE_SIGMA
@@ -424,6 +425,51 @@ def test_model_residual():
           bool(frame.v0_burst_bounded.all()))
 
 
+def test_segmented_fit():
+    """
+    The two-line split, and the shape every other statistic here steps over.
+
+    `late_over_early`, `acceleration` and `peak_position` all compare a curve's
+    START to its END. A curve that breaks upward in the MIDDLE and plateaus
+    looks ordinary to all three -- exp 65 ranked mid-pack on `late_over_early`
+    while carrying the most distinctive shape in its block. This test pins both
+    halves: that the split recovers a known break, and that it separates exp 65
+    from the run it is compared against.
+    """
+    print("segmented fit")
+    times = np.arange(0, 40) * 10.0
+
+    # An exact two-slope curve: the break and both slopes come back exactly.
+    values = np.where(times < 200, 1e-4 * times,
+                      1e-4 * 200 + 5e-4 * (times - 200))
+    where, before, after, ratio = segmented_fit(times, values)
+    check("recovers the break time", abs(where - 200) <= 10)
+    check("recovers the slope ratio", abs(ratio - 5.0) < 0.01)
+
+    # A straight line must not invent a break: some split always minimises the
+    # residual, so the guard is the RATIO, not the existence of a breakpoint.
+    _, _, _, straight = segmented_fit(times, 2e-4 * times)
+    check("a straight line gives ratio 1", abs(straight - 1.0) < 0.01)
+
+    # Too short to split is nan, not a coincidence of five points.
+    check("too few points is nan",
+          not np.isfinite(segmented_fit(times[:6], values[:6])[3]))
+
+    # The real case. Exp 65's four cuvettes steepen across a shared break;
+    # exp 67, matched to it in substrate and peroxide, decelerates. If this
+    # ever stops separating them, ANALYSIS.md section 6b is out of date.
+    frame = scope.frame((65, 67))
+    frame = frame[frame.live]
+    boric = frame[frame.experiment == 65]
+    phosphate = frame[frame.experiment == 67]
+    check("all four boric cuvettes steepen",
+          bool((boric.break_ratio > SEGMENT_RATIO_STEEP).all()))
+    check("no phosphate cuvette does",
+          bool((phosphate.break_ratio <= SEGMENT_RATIO_STEEP).all()))
+    check("and the boric breaks are synchronised to two sampling intervals",
+          float(boric.break_time.max() - boric.break_time.min()) <= 56.0)
+
+
 if __name__ == "__main__":
     test_no_duplicate_definitions()
     test_lag_statistic()
@@ -433,5 +479,6 @@ if __name__ == "__main__":
     test_whole_curve_estimators_return_rates()
     test_outlier_flagging()
     test_model_residual()
+    test_segmented_fit()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

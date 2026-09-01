@@ -663,10 +663,29 @@ buffers at the same nominal pH are not comparable without accounting for this.
   multiple. And the first-order buffer term is itself a phosphate number:
   dropping exp 65 from the anchor too leaves +1.31 +/- 0.23 (vmax).
 
-  So the buffer CATALYSES; it does not supply the oxidant. This does not
-  measure phosphate directly -- it shows the mechanism failing to appear where
-  it certainly operates -- and it leans on the [HOO-] order extrapolating from
-  pH 8.01 to 8.51. The 31P NMR below is still the direct test.
+  **WEAKENED 2026-09-01, same day, from the plots.** Exp 65's four cuvettes
+  share a mid-run breakpoint at 504-560 s -- a span of 56 s, two sampling
+  intervals -- across which every one of them STEEPENS, by 1.82, 2.04, 5.59
+  and 15.94x, most at the LOWEST substrate. It is the only run in the block
+  that does this; exps 59-62 (boric, same and higher pH, so MORE peroxoborate)
+  and 67/69/70 (phosphate) all decelerate, 0.65-1.13. So a single rate number
+  does not describe exp 65 -- vmax reads the post-break stretch and v0 the
+  pre-break one -- and the excesses above compare two different processes.
+  They still say borate is NOWHERE FAST; they do not say it matches the law.
+  See scope.synchronised_break and DATA_VERIFICATION.md 2026-09-01.
+
+  **Second probe, not using exp 65.** Exps 66 and 68 are the same design with
+  enzyme (0.028 mM, 85.0 mM buffer, 122.426 mM H2O2, 2.741 mM BnOH, 25 C) and
+  both run smooth. Uncorrected, boric/phosphate = 0.66x (v0), 0.65x (vmax),
+  0.54x (v0_whole), 1.11x (v0_quad), while boric carries 2.19x the [HOO-] --
+  so borate is 2-4x SLOWER than pH alone gives it. Its own confound: item 42,
+  borate catalyses peroxyacid hydrolysis ~12-fold with a maximum at pH 8.4-9,
+  exactly where exp 66 sits, and the catalysed route runs through a peracid.
+
+  NET: two comparisons, each independently confounded, agree borate is never
+  fast. The buffer most likely CATALYSES rather than supplying the oxidant,
+  but the kinetics have not closed it. The 31P NMR below moves from "worth
+  doing" to the way to settle it.
 
   **Decisive test: 31P NMR of the buffer under run conditions.**
   Peroxomonophosphate is a distinct resonance; one spectrum settles presence or

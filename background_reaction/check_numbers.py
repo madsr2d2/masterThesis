@@ -57,6 +57,7 @@ def _normalise(text):
                          .replace("\u00b1", "+/-")   # plus-minus
                          .replace("\u00d7", "x")     # multiplication sign
                          .replace("\u2080", "0")     # subscript zero, as in v0
+                         .replace("\u207b", "-")     # superscript minus, [HOO-]
                          .replace("\u209b\u209b", "ss"))  # v_ss
                     .split())
 
@@ -285,6 +286,63 @@ def main():
     if not matched:
         FAILURES.append("exps 65 and 67 no longer match in [S] and [H2O2]; the "
                         "boric probe's prediction needs the other two orders")
+
+    print("\nthe mid-run break that weakens the boric probe")
+    # Found from the plots, not by any statistic in the package -- every other
+    # shape column compares a curve's start to its end and steps over a break
+    # in the middle. Section 6b's downgrade of the boric probe rests on this
+    # table, so it is re-derived rather than typed.
+    block = tuple(sorted(set(scope.FREE_BNOH_ALL) | {59, 60, 61, 62}))
+    breaks = scope.synchronised_break(block)
+    exp65 = breaks.loc[scope.PEROXO_PAIR[0]]
+    times = [str(v) for v in sorted(exp65["breaks"])]
+    claim("exp 65's break times",
+          f"{', '.join(times[:-1])} and {times[-1]} s")
+    ratios = [f"{v:.2f}" for v in sorted(exp65["ratios"])]
+    claim("exp 65's steepening",
+          f"**{', '.join(ratios[:-1])} and {ratios[-1]}x**")
+    claim("the break span", f"a span of **{exp65['span']:.0f} s**")
+    # The claim the argument turns on: exp 65 is the ONLY run that steepens.
+    others = breaks.drop(index=scope.PEROXO_PAIR[0])
+    # "All of them" is the claim, not "any of them": exp 3 has one steep
+    # cuvette of six, which is scatter, not a run-wide event.
+    ok = (int(exp65["steep"]) == int(exp65["n"])
+          and not (others.steep == others.n).any())
+    print(f"  {'pass' if ok else 'FAIL'}  exp 65 is the only run whose cuvettes "
+          f"all steepen: {int(exp65['steep'])} of {int(exp65['n'])}, "
+          f"next best {int(others.steep.max())} of {int(others.n[others.steep.idxmax()])}")
+    if not ok:
+        FAILURES.append("exp 65 is no longer the only run that steepens after "
+                        "its break; section 6b's downgrade needs rewriting")
+    # And that no OTHER boric run does it, which is what rules the shape out as
+    # borate chemistry.
+    boric_others = breaks.loc[[59, 60, 61, 62]]
+    ok = int(boric_others.steep.sum()) == 0
+    print(f"  {'pass' if ok else 'FAIL'}  no other boric run steepens "
+          f"(exps 59-62, {int(boric_others.n.sum())} curves): "
+          f"{int(boric_others.steep.sum())}")
+    if not ok:
+        FAILURES.append("a boric run other than 65 now steepens; the shape may "
+                        "be borate chemistry after all")
+
+    print("\nthe second probe, which does not use exp 65")
+    catalysed = scope.peroxo_buffer_test(pair=scope.CATALYSED_PEROXO_PAIR,
+                                         orders_scope=None)
+    for estimator, row in catalysed.iterrows():
+        claim(f"catalysed probe, {estimator}",
+              f"| `{estimator}` | {row['observed']:.2f}x |")
+    # Quoted in MECHANISM.md as one line; checked as one string so it cannot
+    # collide with the enzyme-free probe's numbers, which share a value.
+    claim("catalysed probe in MECHANISM.md",
+          "boric/phosphate = " + ", ".join(
+              f"{row['observed']:.2f}x ({estimator})"
+              for estimator, row in catalysed.iterrows()),
+          document=MECHANISM_DOC)
+    pair = scope.frame(scope.CATALYSED_PEROXO_PAIR)
+    pair = pair[pair.live]
+    hoo = float(pair[pair.experiment == scope.CATALYSED_PEROXO_PAIR[0]].hoo.median()
+                / pair[pair.experiment == scope.CATALYSED_PEROXO_PAIR[1]].hoo.median())
+    claim("the hydroperoxide it carries", f"**{hoo:.2f}x the [HOO-]**")
 
     print("\nthe buffer order is a phosphate number")
     # buffer_dependence's default anchor includes the boric run. Section 6b

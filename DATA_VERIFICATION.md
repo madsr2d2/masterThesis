@@ -8,6 +8,144 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — Correction: exp 65's curves have a synchronised mid-run break, and the boric probe below rests on them
+
+**Found by eye, from the plots, by the user**, who reported that exp 65's
+cuvettes "show oscillations with 2 peaks up to around 400, then a sharp rise
+which starts to plateau" and that no phosphate run does. That is correct, it is
+in the raw `.rre` readings, and it undermines the entry immediately below.
+
+### What the readings show
+
+All four exp 65 cuvettes: a bump peaking at 84–112 s, a fall (samples 3 and 4
+genuinely *descend*, 0.00416 → 0.00068 and 0.00233 → −0.00063, several times
+their 3.5e-4 noise), a second rise to ~280–364 s, a flat stretch, then a sharp
+climb from ~476 s, then a plateau from ~756–812 s. Exp 67 — matched cuvette for
+cuvette — is monotone and smoothly decelerating throughout.
+
+### Why no existing statistic caught it
+
+Every shape column in `curve_metrics` compares a curve's START to its END:
+`acceleration` takes the first block against the steepest, `peak_position` the
+point-wise argmax, `late_over_early` the last fifth against the first. A curve
+that breaks upward in the MIDDLE and then plateaus defeats all three, because
+its first and last stretches look ordinary. **Exp 65 ranked 213, 224, 275 and
+340 of 386 live curves on `late_over_early`** — mid-pack — while carrying the
+most distinctive shape in the block.
+
+Added `curve_metrics.segmented_fit` (best two-line split, exhaustive over
+interior readings) and `scope.synchronised_break`, with `break_time`,
+`slope_before`, `slope_after` and `break_ratio` on `scope.frame`.
+
+### What it measures
+
+| run | buffer | pH | enzyme | break times (s) | slope after ÷ before | steep |
+|---|---|---|---|---|---|---|
+| **65** | **boric** | **8.51** | **none** | **504, 532, 560, 560** | **5.59, 15.94, 2.04, 1.82** | **4 of 4** |
+| 59 | boric | 8.51 | yes | 616, 672, 700, 896 | 0.85, 0.84, 0.86, 0.75 | 0 |
+| 60 | boric | 8.51 | yes | 504, 532, 532, 952 | 0.82, 0.85, 0.78, 0.95 | 0 |
+| 61 | boric | 8.75 | yes | 532, 644, 672, 784 | 0.79, 0.85, 0.75, 0.76 | 0 |
+| 62 | boric | 9.00 | yes | 308, 308, 392, 420 | 0.65, 0.74, 0.82, 0.86 | 0 |
+| 67 | phosphate | 8.01 | none | 217, 341, 465, 527 | 0.42, 1.13, 0.57, 0.81 | 0 |
+| 69 | phosphate | 8.01 | none | 527, 651, 806, 930 | 0.68, 0.56, 0.79, 0.22 | 0 |
+| 70 | phosphate | 8.01 | none | 248, 558, 651, 682 | 0.79, 0.81, 0.68, 0.71 | 0 |
+
+**Exp 65 is the only run whose cuvettes all steepen**, and its breaks span
+**56 s** — two of its 28 s sampling intervals, the tightest span in the block
+against 112–9359 s for the rest. Cuvette 4 ranks **6th of 402** archive-wide on
+the ratio.
+
+### What the shape is not
+
+- **Not borate chemistry.** Exps 59–62 are boric at the same 28 s sampling,
+  pH 8.51 → 9.00 — *more* peroxoborate, not less — and every cuvette
+  decelerates. Exp 66 is boric at pH 8.51 with the same substrate and peroxide
+  and runs smooth. If a slowly-forming peroxoborate produced an 8-minute
+  induction, those runs would show it.
+- **Not the sampling interval or the instrument settings.** dt = 28 s is used
+  by exps 59, 60, 61, 62, 64 and 65 and by nothing else in the archive, and
+  only exp 65 breaks.
+- **Not the substrate.** Substrate spans 20× across the four cuvettes, the
+  break time does not move, and the steepening is *largest at the lowest*
+  substrate (15.94 at 0.365 mM against 1.82 at 7.310 mM).
+- **Not conversion.** Conversion at the plateau is 0.3–3.0%.
+
+### What the first bump *is*
+
+Instrumental settling, and there is a control for it. **Exp 64** — boric,
+pH 8.51, enzyme-free, same session, same 28 s sampling, already a
+`KNOWN_EXCLUSIONS` entry as an aborted dead run — is flat in all four cuvettes
+and *still* shows the identical transient: a jump at 28 s, a fall to a trough
+at 84–112 s, then nothing. A run with no chemistry at all reproduces exp 65's
+first peak. This is the same settling the outlier rings already flag on exp 65
+(leading z = +31.0, +19.6, +17.9, +6.2, third readings flagged on samples 1
+and 2), lasting longer than the one discarded reading.
+
+That leaves the second peak, the break and the plateau unexplained.
+
+### Context that was already recorded
+
+Exp 65 sits in a session the manifest already calls troubled: exp 63's sheet is
+named NO_DATA_FILE and has no instrument export at all, and exp 64 is dead and
+aborted at 7 minutes. Exp 65 is also the run neither rate form fits (ANALYSIS.md
+§3a), the one whose four burst fits are degenerate-yet-`bounded`, the one whose
+`v0_quad` goes negative on two cuvettes, and the run whose exclusion tightens
+three of four estimator spreads. Six independent complaints about one run.
+
+### The consequence, stated plainly
+
+**The boric probe in the entry below is weaker than it was written to be.** It
+compared single rate numbers from exp 65 against exp 67, and exp 65's rate is
+not a single number: `vmax` reads the post-break stretch, `v0` the pre-break
+one. The excesses (0.66, 1.35, 0.83, 0.20) are a comparison between two
+different processes. They still say borate is *nowhere fast*, which is the
+direction that matters, but they do not say borate matches the law, and the
+docstring of `scope.peroxo_buffer_test` now says so before quoting them.
+
+### A second probe that does not use exp 65
+
+**Exps 66 and 68** are the same design with enzyme: boric vs phosphate, both
+0.028 mM enzyme, 85.0 mM buffer, 122.426 mM H₂O₂, 2.741 mM BnOH, 25 °C,
+differing only in salt and pH — and both run smooth. Uncorrected, cuvette for
+cuvette (`scope.CATALYSED_PEROXO_PAIR`):
+
+| estimator | boric ÷ phosphate | n |
+|---|---|---|
+| `v0` | 0.66× | 2 |
+| `vmax` | 0.65× | 3 |
+| `v0_whole` | 0.54× | 3 |
+| `v0_quad` | 1.11× | 3 |
+
+Boric carries **2.19× the [HOO⁻]** and comes out at or below phosphate — so it
+runs roughly 2–4× *slower* than pH alone would give it, let alone with a peroxo
+bonus. **Its own confound:** borate catalyses peroxyacid hydrolysis ~12-fold
+with a maximum at pH 8.4–9 (MECHANISM.md item 42), exactly where exp 66 sits,
+and the catalysed mechanism runs through a peracid. So this pair can be slow
+for a reason that has nothing to do with peroxoborate.
+
+**Net position.** Two boric/phosphate comparisons, each independently
+confounded, agree that borate is never fast. That is evidence against the
+peroxo route and it is weaker than one clean experiment. **³¹P NMR of the
+buffer under run conditions moves from "worth doing" to "the way to settle
+it".**
+
+### Needs your ruling
+
+Exp 65 now has six independent complaints against it and is the sole member of
+`BORIC_BUFFER`. It is currently a named scope, not an exclusion. Whether the
+break makes it a `KNOWN_SAMPLE_EXCLUSIONS` case is a judgement call and is left
+to you — nothing has been excluded. What has changed is that the shape is now
+measured rather than eyeballed, and every conclusion resting on exp 65 says so.
+
+**Changed:** `curve_metrics.segmented_fit`, `SEGMENT_RATIO_STEEP`,
+`SEGMENT_MINIMUM_POINTS`; `scope.synchronised_break`,
+`scope.CATALYSED_PEROXO_PAIR`, `orders_scope=None` for an uncorrected pair,
+four new `frame` columns; `peroxo_buffer_test`'s docstring now leads with the
+weakness; ANALYSIS.md §6b and MECHANISM.md corrected; `check_numbers.py` pins
+the break table.
+
+---
+
 ## 2026-09-01 — The first-order buffer term is catalysis: the boric run settles it
 
 **The question.** "How do we explain the first order in buffer?" The standing

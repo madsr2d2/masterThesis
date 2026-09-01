@@ -191,6 +191,82 @@ def acceleration(times, values, fraction=INITIAL_WINDOW,
     return float((slopes[best] - slopes[0]) / combined), float(centres[best])
 
 
+# A two-segment fit needs enough points each side for either slope to mean
+# anything, and the same MINIMUM_WINDOW_POINTS the block statistics use is the
+# right number: below it a "slope" is two readings and their noise.
+SEGMENT_MINIMUM_POINTS = MINIMUM_WINDOW_POINTS
+# Above this the curve is steeper AFTER its breakpoint than before it. A real
+# reaction run to partial conversion decelerates, so the whole enzyme-free
+# BnOH set sits at 0.12-1.23 -- 1.5 is well clear of that and of the noise on
+# it, without being so high that only a step change trips it.
+SEGMENT_RATIO_STEEP = 1.5
+
+
+def segmented_fit(times, values, floor=QUANTISATION_SIGMA,
+                  minimum=SEGMENT_MINIMUM_POINTS):
+    """
+    The best split of a curve into two straight lines: where, and how the slope
+    changes across it.
+
+    Returns `(break_time, slope_before, slope_after, ratio)`. The breakpoint is
+    chosen by exhaustive search over interior readings -- there are at most a
+    few hundred candidates and the objective is not convex, so a search is both
+    cheaper and safer than an optimiser.
+
+    WHY THIS EXISTS, AND WHAT IT CATCHES THAT NOTHING ELSE HERE DOES. Every
+    other shape statistic in this module compares a curve's START to its END:
+    `acceleration` takes the first block against the steepest, `peak_position`
+    the point-wise argmax, `late_over_early` the last fifth against the first.
+    A curve that runs flat, breaks upward in the MIDDLE, and then plateaus
+    defeats all three, because its first and last stretches look ordinary and
+    the event is between them. Exp 65 is exactly that curve and it ranked
+    213-340 of 386 on `late_over_early` -- mid-pack -- while all four of its
+    cuvettes turn out to steepen by 1.8-15.9x across a break the four share to
+    within 56 s. It was found by eye, off a plot, which is the argument for
+    having the number.
+
+    `ratio` is the statistic to read: slope_after / slope_before. A reaction
+    followed to partial conversion DECELERATES, so healthy curves sit below 1
+    -- across the enzyme-free BnOH set, 0.12 to 1.23. A ratio above
+    SEGMENT_RATIO_STEEP means the curve got materially faster part way through,
+    which for a background reaction at a few percent conversion needs an
+    explanation outside the reaction.
+
+    The break TIME matters as much as the ratio, and only across a run. Four
+    cuvettes of one run differ only in substrate, so a break they SHARE is
+    driven by something that is not the substrate -- the buffer, the peroxide,
+    the cell or the instrument. See `scope.synchronised_break`.
+
+    `floor` is passed through to nothing here: this function reports slopes and
+    their ratio, not standard errors, so it takes the argument only to keep the
+    signature uniform with the rest of the module. It is deliberately unused.
+    """
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    count = len(times)
+    if count < 2 * minimum + 1:
+        return np.nan, np.nan, np.nan, np.nan
+
+    def fit(x, y):
+        design = np.column_stack([np.ones(len(x)), x - x[0]])
+        beta, *_ = np.linalg.lstsq(design, y, rcond=None)
+        residual = y - design @ beta
+        return float(residual @ residual), float(beta[1])
+
+    best_error, best = np.inf, None
+    for split in range(minimum, count - minimum):
+        left_error, left_slope = fit(times[:split], values[:split])
+        right_error, right_slope = fit(times[split:], values[split:])
+        if left_error + right_error < best_error:
+            best_error = left_error + right_error
+            best = (float(times[split]), left_slope, right_slope)
+    if best is None:
+        return np.nan, np.nan, np.nan, np.nan
+    break_time, before, after = best
+    ratio = after / before if before != 0 else np.nan
+    return break_time, before, after, float(ratio)
+
+
 def block_slopes(times, values, fraction=INITIAL_WINDOW,
                  floor=QUANTISATION_SIGMA):
     """

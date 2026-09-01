@@ -248,7 +248,7 @@ step or an artefact of splitting one variable in two is not settled here; the
 two terms are separable in this design (VIF 1.3 and 3.1) but the split is a
 modelling choice, not a measurement.
 
-### 6b. Why first order in buffer? Catalysis, not a buffer-made oxidant
+### 6b. Why first order in buffer? Probably catalysis; the boric evidence is real but confounded
 
 The obvious reading of a first-order buffer dependence is that the buffer anion
 is *making an oxidant* — phosphate + H₂O₂ → **peroxomonophosphate**, the way
@@ -345,24 +345,82 @@ orders, the two worst determined here, drop out — and the law is fitted on
 | `v0_quad` | 1.83× | 0.36× | **0.20×** (2 of 4 cuvettes) |
 
 **No excess.** Three of four estimators put boric *below* the phosphate law and
-one puts it 1.35× above. The test is not short of power: a peroxo species
-present at tens of mM and even ten times faster than H₂O₂ would show as a
-multiple, not as scatter about 1. And the first-order buffer term is itself a
-phosphate result — dropping exp 65 from `buffer_dependence`'s anchor as well
-leaves **+1.31 ± 0.23** (`vmax`), **+1.29 ± 0.25** (`v0_quad`).
+one puts it 1.35× above. And the first-order buffer term is itself a phosphate
+result — dropping exp 65 from `buffer_dependence`'s anchor as well leaves
+**+1.31 ± 0.23** (`vmax`), **+1.29 ± 0.25** (`v0_quad`).
 
-So the buffer is **catalysing**, not supplying the oxidant. That is the
-standing Sander & Jencks reading, now with evidence rather than only an
-argument from preparative chemistry.
+**But this probe is weaker than it first looked, and the reason is exp 65's
+curve shape.** Raised from the plots on 2026-09-01: all four of its cuvettes
+run bumpy to ~450 s, break sharply upward, and plateau. Measured
+(`scope.synchronised_break`, `curve_metrics.segmented_fit`), the four break at
+504, 532, 560 and 560 s — a span of **56 s**, two sampling intervals — and
+across the break each one *steepens*, by **1.82, 2.04, 5.59 and 15.94×**.
 
-**What it does not settle.** pH is not matched, so the prediction leans on the
-`[HOO⁻]` order holding from 8.01 up to 8.51 — an extrapolation, and exp 65 is
-the only run there. One run of four cuvettes against one run of four, on a day
-and a cell that are not controlled; exp 65 is the run neither rate form fits
-(§3a) and its noise runs 1.5–2.8× exp 67's. And strictly it shows the peroxo
-mechanism does not appear *where it certainly operates*, which is evidence
-against it for phosphate but not a measurement on phosphate. The ³¹P NMR below
-is still the direct test and still cheap.
+| run | buffer | pH | enzyme | break span | slope after ÷ before | steepening |
+|---|---|---|---|---|---|---|
+| **65** | **boric** | **8.51** | **none** | **56 s** | **1.82–15.94** | **4 of 4** |
+| 59–62 | boric | 8.51–9.00 | yes | 112–448 s | 0.65–0.95 | 0 of 16 |
+| 67, 69, 70 | phosphate | 8.01 | none | 310–434 s | 0.22–1.13 | 0 of 12 |
+
+Every other run decelerates after its break, as a reaction followed to a few
+percent conversion should. Exp 65 is the only one that accelerates, and its
+cuvette 4 ranks 6th of 402 archive-wide. **A single rate number therefore does
+not describe exp 65**: `vmax` reads the post-break stretch and `v0` the
+pre-break one. The excesses in the table above are a comparison between two
+different processes.
+
+They still say borate is **nowhere fast**, which is the direction that matters.
+They do not say borate matches the law.
+
+**What the break is not**, checked rather than assumed: not borate chemistry
+(exps 59–62 are boric at the same and *higher* pH, so more peroxoborate, and
+every cuvette decelerates); not the 28 s sampling (used by exps 59–62 and 64
+too, and only 65 breaks); not the substrate (20-fold range, break time
+unmoved, and the steepening is *largest at the lowest* substrate); not
+conversion (0.3–3.0% at the plateau). The first bump *is* identified — it is
+instrument settling, and exp 64, a dead flat run in the same session, shows the
+identical transient with no chemistry at all. The break and the plateau remain
+unexplained.
+
+### A second probe that does not use exp 65
+
+Exps **66 and 68** are the same design with enzyme — boric vs phosphate, both
+0.028 mM enzyme, 85.0 mM buffer, 122.426 mM H₂O₂, 2.741 mM BnOH, 25 °C — and
+both run smooth. Uncorrected, cuvette for cuvette
+(`scope.CATALYSED_PEROXO_PAIR`):
+
+| estimator | boric ÷ phosphate |
+|---|---|
+| `v0` | 0.66× |
+| `vmax` | 0.65× |
+| `v0_whole` | 0.54× |
+| `v0_quad` | 1.11× |
+
+Boric carries **2.19× the [HOO⁻]** and lands at or below phosphate — roughly
+2–4× *slower* than pH alone would give it. Its own confound: borate catalyses
+peroxyacid hydrolysis ~12-fold with a maximum at pH 8.4–9 (§6a), exactly where
+exp 66 sits, and the catalysed mechanism runs through a peracid.
+
+**Net position.** Two boric/phosphate comparisons, each independently
+confounded, agree that borate is never fast. That is real evidence against the
+peroxo route and it is weaker than one clean experiment would be. The buffer
+term is most likely **catalysis** — the standing Sander & Jencks reading — but
+the kinetics have not closed the question, and **³¹P NMR of the buffer under
+run conditions moves from "worth doing" to the way to settle it.**
+
+**What neither probe settles.** pH is matched in neither pair, so both lean on
+a `[HOO⁻]` correction across 8.01 → 8.51. Each is one run of four cuvettes
+against one run of four, on days and cells that are not controlled. And
+strictly they show the peroxo mechanism failing to appear *where it certainly
+operates*, which is evidence against it for phosphate but not a measurement on
+phosphate.
+
+Exp 65 now carries six independent complaints — the break, neither rate form
+fitting it, four degenerate-yet-`bounded` burst fits, a negative `v0_quad` on
+two cuvettes, the settling that outlasts the discarded reading, and a session
+in which exp 63 has no data file and exp 64 is dead. It remains a named scope
+rather than an exclusion; whether that should change is a ruling for the
+author, recorded as open in `DATA_VERIFICATION.md`.
 
 **So what IS the buffer catalysing? Not settled, and the standing citation has
 a gap.** Sander & Jencks is the right *physics* — a buffer species in the
