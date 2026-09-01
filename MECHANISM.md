@@ -240,14 +240,17 @@ One UV spectrum of benzoic acid at working pH settles it. See
 `DATA_VERIFICATION.md` 2026-08-30.)*
 
 `experiment_data.csv` carries exactly one `e` per substrate: **1.23 mM^-1 cm^-1
-for BnOH** and **7.53 mM^-1 cm^-1 for 4OMe-BnOH**. Benzaldehyde's strong pi->pi*
-band at 250 nm has eps ~ 12,000–14,000 M^-1 cm^-1 — about ten times higher than
-1230 — so the assay must be sitting on the weak n->pi* band near 280 nm. There,
-benzoic acid (eps ~ 800 M^-1 cm^-1 at 273 nm) absorbs *comparably*, not
-negligibly. The abs -> [P] conversion in the notebook assumes the aldehyde is
-the sole absorber; it very likely is not. *(Both literature eps values are from
-memory and should be verified against a spectrum before citing; the monitoring
-wavelength should be confirmed from the lab notebooks.)*
+for BnOH** and **7.53 mM^-1 cm^-1 for 4OMe-BnOH**. **Confirmed: the BnOH
+experiments are monitored at 285 nm.** Benzaldehyde's strong pi->pi* band at
+250 nm has eps ~ 12,000–14,000 M^-1 cm^-1 — about ten times higher than 1230 —
+so the assay is sitting on the weak n->pi* band, and 285 nm is consistent with
+that band's tail. There, benzoic acid (eps ~ 800 M^-1 cm^-1 at 273 nm) absorbs
+*comparably*, not negligibly. The abs -> [P] conversion in the notebook
+assumes the aldehyde is the sole absorber; it very likely is not. *(Both
+literature eps values are from memory and should be verified against a
+spectrum at 285 nm specifically before citing — the 273 nm BA value in
+particular should be re-checked at 285 nm, since eps can shift meaningfully
+over a 12 nm span on a band tail.)*
 
 ### Consequence for fitting: one extra parameter in the observation equation
 
@@ -789,7 +792,9 @@ signal starvation at the top rung were both excluded rather than assumed
   `eps(benzoate)` would still be worth far more than a fitted one — the fitted
   value is only as good as the model producing it, and that model currently
   misfits. `data/fit_kinetics.py --profile-r` reports the cost profile over `r`
-  alongside the fitted value.
+  alongside the fitted value. ORCA ground-state and TD-DFT calculations for
+  benzaldehyde and benzoic acid (gas phase and solvated) are in `uvvis/`,
+  started toward task C1.
 - **No rate enhancement is visible in the only paired controls, and the
   arithmetic says the experiment could not have seen one.** Over the 9 substrate
   rungs where both sides carry a live signal, `vmax` with 0.028 mM chemzyme is

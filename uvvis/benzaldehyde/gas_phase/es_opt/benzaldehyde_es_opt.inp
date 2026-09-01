@@ -1,0 +1,14 @@
+! wB97X-D3 def2-TZVP RIJCOSX def2/J TightSCF Opt NumFreq
+
+%tddft
+  nroots 6
+  tda true
+  triplets false
+  iroot 1
+end
+
+%pal
+  nprocs 8
+end
+
+* xyzfile 0 1 benzaldehyde_gas_opt.xyz
