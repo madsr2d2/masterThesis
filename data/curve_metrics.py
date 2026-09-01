@@ -260,11 +260,18 @@ def local_outlier_z(times, values, noise, half=OUTLIER_NEIGHBOURS,
 
     The point being scored is EXCLUDED from the fit that predicts it, so a
     genuine spike cannot drag the curve toward itself and hide. The window is
-    one-sided at the ends, which is the whole reason this exists: the first
-    reading is the worst-behaved in the archive -- 15.9% of curves have one
-    beyond 5 sigma against 7.5% for the last reading on the identical test --
-    and it carries more leverage than any interior point because v0 is an
+    one-sided at the ends, which is the whole reason this exists: the leading
+    reading carries more leverage than any interior point, because v0 is an
     extrapolation to t = 0.
+
+    The instrument's own first reading was the worst-behaved point in the
+    archive -- 15.9% of curves beyond 5 sigma against 7.5% for the last on the
+    identical test -- and since 2026-09-01 `fit_dataset.DROP_FIRST_READING`
+    removes it before anything here sees a curve. On the curves this function
+    is now given the gap is much smaller and has changed sign on this test:
+    13.9% of leading readings are flagged at 5 sigma against 15.2% of last
+    ones. Point 0 is no longer a special case statistically; it is still where
+    an error hurts most.
 
     Returns an array of z-scores, nan where a window could not be formed.
     """
@@ -299,8 +306,10 @@ def isolated_outliers(times, values, noise, sigma=OUTLIER_SIGMA, **kwargs):
     chemistry. Two or more consecutive ones are not separated from chemistry at
     all, and this dataset's striking shapes are live hypotheses -- see
     curve_screen.py, "CURVE SHAPE IS NEVER A DEFECT". Across the archive the
-    split is 463 isolated against 1470 in runs, the longest run being 16
-    consecutive readings.
+    split is 442 isolated against 1429 in runs, the longest run being 16
+    consecutive readings. (It was 463 against 1470 before the first reading of
+    every run was discarded. The DATA_VERIFICATION.md entry quoting those is
+    the pre-drop measurement and stands as the evidence for the drop.)
 
     NOTHING HERE EXCLUDES ANYTHING. This nominates; convictions go into
     build_manifest.KNOWN_SAMPLE_EXCLUSIONS by hand, with their evidence.
@@ -313,9 +322,10 @@ def isolated_outliers(times, values, noise, sigma=OUTLIER_SIGMA, **kwargs):
                   +5.4 and +4.9.
       endpoint    a bad first reading drags its neighbour past the threshold,
                   and the pair then reads as a run rather than as one isolated
-                  spike. That happens on 21 of the 86 real curves whose first
-                  reading is flagged, which is why `first_point_flagged` in
-                  scope.frame is taken from z[0] directly rather than from
+                  spike. That happened on 21 of the 86 real curves whose
+                  leading reading was flagged before the first-reading drop and
+                  on 8 of the 56 after it, which is why `first_point_flagged`
+                  in scope.frame is taken from z[0] directly rather than from
                   membership of `isolated`.
       sharp kink  an INSTANTANEOUS change of slope is flagged, scoring -6.3 on
                   a synthetic one-reading kink. Real transitions here are

@@ -19,7 +19,7 @@ sys.path.insert(0, HERE)
 
 import scope
 from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, OUTLIER_SIGMA,
-                           isolated_outliers, local_outlier_z)
+                           acceleration, isolated_outliers, local_outlier_z)
 from fit_dataset import source_floor
 from summary_kinetics import BURST_V0_HALFWIDTH, fit_burst_bounded
 from svgplot import ACCENT, GRID, INK, MUTED, PALETTE, Axes, esc, page
@@ -245,9 +245,16 @@ def curve_panel(curve, width=330, height=210):
     # two or more may be real structure, and this dataset's shapes are live
     # hypotheses (curve_screen.py).
     isolated, in_runs = isolated_outliers(times, values, curve.noise)
-    # Point 0 is ringed on its own z, not on isolation: a bad first reading
-    # often drags its neighbour into a run, and the evidence for distrusting
-    # first readings is independent and strong.
+    # Point 0 is ringed on its own z, not on isolation: a bad leading reading
+    # often drags its neighbour into a run, and the pair then hides from
+    # `isolated`. The case is now the leverage and the masking, NOT a raised
+    # flag rate -- since the instrument's first reading is discarded, leading
+    # readings are flagged on 13.9% of curves against 15.2% for last ones.
+    # What the surviving rings buy is worth having: they no longer mark the
+    # generic settling artefact (that is gone with the dropped reading) but
+    # runs whose settling lasted LONGER than one reading, which is a small
+    # nameable set -- all four of exp 65, exp 70 sample 3, exp 3 sample 6, exp
+    # 6 sample 4 -- rather than a property of the archive.
     outlier_z = local_outlier_z(times, values, curve.noise)
     ringed = list(isolated)
     if len(outlier_z) and np.isfinite(outlier_z[0]) \
@@ -304,7 +311,7 @@ def curve_panel(curve, width=330, height=210):
     if ringed:
         marks.append(f"{len(ringed)} suspect reading"
                      f"{'s' if len(ringed) > 1 else ''} ringed"
-                     + (" (incl. the first)" if 0 in ringed else ""))
+                     + (" (incl. the first plotted)" if 0 in ringed else ""))
     unringed = [i for i in in_runs if i not in ringed]
     if unringed:
         marks.append(f"{len(unringed)} more in runs, not ringed")
@@ -551,6 +558,15 @@ def build_curves_page():
     bounded = sum(fit_burst_bounded(c.times, c.absorbance,
                                     noise_floor=source_floor(c.source)).bounded
                   for c in scope.curves(scope.FREE_BNOH_ALL))
+    # Counted here rather than written into the prose, because it is exactly
+    # the kind of number that goes stale: the legend claimed "0 of 16" for
+    # three commits after the gate became per-curve and after the first-reading
+    # drop pushed exp 67 sample 3 across it.
+    accelerating = sum(
+        bool(np.isfinite(z) and z > ACCELERATION_SIGMA)
+        for z, _ in (acceleration(c.times, c.absorbance,
+                                  floor=source_floor(c.source))
+                     for c in scope.curves(scope.FREE_BNOH_ALL)))
     body = f"""
 <p class='lede'>All 27 enzyme-free BnOH cuvettes, each with every rate estimator drawn on
 it. Nothing here is a kinetic-model fit: the mechanism has never been fitted to these
@@ -564,12 +580,21 @@ curves. These are the empirical rate measurements the analysis rests on.</p>
   <span><i class='sw' style='background:{WHOLE_COLOUR}'></i>straight line through the whole curve</span>
   <span><i class='sw' style='background:{OUTLIER_COLOUR};height:11px;width:11px;border-radius:50%;background:none;border:2px solid {OUTLIER_COLOUR}'></i>ringed = suspect reading, still included in every fit</span>
 </div>
+<p><b>The instrument's first reading of every run is not plotted, fitted or scored.</b> It
+is discarded in <code>fit_dataset.build_curves</code> before anything here sees a curve,
+unconditionally and for every run in the archive, because it is a settling artefact rather
+than a measurement: scored against the following 8 readings it carried median |z| 2.06 and
+exceeded 5σ on 15.9% of curves, where the LAST reading scored the identical way carried
+1.11 and 7.5%. So the leftmost point on every panel below is the instrument's <i>second</i>
+reading, and where a footer says a ringed point is the first, it means the first
+plotted.</p>
 <p>The <b>quadratic</b> is A = c + v<sub>0</sub>t + at². It chooses no window, uses every
 point, and is linear in its parameters, so v<sub>0</sub> is always identified. Its
 <code>curvature t</code> is a/se(a): |t| &gt; 3 means the curve measurably bends.</p>
 <p>The <b>burst/lag</b> form is A = c + v<sub>ss</sub>t − B(1 − e<sup>−t/τ</sup>), with
-v<sub>0</sub> = v<sub>ss</sub> − B/τ. It is fitted with B ≤ 0 — the lag branch is excluded
-because 0 of 16 of these curves pass the acceleration test — and τ is profiled rather than
+v<sub>0</sub> = v<sub>ss</sub> − B/τ. The lag branch (B &gt; 0) is opened or shut
+<b>per curve</b>, by that curve's own <code>acceleration</code> z-score against a 3σ gate:
+open on the {accelerating} of 27 that clear it, shut elsewhere. τ is profiled rather than
 optimised. The shaded fan shows every initial slope allowed by a τ within the 95% cost
 band. Where that fan is wide the curve does not determine v<sub>0</sub>, however well the
 form fits: <b>{bounded} of 27</b> curves are bounded by the {BURST_V0_HALFWIDTH:.0%}

@@ -80,6 +80,16 @@ def source_floor(source):
 # a different thing. It costs one reading in a hundred and removes a
 # demonstrated systematic artefact. Ruled 2026-09-01, DATA_VERIFICATION.md.
 #
+# ONE READING IS NOT A COMPLETE CURE, and the same test says so. Re-run on the
+# curves this function now returns, the leading reading scores median |z| 1.42
+# and exceeds 5 sigma on 10.6%, against an unmoved control of 1.12 and 7.5%.
+# Two thirds of the excess is gone and a residual third is not. Do NOT drop a
+# second reading on that evidence: 1.42 against 1.12 is not the 2.06 against
+# 1.11 that justified the first, and each further unconditional drop costs real
+# data at the point of highest leverage. What it does mean is that a ringed
+# leading point is still worth a look -- the rings that SURVIVED the drop name
+# a specific small set of runs whose settling ran longer than one reading.
+#
 # `minimum_points` is tested BEFORE the drop, so a run that only just clears it
 # is not lost by it -- exp 26's four cuvettes have exactly 10 readings and are
 # the only true replicate set in the enzyme-free data.

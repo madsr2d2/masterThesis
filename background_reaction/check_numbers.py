@@ -19,11 +19,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "data"))
 
 import scope
-from curve_metrics import ACCELERATION_SIGMA
-from fit_dataset import source_floor
+from curve_metrics import (ACCELERATION_SIGMA, OUTLIER_SIGMA, acceleration,
+                           isolated_outliers, local_outlier_z)
+from fit_dataset import build_curves, source_floor
 from summary_kinetics import fit_burst, fit_burst_bounded
 
 DOCUMENT = os.path.join(HERE, "ANALYSIS.md")
+# The RENDERED page, checked as well as the prose. The legend claimed the
+# burst fit was blanket "B <= 0 ... 0 of 16" for three commits after the gate
+# became per-curve, and nothing noticed, because every check here read
+# ANALYSIS.md and the stale sentence lived in build_figures.py.
+CURVES_PAGE = os.path.join(HERE, "progress_curves.html")
 ESTIMATORS_ALL = ("v0_quad", "vmax", "v0", "v0_whole")
 FAILURES = []
 
@@ -36,19 +42,26 @@ def _normalise(text):
     tables are written with, but `f"{value:+.3f}"` produces U+002D. Comparing
     glyphs would make this checker fail on typography while a genuinely wrong
     number that happened to be typed with a hyphen went through.
+
+    Runs of whitespace are collapsed for the same reason: a claim must not fail
+    because the prose rewrapped or because a list item is indented. That is
+    typography, not a number.
     """
-    return (text.replace("\u2212", "-")     # minus sign
-                .replace("\u2013", "-")     # en dash
-                .replace("\u00b1", "+/-"))  # plus-minus
+    return " ".join((text.replace("\u2212", "-")     # minus sign
+                         .replace("\u2013", "-")     # en dash
+                         .replace("\u00b1", "+/-"))  # plus-minus
+                    .split())
 
 
-def claim(label, rendered, present=True):
+def claim(label, rendered, present=True, document=None):
     """Require `rendered` to appear in the document."""
-    text = _normalise(io.open(DOCUMENT, encoding="utf-8").read())
+    path = document or DOCUMENT
+    text = _normalise(io.open(path, encoding="utf-8").read())
     ok = (_normalise(rendered) in text) == present
     print(f"  {'pass' if ok else 'FAIL'}  {label}: {rendered!r}")
     if not ok:
-        FAILURES.append(f"{label} -- {rendered!r} not found in ANALYSIS.md")
+        FAILURES.append(f"{label} -- {rendered!r} not found in "
+                        f"{os.path.basename(path)}")
 
 
 def main():
@@ -173,6 +186,63 @@ def main():
     claim("strong-run order", f"({strong['order_s0']:+.3f} ± "
                               f"{strong['stderr_s0']:.3f} on the "
                               f"{len(scope.strong_runs())} strong runs)")
+
+    print("\nthe outlier rings, and what the first-reading drop left them doing")
+    curves = list(scope.curves(scope.FREE_BNOH_ALL))
+    rings = zeros = 0
+    for curve in curves:
+        z = local_outlier_z(curve.times, curve.absorbance, curve.noise)
+        isolated, _ = isolated_outliers(curve.times, curve.absorbance,
+                                        curve.noise)
+        ringed = set(int(i) for i in isolated)
+        if len(z) and np.isfinite(z[0]) and abs(z[0]) > OUTLIER_SIGMA:
+            ringed.add(0)
+        rings += len(ringed)
+        zeros += 0 in ringed
+    claim("rings over the 27 panels", f"from 16 to {rings}")
+    claim("point-0 rings", f"point-0 rings from 14 to {zeros}")
+
+    # The archive-wide split, which moved when the first reading went.
+    all_curves, _ = build_curves()
+    split = [0, 0]
+    for curve in all_curves:
+        isolated, in_runs = isolated_outliers(curve.times, curve.absorbance,
+                                              curve.noise)
+        split[0] += len(isolated)
+        split[1] += len(in_runs)
+    claim("isolated vs runs", f"**{split[0]}\nisolated against {split[1]} in runs**")
+
+    # The leading reading is no longer the outlier class it was, and the
+    # document is required to say so with the current numbers.
+    flag = [0, 0]
+    for curve in all_curves:
+        z = local_outlier_z(curve.times, curve.absorbance, curve.noise)
+        if not len(z):
+            continue
+        flag[0] += bool(np.isfinite(z[0]) and abs(z[0]) > OUTLIER_SIGMA)
+        flag[1] += bool(np.isfinite(z[-1]) and abs(z[-1]) > OUTLIER_SIGMA)
+    total = len(all_curves)
+    claim("leading vs last flag rate",
+          f"**{100 * flag[0] / total:.1f}% of leading\nreadings are flagged "
+          f"against {100 * flag[1] / total:.1f}% of last ones**")
+
+    print("\nthe rendered page")
+    accelerating = sum(
+        bool(np.isfinite(z) and z > ACCELERATION_SIGMA)
+        for z, _ in (acceleration(c.times, c.absorbance,
+                                  floor=source_floor(c.source))
+                     for c in curves))
+    claim("legend: per-curve gate", f"open on the {accelerating} of 27 that clear it",
+          document=CURVES_PAGE)
+    claim("legend: the discard is disclosed",
+          "first reading of every run is not plotted, fitted or scored",
+          document=CURVES_PAGE)
+    claim("the constant-buffer accelerating count",
+          f"| enzyme-free BnOH, `[buf]` fixed | **{sum(
+              bool(np.isfinite(z) and z > ACCELERATION_SIGMA)
+              for z, _ in (acceleration(c.times, c.absorbance,
+                                        floor=source_floor(c.source))
+                           for c in scope.curves(scope.BUFFER_FIXED)))} of 16** |")
 
     print()
     if FAILURES:

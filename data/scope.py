@@ -109,12 +109,19 @@ def frame(scope=PRIMARY_SCOPE):
         # readings with a flagged neighbour, which may be real structure and
         # are never treated as artefacts. Neither excludes anything.
         isolated, in_runs = isolated_outliers(times, values, noise)
-        # The first reading gets its own flag, taken from z[0] rather than
-        # from membership of `isolated`: a bad first point drags its neighbour
-        # past the threshold on 21 of the 86 curves where it is flagged, and
-        # the pair then reads as a run. The independent evidence for
-        # distrusting point 0 is strong -- 15.9% of first readings exceed 5
-        # sigma against 7.5% of LAST readings on the identical test.
+        # The leading reading gets its own flag, taken from z[0] rather than
+        # from membership of `isolated`: a bad leading point drags its
+        # neighbour past the threshold and the pair then reads as a run. That
+        # happened on 21 of the 86 flagged curves before the first-reading drop
+        # and on 8 of the 56 after it.
+        #
+        # The flag is kept although its statistical case has weakened. The
+        # instrument's own first reading was flagged on 21.4% of curves against
+        # 14.7% for the last; since that reading is discarded the leading one
+        # is flagged on 13.9% against 15.2%, so it is no longer the outlier
+        # class it was. What survives is structural: t = 0 is where v0 is
+        # extrapolated to, so a bad point there costs more than anywhere else,
+        # and the run-masking above still hides it from `isolated`.
         outlier_z = local_outlier_z(times, values, noise)
         first_z = float(outlier_z[0]) if len(outlier_z) else np.nan
         rows.append({

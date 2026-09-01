@@ -117,13 +117,83 @@ content. The lesson is the narrower one: a regex written to update figures will
 happily eat prose that merely looks like a table row, and only content-pinning
 catches it.
 
+### What the outlier rings now mean, which is a different thing
+
+Asked afterwards, and worth recording, because the rings were designed against
+an archive that no longer exists.
+
+The drop did most of what it was for. On the 27 enzyme-free BnOH panels the
+rings fell from **16 to 11** and the point-0 rings from **14 to 7**, and the
+ones it cleared are the ones it should have: exps 67 samples 1-3, 69 samples 1
+and 4, 70 samples 1 and 2, and 3 sample 2 were each ringed on their first
+reading ALONE and are now clean, their new leading reading scoring |z| <= 3.6.
+
+What survives is no longer the generic settling artefact. It is the specific
+set of runs whose settling lasted LONGER than one reading:
+
+| run | leading z, after the drop | |
+|---|---|---|
+| exp 65 samples 1-4 | +31.0, +19.6, +17.9, +6.2 | samples 1 and 2 now flag a THIRD reading too |
+| exp 70 sample 3 | +6.47 | was 0 rings: its own bad first reading masked this |
+| exp 3 sample 6 | +5.33 | |
+| exp 6 sample 4 | -8.53 | |
+
+Exp 70 sample 3 is the instructive one. It gained a ring by having a reading
+removed, because the discarded point sat in the fitting window that predicted
+its neighbour and dragged that prediction toward itself. That is the masking
+limitation already documented in `isolated_outliers`, seen from the other side.
+
+**One reading was not a complete cure, and the same test says so.** Re-run on
+the curves `build_curves` now returns, the leading reading scores median |z|
+**1.42** and exceeds 5 sigma on **10.6%**, against a control -- the last
+reading, scored identically -- that has not moved: 1.12 and 7.5%. Two thirds of
+the excess is gone; a third is not. That is not grounds for dropping a second
+reading: 1.42 against 1.12 is not the 2.06 against 1.11 that justified the
+first, and each further unconditional drop costs real data where leverage is
+highest. It is grounds for keeping the ring.
+
+On the leave-one-out test the gap closes further and changes sign -- leading
+readings flagged on **13.9%** of curves against **15.2%** for last ones -- so
+point 0 is no longer a distinct outlier class. The special case is kept on the
+two arguments that survive: leverage at t = 0, and run-masking hiding a bad
+leading point from `isolated` (21 of 86 flagged curves before, 8 of 56 now).
+The comments in `curve_metrics` and `scope.frame` claiming otherwise were
+corrected.
+
+### Two stale claims found doing this
+
+**A live one.** `progress_curves.html`'s legend still said the burst form "is
+fitted with B <= 0 -- the lag branch is excluded because 0 of 16 of these
+curves pass the acceleration test". Both halves were wrong: the gate has been
+per-curve since `constrain="auto"`, and the count is now 4 of 27 over the
+plotted set. Wrong from the commit that introduced "auto" through 9d56038.
+`check_numbers.py` never saw it -- every check read `ANALYSIS.md`, and this
+sentence lived in `build_figures.py`. It now checks the RENDERED page too.
+
+**A number quoted in four earlier entries.** `0 of 16 enzyme-free curves
+accelerate` is now **1 of 16**: exp 67 sample 3 crossed the gate. Re-derived,
+the pre-drop figure reproduces exactly, so the earlier entries were right when
+written and stand as dated; this is the correction. The catalysed comparator
+they pair it with, `7 of 23`, does **not** reproduce -- no code in the repo
+produces it, and the obvious definitions give 17 of 57 (all catalysed in the
+[HOO-] window), 11 of 47 (BnOH), or 4 of 12 (the paired controls). Whoever
+relies on that contrast should re-derive it and pin it; it is exactly the
+inline-throwaway that CLAUDE.md warns about.
+
 ### Checks updated
 
 `test_curve_metrics` (lag 160, and the fragility stated), `test_read_rre` (the
 .rre block is trimmed the same way, or the agreement check silently compares
 nothing -- it scored 0 of 119 before this was fixed), `test_summary_kinetics`
 (the accelerating set moved, and "auto" now admits one negative v0 that is
-flagged unbounded).
+flagged unbounded). `check_numbers.py` gained the ring counts, the two flag
+rates, the isolated/run split and three checks against the rendered page, and
+now collapses whitespace so a claim cannot fail on a rewrap.
+
+Also disclosed on the page itself: nothing on `progress_curves.html` said that
+a reading had been removed, so a panel plotted 9 points where the instrument
+wrote 10 and a footer said "incl. the first" meaning the first PLOTTED. Both
+fixed.
 
 ---
 

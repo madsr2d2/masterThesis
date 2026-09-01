@@ -253,7 +253,9 @@ def test_lag_branch_is_gated_per_curve():
     A blanket `B <= 0` was added on 2026-09-01 to stop the burst form returning
     negative initial rates, justified by "0 of 16 pass the acceleration test".
     That was measured on the constant-buffer runs and generalised to all 27
-    without checking. Exps 3 and 6 hold four curves that DO accelerate, two at
+    without checking. (The 16 now score 1, exp 67 sample 3 having crossed the
+    gate when the first reading of every run was dropped -- which is a second
+    reason not to hard-code a count as a constraint.) Exps 3 and 6 hold four curves that DO accelerate, two at
     z = +8.4 and +11.8, and the blanket rule bound on two of them -- forcing a
     decelerating shape onto curves whose own z-score says they rise.
 

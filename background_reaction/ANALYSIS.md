@@ -77,7 +77,7 @@ implements. On these curves it is not identified:
 - The existing `resolved` flag does not catch it: exp 67 sample 3 is `resolved=True`. `resolved` asks whether **τ** is located, which is a different question from whether **v₀** is — and it errs both ways. Exp 6's four cuvettes are `resolved=False` with v₀ pinned to a 0.00 half-width, because as τ → ∞ the curve is a straight line, which kills τ and B but leaves v₀ → v_ss exact.
 - **A close fit does not license the extrapolation.** Exp 3 sample 7 is fitted to within its own noise (rms/noise 1.00), yet across values of τ that are statistically indistinguishable — the rms does not move at two decimal places — its v₀ ranges from **−1.06e-05 to +5.20e-07**, a change of sign, against a line fit of +4.01e-07.
 - Shutting the lag branch (**B ≤ 0**) removes every negative v₀ and raises the bounded count from **16 to 25 of 27**. It does not solve the problem: it trades the τ → ∞ degeneracy for τ → 0, and exps 65 samples 1 and 2 come back at **10× and 28×** their line rate.
-- **A blanket B ≤ 0 is not justified, and was corrected on 2026-09-01.** It rested on "0 of 16 curves accelerate", which is true of the constant-buffer runs and was generalised to all 27 without checking. Exps 3 and 6 hold **four curves that do accelerate**, two at z = +8.4 and +11.8, and the blanket rule bound on two of them — forcing a decelerating shape onto curves whose own z-score says they rise. `fit_burst_bounded(constrain="auto")` now asks each curve: the branch stays open where `acceleration` clears 3σ and is shut elsewhere. That bounds **24 of 27**, admits no negative v₀, and imposes no shape a curve's own statistic contradicts.
+- **A blanket B ≤ 0 is not justified, and was corrected on 2026-09-01.** It rested on "0 of 16 curves accelerate", which was measured on the constant-buffer runs and generalised to all 27 without checking (that count is now 1 of 16, exp 67 sample 3 having crossed the gate when the first reading was dropped). Exps 3 and 6 hold **four curves that do accelerate**, two at z = +8.4 and +11.8, and the blanket rule bound on two of them — forcing a decelerating shape onto curves whose own z-score says they rise. `fit_burst_bounded(constrain="auto")` now asks each curve: the branch stays open where `acceleration` clears 3σ and is shut elsewhere. That bounds **24 of 27**, admits no negative v₀, and imposes no shape a curve's own statistic contradicts.
 
 `summary_kinetics.fit_burst_bounded` implements the fit and profiles **both** v₀
 and τ. The two are different questions and the second is the harsher: across
@@ -227,15 +227,36 @@ Two rules make that safe:
 - **Only *isolated* flags are ringed.** At 30–60 s sampling nothing chemical
   moves in one interval and reverts in the next, so a single reading out of
   line with both neighbours is an artefact; two or more consecutive ones are
-  not separated from chemistry at all. Across the archive that splits **463
-  isolated against 1470 in runs**, the longest run being 16 readings. Runs are
-  counted in the panel footer and never ringed — `curve_screen.py` is explicit
-  that curve shape is never a defect.
+  not separated from chemistry at all. Across the archive as it is now read
+  that splits **442 isolated against 1429 in runs**, the longest run being 16
+  readings. Runs are counted in the panel footer and never ringed —
+  `curve_screen.py` is explicit that curve shape is never a defect.
 
-The first reading is the exception and gets its own flag, on independent
-evidence: **15.9% of first readings exceed 5σ against 7.5% of last readings**
-on the identical extrapolation test, and v₀ is an extrapolation *to* t = 0, so
-that point carries leverage no interior reading has.
+The leading reading is the exception and gets its own flag. Note what that flag
+now means. It was added when the instrument's first reading was the worst-
+behaved point in the archive — **15.9% beyond 5σ against 7.5% of last
+readings** on the identical extrapolation test — but that reading has since
+been discarded from every run (`fit_dataset.DROP_FIRST_READING`), and on the
+curves the flag now sees the excess is largely gone: **13.9% of leading
+readings are flagged against 15.2% of last ones**, so point 0 is no longer a
+distinct outlier class. The flag is kept for two reasons that do survive: v₀ is
+an extrapolation *to* t = 0, so that point carries leverage no interior reading
+has; and a bad leading point drags its neighbour past the threshold, so the
+pair reads as a run and hides from `isolated` — on 21 of the 86 flagged curves
+before the drop and 8 of the 56 after it.
+
+**What the surviving rings are for.** Across the 27 panels the drop took the
+rings from 16 to 11 and the point-0 rings from 14 to 7, and the ones it cleared
+are exactly the ones it should have: exps 67 (samples 1–3), 69 (1, 4), 70
+(1, 2) and 3 (sample 2) were ringed on their first reading alone and are now
+clean. What is left is not the generic settling artefact — that went with the
+discarded reading — but the runs whose settling lasted *longer than one
+reading*: **all four cuvettes of exp 65** (leading z = +31.0, +19.6, +17.9,
++6.2, with a third reading now flagged on samples 1 and 2), **exp 70 sample 3**
+(+6.5, which its own bad first reading had been masking), **exp 3 sample 6**
+(+5.3) and **exp 6 sample 4** (−8.5). That is a short, named list of runs to
+distrust at the start, which is a far more useful thing than a flag that fired
+on one curve in five.
 
 This is what exp 70 sample 2 turned out to be. Its first reading sits 11.5σ
 below the trend while every later step is smooth; removing it takes the burst
