@@ -79,8 +79,14 @@ implements. On these curves it is not identified:
 - Shutting the lag branch (**B ≤ 0**) removes every negative v₀ and raises the bounded count from **13 to 21 of 27**. It does not solve the problem: it trades the τ → ∞ degeneracy for τ → 0, and exps 65 samples 1 and 2 come back at **10× and 28×** their line rate.
 - **A blanket B ≤ 0 is not justified, and was corrected on 2026-09-01.** It rested on "0 of 16 curves accelerate", which is true of the constant-buffer runs and was generalised to all 27 without checking. Exps 3 and 6 hold **four curves that do accelerate**, two at z = +8.4 and +11.8, and the blanket rule bound on two of them — forcing a decelerating shape onto curves whose own z-score says they rise. `fit_burst_bounded(constrain="auto")` now asks each curve: the branch stays open where `acceleration` clears 3σ and is shut elsewhere. That bounds **19 of 27**, admits no negative v₀, and imposes no shape a curve's own statistic contradicts.
 
-`summary_kinetics.fit_burst_bounded` implements the constrained fit and profiles
-v₀ directly (`v0_low`, `v0_high`, `bounded`). It is drawn on every curve panel as
+`summary_kinetics.fit_burst_bounded` implements the fit and profiles **both** v₀
+and τ. The two are different questions and the second is the harsher: across
+these 27 curves **v₀ is bounded on 19, τ is resolved on only 8, and both hold on 5**.
+Where τ runs to an end of its grid the model has degenerated — to a step at the
+floor, to a straight line at the cap — so v₀ → v_ss becomes exactly determined
+while the *burst* means nothing. That is why exps 69 s3 and 70 s4 can report a
+bounded v₀ alongside a negative `v_ss`. The panels say `τ unresolved, shape not
+determined` whenever that holds. It is drawn on every curve panel as
 a diagnostic — the shaded fan is the range of initial slopes the data still
 allows — but it carries no reported number.
 

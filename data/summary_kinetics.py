@@ -399,6 +399,9 @@ class BoundedBurstFit:
     v0: float
     v0_low: float
     v0_high: float
+    tau_low: float
+    tau_high: float
+    tau_resolved: bool
     sse: float
     rms: float
     points: int
@@ -410,6 +413,24 @@ class BoundedBurstFit:
         if not np.isfinite(self.v0) or self.v0 == 0:
             return np.inf
         return float((self.v0_high - self.v0_low) / (2 * abs(self.v0)))
+
+    @property
+    def shape_is_meaningful(self):
+        """
+        True when tau is located, so `kind`, `B` and `v_ss` mean something.
+
+        `bounded` ASKS ONLY ABOUT v0 AND IS NOT A SUBSTITUTE. On the
+        enzyme-free BnOH set tau is pinned at a grid end on 15 of 27 curves and
+        11 of those still report `bounded` -- because once tau collapses to the
+        floor or runs to the cap the model degenerates (to a step, to a
+        straight line) and v0 -> v_ss becomes exactly determined. v0 is then
+        trustworthy and the BURST is not: exps 69 sample 3 and 70 sample 4 are
+        bounded, with tau at the cap and a NEGATIVE v_ss.
+
+        This restores what `fit_burst.resolved` reports and what this class
+        dropped when it was written. See DATA_VERIFICATION.md, 2026-09-01.
+        """
+        return bool(self.tau_resolved)
 
     @property
     def kind(self):
@@ -486,7 +507,8 @@ def fit_burst_bounded(times, values, cap=BURST_TAU_CAP, floor=BURST_TAU_FLOOR,
     values = np.asarray(values, dtype=float)
     times = times - times[0]
     span = times[-1] if len(times) else 0.0
-    blank = BoundedBurstFit(*([np.nan] * 9 + [len(times), False]))
+    blank = BoundedBurstFit(*([np.nan] * 9 + [False, np.nan, np.nan,
+                                              len(times), False]))
     if span <= 0 or len(times) < BURST_MINIMUM_POINTS:
         return blank
 
@@ -511,12 +533,20 @@ def fit_burst_bounded(times, values, cap=BURST_TAU_CAP, floor=BURST_TAU_FLOOR,
     degrees = max(1, len(times) - 4)
     inside = costs <= costs[best] * (1 + CHI2_95 / degrees)
     low, high = float(rates[inside].min()), float(rates[inside].max())
+    # tau's own profile interval, and whether it clears both ends of the grid.
+    # Running to either end means the transient is not located and the model
+    # has degenerated -- to a straight line at the cap, to a step at the floor.
+    # The same test `fit_burst.resolved` applies, restored here.
+    taus = grid[inside]
+    tau_low, tau_high = float(taus.min()), float(taus.max())
+    resolved = bool(tau_low > grid[0] * 1.05 and tau_high < grid[-1] * 0.95)
     c, v_ss, B = (float(v) for v in solutions[best])
     v0 = float(rates[best])
     relative = (high - low) / (2 * abs(v0)) if v0 != 0 else np.inf
     return BoundedBurstFit(
         c=c, v_ss=v_ss, B=B, tau=float(grid[best]), v0=v0,
         v0_low=low, v0_high=high,
+        tau_low=tau_low, tau_high=tau_high, tau_resolved=resolved,
         sse=float(costs[best]),
         rms=float(np.sqrt(costs[best] / len(times))),
         points=len(times),

@@ -8,6 +8,69 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — `bounded` asked only about v0, and tau was pinned on most curves
+
+Raised by the user: exp 3 samples 2, 3, 4 and 5 all come back unbounded when
+the data and the fits look good. They do look good -- rms/noise 1.00 to 1.44 --
+and the reason is worse than a threshold being tight.
+
+**tau is pinned at an end of its grid on 15 of the 27 enzyme-free BnOH curves,
+and 11 of those still report `bounded`.** For exp 3 only sample 2 has a located
+tau; every other tau profile interval spans the whole grid, 36.9 s to 22148 s.
+
+### The defect
+
+`BoundedBurstFit` was written to profile v0 and dropped
+`fit_burst.resolved`, which profiles tau. That was a real regression, and
+`fit_burst`'s own docstring had already said why it mattered: "a fit whose
+interval runs to either end of the grid is reported UNRESOLVED rather than
+quoted."
+
+The two questions come apart in a way that flatters the fit. Once tau collapses
+to the floor the model is a step; once it runs to the cap it is a straight
+line. In both cases v0 -> v_ss becomes EXACTLY determined, so the v0 profile is
+tight and `bounded` is True -- while the burst it is supposedly a burst of
+means nothing. Exps 69 sample 3 and 70 sample 4 are the sharp case: bounded v0,
+tau at the cap, and a NEGATIVE v_ss.
+
+### Fixed
+
+`BoundedBurstFit` gains `tau_low`, `tau_high`, `tau_resolved` and the property
+`shape_is_meaningful`. Over the enzyme-free BnOH set:
+
+| | count of 27 |
+|---|---|
+| v0 bounded | 19 |
+| tau resolved | **8** |
+| both | **5** |
+
+The curve panels now print `tau unresolved, shape not determined` in place of
+the shape whenever tau is pinned, before the v0 verdict, because it qualifies
+everything after it.
+
+### The four curves the user asked about
+
+| sample | why |
+|---|---|
+| 2 | lag branch open (accel z +3.8), and with a lag permitted v0 spans 3.2e-7 to 1.0e-6. Legitimately unbounded; the only exp 3 curve whose tau IS located |
+| 3 | lag branch open (+3.1), half-width 0.72, tau unresolved |
+| 4 | tau pinned at the FLOOR, a near-instantaneous spike fitted to the first readings; v0 9.69e-6 against a line's 1.14e-6 |
+| 5 | tau pinned at the CAP, half-width 3.24 |
+
+None of this changes a reported number -- the burst fit remains a diagnostic
+and `v0_quad` the headline estimator. It changes what the diagnostic admits
+about itself.
+
+### Guard
+
+`test_summary_kinetics.test_bounded_v0_does_not_mean_a_resolved_shape` pins
+that more curves bound v0 than resolve tau, that the two are not the same set,
+that some report bounded v0 with tau unresolved, that a resolved tau lies
+inside its own profile interval, and that the v_ss < 0 fits are all bounded and
+none of them resolved.
+
+---
+
 ## 2026-09-01 — Suspect readings are flagged and ringed, and nothing is removed
 
 Raised by the user, looking at exp 70 sample 2: the curve is well behaved and

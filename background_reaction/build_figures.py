@@ -266,6 +266,11 @@ def curve_panel(curve, width=330, height=210):
     shape = {"burst": "burst, rate falls", "lag": "LAG, rate rises",
              "clamped": "lag branch shut, B→0",
              "unresolved": "unresolved"}[burst.kind]
+    if not burst.shape_is_meaningful:
+        # tau ran to an end of its grid, so the model has degenerated and the
+        # SHAPE means nothing -- even where v0 is well determined, which is
+        # most of them. Said first because it qualifies everything after it.
+        shape = "τ unresolved, shape not determined"
     verdict = "bounded" if burst.bounded else f"v0 UNBOUNDED ±{burst.half_width:.0%}"
     if burst.settles_backwards:
         verdict += " · v_ss < 0"

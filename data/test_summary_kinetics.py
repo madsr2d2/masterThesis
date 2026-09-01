@@ -189,6 +189,63 @@ def test_burst_fit():
           BURST_TAU_CAP > 1.0)
 
 
+def test_bounded_v0_does_not_mean_a_resolved_shape():
+    """
+    `bounded` asks about v0 only. tau can still be pinned at a grid end.
+
+    BoundedBurstFit was written without tau's profile, replacing
+    `fit_burst.resolved` with a v0-only criterion, and that lost real
+    information: on the enzyme-free BnOH set tau is pinned on 15 of 27 curves
+    and 11 of those still report `bounded`. Once tau collapses to the floor or
+    runs to the cap the model degenerates -- to a step, to a straight line --
+    and v0 -> v_ss becomes exactly determined, so v0 is trustworthy while the
+    BURST is not. Restored as `tau_resolved` / `shape_is_meaningful`.
+    """
+    print("\nbounded v0 does not imply a resolved shape")
+    from fit_dataset import build_curves, source_floor
+    from summary_kinetics import fit_burst_bounded
+
+    curves = [c for c in build_curves()[0]
+              if c.experiment in (3, 6, 65, 67, 69, 70)]
+    fits = [fit_burst_bounded(c.times, c.absorbance,
+                              noise_floor=source_floor(c.source))
+            for c in curves]
+
+    bounded = sum(f.bounded for f in fits)
+    resolved = sum(f.shape_is_meaningful for f in fits)
+    both = sum(1 for f in fits if f.bounded and f.shape_is_meaningful)
+    check("more curves bound v0 than resolve tau",
+          bounded > resolved, f"bounded {bounded}, resolved {resolved}")
+    check("and the two are not the same set",
+          both < bounded, f"both {both}, bounded {bounded}")
+    check("some curves report bounded v0 with an unresolved tau",
+          any(f.bounded and not f.shape_is_meaningful for f in fits),
+          "none found")
+
+    # A pinned tau must be reported pinned, not silently quoted.
+    for fit in fits:
+        if not fit.shape_is_meaningful:
+            continue
+        check_once = (fit.tau_low <= fit.tau <= fit.tau_high)
+        if not check_once:
+            check("a resolved tau lies inside its own profile interval", False,
+                  f"tau {fit.tau:.4g} outside [{fit.tau_low:.4g}, "
+                  f"{fit.tau_high:.4g}]")
+            break
+    else:
+        check("every resolved tau lies inside its own profile interval", True)
+
+    # The two curves with a negative settled rate are exactly the trap: both
+    # report a bounded v0, and neither has a meaningful shape.
+    backwards = [f for f in fits if f.settles_backwards]
+    check("the v_ss < 0 fits all report bounded v0",
+          backwards and all(f.bounded for f in backwards),
+          f"{len(backwards)} such fits")
+    check("...and none of them has a resolved tau",
+          all(not f.shape_is_meaningful for f in backwards),
+          f"{sum(f.shape_is_meaningful for f in backwards)} resolved")
+
+
 def test_lag_branch_is_gated_per_curve():
     """
     The B <= 0 constraint applies only where a curve does not accelerate.
@@ -483,6 +540,7 @@ if __name__ == "__main__":
     test_burst_fit()
     test_burst_on_real_curves()
     test_lag_branch_is_gated_per_curve()
+    test_bounded_v0_does_not_mean_a_resolved_shape()
     test_recovery()
     test_saturation_recovery()
     test_absorption_diagnostic()
