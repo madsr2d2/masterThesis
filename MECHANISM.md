@@ -666,26 +666,36 @@ buffers at the same nominal pH are not comparable without accounting for this.
   **WEAKENED 2026-09-01, same day, from the plots.** Exp 65's four cuvettes
   share a mid-run breakpoint at 504-560 s -- a span of 56 s, two sampling
   intervals -- across which every one of them STEEPENS, by 1.82, 2.04, 5.59
-  and 15.94x, most at the LOWEST substrate. It is the only run in the block
-  that does this; exps 59-62 (boric, same and higher pH, so MORE peroxoborate)
-  and 67/69/70 (phosphate) all decelerate, 0.65-1.13. So a single rate number
-  does not describe exp 65 -- vmax reads the post-break stretch and v0 the
-  pre-break one -- and the excesses above compare two different processes.
-  They still say borate is NOWHERE FAST; they do not say it matches the law.
-  See scope.synchronised_break and DATA_VERIFICATION.md 2026-09-01.
+  and 15.94x, most at the LOWEST substrate. So a single rate number does not
+  describe exp 65 -- vmax reads the post-break stretch and v0 the pre-break
+  one -- and the excesses above compare two different processes.
 
-  **Second probe, not using exp 65.** Exps 66 and 68 are the same design with
-  enzyme (0.028 mM, 85.0 mM buffer, 122.426 mM H2O2, 2.741 mM BnOH, 25 C) and
-  both run smooth. Uncorrected, boric/phosphate = 0.66x (v0), 0.65x (vmax),
-  0.54x (v0_whole), 1.11x (v0_quad), while boric carries 2.19x the [HOO-] --
-  so borate is 2-4x SLOWER than pH alone gives it. Its own confound: item 42,
-  borate catalyses peroxyacid hydrolysis ~12-fold with a maximum at pH 8.4-9,
-  exactly where exp 66 sits, and the catalysed route runs through a peracid.
+  **CORRECTED the same day.** The first version of this note argued the break
+  was not borate chemistry because exps 59-62 (boric, same and HIGHER pH) are
+  smooth. That does not follow: those are with_E runs, whose reference channel
+  omits the ENZYME, so the background is in both beams and CANCELS and the
+  curve is a catalytic increment. They cannot show a background shape at all.
+  Restricted to the 21 enzyme-free experiments -- the whole population in
+  which a background feature is visible -- 19 are phosphate or pyrophosphate
+  and none breaks (0.22-1.23), and exactly ONE is boric: exp 65, which breaks
+  on all four cuvettes. One boric run of one, against 19 of 19. That is
+  CONSISTENT WITH BORATE CHEMISTRY and rests on a single run. Exp 64, the only
+  other boric background run, was aborted at 448 s -- before exp 65's break --
+  and is dead besides.
 
-  NET: two comparisons, each independently confounded, agree borate is never
-  fast. The buffer most likely CATALYSES rather than supplying the oxidant,
-  but the kinetics have not closed it. The 31P NMR below moves from "worth
-  doing" to the way to settle it.
+  **The second probe was withdrawn as blind.** Exps 66 and 68 (same design
+  with enzyme) were added to avoid exp 65 and cannot do the job: both are
+  catalysed, so a buffer-made oxidant acts on the background, sits in both
+  beams of each run, and cancels. Kept as the catalysed comparison it is --
+  boric/phosphate = 0.66x (v0), 0.65x (vmax), 0.54x (v0_whole), 1.11x
+  (v0_quad) against 2.19x the [HOO-], i.e. the CATALYSED reaction is 2-4x
+  slower in borate, which is what item 42's peroxyacid hydrolysis predicts.
+
+  NET: the peroxo question is OPEN, and the one piece of direct evidence now
+  points mildly TOWARD a buffer-made oxidant rather than against it. The
+  buffer term is still most likely catalysis on the chemistry above, but that
+  is an argument, not a measurement. Two experiments would close it: the 31P
+  NMR below, and A REPEAT OF EXP 65 -- enzyme-free, boric, run long.
 
   **Decisive test: 31P NMR of the buffer under run conditions.**
   Peroxomonophosphate is a distinct resonance; one spectrum settles presence or

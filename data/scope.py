@@ -244,6 +244,18 @@ def frame(scope=PRIMARY_SCOPE):
             "accelerates": bool(accel_z > ACCELERATION_SIGMA)
             if np.isfinite(accel_z) else False,
             "late_over_early": _late_over_early(times, values),
+            # WHETHER THIS CURVE CAN SHOW A BACKGROUND FEATURE AT ALL.
+            # Every run is double-beam and what the reference channel omits
+            # decides what the curve means (kinetics_io, DATA_VERIFICATION.md
+            # 2026-08-31): an enzyme run's reference omits the ENZYME, so the
+            # background appears in both beams and CANCELS, and the curve is a
+            # catalytic increment. A background run's reference omits the
+            # H2O2, so the curve is the raw reaction with nothing subtracted.
+            # A background shape can therefore only be looked for on
+            # `differential == False` rows, and comparing the two populations
+            # for one is a category error -- which is how the boric probe's
+            # first control set was chosen wrongly on 2026-09-01.
+            "differential": bool(curve.conditions.e0 > 0),
             # The two-line split. Every other shape column here compares the
             # curve's start to its end, and a curve that breaks upward in the
             # MIDDLE and then plateaus defeats all of them -- exp 65 sat
@@ -1071,6 +1083,14 @@ PEROXO_PAIR = (65, 67)
 # DATA_VERIFICATION.md 2026-09-01). Exps 66 and 68 match on enzyme (0.028 mM),
 # buffer (85.0 mM), peroxide (122.426 mM), substrate (2.741 mM BnOH) and
 # temperature, differing only in salt and pH, and both run smooth.
+#
+# WITHDRAWN AS A PEROXO PROBE, same day, one hour later. Both runs are
+# catalysed, so their reference channels omit the ENZYME and the background is
+# subtracted out of both. A buffer-made oxidant acts on the background, which
+# means it is present in BOTH beams of each run and CANCELS. This pair cannot
+# detect the thing it was added to detect -- not confounded, blind. It is kept
+# only as the catalysed boric-vs-phosphate comparison it actually is, which is
+# a statement about the CATALYSED reaction in the two buffers.
 CATALYSED_PEROXO_PAIR = (66, 68)
 
 
@@ -1088,16 +1108,41 @@ def synchronised_break(scope=FREE_BNOH_ALL):
     in seconds), `median_break`, `max_ratio`, `steep` (how many cuvettes
     exceed SEGMENT_RATIO_STEEP), `n`, and the sorted break times and ratios.
 
-    WHAT IT FOUND. Across the enzyme-free BnOH set plus the boric block, every
-    run decelerates after its break -- ratios 0.12 to 1.23 -- except exp 65,
-    whose four cuvettes steepen by 1.82, 2.04, 5.59 and 15.94 across breaks
-    spanning 56 s, two of its 28 s sampling intervals and the tightest span in
-    the block. The steepening is LARGEST at the lowest substrate (15.94 at
-    0.365 mM against 1.82 at 7.310 mM), which is the wrong way round for
-    anything the substrate drives. See DATA_VERIFICATION.md 2026-09-01.
+    ONLY ASK IT OF BACKGROUND RUNS. A shape in the background is invisible in a
+    catalysed run BY CONSTRUCTION: an enzyme run's reference channel omits the
+    enzyme, so the background is in both beams and cancels, and the curve is a
+    catalytic increment (`frame`'s `differential` column, kinetics_io,
+    DATA_VERIFICATION.md 2026-08-31). This function raises if `scope` mixes the
+    two, because the first control set chosen for the boric probe was four
+    catalysed runs and the conclusion drawn from their smoothness -- that exp
+    65's break was not borate chemistry -- did not follow.
+
+    WHAT IT FOUND, on the 20 background experiments -- the whole un-subtracted
+    population -- 18 of which have live curves. Seventeen are phosphate and
+    none of them breaks: ratios 0.22-1.23, with one isolated cuvette of exp
+    3's six at 2.44. Exactly one boric run has live curves -- exp 65 -- and
+    all four of its cuvettes steepen, by 1.82,
+    2.04, 5.59 and 15.94, across breaks spanning 56 s, two of its 28 s
+    sampling intervals. The steepening is LARGEST at the lowest substrate
+    (15.94 at 0.365 mM against 1.82 at 7.310 mM), so the clock is not the
+    substrate.
+
+    That is 1 boric run of 1 showing it against 17 of 17 not, which is
+    consistent with borate chemistry and rests on a single run. The other
+    boric background run, exp 64, was aborted at 448 s -- BEFORE exp 65's
+    break -- and is dead besides, so it cannot test it. The missing experiment
+    is a repeat of exp 65. See DATA_VERIFICATION.md 2026-09-01.
     """
     data = frame(scope)
     data = data[data.live & np.isfinite(data.break_time)]
+    if data.differential.nunique() > 1:
+        mixed = sorted(data[data.differential].experiment.unique())
+        raise ValueError(
+            "synchronised_break was given both catalysed and background runs "
+            f"({mixed} are catalysed). A catalysed curve is an increment whose "
+            "reference channel already subtracted the background, so it cannot "
+            "show a background shape and its smoothness is not evidence about "
+            "one. Pass background runs only.")
     rows = []
     for experiment, group in data.groupby("experiment"):
         order = group.sort_values("break_time")
@@ -1144,9 +1189,16 @@ def peroxo_buffer_test(pair=PEROXO_PAIR, orders_scope=FREE_BNOH_PHOSPHATE,
     stretch and `v0` the pre-break one, and they are not the same process. The
     excesses below are therefore a comparison between two different things,
     and the right reading of them is "borate is nowhere fast", not "borate
-    matches the law". Use CATALYSED_PEROXO_PAIR, whose curves are smooth, as
-    the second and better-conditioned probe. See `synchronised_break` and
-    DATA_VERIFICATION.md 2026-09-01.
+    matches the law".
+
+    AND THERE IS NO SECOND PROBE. CATALYSED_PEROXO_PAIR was added as one and
+    withdrawn the same day: both its runs are catalysed, so a buffer-made
+    oxidant sits in both beams and cancels. Among the 21 enzyme-free
+    background experiments -- the entire population in which a background
+    feature is even visible -- exactly one is boric, and it is exp 65. So this test rests on
+    one run and that run is the one with the break. See `synchronised_break`
+    and DATA_VERIFICATION.md 2026-09-01. The missing experiment is a repeat of
+    exp 65: enzyme-free, boric, run long.
 
     HOW THE PREDICTION IS MADE. The rate law is fitted on `orders_scope`,
     which excludes the boric run, so exp 65 is out of sample. Because the two

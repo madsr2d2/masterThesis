@@ -290,10 +290,21 @@ def main():
     print("\nthe mid-run break that weakens the boric probe")
     # Found from the plots, not by any statistic in the package -- every other
     # shape column compares a curve's start to its end and steps over a break
-    # in the middle. Section 6b's downgrade of the boric probe rests on this
-    # table, so it is re-derived rather than typed.
-    block = tuple(sorted(set(scope.FREE_BNOH_ALL) | {59, 60, 61, 62}))
-    breaks = scope.synchronised_break(block)
+    # in the middle. Section 6b's downgrade of the boric probe rests on this,
+    # so it is re-derived rather than typed.
+    #
+    # THE POPULATION IS THE ENZYME-FREE RUNS AND ONLY THOSE. The first version
+    # of this check passed exps 59-62 as controls; they are catalysed, their
+    # reference channel already subtracted the background, and they cannot
+    # show a background shape. `synchronised_break` now raises on the mix.
+    census = pd.read_csv(os.path.join(os.path.dirname(HERE), "data",
+                                      "experiment_data.csv"))
+    # EVERY row must be enzyme-free, not merely some: exp 128 is a catalysed
+    # run whose reference row 5 carries [enz] = 0, and filtering on rows put it
+    # in the background population until `synchronised_break` refused it.
+    highest = census.groupby("experiment")["[enz]"].max()
+    background = tuple(sorted(highest[highest == 0].index))
+    breaks = scope.synchronised_break(background)
     exp65 = breaks.loc[scope.PEROXO_PAIR[0]]
     times = [str(v) for v in sorted(exp65["breaks"])]
     claim("exp 65's break times",
@@ -302,30 +313,44 @@ def main():
     claim("exp 65's steepening",
           f"**{', '.join(ratios[:-1])} and {ratios[-1]}x**")
     claim("the break span", f"a span of **{exp65['span']:.0f} s**")
-    # The claim the argument turns on: exp 65 is the ONLY run that steepens.
-    others = breaks.drop(index=scope.PEROXO_PAIR[0])
-    # "All of them" is the claim, not "any of them": exp 3 has one steep
-    # cuvette of six, which is scatter, not a run-wide event.
-    ok = (int(exp65["steep"]) == int(exp65["n"])
-          and not (others.steep == others.n).any())
-    print(f"  {'pass' if ok else 'FAIL'}  exp 65 is the only run whose cuvettes "
-          f"all steepen: {int(exp65['steep'])} of {int(exp65['n'])}, "
-          f"next best {int(others.steep.max())} of {int(others.n[others.steep.idxmax()])}")
-    if not ok:
-        FAILURES.append("exp 65 is no longer the only run that steepens after "
-                        "its break; section 6b's downgrade needs rewriting")
-    # And that no OTHER boric run does it, which is what rules the shape out as
-    # borate chemistry.
-    boric_others = breaks.loc[[59, 60, 61, 62]]
-    ok = int(boric_others.steep.sum()) == 0
-    print(f"  {'pass' if ok else 'FAIL'}  no other boric run steepens "
-          f"(exps 59-62, {int(boric_others.n.sum())} curves): "
-          f"{int(boric_others.steep.sum())}")
-    if not ok:
-        FAILURES.append("a boric run other than 65 now steepens; the shape may "
-                        "be borate chemistry after all")
 
-    print("\nthe second probe, which does not use exp 65")
+    # The claim the whole section now turns on: among the runs where a
+    # background shape is VISIBLE, exp 65 is the only boric one and the only
+    # one that breaks. Both halves are checked, because either failing would
+    # change the conclusion in a different direction.
+    salt = census.groupby("experiment").buffer.first()
+    boric = [e for e in breaks.index if salt.get(e) == "Boric"]
+    ok = boric == [scope.PEROXO_PAIR[0]]
+    print(f"  {'pass' if ok else 'FAIL'}  exactly one boric background run has "
+          f"live curves: {boric}")
+    if not ok:
+        FAILURES.append("the boric background population is no longer exp 65 "
+                        "alone; section 6b's 1-of-1 count needs rewriting")
+    whole = breaks[breaks.steep == breaks.n]
+    ok = list(whole.index) == [scope.PEROXO_PAIR[0]]
+    print(f"  {'pass' if ok else 'FAIL'}  and it is the only background run "
+          f"whose cuvettes all steepen: {list(whole.index)} of "
+          f"{len(breaks)} runs")
+    if not ok:
+        FAILURES.append("exp 65 is no longer the only background run that "
+                        "steepens throughout; section 6b needs rewriting")
+    claim("the count both ways",
+          f"**1 boric background run of 1 showing the break, against\n"
+          f"{len(breaks) - 1} of {len(breaks) - 1} not**")
+    # Exp 64, the only other boric background run, stops BEFORE exp 65 breaks,
+    # which is why it cannot serve as the control it was first used as.
+    from read_rre import read_rre
+    last = max(float(np.asarray(t)[-1]) for _, t, _ in
+               read_rre(os.path.join(os.path.dirname(HERE), "data", "Mads",
+                                     "rate064.rre")))
+    ok = last < float(exp65["breaks"][0])
+    print(f"  {'pass' if ok else 'FAIL'}  exp 64 ends at {last:.0f} s, before "
+          f"exp 65's first break at {exp65['breaks'][0]} s")
+    if not ok:
+        FAILURES.append("exp 64 now runs past exp 65's break, so it could test "
+                        "it after all -- section 6b says it cannot")
+
+    print("\nthe withdrawn second probe, kept as a catalysed comparison")
     catalysed = scope.peroxo_buffer_test(pair=scope.CATALYSED_PEROXO_PAIR,
                                          orders_scope=None)
     for estimator, row in catalysed.iterrows():

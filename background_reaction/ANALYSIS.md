@@ -372,22 +372,50 @@ different processes.
 They still say borate is **nowhere fast**, which is the direction that matters.
 They do not say borate matches the law.
 
-**What the break is not**, checked rather than assumed: not borate chemistry
-(exps 59–62 are boric at the same and *higher* pH, so more peroxoborate, and
-every cuvette decelerates); not the 28 s sampling (used by exps 59–62 and 64
-too, and only 65 breaks); not the substrate (20-fold range, break time
-unmoved, and the steepening is *largest at the lowest* substrate); not
-conversion (0.3–3.0% at the plateau). The first bump *is* identified — it is
-instrument settling, and exp 64, a dead flat run in the same session, shows the
-identical transient with no chemistry at all. The break and the plateau remain
-unexplained.
+**The control set first used here was wrong, and the correction matters.** The
+first version of this section argued the break was *not* borate chemistry
+because exps 59–62 — boric, same and higher pH — are smooth. That does not
+follow. **Every run is double-beam, and what the reference channel omits
+decides what the curve means:** an enzyme run's reference omits the *enzyme*,
+so the background sits in both beams and **cancels**, and the curve is a
+catalytic increment. Exps 59–62 and 66 are all `with_E`. They cannot show a
+background shape at all, so their smoothness is not evidence about one.
 
-### A second probe that does not use exp 65
+Restricted to the runs where a background feature is even visible — the 20
+background experiments, 18 of which have live curves (`frame`'s
+`differential == False`):
 
-Exps **66 and 68** are the same design with enzyme — boric vs phosphate, both
-0.028 mM enzyme, 85.0 mM buffer, 122.426 mM H₂O₂, 2.741 mM BnOH, 25 °C — and
-both run smooth. Uncorrected, cuvette for cuvette
-(`scope.CATALYSED_PEROXO_PAIR`):
+| buffer | experiments | any run whose cuvettes all steepen |
+|---|---|---|
+| phosphate | 17 | **0** (ratios 0.22–1.23; one isolated cuvette of six at 2.44) |
+| **boric** | **1 (exp 65)** | **1 — all four cuvettes** |
+
+So the honest count is **1 boric background run of 1 showing the break, against
+17 of 17 not**. That is consistent with borate chemistry and it rests on a
+single run. The other boric background run, **exp 64, was aborted at 448 s —
+before exp 65's break at 504–560 s** — and is dead besides, so it cannot test
+it either.
+
+**What survives from the earlier version:** not the substrate (20-fold range,
+break time unmoved, steepening *largest at the lowest* substrate); not
+conversion (0.3–3.0% at the plateau). And the first bump *is* identified as
+instrument settling — exp 64, flat and dead in the same session, shows the
+identical 0–112 s transient with no chemistry at all. The break and the
+plateau remain unexplained, and borate chemistry is now among the live
+explanations rather than excluded.
+
+### The second probe was withdrawn: it is blind, not merely confounded
+
+Exps **66 and 68** were added here as a probe that avoids exp 65 — the same
+design with enzyme, boric vs phosphate, both 0.028 mM enzyme, 85.0 mM buffer,
+122.426 mM H₂O₂, 2.741 mM BnOH, 25 °C, both running smooth. **It cannot do the
+job.** Both runs are catalysed, so both references omit the enzyme, so a
+buffer-made oxidant — which acts on the *background* — is present in both beams
+of each run and cancels. The comparison is structurally incapable of detecting
+the effect it was built for.
+
+It is kept as what it actually is, a catalysed boric-vs-phosphate comparison.
+Uncorrected, cuvette for cuvette (`scope.CATALYSED_PEROXO_PAIR`):
 
 | estimator | boric ÷ phosphate |
 |---|---|
@@ -396,17 +424,28 @@ both run smooth. Uncorrected, cuvette for cuvette
 | `v0_whole` | 0.54× |
 | `v0_quad` | 1.11× |
 
-Boric carries **2.19× the [HOO⁻]** and lands at or below phosphate — roughly
-2–4× *slower* than pH alone would give it. Its own confound: borate catalyses
-peroxyacid hydrolysis ~12-fold with a maximum at pH 8.4–9 (§6a), exactly where
-exp 66 sits, and the catalysed mechanism runs through a peracid.
+Boric carries **2.19× the [HOO⁻]** and lands at or below phosphate — the
+*catalysed* reaction is 2–4× slower in borate than pH alone would give it,
+which is what §6a's peroxyacid-hydrolysis argument predicts (~12-fold, maximum
+at pH 8.4–9, exactly where exp 66 sits). It says nothing about the background.
 
-**Net position.** Two boric/phosphate comparisons, each independently
-confounded, agree that borate is never fast. That is real evidence against the
-peroxo route and it is weaker than one clean experiment would be. The buffer
-term is most likely **catalysis** — the standing Sander & Jencks reading — but
-the kinetics have not closed the question, and **³¹P NMR of the buffer under
-run conditions moves from "worth doing" to the way to settle it.**
+**Net position, and it is weaker than this section first claimed.** The peroxo
+question is **open**, and the one piece of direct evidence — exp 65 — now
+points mildly *toward* a buffer-made oxidant rather than against it, because
+the only boric background run in the archive is the only background run in the
+archive that breaks. Against that: the break's cause is genuinely unknown, n is
+1, and exp 65 carries six other complaints.
+
+The buffer term is still most likely **catalysis** on the strength of the
+chemistry (§6b above: phosphate is an anion, HOO⁻ attack at tetrahedral
+phosphorus is disfavoured, and peroxomonophosphate hydrolyses in the downhill
+direction). But that is an argument, not a measurement, and the kinetics have
+not closed it.
+
+**Two experiments would.** ³¹P NMR of the buffer under run conditions settles
+peroxomonophosphate outright, one spectrum, no kinetics. And **a repeat of exp
+65 — enzyme-free, boric, run long — settles whether the break is real**; exp 64
+was that experiment and it died at 448 s.
 
 **What neither probe settles.** pH is matched in neither pair, so both lean on
 a `[HOO⁻]` correction across 8.01 → 8.51. Each is one run of four cuvettes

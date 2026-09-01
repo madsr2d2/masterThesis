@@ -8,6 +8,100 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — Retraction: the boric probe's control set was catalysed runs, which cannot show a background shape
+
+**Raised by the user, one hour after the entry below was written:** *"the
+experiments with enzyme in boric buffer is not supposed to show these
+oscillations since the background is subtracted from the progress curves
+right?"* Correct, and it retracts the main argument of that entry.
+
+### The rule that was ignored
+
+Every run is double-beam, and what the reference channel omits decides what the
+curve means — established here 2026-08-31, and it is the whole basis of the
+`with_E` / `with_NO_E` split:
+
+| the reference omits | the curve is | affected runs |
+|---|---|---|
+| the **enzyme** | a catalytic increment, **background already subtracted** | exps 59, 60, 61, 62, 66, 68 |
+| the **H₂O₂** | the raw background reaction, nothing subtracted | exps 3, 6, 64, 65, 67, 69, 70 |
+
+The entry below argued exp 65's break was *not* borate chemistry because exps
+59–62 — boric, same pH and higher — are smooth. **Those are `with_E` runs.** A
+background feature is in both of their beams and cancels. They cannot show one,
+so their smoothness is not evidence about one. The argument does not follow.
+
+### What the correct population says
+
+An experiment counts as background only if **every** row is enzyme-free — exp
+128 is a catalysed run whose reference row 5 carries `[enz] = 0`, and filtering
+on rows put it in the population until the new guard refused it. That leaves 20
+background experiments, 18 with live curves:
+
+| buffer | runs | runs whose cuvettes all steepen |
+|---|---|---|
+| phosphate | 17 | **0** (ratios 0.22–1.23; one isolated cuvette of exp 3's six at 2.44) |
+| **boric** | **1 — exp 65** | **1 — all four cuvettes** |
+
+**1 boric background run of 1 showing the break, against 17 of 17 not.** That is
+*consistent with borate chemistry* — the opposite of what the entry below
+concluded — and it rests on a single run.
+
+**Exp 64 cannot help either**, and the entry below leaned on it. It is the only
+other boric background run, and it **ends at 448 s, before exp 65's first break
+at 504 s**. It can speak to the settling transient in the first 112 s, which it
+does, and to nothing after that.
+
+### The second probe is withdrawn as blind, not confounded
+
+Exps 66 and 68 were added below as a probe avoiding exp 65. Both are catalysed.
+A buffer-made oxidant acts on the **background**, so it is present in both beams
+of each run and cancels: the comparison is structurally incapable of detecting
+the effect it was built for. That is worse than the peroxyacid-hydrolysis
+confound also noted there. It is kept as what it is — a catalysed
+boric-vs-phosphate comparison, showing the *catalysed* reaction 2–4× slower in
+borate, which is what MECHANISM.md item 42 predicts.
+
+### Net position on "why first order in buffer"
+
+- The buffer order itself is untouched: **+1.19 ± 0.21** / **+1.30 ± 0.25**,
+  measured on phosphate background runs, which are un-subtracted.
+- **Catalysis vs a buffer-made oxidant is OPEN.** Yesterday's entry said the
+  boric probe settled it for catalysis. It does not.
+- The one piece of direct evidence now points *mildly toward* a buffer-made
+  oxidant: the only boric background run in the archive is the only background
+  run in the archive that breaks.
+- Against that: the break's cause is unknown, n = 1, and exp 65 carries six
+  other complaints.
+- The chemical argument for catalysis (phosphate is an anion, HOO⁻ attack at
+  tetrahedral phosphorus is disfavoured, peroxomonophosphate hydrolyses
+  downhill) is unaffected — and is an argument, not a measurement.
+
+### Two experiments would close it
+
+1. **³¹P NMR of the buffer under run conditions** — settles peroxomonophosphate
+   outright, one spectrum, no kinetics.
+2. **A repeat of exp 65 — enzyme-free, boric, run long.** Exp 64 was that
+   experiment and it died at 448 s. This is now as important as the NMR,
+   because a single run is carrying the only direct evidence there is.
+
+### Guards added, so this class of error is loud
+
+- `scope.frame` gained a **`differential`** column: whether the curve's
+  reference channel already subtracted the background.
+- `scope.synchronised_break` **raises** if handed a mix of catalysed and
+  background runs, naming the catalysed ones. It fired immediately on
+  `check_numbers.py`'s own stale control set and again on exp 128 — both of
+  which had passed silently an hour earlier.
+
+**Changed:** `frame.differential`; the guard in `synchronised_break`;
+`peroxo_buffer_test` and `CATALYSED_PEROXO_PAIR` docstrings rewritten to lead
+with the withdrawal; ANALYSIS.md §6b and MECHANISM.md corrected; `check_numbers`
+now derives the background population from the census and pins the 1-of-1 count,
+the 17-of-17 count and exp 64's end time.
+
+---
+
 ## 2026-09-01 — Correction: exp 65's curves have a synchronised mid-run break, and the boric probe below rests on them
 
 **Found by eye, from the plots, by the user**, who reported that exp 65's
