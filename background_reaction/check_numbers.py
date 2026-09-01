@@ -11,6 +11,7 @@ edit the prose inconsistently and this fails.
 """
 import io
 import os
+import re
 import sys
 
 import numpy as np
@@ -225,6 +226,28 @@ def main():
     claim("leading vs last flag rate",
           f"**{100 * flag[0] / total:.1f}% of leading\nreadings are flagged "
           f"against {100 * flag[1] / total:.1f}% of last ones**")
+
+    print("\nevery ring encloses a drawn reading")
+    # Rings are not decimated and the readings are, so a ring could land where
+    # no mark was drawn -- it did, on exp 3 samples 1 and 6, and it reads as a
+    # flag on nothing. Checked against the rendered SVG rather than the code
+    # that emits it, because the two sets are built separately.
+    page_text = io.open(CURVES_PAGE, encoding="utf-8").read()
+    orphans = []
+    for panel in re.split(r"<div class='ph'>", page_text)[1:]:
+        name = panel.split("<")[0]
+        marks = set(re.findall(
+            r"<circle cx='([-\d.]+)' cy='([-\d.]+)' r='1.7' fill='#", panel))
+        for spot in re.findall(
+                r"<circle cx='([-\d.]+)' cy='([-\d.]+)' r='6.0' fill='none'",
+                panel):
+            if spot not in marks:
+                orphans.append(f"{name} at {spot}")
+    ok = not orphans
+    print(f"  {'pass' if ok else 'FAIL'}  no ring without a reading inside it"
+          + ("" if ok else f": {orphans}"))
+    if not ok:
+        FAILURES.append(f"rings drawn over nothing: {orphans}")
 
     print("\nthe rendered page")
     accelerating = sum(

@@ -233,18 +233,14 @@ def curve_panel(curve, width=330, height=210):
     axes.line(grid, quad_beta[0] + quad_beta[1] * grid + quad_beta[2] * grid ** 2,
               QUAD_COLOUR, width=2.2)
 
-    # The DATA goes on last. Drawn first it disappeared under four fit lines,
-    # which inverts the point of the panel: the fits are the claim, the
-    # readings are the evidence, and the evidence has to stay visible.
-    step = max(1, len(times) // 110)
-    axes.points(times[::step], values[::step], INK, radius=1.7, opacity=0.85)
-
     # Suspect readings, ringed rather than removed. Nothing is excluded: the
     # fits above are computed on every point, and these rings say which ones a
     # reader should discount by eye. Only ISOLATED flags are ringed -- a run of
     # two or more may be real structure, and this dataset's shapes are live
     # hypotheses (curve_screen.py).
-    isolated, in_runs = isolated_outliers(times, values, curve.noise)
+    #
+    # Worked out BEFORE the readings are drawn, because the drawing is
+    # decimated and the rings are not: see `shown` below.
     # Point 0 is ringed on its own z, not on isolation: a bad leading reading
     # often drags its neighbour into a run, and the pair then hides from
     # `isolated`. The case is now the leverage and the masking, NOT a raised
@@ -255,12 +251,27 @@ def curve_panel(curve, width=330, height=210):
     # runs whose settling lasted LONGER than one reading, which is a small
     # nameable set -- all four of exp 65, exp 70 sample 3, exp 3 sample 6, exp
     # 6 sample 4 -- rather than a property of the archive.
+    isolated, in_runs = isolated_outliers(times, values, curve.noise)
     outlier_z = local_outlier_z(times, values, curve.noise)
-    ringed = list(isolated)
-    if len(outlier_z) and np.isfinite(outlier_z[0]) \
-            and abs(outlier_z[0]) > OUTLIER_SIGMA and 0 not in ringed:
-        ringed.append(0)
-    for index in sorted(ringed):
+    ringed = sorted(set(int(i) for i in isolated) |
+                    ({0} if len(outlier_z) and np.isfinite(outlier_z[0])
+                     and abs(outlier_z[0]) > OUTLIER_SIGMA else set()))
+
+    # The DATA goes on last. Drawn first it disappeared under four fit lines,
+    # which inverts the point of the panel: the fits are the claim, the
+    # readings are the evidence, and the evidence has to stay visible.
+    #
+    # Long runs are decimated to about 110 marks, or a 400-reading curve is a
+    # solid bar. The RINGS ARE NOT DECIMATED, so the two sets have to be
+    # unioned or a ring lands where no mark was drawn and reads as a flag on
+    # nothing. That is what it did: exp 3 sample 1 ringed reading 85 and sample
+    # 6 ringed reading 225, both odd, both skipped by a step of 2. Every
+    # ringed reading is drawn whether or not the stride would have reached it.
+    step = max(1, len(times) // 110)
+    shown = sorted(set(range(0, len(times), step)) | set(ringed))
+    axes.points(times[shown], values[shown], INK, radius=1.7, opacity=0.85)
+
+    for index in ringed:
         axes.ring(times[index], values[index], OUTLIER_COLOUR,
                   title=f"suspect reading: point {index} at t={times[index]:.0f} s")
 

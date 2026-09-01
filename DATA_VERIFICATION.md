@@ -180,6 +180,46 @@ produces it, and the obvious definitions give 17 of 57 (all catalysed in the
 relies on that contrast should re-derive it and pin it; it is exactly the
 inline-throwaway that CLAUDE.md warns about.
 
+### A ring drawn over nothing, on two panels
+
+Spotted by the user on `progress_curves.html`: exp 3 sample 1 carries a ring
+with no reading inside it, and so does the ring at the end of exp 3 sample 6.
+
+A drawing bug, not a flagging one. Long runs are decimated to about 110 marks
+(`step = len(times) // 110`) or a 226-reading curve draws as a solid bar. The
+RINGS were never decimated. Exp 3 sample 1's ring is on reading **85** and
+sample 6's second is on reading **225** -- both odd, both skipped by a step of
+2 -- so the ring was drawn where no mark was. Those two are the only cases in
+the set: every other ringed reading has an index the stride happened to reach,
+and both offenders are in exp 3 because it holds the only curves long enough to
+be decimated at all besides exp 6, whose single ring is on reading 0.
+
+The flags themselves were right. Nothing about which readings are suspect
+changed, and no fitted number moves -- the rings are advisory and every fit
+already used every point. Fixed by drawing the union of the decimated stride
+and the ringed indices, so a ringed reading is drawn whether or not the stride
+reaches it.
+
+`check_numbers.py` now parses the RENDERED SVG and fails if any ring has no
+data mark at its centre, checked against the output rather than the code that
+emits it, because the two sets are built separately. Fault-injected: restoring
+the bug names both panels.
+
+Worth noting while here: sample 6's second ring is on the run's LAST reading.
+That is the flag working as intended -- `local_outlier_z` is one-sided at both
+ends and scores the final reading the same way as the first.
+
+### Are the first readings gone from the plots as well as the fits? Yes
+
+Asked, and worth stating plainly because the answer is not visible from a
+panel. `DROP_FIRST_READING` acts in `build_curves`, so the reading never
+reaches a `Curve` at all: it is absent from the plot, from every fit, from the
+baseline, from the noise estimate and from every statistic. Exp 3 sample 1 goes
+227 readings to 226, and `times - times[0]` re-zeros the clock on the retained
+reading, so t = 0 on a panel is the SECOND reading the instrument wrote.
+Baseline and noise are computed after the drop, which is the right order -- exp
+3 sample 1's leading absorbance moves from -0.00049 to +0.00001 because of it.
+
 ### Checks updated
 
 `test_curve_metrics` (lag 160, and the fragility stated), `test_read_rre` (the
