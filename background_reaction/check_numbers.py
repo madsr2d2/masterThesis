@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "data"))
 
 import scope
 from curve_metrics import ACCELERATION_SIGMA
+from fit_dataset import source_floor
 from summary_kinetics import fit_burst, fit_burst_bounded
 
 DOCUMENT = os.path.join(HERE, "ANALYSIS.md")
@@ -107,15 +108,25 @@ def main():
     print("\nthe burst diagnostics")
     curves = scope.curves(scope.FREE_BNOH_ALL)
     plain = [fit_burst(c.times, c.absorbance) for c in curves]
-    bounded_free = [fit_burst_bounded(c.times, c.absorbance, constrain=False)
+    bounded_free = [fit_burst_bounded(c.times, c.absorbance, constrain=False,
+                                      noise_floor=source_floor(c.source))
                     for c in curves]
-    bounded = [fit_burst_bounded(c.times, c.absorbance) for c in curves]
+    bounded = [fit_burst_bounded(c.times, c.absorbance,
+                                 noise_floor=source_floor(c.source))
+               for c in curves]
     negative = sum(1 for f in plain if np.isfinite(f.v0) and f.v0 < 0)
     claim("negative v0 count",
           f"**{negative} of {len(curves)} curves return a negative v₀**")
-    claim("bounded counts",
+    always = [fit_burst_bounded(c.times, c.absorbance, constrain=True,
+                                noise_floor=source_floor(c.source))
+              for c in curves]
+    claim("bounded count, lag branch shut everywhere",
           f"from **{sum(f.bounded for f in bounded_free)} to "
-          f"{sum(f.bounded for f in bounded)} of {len(curves)}**")
+          f"{sum(f.bounded for f in always)} of {len(curves)}**")
+    # `bounded` is the DEFAULT, constrain="auto": the branch is gated on each
+    # curve's own acceleration rather than shut for the whole block.
+    claim("bounded count, lag branch gated per curve",
+          f"That bounds **{sum(f.bounded for f in bounded)} of {len(curves)}**")
 
     print("\nshape and scope")
     live_fixed = fixed[fixed.live]

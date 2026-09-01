@@ -189,6 +189,68 @@ def test_burst_fit():
           BURST_TAU_CAP > 1.0)
 
 
+def test_lag_branch_is_gated_per_curve():
+    """
+    The B <= 0 constraint applies only where a curve does not accelerate.
+
+    A blanket `B <= 0` was added on 2026-09-01 to stop the burst form returning
+    negative initial rates, justified by "0 of 16 pass the acceleration test".
+    That was measured on the constant-buffer runs and generalised to all 27
+    without checking. Exps 3 and 6 hold four curves that DO accelerate, two at
+    z = +8.4 and +11.8, and the blanket rule bound on two of them -- forcing a
+    decelerating shape onto curves whose own z-score says they rise.
+
+    "auto" asks each curve instead. This test pins that it asks, that it
+    forbids where it should, and that it still admits no negative v0.
+    """
+    print("\nthe lag branch is gated per curve")
+    from curve_metrics import ACCELERATION_SIGMA, acceleration
+    from fit_dataset import build_curves, source_floor
+    from summary_kinetics import fit_burst_bounded
+
+    curves = [c for c in build_curves()[0] if c.experiment in (3, 6, 65, 67, 69, 70)]
+    check("the enzyme-free BnOH set is 27 cuvettes", len(curves) == 27,
+          f"got {len(curves)}")
+
+    accelerating = [c for c in curves
+                    if acceleration(c.times, c.absorbance,
+                                    floor=source_floor(c.source))[0]
+                    > ACCELERATION_SIGMA]
+    check("some of them genuinely accelerate, so a blanket B<=0 is wrong",
+          len(accelerating) >= 3, f"{len(accelerating)} accelerate")
+    check("...and they are all in the titration runs",
+          {c.experiment for c in accelerating} <= {3, 6},
+          f"experiments {sorted({c.experiment for c in accelerating})}")
+
+    def run(mode):
+        return [fit_burst_bounded(c.times, c.absorbance, constrain=mode,
+                                  noise_floor=source_floor(c.source))
+                for c in curves]
+
+    auto, always, never = run("auto"), run(True), run(False)
+    check("unconstrained, some v0 come back negative",
+          sum(f.v0 < 0 for f in never) == 4,
+          f"{sum(f.v0 < 0 for f in never)} negative")
+    check("auto admits none of them",
+          not any(f.v0 < 0 for f in auto),
+          f"{sum(f.v0 < 0 for f in auto)} negative")
+    check("auto bounds more curves than leaving the branch open",
+          sum(f.bounded for f in auto) > sum(f.bounded for f in never),
+          f"{sum(f.bounded for f in auto)} vs {sum(f.bounded for f in never)}")
+    check("and fewer than shutting it everywhere, which is the point",
+          sum(f.bounded for f in auto) < sum(f.bounded for f in always),
+          f"{sum(f.bounded for f in auto)} vs {sum(f.bounded for f in always)}")
+
+    # On an accelerating curve, "auto" must leave the branch open, so it has to
+    # agree with the unconstrained fit and may differ from the blanket one.
+    index = {id(c): i for i, c in enumerate(curves)}
+    for curve in accelerating:
+        i = index[id(curve)]
+        check(f"exp {curve.experiment} sample {curve.sample} keeps its lag branch",
+              auto[i].v0 == never[i].v0,
+              f"auto {auto[i].v0:.3e} vs unconstrained {never[i].v0:.3e}")
+
+
 def test_burst_on_real_curves():
     print("the burst / lag form on real curves")
     curves, _ = build_curves()
@@ -420,6 +482,7 @@ if __name__ == "__main__":
     test_window()
     test_burst_fit()
     test_burst_on_real_curves()
+    test_lag_branch_is_gated_per_curve()
     test_recovery()
     test_saturation_recovery()
     test_absorption_diagnostic()

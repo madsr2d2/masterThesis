@@ -80,8 +80,9 @@ from dataclasses import asdict, dataclass
 import numpy as np
 import pandas as pd
 
-from curve_metrics import (INITIAL_WINDOW, LAG_THRESHOLD,
-                           MINIMUM_WINDOW_POINTS, initial_rate, line_fit,
+from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
+                           MINIMUM_WINDOW_POINTS, QUANTISATION_SIGMA,
+                           acceleration, initial_rate, line_fit,
                            line_slope, peak_position, window_size)
 from fit_dataset import (ABSORBANCE_QUANTUM, DATASET_PATH,
                          QUANTISATION_SIGMA, build_curves)
@@ -349,14 +350,31 @@ class BoundedBurstFit:
 
     TWO CHANGES FROM `fit_burst`, both aimed at the initial rate.
 
-    1. `B <= 0`. The unconstrained fit is free to choose a LAG -- a rate that
-       rises -- and on a near-straight curve it sometimes does, with a
-       collapsed tau, returning a NEGATIVE v0 where the line gives a firmly
-       positive one (5 of the 27 enzyme-free BnOH curves; exp 67 sample 3 gave
-       -2.07e-4 against a line's +3.35e-6). Those curves do not accelerate --
-       0 of 16 pass the `acceleration` test -- so the lag branch is excluded on
-       evidence, not convenience. Set `constrain=False` to recover the
-       unconstrained behaviour.
+    1. `B <= 0`, BUT ONLY WHERE THE CURVE DOES NOT ACCELERATE. The
+       unconstrained fit is free to choose a LAG -- a rate that rises -- and on
+       a near-straight curve it sometimes does, with a collapsed tau, returning
+       a NEGATIVE v0 where the line gives a firmly positive one (4 of the 27
+       enzyme-free BnOH curves; exp 67 sample 3 gives -2.07e-4 against a line's
+       +3.35e-6, with a profile interval that never reaches zero).
+
+       A blanket `B <= 0` was the first fix and was wrong. It rested on "0 of
+       16 pass the `acceleration` test", which is true of the constant-buffer
+       runs and was generalised to all 27 without checking: exps 3 and 6 hold
+       four curves that DO accelerate, two of them at z = +8.4 and +11.8, and
+       the blanket rule bound on two of them -- forcing a decelerating shape
+       onto curves the data says are rising.
+
+       `constrain="auto"` therefore asks each curve. Where `acceleration`
+       clears ACCELERATION_SIGMA the lag branch stays open; everywhere else it
+       is shut. On the enzyme-free BnOH set that bounds 19 of 27 against 13
+       unconstrained, with no negative v0 and no curve made to fit a shape its
+       own z-score contradicts. `constrain=True`/`False` force the old
+       behaviours.
+
+       `noise_floor` is the SOURCE's floor and reaches `acceleration`, which
+       divides by two standard errors that `line_fit` floors. Passing the .txt
+       default on .rre data suppresses the z this decision is made on -- see
+       `fit_dataset.source_floor`.
 
     2. `v0_low`/`v0_high` come from profiling v0 across every tau whose cost is
        within the 95% band, NOT from a standard error at the optimum. This is
@@ -414,10 +432,14 @@ def _burst_solve(times, values, tau, constrain):
 
 
 def fit_burst_bounded(times, values, cap=BURST_TAU_CAP, floor=BURST_TAU_FLOOR,
-                      points=BURST_GRID_POINTS, constrain=True,
-                      half_width=BURST_V0_HALFWIDTH):
+                      points=BURST_GRID_POINTS, constrain="auto",
+                      half_width=BURST_V0_HALFWIDTH,
+                      noise_floor=QUANTISATION_SIGMA):
     """
-    Fit the burst/lag form with B <= 0 and profile v0. Returns a BoundedBurstFit.
+    Fit the burst/lag form and profile v0. Returns a BoundedBurstFit.
+
+    `constrain` is "auto" (shut the lag branch only where this curve does not
+    accelerate), True (always shut it) or False (never). See BoundedBurstFit.
 
     `bounded` is True only when the whole 95% profile interval on v0 is
     positive AND narrower than `half_width` either side. Quote `v0` only then.
@@ -430,12 +452,19 @@ def fit_burst_bounded(times, values, cap=BURST_TAU_CAP, floor=BURST_TAU_FLOOR,
     if span <= 0 or len(times) < BURST_MINIMUM_POINTS:
         return blank
 
+    if constrain == "auto":
+        # The curve's own verdict, not a rule about the block it sits in.
+        z, _ = acceleration(times, values, floor=noise_floor)
+        forbid_lag = not (np.isfinite(z) and z > ACCELERATION_SIGMA)
+    else:
+        forbid_lag = bool(constrain)
+
     grid = np.logspace(np.log10(span * floor), np.log10(span * cap), points)
     costs = np.empty(len(grid))
     rates = np.empty(len(grid))
     solutions = []
     for index, tau in enumerate(grid):
-        cost, beta = _burst_solve(times, values, tau, constrain)
+        cost, beta = _burst_solve(times, values, tau, forbid_lag)
         costs[index] = cost
         rates[index] = beta[1] - beta[2] / tau
         solutions.append(beta)

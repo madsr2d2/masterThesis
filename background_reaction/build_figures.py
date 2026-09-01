@@ -184,7 +184,10 @@ def curve_panel(curve, width=330, height=210):
     quad, quad_se, curvature = quadratic_rate(curve.times, curve.absorbance,
                                               floor=floor)
     whole, whole_se = whole_slope(curve.times, curve.absorbance, floor=floor)
-    burst = fit_burst_bounded(curve.times, curve.absorbance)
+    # noise_floor is the SOURCE's: it reaches the acceleration z that decides
+    # whether this curve's lag branch stays open. See summary_kinetics.
+    burst = fit_burst_bounded(curve.times, curve.absorbance,
+                              noise_floor=floor)
 
     lo, hi = float(values.min()), float(values.max())
     margin = max((hi - lo) * 0.16, 4 * curve.noise)
@@ -250,8 +253,14 @@ def curve_panel(curve, width=330, height=210):
         f"<td class='dim'>{esc(note)}</td></tr>"
         for colour, name, value, spread, note in rows)
 
-    sub = (f"pH {curve.pH:.2f} · [BnOH] {curve.conditions.s0:.3g} mM · "
-           f"[buf] {curve.buf:.4g} mM · [H2O2] {curve.conditions.h2o2:.4g} mM · "
+    # The BUFFER SALT, not just its concentration: exp 65 is boric and the rest
+    # phosphate, and MECHANISM.md argues at length that the buffers are
+    # chemically different reagents rather than four ways of setting pH.
+    sub = (f"{curve.substrate} · pH {curve.pH:.2f} · "
+           f"{curve.buffer.lower()} {curve.buf:.4g} mM · "
+           f"[sub] {curve.conditions.s0:.3g} mM · "
+           f"[H2O2] {curve.conditions.h2o2:.4g} mM · "
+           f"{curve.temperature:.0f} °C · "
            f"{curve.source} · noise {curve.noise:.1e} AU")
     foot = (f"curvature t {curvature:+.1f}"
             + (f" · burst τ {burst.tau:.3g} s" if np.isfinite(burst.tau) else ""))
@@ -492,7 +501,8 @@ three fits drawn</a></p>
 
 def build_curves_page():
     panels = [curve_panel(curve) for curve in scope.curves(scope.FREE_BNOH_ALL)]
-    bounded = sum(fit_burst_bounded(c.times, c.absorbance).bounded
+    bounded = sum(fit_burst_bounded(c.times, c.absorbance,
+                                    noise_floor=source_floor(c.source)).bounded
                   for c in scope.curves(scope.FREE_BNOH_ALL))
     body = f"""
 <p class='lede'>All 27 enzyme-free BnOH cuvettes, each with every rate estimator drawn on

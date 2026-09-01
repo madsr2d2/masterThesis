@@ -8,6 +8,69 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — The blanket `B <= 0` was over-general; the lag branch is now gated per curve
+
+Raised by the user, asking whether the burst/lag fit still needs its constraint
+now that the readings are the instrument's own. It does -- but not the
+constraint that was there.
+
+### What was wrong
+
+`summary_kinetics.fit_burst_bounded` forbade `B > 0` on every curve, so the
+burst form could never fit a LAG. The justification recorded for it was "0 of
+16 pass the `acceleration` test". That count is real, and it is the
+**constant-buffer** runs (exps 65, 67, 69, 70). It was generalised to all 27
+enzyme-free BnOH curves without being re-measured on them.
+
+Re-measured, exps 3 and 6 hold **four curves that genuinely accelerate**, two
+of them at z = +8.4 and +11.8:
+
+| run | accelerating | z |
+|---|---|---|
+| exp 3 | 2 of 7 | +3.8, +3.1 |
+| exp 6 | 2 of 4 | +8.4, +11.8 |
+| 65, 67, 69, 70 | 0 of 12 | all <= +2.9 |
+
+The blanket rule bound on exp 3 samples 2 and 3 -- both accelerating -- forcing
+a decelerating shape onto curves whose own statistic says they rise.
+
+### The fix
+
+`constrain="auto"` is now the default: the lag branch stays open where that
+curve's `acceleration` clears ACCELERATION_SIGMA and is shut everywhere else.
+It is the same evidence, asked per curve instead of per block.
+
+| | bounded | negative v0 | imposes a contradicted shape |
+|---|---|---|---|
+| `constrain=False` | 13 / 27 | **4** | no |
+| `constrain=True` | 21 / 27 | 0 | **yes, on 2 curves** |
+| **`constrain="auto"`** | **19 / 27** | **0** | **no** |
+
+Dropping the constraint altogether -- which is what the question asked -- is
+not available: unconstrained, four curves still return a negative initial rate
+with a profile interval that never reaches zero (exp 67 sample 3 gives
+-2.07e-4 against a line's +3.35e-6). The better readings did not fix that; they
+moved it from 5 curves to 4.
+
+`noise_floor` was added and threaded from every caller, because `acceleration`
+divides by two standard errors that `line_fit` floors: the .txt default on .rre
+data would suppress the very z this decision is made on.
+
+**Nothing reported changes.** The burst fit carries no quoted number -- it is a
+diagnostic drawn on the curve panels, and `v0_quad` remains the headline
+estimator. What changes is that the diagnostic no longer asserts a shape
+against the evidence.
+
+### Guard
+
+`test_summary_kinetics.test_lag_branch_is_gated_per_curve` pins that some of
+these curves accelerate, that they are all in the titration runs, that "auto"
+admits no negative v0, that it bounds more than leaving the branch open and
+fewer than shutting it everywhere, and that each accelerating curve keeps its
+lag branch.
+
+---
+
 ## 2026-09-01 — 32 instrument files were never opened, because of a regex
 
 Raised by the user, asking why the `.rre` data is not used for every
