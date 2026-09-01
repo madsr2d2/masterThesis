@@ -75,7 +75,7 @@ reaction order in substrate.
 Current state:
 
 ```
-readings   277 rre / 125 txt curves        instrument .rre preferred; Curve.source
+readings   374 rre /  28 txt curves        instrument .rre preferred; Curve.source
 compiled   454 rows / 100 experiments      data/experiment_data.csv
 fittable   402 rows /  88 experiments      clean_experiment_dataframe, less 25,2 and 25,4
 fit scope  119 curves / 17 experiments     exps 135-151; fit_dataset.PRIMARY_SCOPE

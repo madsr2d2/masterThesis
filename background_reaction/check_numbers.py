@@ -95,9 +95,14 @@ def main():
     joint = scope.background_orders(scope.BUFFER_CONFOUNDED,
                                     terms=("s0", "buf"), within=True,
                                     parameter="v0_quad")
+    # The live count is derived, not spelled: it went 8 -> 10 on 2026-09-01
+    # when exps 3 and 6 moved onto the instrument's own readings and two more
+    # of exp 3's cuvettes cleared the live-signal threshold.
+    spelled = {8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve"}
     claim("joint VIF", f"VIF {joint['vif_s0']:.1f} and {joint['vif_buf']:.1f} "
-                       f"on eight live curves; returns "
-                       f"{joint['order_buf']:+.2f} ± {joint['stderr_buf']:.2f}")
+                       f"on {spelled.get(joint['n'], joint['n'])} live curves; "
+                       f"returns {joint['order_buf']:+.2f} ± "
+                       f"{joint['stderr_buf']:.2f}")
 
     print("\nthe burst diagnostics")
     curves = scope.curves(scope.FREE_BNOH_ALL)

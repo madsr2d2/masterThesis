@@ -207,12 +207,25 @@ def test_burst_on_real_curves():
           sum(f.resolved for f in fits) <= 1,
           f"resolved: {[f.resolved for f in fits]}")
     # The point of the whole diagnostic: fitting well is not the same as being
-    # identified. One of these four sound, mutually agreeing cuvettes returns a
-    # NEGATIVE initial rate from a collapsed tau, where the line gives +8.4e-05.
-    check("an unresolved fit can return a v0 no line would",
-          any(f.v0 < 0 for f in fits),
-          f"burst v0 {[f'{f.v0:.1e}' for f in fits]}")
-    check("...on a curve whose straight-line rate is firmly positive",
+    # identified.
+    #
+    # This was pinned on the SIGN of v0 until 2026-09-01 -- one of these four
+    # sound, mutually agreeing cuvettes returned a negative initial rate from a
+    # collapsed tau. On the instrument's own readings none of them does, so
+    # that much was partly an artefact of the export's 0.001 AU rounding. The
+    # underlying failure is unchanged and shows up in the PROFILE: every one of
+    # these four fits inside its own noise, and every one still fails to bound
+    # v0, three of them with an interval that spans zero.
+    from summary_kinetics import fit_burst_bounded
+    profiles = [fit_burst_bounded(c.times, c.absorbance, constrain=False)
+                for c in block]
+    check("no v0 is bounded on even these clean replicates",
+          not any(p.bounded for p in profiles),
+          f"half-widths {[round(p.half_width, 2) for p in profiles]}")
+    check("and most profiles reach below zero",
+          sum(p.v0_low < 0 for p in profiles) >= 3,
+          f"lows {[f'{p.v0_low:.1e}' for p in profiles]}")
+    check("...on curves whose straight-line rate is firmly positive",
           all(initial_rate(c.times, c.absorbance, INITIAL_WINDOW)[0] > 0
               for c in block))
 

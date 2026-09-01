@@ -250,7 +250,8 @@ def curve_panel(curve, width=330, height=210):
         f"<td class='dim'>{esc(note)}</td></tr>"
         for colour, name, value, spread, note in rows)
 
-    sub = (f"[BnOH] {curve.conditions.s0:.3g} mM · [buf] {curve.buf:.4g} mM · "
+    sub = (f"pH {curve.pH:.2f} · [BnOH] {curve.conditions.s0:.3g} mM · "
+           f"[buf] {curve.buf:.4g} mM · [H2O2] {curve.conditions.h2o2:.4g} mM · "
            f"{curve.source} · noise {curve.noise:.1e} AU")
     foot = (f"curvature t {curvature:+.1f}"
             + (f" · burst τ {burst.tau:.3g} s" if np.isfinite(burst.tau) else ""))

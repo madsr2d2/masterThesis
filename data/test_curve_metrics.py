@@ -78,12 +78,17 @@ def test_no_duplicate_definitions():
 
 def test_lag_statistic():
     """
-    The published 151/402 has to come out of the canonical implementation.
+    The published 158/402 has to come out of the canonical implementation.
 
-    It was 136/402 (34%) until 2026-08-31, when the readings moved from the
-    .txt exports to the instrument's own .rre files. Nothing about the
-    statistic changed; the export rounds to 0.001 AU and that rounding was
-    flattening 15 curves' lags below the threshold. See read_rre.py.
+    It has climbed twice, both times for the same reason and neither time
+    because the statistic changed: the export rounds to 0.001 AU and that
+    rounding flattens real lags below the threshold.
+
+      136/402 (34%)    until 2026-08-31, all readings from the .txt exports
+      151/402 (37.6%)  when the rate<n>.rre files were adopted
+      158/402 (39.3%)  when mads_t<n>.rre was too -- 97 further curves
+
+    See read_rre.py.
     """
     print("\nthe lag statistic")
     from fit_dataset import build_curves
@@ -92,8 +97,8 @@ def test_lag_statistic():
                          dtype=float)
     lagging = int(np.nansum(positions > LAG_THRESHOLD))
     check("402 fittable curves", len(curves) == 402, f"got {len(curves)}")
-    check("151 of them lag, as MECHANISM.md and FITTING.md report",
-          lagging == 151, f"got {lagging}")
+    check("158 of them lag, as MECHANISM.md and FITTING.md report",
+          lagging == 158, f"got {lagging}")
 
     # The shape the statistic is supposed to detect, and the shape it is not.
     times = np.linspace(0, 3000, 300)

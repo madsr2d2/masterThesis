@@ -8,6 +8,90 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — 32 instrument files were never opened, because of a regex
+
+Raised by the user, asking why the `.rre` data is not used for every
+experiment. The answer was a naming convention.
+
+`read_rre.experiment_number` matched `rate0*(\d+)\.rre` and nothing else. The
+archive names its early runs `mads_t<n>.rre`, and there are **32 of them,
+covering exps 2-32**. They were never opened, so 97 curves kept the `.txt`
+export's floor -- 1096x coarser than the instrument's own -- for no reason at
+all.
+
+### The identification is from the data, not the filename
+
+`mads_t003.rre` proposing exp 3 is exactly the filename inference this log
+exists to distrust. It is not what licenses the change. `_prefer_rre` already
+required, per sample, that the binary carry the same number of points as the
+export and track it to within the export's own rounding, and that test settles
+it: `mads_t003.rre` holds seven blocks of 227 points that reproduce all seven of
+exp 3's exported cuvettes. Cross-comparing every block against every export
+sample on exps 6 and 23 gives one match each, by one to two orders of
+magnitude -- so the block label IS the sample number.
+
+### What changed
+
+| | before | after |
+|---|---|---|
+| fittable curves from the instrument | 277 / 402 | **374 / 402** |
+| experiments with no readable `.rre` | 31 | **0** |
+| curves lagging (`peak_position > 0.15`) | 151 / 402 (37.6%) | **158 / 402 (39.3%)** |
+
+Every one of the 97 changes is `txt` -> `rre`; none goes the other way, and the
+in-scope block is untouched at 119/119 `.rre`. The fallback is now per SAMPLE
+rather than per run: 28 cuvettes keep the export because their block is absent
+from an otherwise readable binary. Exp 6 is the pattern -- it holds
+`Sample001`, `Sample002` and `Sample004`, and no `Sample003`.
+
+The lag statistic moves for the third time and for the same reason both
+previous times: the export rounds to 0.001 AU and that rounding flattens real
+lags below the threshold. 136 -> 151 -> 158. `MECHANISM.md`, `FITTING.md`,
+`README.md` and `test_curve_metrics` updated.
+
+### What it did to the background analysis
+
+Exps 3 and 6 -- the buffer titrations that carry the whole buffer signal -- were
+the runs most affected, moving from entirely `.txt` to 10 of 11 `.rre`. The
+result barely moves, which is the strongest evidence yet that it does not rest
+on the readings' resolution:
+
+| | before | after |
+|---|---|---|
+| order in `[buf]`, `v0_quad` | +1.33 ± 0.25 | **+1.30 ± 0.27** |
+| live curves in the titrations | 8 of 11 | **10 of 11** |
+| joint-fit VIF on exps 3 + 6 | 14.2 / 11.4 | **9.7 / 8.3** |
+
+Two more cuvettes clear the live-signal threshold and the joint fit is better
+conditioned, both because the noise is now measured rather than floored.
+
+### One earlier claim was partly an artefact
+
+`test_summary_kinetics` pinned that an unresolved burst fit "can return a v0 no
+line would", on exp 26 returning a NEGATIVE initial rate. On the instrument's
+own readings none of exp 26's four cuvettes does. That much was the export's
+rounding.
+
+The failure it was pointing at is unchanged and is now pinned where it actually
+lives -- the profile. All four of exp 26's cuvettes fit inside their own noise
+(rms/noise 0.55-0.79), all four still fail to bound v0, and three have a v0
+interval that reaches below zero. Across the enzyme-free BnOH set the burst
+diagnostics barely moved: 4 negative v0 where there were 5, and the bounded
+counts of 13 (unconstrained) and 21 (B <= 0) are unchanged. The decision to
+quote `v0_quad` rather than a burst v0 stands, and
+`background_reaction/ANALYSIS.md` now cites exp 3 sample 7 -- rms/noise 1.00,
+v0 spanning −1.06e-05 to +5.20e-07 across indistinguishable tau -- in place of
+the exp 3 sample 3 example, which no longer shows the pathology on `.rre`.
+
+### Guard
+
+`test_read_rre.test_both_naming_conventions_are_read` pins both conventions,
+that every fittable experiment now has a readable `.rre`, that all seven of
+exp 3's cuvettes come from the instrument and none of them reports the export's
+floor as its noise, and that the in-scope block is still entirely `.rre`.
+
+---
+
 ## 2026-09-01 — Correction: `whole_slope` returned the intercept, not the slope
 
 Found while rendering the curve panels to look at them, which is the only

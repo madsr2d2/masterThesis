@@ -1,7 +1,7 @@
 """
 Tests for read_rre.py -- that the binary is the same measurement as the export.
 
-The .rre now supplies the READINGS for 277 of the 402 fittable curves, so a
+The .rre now supplies the READINGS for 374 of the 402 fittable curves, so a
 misread block would not announce itself: it would quietly change every rate in
 the package. These tests pin the one thing that licenses the substitution --
 that where both sources exist they agree to within the export's own rounding
@@ -69,15 +69,25 @@ def test_source_selection():
     used = {c.source for c in curves}
     check("sources are only 'rre' and 'txt'", used <= {"rre", "txt"}, str(used))
     from_rre = sum(1 for c in curves if c.source == "rre")
-    check("277 of 402 fittable curves read from the instrument file",
-          from_rre == 277, f"got {from_rre}")
+    check("374 of 402 fittable curves read from the instrument file",
+          from_rre == 374, f"got {from_rre}")
     check("every in-scope curve reads from the instrument file",
           all(c.source == "rre" for c in curves if c.experiment in PRIMARY_SCOPE))
-    # A run with no .rre must keep the export rather than losing its curves.
-    without = [c for c in curves if c.experiment not in covered()]
-    check("runs with no .rre keep their export",
-          without and all(c.source == "txt" for c in without),
-          f"{len(without)} curves")
+    # Since 2026-09-01 every fittable EXPERIMENT has a readable .rre, so the
+    # fallback is now per SAMPLE rather than per run: a few blocks are absent
+    # from their binary -- exp 6 holds Sample001, 002 and 004 and no 003 -- and
+    # those cuvettes keep the export. The check is therefore that a fallback is
+    # a missing block, never a whole run going dark.
+    available = covered()
+    without = [c for c in curves if c.experiment not in available]
+    check("every fittable experiment now has a readable .rre",
+          not without, f"{len(without)} curves in uncovered runs")
+    fallbacks = [c for c in curves if c.source == "txt"]
+    check("the curves still on the export are per-sample fallbacks",
+          all(c.experiment in available for c in fallbacks),
+          f"{sum(1 for c in fallbacks if c.experiment not in available)} outside")
+    check("28 cuvettes have no block in their run's binary",
+          len(fallbacks) == 28, f"got {len(fallbacks)}")
 
 
 def test_resolution():
@@ -127,10 +137,63 @@ def test_no_reference_channel():
           np.median(np.abs(first)) < 0.05, f"median |A0| {np.median(np.abs(first)):.4f}")
 
 
+def test_both_naming_conventions_are_read():
+    """
+    Both `rate<n>.rre` and `mads_t<n>.rre` must map to their experiment.
+
+    Only the first was matched until 2026-09-01, so 32 files covering exps
+    2-32 were never opened and 97 curves kept the .txt export's floor -- 1096x
+    coarser than the instrument's own -- for no reason but a regex.
+
+    The `mads_t` pairing is not asserted from the filename. It is licensed by
+    `test_agreement`'s rule, applied per sample: `mads_t003.rre` reproduces all
+    seven of exp 3's exported cuvettes to within the export's rounding, at 227
+    points each. This test pins the mapping AND that agreement, so a future
+    edit cannot quietly re-break either half.
+    """
+    print("\nboth .rre naming conventions are read")
+    check("rate<n>.rre maps to n", experiment_number("rate148.rre") == 148)
+    check("mads_t<n>.rre maps to n", experiment_number("mads_t003.rre") == 3,
+          f"got {experiment_number('mads_t003.rre')}")
+    check("leading zeros are stripped",
+          experiment_number("mads_t032.rre") == 32)
+    check("an unrelated file maps to nothing",
+          experiment_number("5h mads_t.rme") is None)
+
+    available = covered()
+    check("exps 2-32 now have a readable .rre",
+          {3, 6, 23, 26, 32} <= available,
+          f"missing {sorted({3, 6, 23, 26, 32} - available)}")
+
+    # Exp 3 is the archive's widest enzyme-free buffer titration and was
+    # entirely on the export's floor. All seven cuvettes must come from the
+    # instrument now, which only happens if every one passed the agreement test.
+    curves, _ = build_curves()
+    exp3 = [c for c in curves if c.experiment == 3]
+    check("all seven of exp 3's cuvettes now read from the instrument",
+          len(exp3) == 7 and all(c.source == "rre" for c in exp3),
+          f"{len(exp3)} curves, sources {sorted({c.source for c in exp3})}")
+    # The gain is not a smaller number, it is a MEASURED one. Exp 3's real
+    # scatter is about 3.0e-4, just above the export's 2.887e-4 floor, so four
+    # of its seven cuvettes previously reported the floor exactly -- a constant
+    # standing in for a measurement. None does now.
+    check("no exp 3 cuvette reports the export's floor as its noise",
+          not any(abs(c.noise - QUANTISATION_SIGMA) < 1e-12 for c in exp3),
+          f"noises {[f'{c.noise:.2e}' for c in exp3]}")
+
+    # The .rre may only ever ADD resolution. A curve that had one must not
+    # lose it, and the in-scope block must be untouched by this change.
+    in_scope = [c for c in curves if c.experiment in PRIMARY_SCOPE]
+    check("the in-scope block is still entirely .rre",
+          len(in_scope) == 119 and all(c.source == "rre" for c in in_scope),
+          f"{len(in_scope)} curves")
+
+
 if __name__ == "__main__":
     test_agreement()
     test_source_selection()
     test_resolution()
     test_no_reference_channel()
+    test_both_naming_conventions_are_read()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

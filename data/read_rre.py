@@ -30,8 +30,10 @@ the same curves have a real noise of 1.15e-4 to 7.5e-4 AU, median 1.8e-4: the
 floor had been overstating the instrument's noise by about 1.6x.
 `fit_dataset.read_all_curves` therefore prefers the .rre wherever one exists
 AND agrees with the export, and records which source each curve came from in
-`Curve.source`, because 125 of the 402 fittable curves still have no .rre and
-keep the coarser floor.
+`Curve.source`, because 28 of the 402 fittable curves still have no .rre and
+keep the coarser floor. That was 125 until 2026-09-01, when `experiment_number`
+stopped matching only `rate<n>.rre`: 32 `mads_t<n>.rre` files covering exps
+2-32 had never been read at all.
 
 What this module still does NOT do is add CURVES to the dataset. A .rre
 carries no conditions: no pH, no temperature, no concentrations, not even which
@@ -221,9 +223,30 @@ RRE_QUANTUM = TRANSMITTANCE_QUANTUM / 100.0 / np.log(10.0)
 RRE_SIGMA = RRE_QUANTUM / np.sqrt(12)
 
 
+# The archive names instrument runs two ways: `rate<n>.rre` for most, and
+# `mads_t<n>.rre` for the early ones. Until 2026-09-01 only the first was
+# matched, so 32 files -- every run of exps 2-32 -- were skipped and those
+# curves kept the .txt export's floor for no reason. See DATA_VERIFICATION.md.
+RRE_NAME = re.compile(r"(?:rate|mads_t)0*(\d+)\.rre")
+
+
 def experiment_number(filename):
-    """The experiment a `rate<n>.rre` belongs to, or None."""
-    match = re.fullmatch(r"rate0*(\d+)\.rre", os.path.basename(filename))
+    """
+    The experiment a `rate<n>.rre` or `mads_t<n>.rre` belongs to, or None.
+
+    THE NUMBER IN THE NAME IS NOT TAKEN ON TRUST. It only proposes a pairing;
+    `fit_dataset._prefer_rre` then requires the binary to have the same number
+    of points as the export and to track it to within the export's own
+    rounding, per sample, before a single reading is substituted. That test is
+    what identifies the `mads_t` files: `mads_t003.rre` carries seven blocks of
+    227 points that match all seven of exp 3's exported cuvettes, which no
+    filename convention could establish and no coincidence explains.
+
+    Filenames get copied forward between runs, which is why the standing rule
+    is sheet over filename -- the same reason this function's output is a
+    proposal checked against the data rather than an answer.
+    """
+    match = RRE_NAME.fullmatch(os.path.basename(filename))
     return int(match.group(1)) if match else None
 
 

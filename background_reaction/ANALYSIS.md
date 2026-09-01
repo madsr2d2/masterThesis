@@ -29,7 +29,13 @@ two designs that do different things:
 | set | experiments | curves | `[buf]` | `[sub]` |
 |---|---|---|---|---|
 | `scope.BUFFER_FIXED` | 65, 67, 69, 70 | 16 | held at 85–87.5 mM | ladder |
-| `scope.BUFFER_CONFOUNDED` | 3, 6 | 11 (8 live) | falls 85 → 25 mM | ladder, rising |
+| `scope.BUFFER_CONFOUNDED` | 3, 6 | 11 (10 live) | falls 85 → 25 mM | ladder, rising |
+
+All but one of these 27 cuvettes now read from the instrument's own `.rre`. Until
+2026-09-01 exps 3 and 6 were entirely on the `.txt` export, whose 0.001 AU
+rounding is 1096× coarser — see `DATA_VERIFICATION.md`. The buffer order moved
+by 0.03 when they were corrected, which is the best evidence available that it
+does not rest on the readings' resolution.
 
 Exp 64 is excluded by the manifest (aborted run, 7 minutes at dt = 28 s).
 
@@ -53,10 +59,10 @@ shown not to depend on it.
 
 | estimator | window? | whole curve? | form |
 |---|---|---|---|
-| `vmax` | steepest of four 20% blocks | no | straight line |
-| `v0` | first 20% | no | straight line |
-| **`v0_quad`** | **none** | **yes** | **A = c + v₀t + at²** |
-| `v0_whole` | none | yes | straight line |
+| `vmax` | +1.18 ± 0.23 | +0.83 ± 0.27 |
+| `v0` | +1.56 ± 0.42 | +0.77 ± 0.26 |
+| **`v0_quad`** | **+1.30 ± 0.27** | **+0.86 ± 0.38** |
+| `v0_whole` | +1.53 ± 0.22 | +1.37 ± 0.60 |
 
 `v0_quad` is the headline. It answers the objection that `INITIAL_WINDOW = 0.20`
 is arbitrary — it chooses no window, uses every point, and being linear in its
@@ -67,9 +73,9 @@ A = c + v<sub>ss</sub>t − B(1 − e<sup>−t/τ</sup>) and taking v₀ = v<sub
 is the natural whole-curve alternative, and it is what `summary_kinetics.fit_burst`
 implements. On these curves it is not identified:
 
-- Unconstrained, **5 of 27 curves return a negative v₀** where the line fit is firmly positive. Exp 67 sample 3 gives −2.07e-04 against a line's +3.35e-06.
-- The existing `resolved` flag does not catch them: exp 3 sample 3 and exp 67 sample 3 are both `resolved=True`. `resolved` asks whether **τ** is located, which is a different question from whether **v₀** is.
-- **A close fit does not license the extrapolation.** Exp 3 sample 3 is fitted to *better than its own noise* (rms/noise 0.73), yet across values of τ that are statistically indistinguishable (rms/noise 0.73 → 0.74) its v₀ ranges from **−1.62e-05 to +5.79e-07** — a factor of 28 and a change of sign.
+- Unconstrained, **4 of 27 curves return a negative v₀** where the line fit is firmly positive. Exp 67 sample 3 gives −2.07e-04 against a line's +3.35e-06, with a profile interval, [−3.72e-04, −1.34e-04], that never reaches zero.
+- The existing `resolved` flag does not catch it: exp 67 sample 3 is `resolved=True`. `resolved` asks whether **τ** is located, which is a different question from whether **v₀** is — and it errs both ways. Exp 6's four cuvettes are `resolved=False` with v₀ pinned to a 0.00 half-width, because as τ → ∞ the curve is a straight line, which kills τ and B but leaves v₀ → v_ss exact.
+- **A close fit does not license the extrapolation.** Exp 3 sample 7 is fitted to within its own noise (rms/noise 1.00), yet across values of τ that are statistically indistinguishable — the rms does not move at two decimal places — its v₀ ranges from **−1.06e-05 to +5.20e-07**, a change of sign, against a line fit of +4.01e-07.
 - Constraining **B ≤ 0** — justified because 0 of 16 of these curves pass the acceleration test — removes every negative v₀ and raises the bounded count from **13 to 21 of 27**. It does not solve it: it trades the τ → ∞ degeneracy for τ → 0, and exps 65 samples 1 and 2 come back at **10× and 28×** their line rate.
 
 `summary_kinetics.fit_burst_bounded` implements the constrained fit and profiles
@@ -86,22 +92,22 @@ the **disagreement between the two designs**. Read within runs, so that pH,
 | where `[buf]` is | order in `[sub]`, `v0_quad` | order in `[sub]`, `vmax` |
 |---|---|---|
 | held constant (65, 67, 69, 70) | **+0.330 ± 0.066** (n = 14) | +0.297 ± 0.080 (n = 16) |
-| falling as `[sub]` rises (3, 6) | **−0.244 ± 0.084** (n = 8) | −0.210 ± 0.092 (n = 8) |
+| falling as `[sub]` rises (3, 6) | **−0.304 ± 0.115** (n = 10) | −0.210 ± 0.092 (n = 8) |
 
 **The apparent substrate order changes sign with the buffer design.** If the rate
 goes as [S]<sup>a</sup>[buf]<sup>d</sup> and within the titrations
 log[buf] = g·log[sub] + constant, then fitting the titrations without a buffer
 term returns a′ = a + d·g, so
 
-    d = (a' - a) / g,     g = -0.432
+    d = (a' - a) / g,     g = -0.487
 
-giving **d = +1.33 ± 0.25** on `v0_quad`. Both inputs are within-run contrast, so
+giving **d = +1.30 ± 0.27** on `v0_quad`. Both inputs are within-run contrast, so
 nothing here asks one regression to separate two collinear predictors, and
 nothing lets `[buf]` stand in for pH.
 
 ### Two routes that look better and are not
 
-- **Fitting `[sub]` and `[buf]` jointly on exps 3 and 6.** VIF 14.2 and 11.4 on eight live curves; returns +0.18 ± 0.66. The design cannot carry it.
+- **Fitting `[sub]` and `[buf]` jointly on exps 3 and 6.** VIF 9.7 and 8.3 on ten live curves; returns −0.13 ± 0.68. The design cannot carry it.
 - **Fitting `[buf]` as a fourth pooled term across all six runs.** Returns a tight +0.95 ± 0.44, but `[buf]` is 85+ mM in every pH 8.0–8.5 run and sweeps only in the pH 6.71 ones, so it is partly a label for pH. The tell is that the [HOO⁻] order falls +0.836 → +0.739 when the buffer term is added — the buffer term stealing the pH effect.
 
 ## 5. Result: first order in buffer
@@ -136,13 +142,13 @@ them from zero.
 
 ## 6. The rate law
 
-    v_background  ~  [S]^+0.33  [H2O2]^+1.57  [HOO-]^+0.67  [buf]^+1.33     (v0_quad)
-    v_background  ~  [S]^+0.30  [H2O2]^+0.96  [HOO-]^+0.84  [buf]^+1.17     (vmax)
+    v_background  ~  [S]^+0.33  [H2O2]^+1.78  [HOO-]^+0.68  [buf]^+1.30     (v0_quad)
+    v_background  ~  [S]^+0.30  [H2O2]^+1.14  [HOO-]^+0.85  [buf]^+1.18     (vmax)
 
 Roughly first order in peroxide and in buffer, sub-linear in substrate, and about
 0.7–0.8 order in [HOO⁻] — so the background climbs nearly tenfold per pH unit, and
 a background measured at pH 8 says little about one at pH 7. The peroxide and pH
-orders are better conditioned on `vmax` (pooled R² 0.961 against 0.909): an
+orders are better conditioned on `vmax` (pooled R² 0.966 against 0.928): an
 extrapolated initial rate adds variance where a block slope does not.
 
 ## 7. What the background is *not*
@@ -159,7 +165,7 @@ Exps 67, 69 and 70 actively *decelerate* (median `accel_z` −1.67, −5.15, −
 **The autocatalytic signature in the in-scope block is not inherited from the
 background.**
 
-**Its deceleration is not substrate depletion.** Conversion runs 0.05–8%, yet 22
+**Its deceleration is not substrate depletion.** Conversion runs 0.04–7.9%, yet 21
 of 27 curves show curvature at |t| > 3, and exp 69 sample 3 roughly halves its
 rate at 3.9% conversion. Something else decays during these runs — peroxide, or
 the cell. This is an open question, not a settled finding.
