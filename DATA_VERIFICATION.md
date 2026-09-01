@@ -8,6 +8,76 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — `v0` from a lag curve is the induction rate, and the panels said "v0"
+
+Raised by the user, looking at the progress curves: some have lag and some have
+burst character, yet every panel reported its burst v0 under the same label.
+
+### Why that is wrong and not merely untidy
+
+In `A = c + v_ss.t - B(1 - exp(-t/tau))`, `v0 = v_ss - B/tau` is the rate at
+t = 0 in both cases, but it means different things:
+
+  B < 0  burst  the rate FALLS   -> v0 is the MAXIMUM rate
+  B > 0  lag    the rate RISES   -> v0 is the INDUCTION rate, before the
+                                   reaction gets going
+
+Putting both in a column headed "v0" is the same trap `curve_metrics.peak_rate`
+already warns about between `v0` and `vmax`: "The two carry different reaction
+orders and neither substitutes for the other."
+
+Fitted shapes across the 27 enzyme-free BnOH curves: **20 burst, 2 lag, 5
+clamped**. "Clamped" is `B == 0` reached because the lag branch was shut, not
+because the curve is straight, and it is now reported separately so a clamped
+fit is never read as evidence of linearity.
+
+### Fixed
+
+- `BoundedBurstFit.kind` -- "burst", "lag", "clamped" or "unresolved".
+- `BoundedBurstFit.settles_backwards` -- v_ss < 0, a late rate that runs the
+  reaction backwards. It happens on exps 69 sample 3 and 70 sample 4, on fits
+  whose v0 profile is otherwise tight, because tau has collapsed far enough
+  that the exponential absorbs the whole curve. `bounded` asks only about v0
+  and does not catch it.
+- The curve panels now print `v0 -> v_ss` with the shape and both flags, rather
+  than a single number called v0.
+
+### What it costs the analysis, measured
+
+The criticism reaches further than the burst row: on a curve that is still
+accelerating, EVERY initial-rate estimator -- the quadratic, the 20% window,
+the burst v0 -- reads the induction rate rather than the reaction at the
+stated concentrations. Four curves accelerate and all four are in the
+titrations (exp 3 samples 2 and 3, exp 6 samples 1 and 2), which is **4 of the
+10 live curves the buffer order's titration arm rests on**.
+
+`background_orders` and `buffer_dependence` take `drop_accelerating`:
+
+| rate estimator | all live curves | accelerating dropped (n = 10 -> 6) |
+|---|---|---|
+| `v0_quad` | +1.30 ± 0.27 | +1.41 ± 0.26 |
+| `vmax` | +1.18 ± 0.23 | +1.20 ± 0.24 |
+| `v0` | +1.56 ± 0.42 | +1.69 ± 0.45 |
+| `v0_whole` | +1.53 ± 0.22 | +1.60 ± 0.26 |
+
+Every estimator moves **up** and every shift is inside its own standard error,
+so the first-order reading does not rest on those four curves. The headline
+keeps all ten: dropping a curve for the shape of its transient is a stronger
+claim than the evidence needs, and the option exists so the question can be
+answered rather than argued.
+
+### Still open
+
+The two shape statistics disagree on exp 6 samples 1 and 2. `acceleration`
+scores them +8.4 and +11.8 -- strongly rising -- while the burst form fits them
+as a BURST, B < 0, a falling rate. `acceleration` compares the first block
+against the steepest later one; the burst form assumes a single monotone
+relaxation. A curve whose rate dips and then recovers satisfies the first and
+not the second. Not resolved here, and not load-bearing: both curves are
+bounded and all four estimators agree on them to within 20%.
+
+---
+
 ## 2026-09-01 — The blanket `B <= 0` was over-general; the lag branch is now gated per curve
 
 Raised by the user, asking whether the burst/lag fit still needs its constraint

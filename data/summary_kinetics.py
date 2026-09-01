@@ -411,6 +411,44 @@ class BoundedBurstFit:
             return np.inf
         return float((self.v0_high - self.v0_low) / (2 * abs(self.v0)))
 
+    @property
+    def kind(self):
+        """
+        What shape was fitted: "burst", "lag", "clamped" or "unresolved".
+
+        WITHOUT THIS, v0 IS AMBIGUOUS. On a burst (B < 0) the rate falls, so v0
+        is the MAXIMUM and v_ss the settled rate. On a lag (B > 0) the rate
+        rises, so v0 is the INDUCTION rate -- the reaction before it gets going
+        -- and v_ss is the developed one. Reporting v0 from both as "the
+        initial rate" puts two different quantities in one column, which is the
+        same trap `curve_metrics.peak_rate` warns about for vmax against v0.
+
+        "clamped" is B == 0 reached because the lag branch was SHUT, not
+        because the curve is straight: the constrained optimum is a line
+        whenever the free optimum wanted B > 0. It is reported separately so a
+        clamped fit is never read as evidence of linearity.
+        """
+        if not np.isfinite(self.B):
+            return "unresolved"
+        if self.B > 0:
+            return "lag"
+        if self.B < 0:
+            return "burst"
+        return "clamped"
+
+    @property
+    def settles_backwards(self):
+        """
+        True when v_ss is negative: a late rate that runs the reaction backwards.
+
+        Physically impossible here, and it happens -- exps 69 sample 3 and 70
+        sample 4 -- on fits whose v0 profile is otherwise tight. tau has
+        collapsed far enough that the exponential absorbs the whole curve and
+        v_ss is extrapolating past it. `bounded` does not catch this because it
+        asks only about v0, so check both before quoting either.
+        """
+        return bool(np.isfinite(self.v_ss) and self.v_ss < 0)
+
     def predict(self, times):
         times = np.asarray(times, dtype=float)
         if not np.isfinite(self.tau) or self.tau <= 0:

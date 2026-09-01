@@ -657,7 +657,7 @@ FREE_BNOH_ALL = FREE_BNOH + FREE_BNOH_NEUTRAL
 
 
 def background_orders(scope=FREE_BNOH_ALL, terms=("s0", "h2o2", "hoo"),
-                      within=False, parameter="vmax"):
+                      within=False, parameter="vmax", drop_accelerating=False):
     """
     How the enzyme-free rate depends on substrate, peroxide and pH.
 
@@ -691,6 +691,15 @@ def background_orders(scope=FREE_BNOH_ALL, terms=("s0", "h2o2", "hoo"),
     # cannot hold. Dropping them here rather than propagating a nan means the
     # `n` this function reports is the count it actually fitted.
     data = data[(data[parameter] > 0) & np.isfinite(data[parameter])]
+    if drop_accelerating:
+        # An "initial rate" read off a curve whose rate is still RISING is the
+        # induction rate, not the reaction at the stated concentrations -- the
+        # same distinction curve_metrics.peak_rate draws between v0 and vmax.
+        # Four enzyme-free BnOH curves accelerate and all four are in the
+        # titrations, so this is a sensitivity worth reporting rather than a
+        # default: it removes 2 of the 10 live curves the buffer order's
+        # titration arm rests on.
+        data = data[~data.accelerates]
     y = np.log(data[parameter].to_numpy(dtype=float))
     axes = [np.log(data[c].to_numpy(dtype=float)) for c in terms]
     if within:
@@ -771,7 +780,7 @@ BUFFER_FIXED = FREE_BNOH
 
 
 def buffer_dependence(anchor=BUFFER_FIXED, titration=BUFFER_CONFOUNDED,
-                      parameter="vmax"):
+                      parameter="vmax", drop_accelerating=False):
     """
     The order in buffer concentration, from the substrate order it corrupts.
 
@@ -806,9 +815,11 @@ def buffer_dependence(anchor=BUFFER_FIXED, titration=BUFFER_CONFOUNDED,
     order_buf and its standard error, and the counts behind each.
     """
     clean = background_orders(anchor, terms=("s0",), within=True,
-                              parameter=parameter)
+                              parameter=parameter,
+                              drop_accelerating=drop_accelerating)
     dirty = background_orders(titration, terms=("s0",), within=True,
-                              parameter=parameter)
+                              parameter=parameter,
+                              drop_accelerating=drop_accelerating)
 
     # g: how [buf] tracks [sub] inside the titration runs, on log axes, with a
     # free offset per run -- the same within-experiment contrast the orders use.

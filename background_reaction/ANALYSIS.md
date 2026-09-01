@@ -141,6 +141,32 @@ them from zero.
 > an absorbance, as if it were a rate. Fixed; `v0_whole` agrees with the rest.
 > The deceleration in section 7 is measured by `curvature_t` and is unaffected.
 
+### A caveat on "initial rate", and what it costs
+
+Four of the 27 curves are still **accelerating** where the initial rate is
+read, and all four are in the titrations (exp 3 samples 2 and 3; exp 6 samples
+1 and 2). On such a curve *every* initial-rate estimator — the quadratic, the
+20% window, the burst form's v₀ — measures the **induction** rate rather than
+the reaction at the stated concentrations. It is the same distinction
+`curve_metrics.peak_rate` draws between `v0` and `vmax`, and it is why the
+curve panels now name the fitted shape and both endpoints (`v₀ → v_ss`) instead
+of printing one number called v₀.
+
+They are 4 of the 10 live curves the titration arm rests on, so this is worth
+measuring rather than asserting. `buffer_dependence(drop_accelerating=True)`:
+
+| rate estimator | all live curves | accelerating dropped (n = 10 → 6) |
+|---|---|---|
+| `v0_quad` | +1.30 ± 0.27 | +1.41 ± 0.26 |
+| `vmax` | +1.18 ± 0.23 | +1.20 ± 0.24 |
+| `v0` | +1.56 ± 0.42 | +1.69 ± 0.45 |
+| `v0_whole` | +1.53 ± 0.22 | +1.60 ± 0.26 |
+
+Every estimator moves **up** slightly and every shift is inside its own
+standard error, so the first-order reading does not depend on them. The
+headline keeps all ten, because dropping a curve for the shape of its transient
+is a stronger claim than the evidence needs.
+
 ## 6. The rate law
 
     v_background  ~  [S]^+0.33  [H2O2]^+1.78  [HOO-]^+0.68  [buf]^+1.30     (v0_quad)

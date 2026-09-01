@@ -24,6 +24,7 @@ from fit_dataset import source_floor
 from summary_kinetics import fit_burst, fit_burst_bounded
 
 DOCUMENT = os.path.join(HERE, "ANALYSIS.md")
+ESTIMATORS_ALL = ("v0_quad", "vmax", "v0", "v0_whole")
 FAILURES = []
 
 
@@ -145,6 +146,13 @@ def main():
     curved = int((everything.curvature_t.abs() > 3).sum())
     claim("curvature count", f"{curved}\nof {len(everything)} curves show "
                              f"curvature at |t| > 3")
+
+    print("\nthe accelerating-curve sensitivity")
+    for estimator in ESTIMATORS_ALL:
+        dropped = scope.buffer_dependence(parameter=estimator,
+                                          drop_accelerating=True)
+        claim(f"{estimator} dropped-accelerating",
+              f"| {dropped['order_buf']:+.2f} ± {dropped['stderr_buf']:.2f} |")
 
     print("\nthe in-scope substrate order")
     orders = scope.orders("vmax", scope.PRIMARY_SCOPE, within=True)

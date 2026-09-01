@@ -235,17 +235,26 @@ def curve_panel(curve, width=330, height=210):
 
     svg = axes.render("time / s", "\u0394A")
 
-    verdict = ("bounded" if burst.bounded
-               else f"UNBOUNDED (±{burst.half_width:.0%})")
+    # The burst row names BOTH endpoints and the shape, because v0 alone is
+    # ambiguous: on a burst it is the maximum rate, on a lag it is the
+    # INDUCTION rate -- the reaction before it gets going. Printing one number
+    # called "v0" for both puts two different quantities in one column.
+    shape = {"burst": "burst, rate falls", "lag": "LAG, rate rises",
+             "clamped": "lag branch shut, B→0",
+             "unresolved": "unresolved"}[burst.kind]
+    verdict = "bounded" if burst.bounded else f"v0 UNBOUNDED ±{burst.half_width:.0%}"
+    if burst.settles_backwards:
+        verdict += " · v_ss < 0"
     rows = [
         (QUAD_COLOUR, "v0 quadratic", f"{quad:.3e}", f"± {quad_se:.1e}",
          "whole curve, no window"),
         (WINDOW_COLOUR, "v0 window", f"{v0:.3e}", f"± {v0_se:.1e}",
          f"first {INITIAL_WINDOW:.0%}, shaded"),
-        (BURST_COLOUR, "v0 burst", f"{burst.v0:.3e}",
-         f"[{burst.v0_low:.1e}, {burst.v0_high:.1e}]", verdict),
         (WHOLE_COLOUR, "slope, whole", f"{whole:.3e}", f"± {whole_se:.1e}",
          "straight line, every point"),
+        (BURST_COLOUR, f"burst {'v0→v_ss'}",
+         f"{burst.v0:.2e} → {burst.v_ss:.2e}",
+         f"[{burst.v0_low:.1e}, {burst.v0_high:.1e}]", f"{shape} · {verdict}"),
     ]
     body = "".join(
         f"<tr><td><i class='sw' style='background:{colour}'></i>{esc(name)}</td>"
@@ -513,7 +522,7 @@ curves. These are the empirical rate measurements the analysis rests on.</p>
 <div class='key'>
   <span><i class='sw' style='background:{QUAD_COLOUR}'></i>quadratic through every point — v0 is its slope at t = 0 <b>(headline)</b></span>
   <span><i class='sw' style='background:{WINDOW_COLOUR}'></i>least-squares line over the first {INITIAL_WINDOW:.0%} (shaded)</span>
-  <span><i class='sw' style='background:{BURST_COLOUR}'></i>burst/lag form, B ≤ 0, dashed; shaded fan = v0 profile interval</span>
+  <span><i class='sw' style='background:{BURST_COLOUR}'></i>burst/lag form, dashed; shaded fan = v0 profile interval</span>
   <span><i class='sw' style='background:{WHOLE_COLOUR}'></i>straight line through the whole curve</span>
 </div>
 <p>The <b>quadratic</b> is A = c + v<sub>0</sub>t + at². It chooses no window, uses every
