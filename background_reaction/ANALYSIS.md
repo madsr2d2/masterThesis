@@ -63,10 +63,52 @@ shown not to depend on it.
 | `v0` | first 20% | no | straight line |
 | **`v0_quad`** | **none** | **yes** | **A = c + v₀t + at²** |
 | `v0_whole` | none | yes | straight line |
+| `v0_burst` | none | yes | A = c + v_ss t − B(1 − e^(−t/τ)) |
 
 `v0_quad` is the headline. It answers the objection that `INITIAL_WINDOW = 0.20`
 is arbitrary — it chooses no window, uses every point, and being linear in its
 parameters is always identified.
+
+### Why not the burst/lag v₀, which is the better *shape*
+
+Considered on 2026-09-01 and declined, on measurement rather than taste. The
+burst form is the only one here that is a shape rather than a polynomial, and
+where the deceleration really is exponential it is decisively better — exp 67
+sample 2 goes from 3.06× noise to 0.94×, exp 69 sample 2 from 3.47× to 1.48×.
+But it is not better everywhere, and it fails worst exactly where the quadratic
+was objected to:
+
+| | quadratic | burst/lag |
+|---|---|---|
+| clearly better (> 0.1× noise) | 5 curves | 6 curves |
+| indistinguishable | 16 curves | |
+| median residual | 1.18× noise | 1.08× noise |
+| v₀ defined on | 27 of 27 | 24 of 27 bounded |
+
+**Exp 65 is the case that decides it.** All four of its cuvettes are fitted
+badly by both forms, and *worse* by the burst: 6.9, 8.3, 8.0 and 6.9× noise
+against the quadratic's 5.2, 5.7, 5.2 and 4.8×. The reason is worth stating,
+because the panel does not show it unless you read the numbers: on those four
+the burst fit has **collapsed to a straight line** — B = 0 exactly, τ pinned at
+the floor of its grid (≈3 s), `tau_resolved` False — while still reporting
+`bounded = True`. Fitting with `constrain="none"` returns the identical fit, so
+the 3σ lag gate is not the cause. A four-parameter form that has degenerated
+into a two-parameter one, and reports its v₀ confidently, is the worst thing to
+put in a headline column. On exp 65 samples 3 and 4 it returns +2.6e−5 and
++1.6e−5 — the whole-curve average slope — where the quadratic returns −2.0e−6
+and −5.3e−6, which is the curve's genuine flat start being reported as flat.
+
+**And the result does not depend on the choice**, which is the point of the
+table in §5: `v0_burst` gives **+1.19 ± 0.25** against `v0_quad`'s +1.30 ± 0.25,
+inside one standard error, and the two agree exactly at +1.37 once the
+accelerating curves are dropped. Dropping the whole boric block (exp 65) moves
+it to +1.20 ± 0.28. Nothing about first order in buffer turns on it.
+
+So `v0_burst` is carried as a fifth estimator in the robustness tables, and
+every panel now prints both forms' residuals in units of the curve's own noise
+with `— DOES NOT FIT` above 3×. The real finding behind the objection is not
+that the wrong estimator is headlined; it is that **exp 65 is described by
+neither form**, which is now stated on its panels rather than left to the eye.
 
 **The burst/lag form was tested and rejected as a rate source.** Fitting
 A = c + v<sub>ss</sub>t − B(1 − e<sup>−t/τ</sup>) and taking v₀ = v<sub>ss</sub> − B/τ
@@ -122,6 +164,7 @@ nothing lets `[buf]` stand in for pH.
 | rate estimator | order in `[buf]`, BnOH 25 °C | cross-check, 4OMe-BnOH 40 °C |
 |---|---|---|
 | **`v0_quad`** | **+1.30 ± 0.25** | **+0.91 ± 0.38** |
+| `v0_burst` | +1.19 ± 0.25 | +0.69 ± 0.24 |
 | `vmax` | +1.19 ± 0.21 | +0.83 ± 0.29 |
 | `v0` | +1.30 ± 0.30 | +0.85 ± 0.28 |
 | `v0_whole` | +1.52 ± 0.22 | +1.38 ± 0.60 |
@@ -164,6 +207,7 @@ measuring rather than asserting. `buffer_dependence(drop_accelerating=True)`:
 | rate estimator | all live curves | accelerating dropped (n = 10 → 6) |
 |---|---|---|
 | `v0_quad` | +1.30 ± 0.25 | +1.37 ± 0.33 |
+| `v0_burst` | +1.19 ± 0.25 | +1.37 ± 0.28 |
 | `vmax` | +1.19 ± 0.21 | +1.22 ± 0.23 |
 | `v0` | +1.30 ± 0.30 | +1.38 ± 0.34 |
 | `v0_whole` | +1.52 ± 0.22 | +1.56 ± 0.27 |

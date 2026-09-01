@@ -29,10 +29,11 @@ import pandas as pd
 from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            OUTLIER_SIGMA, acceleration, initial_rate,
                            isolated_outliers, lag_time, local_outlier_z,
-                           peak_position, peak_rate, quadratic_rate,
-                           whole_slope)
+                           model_residual, peak_position, peak_rate,
+                           quadratic_rate, whole_slope)
 from fit_dataset import (PRIMARY_SCOPE, PRIMARY_SCOPE_BLOCK, build_curves,
                          in_scope, source_floor)
+from summary_kinetics import fit_burst_bounded
 
 # A run's own cuvettes have to move an axis by at least this much before that
 # axis counts as measured inside the run rather than across experiments.
@@ -103,6 +104,37 @@ def frame(scope=PRIMARY_SCOPE):
         v0_whole, v0_whole_stderr = whole_slope(times, values, floor=floor)
         v0_quad, v0_quad_stderr, curvature_t = quadratic_rate(
             times, values, floor=floor)
+        # And the burst/lag form, the only estimator here that is a SHAPE
+        # rather than a polynomial: A = c + v_ss t - B(1 - exp(-t/tau)), with
+        # v0 = v_ss - B/tau. It is carried with three guards, because its v0
+        # is the one number in this frame that can look confident while
+        # meaning nothing:
+        #
+        #   v0_burst_bounded    the profile-likelihood interval over tau is
+        #                       narrow enough to quote at all
+        #   v0_burst_kind       burst / lag / clamped / unresolved. On a LAG
+        #                       v0 is the INDUCTION rate, not the maximum, so
+        #                       pooling the two into one column mixes two
+        #                       different quantities.
+        #   v0_burst_resid      residual RMS in units of the curve's own
+        #                       noise. `bounded` asks whether the PARAMETER is
+        #                       determined, not whether the MODEL fits, and
+        #                       those come apart: exp 65's four cuvettes all
+        #                       report bounded=True on fits that collapse to
+        #                       B = 0 with tau at the floor of its grid --
+        #                       a straight line wearing a four-parameter form
+        #                       -- and sit at 7-8x noise.
+        burst = fit_burst_bounded(times, values, noise_floor=floor)
+        burst_pred = (burst.c + burst.v_ss * times
+                      - burst.B * (1.0 - np.exp(-times / burst.tau)))
+        burst_resid = model_residual(values, burst_pred, 4, noise)
+        # The quadratic scored the same way, so the two are comparable. Its
+        # own docstring has warned since it was written that it misses by
+        # 2-7x the noise where the deceleration is strong; this puts a number
+        # on it per curve instead of leaving it as a caveat.
+        quad_design = np.column_stack([np.ones(len(times)), times, times ** 2])
+        quad_beta, *_ = np.linalg.lstsq(quad_design, values, rcond=None)
+        v0_quad_resid = model_residual(values, quad_design @ quad_beta, 3, noise)
         # Suspect readings. `outliers` counts the ISOLATED ones -- a single
         # reading out of line with both neighbours, which nothing chemical can
         # produce at this sampling rate. `outliers_in_runs` counts flagged
@@ -157,6 +189,15 @@ def frame(scope=PRIMARY_SCOPE):
             "v0_quad": v0_quad,
             "v0_quad_stderr": v0_quad_stderr,
             "curvature_t": curvature_t,
+            "v0_burst": burst.v0,
+            "v0_burst_low": burst.v0_low,
+            "v0_burst_high": burst.v0_high,
+            "v0_burst_bounded": bool(burst.bounded),
+            "v0_burst_kind": burst.kind,
+            "v0_burst_resid": burst_resid,
+            "v0_quad_resid": v0_quad_resid,
+            "tau": burst.tau,
+            "tau_resolved": bool(burst.tau_resolved),
             "outliers": len(isolated),
             "outliers_in_runs": len(in_runs),
             "first_point_z": first_z,

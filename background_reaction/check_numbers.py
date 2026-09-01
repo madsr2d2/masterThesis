@@ -31,7 +31,7 @@ DOCUMENT = os.path.join(HERE, "ANALYSIS.md")
 # became per-curve, and nothing noticed, because every check here read
 # ANALYSIS.md and the stale sentence lived in build_figures.py.
 CURVES_PAGE = os.path.join(HERE, "progress_curves.html")
-ESTIMATORS_ALL = ("v0_quad", "vmax", "v0", "v0_whole")
+ESTIMATORS_ALL = ("v0_quad", "v0_burst", "vmax", "v0", "v0_whole")
 FAILURES = []
 
 
@@ -50,7 +50,10 @@ def _normalise(text):
     """
     return " ".join((text.replace("\u2212", "-")     # minus sign
                          .replace("\u2013", "-")     # en dash
-                         .replace("\u00b1", "+/-"))  # plus-minus
+                         .replace("\u00b1", "+/-")   # plus-minus
+                         .replace("\u00d7", "x")     # multiplication sign
+                         .replace("\u2080", "0")     # subscript zero, as in v0
+                         .replace("\u209b\u209b", "ss"))  # v_ss
                     .split())
 
 
@@ -187,6 +190,46 @@ def main():
     claim("strong-run order", f"({strong['order_s0']:+.3f} ± "
                               f"{strong['stderr_s0']:.3f} on the "
                               f"{len(scope.strong_runs())} strong runs)")
+
+    print("\nthe burst form as a candidate headline")
+    # Every number in the "why not the burst/lag v0" section, re-derived. The
+    # case for keeping v0_quad rests on these, so drift here would leave a
+    # decision standing on figures that no longer hold.
+    frame = scope.frame(scope.FREE_BNOH_ALL)
+    difference = frame.v0_burst_resid - frame.v0_quad_resid
+    claim("burst clearly better",
+          f"| clearly better (> 0.1x noise) | {int((difference > 0.1).sum())} "
+          f"curves | {int((difference < -0.1).sum())} curves |")
+    claim("indistinguishable",
+          f"| indistinguishable | {int((difference.abs() <= 0.1).sum())} curves | |")
+    claim("median residuals",
+          f"| median residual | {frame.v0_quad_resid.median():.2f}x noise | "
+          f"{frame.v0_burst_resid.median():.2f}x noise |")
+    claim("bounded burst v0",
+          f"| v0 defined on | {len(frame)} of {len(frame)} | "
+          f"{int(frame.v0_burst_bounded.sum())} of {len(frame)} bounded |")
+    exp65 = frame[frame.experiment == 65].sort_values("sample")
+    claim("exp 65 burst residuals",
+          ", ".join(f"{v:.1f}" for v in exp65.v0_burst_resid[:3])
+          + f" and {exp65.v0_burst_resid.iloc[3]:.1f}x noise")
+    claim("exp 65 quadratic residuals",
+          "against the quadratic's "
+          + ", ".join(f"{v:.1f}" for v in exp65.v0_quad_resid[:3])
+          + f" and {exp65.v0_quad_resid.iloc[3]:.1f}x")
+    # The degeneracy that makes `bounded` misleading on those four.
+    degenerate = exp65[(exp65.v0_burst_kind == "clamped")
+                       & (~exp65.tau_resolved) & (exp65.v0_burst_bounded)]
+    ok = len(degenerate) == 4
+    print(f"  {'pass' if ok else 'FAIL'}  exp 65 burst fits are degenerate yet "
+          f"'bounded': {len(degenerate)} of 4")
+    if not ok:
+        FAILURES.append("exp 65's burst fits are no longer clamped-and-bounded; "
+                        "the argument for keeping v0_quad rests on that")
+    dropped_boric = scope.buffer_dependence(anchor=(67, 69, 70),
+                                            parameter="v0_burst")
+    claim("dropping the boric block",
+          f"moves it to +{dropped_boric['order_buf']:.2f} ± "
+          f"{dropped_boric['stderr_buf']:.2f}")
 
     print("\nthe outlier rings, and what the first-reading drop left them doing")
     curves = list(scope.curves(scope.FREE_BNOH_ALL))

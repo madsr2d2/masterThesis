@@ -20,10 +20,11 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            QUANTISATION_SIGMA, acceleration, curve_noise,
                            initial_rate, line_fit, line_slope, peak_position,
                            OUTLIER_SIGMA, isolated_outliers,
-                           local_outlier_z, quadratic_rate, whole_slope,
-                           window_size)
+                           local_outlier_z, model_residual, quadratic_rate,
+                           whole_slope, window_size)
 from fit_dataset import source_floor
 from read_rre import RRE_SIGMA
+import scope
 
 FAILURES = []
 
@@ -372,6 +373,57 @@ def test_outlier_flagging():
           f"z[20] = {scores[20]:.1f}, z[21] = {scores[21]:.1f}")
 
 
+def test_model_residual():
+    """
+    One residual definition for every form, and it says what `bounded` cannot.
+
+    The point of the function is that it separates "is this parameter pinned"
+    from "does this form fit", which came apart on exp 65 when the burst/lag v0
+    was proposed as the headline: bounded v0 on a fit sitting 7-8x above noise.
+    """
+    print("model residual")
+    rng = np.random.default_rng(11)
+    times = np.arange(0.0, 600.0, 10.0)
+    noise = 1e-4
+    truth = 2.0e-5 * times
+
+    check("a perfect fit scores 0", model_residual(truth, truth, 3, noise) == 0.0)
+
+    scattered = truth + rng.normal(0.0, noise, len(times))
+    at_noise = model_residual(scattered, truth, 3, noise)
+    check("scatter at the noise scores about 1", 0.8 < at_noise < 1.2,
+          f"{at_noise:.3f}")
+
+    # The parameter count matters: the same residuals over fewer degrees of
+    # freedom score higher, which is what makes a 3-parameter and a
+    # 4-parameter form comparable at all.
+    check("more parameters, larger residual",
+          model_residual(scattered, truth, 4, noise) >
+          model_residual(scattered, truth, 3, noise))
+
+    # A form that misses by a constant offset is caught in units of noise,
+    # which is the property the panels rely on.
+    offset = model_residual(scattered + 5 * noise, truth, 3, noise)
+    check("a 5-sigma offset scores about 5", 4.5 < offset < 5.6, f"{offset:.2f}")
+
+    check("zero noise is nan, not a divide", np.isnan(
+        model_residual(scattered, truth, 3, 0.0)))
+
+    # And the real case the function was added for.
+    frame = scope.frame((65,))
+    check("exp 65's burst fits are worse than its quadratic ones",
+          bool((frame.v0_burst_resid > frame.v0_quad_resid).all()),
+          f"burst {frame.v0_burst_resid.round(1).tolist()} vs "
+          f"quad {frame.v0_quad_resid.round(1).tolist()}")
+    check("and every one of them is beyond 3x noise",
+          bool((frame.v0_quad_resid > 3).all()))
+    # bounded says the parameter is pinned; the residual says the form is
+    # wrong. If these ever agree on exp 65 the ANALYSIS.md argument for
+    # keeping v0_quad as the headline needs rewriting, not just re-running.
+    check("yet all four report a bounded v0",
+          bool(frame.v0_burst_bounded.all()))
+
+
 if __name__ == "__main__":
     test_no_duplicate_definitions()
     test_lag_statistic()
@@ -380,5 +432,6 @@ if __name__ == "__main__":
     test_floor_belongs_to_the_source()
     test_whole_curve_estimators_return_rates()
     test_outlier_flagging()
+    test_model_residual()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

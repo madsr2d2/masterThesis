@@ -19,7 +19,8 @@ sys.path.insert(0, HERE)
 
 import scope
 from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, OUTLIER_SIGMA,
-                           acceleration, isolated_outliers, local_outlier_z)
+                           acceleration, isolated_outliers, local_outlier_z,
+                           model_residual)
 from fit_dataset import source_floor
 from summary_kinetics import BURST_V0_HALFWIDTH, fit_burst_bounded
 from svgplot import ACCENT, GRID, INK, MUTED, PALETTE, Axes, esc, page
@@ -29,9 +30,14 @@ from svgplot import ACCENT, GRID, INK, MUTED, PALETTE, Axes, esc, page
 # the slope at t = 0 of a quadratic through EVERY point, so no window is
 # chosen anywhere, and being linear in its parameters it is always identified.
 HEADLINE = "v0_quad"
-ESTIMATORS = ("v0_quad", "vmax", "v0", "v0_whole")
+# Five now. `v0_burst` was added on 2026-09-01 when it was proposed as the
+# headline: the point of this tuple is that "does the conclusion depend on
+# how the rate was measured" stays a groupby rather than an argument, and
+# a candidate headline has to be in it before that question can be asked.
+ESTIMATORS = ("v0_quad", "v0_burst", "vmax", "v0", "v0_whole")
 ESTIMATOR_LABEL = {
     "v0_quad": "v0 quadratic (whole curve, no window)",
+    "v0_burst": "v0 from the burst/lag form (whole curve, one exponential)",
     "vmax": "vmax (steepest 20% block)",
     "v0": "v0 (first 20% window)",
     "v0_whole": "slope of a straight line through the whole curve",
@@ -292,16 +298,37 @@ def curve_panel(curve, width=330, height=210):
     verdict = "bounded" if burst.bounded else f"v0 UNBOUNDED ±{burst.half_width:.0%}"
     if burst.settles_backwards:
         verdict += " · v_ss < 0"
+    # HOW WELL EACH FORM FITS, in units of the curve's own noise, so the
+    # reader is not left to judge it by eye. This is a different question from
+    # the interval beside v0 -- that asks whether the DATA pin the parameter,
+    # this asks whether the FORM describes the curve -- and the two come apart:
+    # exp 65's four cuvettes report a bounded v0 on fits sitting 7-8x above
+    # noise. `model_residual` defines it once for both forms so the comparison
+    # is like-for-like across their different parameter counts.
+    quad_fit = np.polyval(np.polyfit(times, values, 2), times)
+    quad_resid = model_residual(values, quad_fit, 3, curve.noise)
+    burst_resid = model_residual(
+        values,
+        burst.c + burst.v_ss * times - burst.B * (1 - np.exp(-times / burst.tau)),
+        4, curve.noise)
+
+    def _fit_note(residual, text):
+        if not np.isfinite(residual):
+            return text
+        flag = " — DOES NOT FIT" if residual > 3 else ""
+        return f"{text} · {residual:.2f}× noise{flag}"
+
     rows = [
         (QUAD_COLOUR, "v0 quadratic", f"{quad:.3e}", f"± {quad_se:.1e}",
-         "whole curve, no window"),
+         _fit_note(quad_resid, "whole curve, no window")),
         (WINDOW_COLOUR, "v0 window", f"{v0:.3e}", f"± {v0_se:.1e}",
          f"first {INITIAL_WINDOW:.0%}, shaded"),
         (WHOLE_COLOUR, "slope, whole", f"{whole:.3e}", f"± {whole_se:.1e}",
          "straight line, every point"),
         (BURST_COLOUR, f"burst {'v0→v_ss'}",
          f"{burst.v0:.2e} → {burst.v_ss:.2e}",
-         f"[{burst.v0_low:.1e}, {burst.v0_high:.1e}]", f"{shape} · {verdict}"),
+         f"[{burst.v0_low:.1e}, {burst.v0_high:.1e}]",
+         _fit_note(burst_resid, f"{shape} · {verdict}")),
     ]
     body = "".join(
         f"<tr><td><i class='sw' style='background:{colour}'></i>{esc(name)}</td>"

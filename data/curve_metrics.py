@@ -364,6 +364,32 @@ def whole_slope(times, values, floor=QUANTISATION_SIGMA):
     return slope, stderr
 
 
+def model_residual(values, predicted, parameters, noise):
+    """
+    A fitted model's residual RMS in units of the curve's own noise.
+
+    One definition, used for every form, so "which model fits this curve"
+    is a comparison rather than an argument -- the quadratic and the burst
+    form differ in parameter count and an unadjusted RMS would favour the
+    larger one for free.
+
+    This asks a DIFFERENT question from `BoundedBurstFit.bounded`, and the
+    two come apart on real curves. `bounded` asks whether the data pins the
+    parameter; this asks whether the model describes the data at all. Exp
+    65's four cuvettes report bounded v0 on fits sitting 7-8x above their
+    noise: the parameter is perfectly determined, of a form that is wrong.
+    Near 1 the model is at the noise; much above it, the extrapolation to
+    t = 0 is an extrapolation of the wrong shape.
+    """
+    values = np.asarray(values, dtype=float)
+    predicted = np.asarray(predicted, dtype=float)
+    degrees = max(1, len(values) - parameters)
+    if not noise > 0:
+        return np.nan
+    return float(np.sqrt(float((values - predicted) @ (values - predicted))
+                         / degrees) / noise)
+
+
 def quadratic_rate(times, values, floor=QUANTISATION_SIGMA):
     """
     Initial rate from a whole-curve quadratic: `(v0, stderr, curvature_t)`.

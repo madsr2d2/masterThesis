@@ -8,6 +8,90 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — The burst/lag v0 was considered as the headline, and declined
+
+Proposed by the user: the burst/lag form is the better SHAPE and the quadratic
+"is a bad fit on many of the plots. For example exp 65 s3 and s4 and s2."
+
+The observation is right and the inference does not follow. Measured, with one
+residual definition (`curve_metrics.model_residual`) applied to both forms so
+their different parameter counts are accounted for:
+
+| | quadratic | burst/lag |
+|---|---|---|
+| clearly better (> 0.1x noise) | 5 curves | 6 curves |
+| indistinguishable | 16 curves | |
+| median residual | 1.18x noise | 1.08x noise |
+| v0 defined on | 27 of 27 | 24 of 27 bounded |
+
+Where the deceleration really is exponential the burst wins decisively -- exp
+67 sample 2 3.06x -> 0.94x, exp 69 sample 2 3.47x -> 1.48x -- and that is worth
+having. But on the four curves named in the proposal it is the WORSE fit, not
+the better one:
+
+| exp 65 | s1 | s2 | s3 | s4 |
+|---|---|---|---|---|
+| quadratic | 5.21 | 5.71 | 5.24 | 4.83 |
+| burst/lag | 6.91 | 8.32 | 8.03 | 6.87 |
+
+### Why, and it is not the 3-sigma gate
+
+On all four the burst fit has **degenerated to a straight line**: B = 0
+exactly, tau pinned at the floor of its grid (2.99-3.08 s), `tau_resolved`
+False. Fitting with `constrain="none"` returns the IDENTICAL fit, so the lag
+gate that was suspected for exps 65 samples 3 and 4 is not the cause -- the
+optimiser lands on B = 0 by itself.
+
+And it reports `bounded = True` while doing it. That is the combination that
+disqualifies it as a headline: a four-parameter form collapsed to a
+two-parameter one, quoting a v0 with a narrow interval. On samples 3 and 4 it
+returns +2.607e-05 and +1.580e-05 -- the whole-curve average slope, the very
+quantity the whole-curve line was criticised for -- where the quadratic returns
+-2.017e-06 and -5.252e-06, which is the induction period being reported as an
+induction period.
+
+`bounded` asks whether the DATA pin the parameter. It does not ask whether the
+FORM fits. Those come apart, and exp 65 is where.
+
+### The result does not depend on the choice
+
+| estimator | order in [buf] | dropping the accelerating curves |
+|---|---|---|
+| `v0_quad` (headline) | +1.30 +/- 0.25 | +1.37 +/- 0.33 |
+| `v0_burst` | +1.19 +/- 0.25 | +1.37 +/- 0.28 |
+
+Inside one standard error, and identical once the accelerating curves are
+dropped. Dropping the whole boric block -- exp 65, the badly-fitted one, and
+the only non-phosphate anchor -- gives +1.20 +/- 0.28. First order in buffer
+survives every version.
+
+### What changed instead
+
+- `curve_metrics.model_residual`, one definition for every form, adjusted for
+  parameter count. Tested, including that it is nan rather than a divide at
+  zero noise.
+- `scope.frame` gained `v0_burst`, `v0_burst_low/high`, `v0_burst_bounded`,
+  `v0_burst_kind`, `v0_burst_resid`, `v0_quad_resid`, `tau`, `tau_resolved`.
+  The burst v0 was previously reachable only by calling `summary_kinetics`
+  directly, which is why it had never been through the robustness table.
+- `v0_burst` is now the fifth estimator in that table, in ANALYSIS.md and in
+  `build_figures.ESTIMATORS`. A candidate headline has to be in it before the
+  question can be asked at all.
+- **Every panel now prints both forms' residuals in units of the curve's own
+  noise, with `DOES NOT FIT` above 3x.** Ten of the 108 estimator rows carry
+  it. This is the substantive change: the objection was made by eye against
+  numbers the page did not show.
+
+The finding underneath the proposal stands and is now stated on the panels:
+**exp 65 is described by neither form.** That is a fact about exp 65, not an
+argument for a different headline.
+
+`check_numbers.py` re-derives every figure above, and asserts that exp 65's
+four fits are still clamped-and-unresolved yet bounded -- if that ever stops
+being true this decision needs rewriting rather than re-running.
+
+---
+
 ## 2026-09-01 — The first reading of every run is discarded
 
 Ruled with the user, who proposed it after the exp 70 sample 2 diagnosis.
