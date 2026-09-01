@@ -58,6 +58,33 @@ def source_floor(source):
     """
     return RRE_SIGMA if source == "rre" else QUANTISATION_SIGMA
 
+# The instrument's FIRST reading of a run is discarded from every curve.
+#
+# It is not a measurement of the chemistry. Scored by extrapolating a line
+# through the following 8 readings -- with the LAST reading scored the
+# identical way as a control, so the test is like-for-like -- the first reading
+# carries median |z| 2.06 against 1.11 and exceeds 5 sigma on 15.9% of curves
+# against 7.5%. Twice the scatter of any other extrapolated point, which is an
+# instrument settling artefact rather than a property of the reaction.
+#
+# It also sits where the damage is greatest. v0 is an extrapolation TO t = 0,
+# so the boundary reading has leverage no interior one has: exp 70 sample 2's
+# first reading is 11.5 sigma low and alone makes that curve's burst v0
+# unbounded (profile half-width 0.327 -> 0.068 without it), and exp 3 sample
+# 7's is only +1.7 sigma yet flips its unconstrained burst v0 from -1.06e-5 to
+# +5.28e-7.
+#
+# THE DROP IS UNCONDITIONAL, and that is the point. Removing only the readings
+# a filter dislikes would be selecting on the outcome; removing the first
+# reading of every run is an a priori rule about instrument settling, which is
+# a different thing. It costs one reading in a hundred and removes a
+# demonstrated systematic artefact. Ruled 2026-09-01, DATA_VERIFICATION.md.
+#
+# `minimum_points` is tested BEFORE the drop, so a run that only just clears it
+# is not lost by it -- exp 26's four cuvettes have exactly 10 readings and are
+# the only true replicate set in the enzyme-free data.
+DROP_FIRST_READING = True
+
 # How many leading points the baseline is taken from. The model's signal is
 # zero at t = 0 by construction, so the data has to be put on the same footing;
 # a median over a few points rather than the first point alone keeps one noisy
@@ -243,7 +270,8 @@ def build_curves(dataset_path=DATASET_PATH, directory=CURVE_DIRECTORY,
     selected = add_solution_columns(selected)
     exports = read_all_curves(directory)
 
-    curves, dropped = [], {"no_export": 0, "no_curve": 0, "too_short": 0, "no_epsilon": 0}
+    curves, dropped = [], {"no_export": 0, "no_curve": 0, "too_short": 0,
+                           "no_epsilon": 0, "first_reading": 0}
     # Indexed by column name rather than by itertuples position: 'sample'
     # collides with a namedtuple method and would have to be reached
     # positionally, which breaks silently the moment a column is added.
@@ -261,6 +289,10 @@ def build_curves(dataset_path=DATASET_PATH, directory=CURVE_DIRECTORY,
         if len(times) < minimum_points:
             dropped["too_short"] += 1
             continue
+        if DROP_FIRST_READING and len(times) > 2:
+            # After the minimum check, deliberately: see DROP_FIRST_READING.
+            times, values = times[1:], values[1:]
+            dropped["first_reading"] = dropped.get("first_reading", 0) + 1
         epsilon = float(row["e"] or 0.0)
         if epsilon <= 0:
             dropped["no_epsilon"] += 1

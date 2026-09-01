@@ -59,10 +59,10 @@ shown not to depend on it.
 
 | estimator | window? | whole curve? | form |
 |---|---|---|---|
-| `vmax` | +1.18 ± 0.23 | +0.83 ± 0.27 |
-| `v0` | +1.56 ± 0.42 | +0.77 ± 0.26 |
-| **`v0_quad`** | **+1.30 ± 0.27** | **+0.86 ± 0.38** |
-| `v0_whole` | +1.53 ± 0.22 | +1.37 ± 0.60 |
+| `vmax` | steepest of four 20% blocks | no | straight line |
+| `v0` | first 20% | no | straight line |
+| **`v0_quad`** | **none** | **yes** | **A = c + v₀t + at²** |
+| `v0_whole` | none | yes | straight line |
 
 `v0_quad` is the headline. It answers the objection that `INITIAL_WINDOW = 0.20`
 is arbitrary — it chooses no window, uses every point, and being linear in its
@@ -76,8 +76,8 @@ implements. On these curves it is not identified:
 - Unconstrained, **4 of 27 curves return a negative v₀** where the line fit is firmly positive. Exp 67 sample 3 gives −2.07e-04 against a line's +3.35e-06, with a profile interval, [−3.72e-04, −1.34e-04], that never reaches zero.
 - The existing `resolved` flag does not catch it: exp 67 sample 3 is `resolved=True`. `resolved` asks whether **τ** is located, which is a different question from whether **v₀** is — and it errs both ways. Exp 6's four cuvettes are `resolved=False` with v₀ pinned to a 0.00 half-width, because as τ → ∞ the curve is a straight line, which kills τ and B but leaves v₀ → v_ss exact.
 - **A close fit does not license the extrapolation.** Exp 3 sample 7 is fitted to within its own noise (rms/noise 1.00), yet across values of τ that are statistically indistinguishable — the rms does not move at two decimal places — its v₀ ranges from **−1.06e-05 to +5.20e-07**, a change of sign, against a line fit of +4.01e-07.
-- Shutting the lag branch (**B ≤ 0**) removes every negative v₀ and raises the bounded count from **13 to 21 of 27**. It does not solve the problem: it trades the τ → ∞ degeneracy for τ → 0, and exps 65 samples 1 and 2 come back at **10× and 28×** their line rate.
-- **A blanket B ≤ 0 is not justified, and was corrected on 2026-09-01.** It rested on "0 of 16 curves accelerate", which is true of the constant-buffer runs and was generalised to all 27 without checking. Exps 3 and 6 hold **four curves that do accelerate**, two at z = +8.4 and +11.8, and the blanket rule bound on two of them — forcing a decelerating shape onto curves whose own z-score says they rise. `fit_burst_bounded(constrain="auto")` now asks each curve: the branch stays open where `acceleration` clears 3σ and is shut elsewhere. That bounds **19 of 27**, admits no negative v₀, and imposes no shape a curve's own statistic contradicts.
+- Shutting the lag branch (**B ≤ 0**) removes every negative v₀ and raises the bounded count from **16 to 25 of 27**. It does not solve the problem: it trades the τ → ∞ degeneracy for τ → 0, and exps 65 samples 1 and 2 come back at **10× and 28×** their line rate.
+- **A blanket B ≤ 0 is not justified, and was corrected on 2026-09-01.** It rested on "0 of 16 curves accelerate", which is true of the constant-buffer runs and was generalised to all 27 without checking. Exps 3 and 6 hold **four curves that do accelerate**, two at z = +8.4 and +11.8, and the blanket rule bound on two of them — forcing a decelerating shape onto curves whose own z-score says they rise. `fit_burst_bounded(constrain="auto")` now asks each curve: the branch stays open where `acceleration` clears 3σ and is shut elsewhere. That bounds **24 of 27**, admits no negative v₀, and imposes no shape a curve's own statistic contradicts.
 
 `summary_kinetics.fit_burst_bounded` implements the fit and profiles **both** v₀
 and τ. The two are different questions and the second is the harsher: across
@@ -98,8 +98,8 @@ the **disagreement between the two designs**. Read within runs, so that pH,
 
 | where `[buf]` is | order in `[sub]`, `v0_quad` | order in `[sub]`, `vmax` |
 |---|---|---|
-| held constant (65, 67, 69, 70) | **+0.330 ± 0.066** (n = 14) | +0.297 ± 0.080 (n = 16) |
-| falling as `[sub]` rises (3, 6) | **−0.304 ± 0.115** (n = 10) | −0.210 ± 0.092 (n = 8) |
+| held constant (65, 67, 69, 70) | **+0.328 ± 0.054** (n = 14) | +0.282 ± 0.057 (n = 16) |
+| falling as `[sub]` rises (3, 6) | **−0.306 ± 0.110** (n = 10) | −0.210 ± 0.092 (n = 8) |
 
 **The apparent substrate order changes sign with the buffer design.** If the rate
 goes as [S]<sup>a</sup>[buf]<sup>d</sup> and within the titrations
@@ -108,23 +108,23 @@ term returns a′ = a + d·g, so
 
     d = (a' - a) / g,     g = -0.487
 
-giving **d = +1.30 ± 0.27** on `v0_quad`. Both inputs are within-run contrast, so
+giving **d = +1.30 ± 0.25** on `v0_quad`. Both inputs are within-run contrast, so
 nothing here asks one regression to separate two collinear predictors, and
 nothing lets `[buf]` stand in for pH.
 
 ### Two routes that look better and are not
 
-- **Fitting `[sub]` and `[buf]` jointly on exps 3 and 6.** VIF 9.7 and 8.3 on ten live curves; returns −0.13 ± 0.68. The design cannot carry it.
+- **Fitting `[sub]` and `[buf]` jointly on exps 3 and 6.** VIF 9.7 and 8.3 on ten live curves; returns −0.09 ± 0.65 The design cannot carry it.
 - **Fitting `[buf]` as a fourth pooled term across all six runs.** Returns a tight +0.95 ± 0.44, but `[buf]` is 85+ mM in every pH 8.0–8.5 run and sweeps only in the pH 6.71 ones, so it is partly a label for pH. The tell is that the [HOO⁻] order falls +0.836 → +0.739 when the buffer term is added — the buffer term stealing the pH effect.
 
 ## 5. Result: first order in buffer
 
 | rate estimator | order in `[buf]`, BnOH 25 °C | cross-check, 4OMe-BnOH 40 °C |
 |---|---|---|
-| **`v0_quad`** | **+1.33 ± 0.25** | **+0.87 ± 0.38** |
-| `vmax` | +1.17 ± 0.28 | +0.83 ± 0.27 |
-| `v0` | +1.67 ± 0.52 | +0.77 ± 0.26 |
-| `v0_whole` | +1.62 ± 0.28 | +1.38 ± 0.60 |
+| **`v0_quad`** | **+1.30 ± 0.25** | **+0.91 ± 0.38** |
+| `vmax` | +1.19 ± 0.21 | +0.83 ± 0.29 |
+| `v0` | +1.30 ± 0.30 | +0.85 ± 0.28 |
+| `v0_whole` | +1.52 ± 0.22 | +1.38 ± 0.60 |
 
 The cross-check is independent in substrate, temperature and design geometry: its
 buffer contrast lies *between* experiments at fixed pH (6.97–7.00) and fixed
@@ -163,10 +163,10 @@ measuring rather than asserting. `buffer_dependence(drop_accelerating=True)`:
 
 | rate estimator | all live curves | accelerating dropped (n = 10 → 6) |
 |---|---|---|
-| `v0_quad` | +1.30 ± 0.27 | +1.41 ± 0.26 |
-| `vmax` | +1.18 ± 0.23 | +1.20 ± 0.24 |
-| `v0` | +1.56 ± 0.42 | +1.69 ± 0.45 |
-| `v0_whole` | +1.53 ± 0.22 | +1.60 ± 0.26 |
+| `v0_quad` | +1.30 ± 0.25 | +1.37 ± 0.33 |
+| `vmax` | +1.19 ± 0.21 | +1.22 ± 0.23 |
+| `v0` | +1.30 ± 0.30 | +1.38 ± 0.34 |
+| `v0_whole` | +1.52 ± 0.22 | +1.56 ± 0.27 |
 
 Every estimator moves **up** slightly and every shift is inside its own
 standard error, so the first-order reading does not depend on them. The
@@ -191,8 +191,8 @@ not the variance-floor artefact of `DATA_VERIFICATION.md` 2026-09-01:
 
 | set | accelerating, > 3σ |
 |---|---|
-| enzyme-free BnOH, `[buf]` fixed | **0 of 16** |
-| in-scope catalysed increments | **51 of 110 live** |
+| enzyme-free BnOH, `[buf]` fixed | **1 of 16** |
+| in-scope catalysed increments | **50 of 110 live** |
 
 Exps 67, 69 and 70 actively *decelerate* (median `accel_z` −1.67, −5.15, −2.26).
 **The autocatalytic signature in the in-scope block is not inherited from the
@@ -208,7 +208,7 @@ the cell. This is an open question, not a settled finding.
 1. **The confound does not reach them.** `[buf]` = 75.013 mM in all 119 in-scope curves across all 17 runs — zero variation — so no buffer effect can enter their substrate order. The correction derived here is needed for exps 3 and 6, not for the scope.
 2. **The background is already subtracted**, per cuvette, at matched conditions, because the catalysed reference omits only the enzyme.
 3. **The amplitude is still missing.** There are 0 enzyme-free curves in the 127-curve pyrophosphate cell, so the absolute size of what was subtracted cannot be recovered without importing it from another buffer, which `MECHANISM.md` forbids. This remains `FITTING.md` F7: *the missing experiment is an enzyme-free control in pyrophosphate.*
-4. **For scale**, on `vmax` within runs, the recorded increment is *flatter* in substrate than the background it was measured against: +0.097 ± 0.052 over all 110 live in-scope curves (+0.012 ± 0.044 on the 11 strong runs) against +0.297 ± 0.080 for the background. Relevant to `FITTING.md` F1, which is not restated here.
+4. **For scale**, on `vmax` within runs, the recorded increment is *flatter* in substrate than the background it was measured against: +0.091 ± 0.052 over all 110 live in−scope curves (+0.004 ± 0.046 on the 11 strong runs) against +0.297 ± 0.080 for the background. Relevant to `FITTING.md` F1, which is not restated here.
 
 ## 8a. Suspect readings are flagged, never removed
 

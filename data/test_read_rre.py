@@ -14,7 +14,7 @@ import sys
 import numpy as np
 
 from curve_metrics import ABSORBANCE_QUANTUM, QUANTISATION_SIGMA
-from fit_dataset import PRIMARY_SCOPE, build_curves
+from fit_dataset import DROP_FIRST_READING, PRIMARY_SCOPE, build_curves
 from read_rre import RRE_SIGMA, covered, experiment_number, read_all
 
 FAILURES = []
@@ -51,6 +51,12 @@ def test_agreement():
     worst, compared = 0.0, 0
     for curve in curves:
         block = instrument.get(curve.experiment, {}).get(curve.sample)
+        if block is not None and DROP_FIRST_READING:
+            # build_curves discards the first reading of every run, so the
+            # curve is one shorter than the block it came from. Comparing the
+            # raw lengths would silently compare nothing -- as it did, scoring
+            # 0 of 119 -- so the block is trimmed the same way.
+            block = block[1:]
         if block is None or len(block) != len(curve.absorbance):
             continue
         drift = np.abs((block - block[0])

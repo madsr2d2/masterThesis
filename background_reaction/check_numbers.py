@@ -147,6 +147,16 @@ def main():
     claim("curvature count", f"{curved}\nof {len(everything)} curves show "
                              f"curvature at |t| > 3")
 
+    print("\nthe estimator description table")
+    # This table carries no fitted numbers, so nothing else here would notice
+    # if it were clobbered -- and a bulk regex did clobber it in c41f459..
+    # 4b344ac, replacing the descriptions with buffer orders for three
+    # commits. Pinned by content now.
+    for phrase in ("| `vmax` | steepest of four 20% blocks | no | straight line |",
+                   "| `v0` | first 20% | no | straight line |",
+                   "| `v0_whole` | none | yes | straight line |"):
+        claim("description row", phrase)
+
     print("\nthe accelerating-curve sensitivity")
     for estimator in ESTIMATORS_ALL:
         dropped = scope.buffer_dependence(parameter=estimator,

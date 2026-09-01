@@ -8,6 +8,125 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — The first reading of every run is discarded
+
+Ruled with the user, who proposed it after the exp 70 sample 2 diagnosis.
+
+### The evidence
+
+Scored by extrapolating a line through the following 8 readings, with the LAST
+reading scored the identical way as a control so the comparison is
+like-for-like:
+
+| | median \|z\| | beyond 5 sigma |
+|---|---|---|
+| **first reading** | **2.06** | **15.9%** |
+| last reading | 1.11 | 7.5% |
+
+Twice the scatter of any other extrapolated point. That is instrument settling,
+not chemistry. It also sits where the damage is greatest, because v0 is an
+extrapolation TO t = 0 and the boundary reading carries leverage no interior
+one has: exp 70 sample 2's first reading is 11.5 sigma low and by itself made
+that curve's burst v0 unbounded; exp 3 sample 7's is only +1.7 sigma yet flipped
+its unconstrained burst v0 from -1.06e-5 to +5.28e-7.
+
+### The rule
+
+**Unconditional**, in `fit_dataset.build_curves`, behind `DROP_FIRST_READING`.
+Dropping only the readings a filter dislikes would be selecting on the outcome;
+dropping the first reading of every run is an a priori rule about instrument
+settling. It costs one reading in a hundred.
+
+`minimum_points` is tested BEFORE the drop, deliberately: exp 26's four
+cuvettes have exactly 10 readings and would otherwise fall below it and vanish,
+taking the only true replicate set in the enzyme-free data with them. They now
+carry 9 readings each and survive.
+
+### What it bought
+
+| | before | after |
+|---|---|---|
+| enzyme-free BnOH curves with a bounded burst v0 | 19 / 27 | **24 / 27** |
+| ...with tau resolved | 8 / 27 | 7 / 27 |
+| ...with both | 5 / 27 | 7 / 27 |
+
+### What it cost, and a finding worth more than the change
+
+The lag statistic moves **158 -> 160 of 402**. Chasing why in-scope gained 10
+while the rest of the archive lost 8 turned up something more important than
+the asymmetry:
+
+| statistic | before -> after | verdicts that FLIP |
+|---|---|---|
+| `peak_position` lag | 158 -> 160 | **46 of 402 (11.4%)** |
+| `acceleration` z > 3 | 160 -> 154 | 10 of 402 (2.5%) |
+
+**The lag statistic's verdict turns on a single reading for 11% of curves.** 24
+gain a lag and 22 lose one; the net +2 hides both. It should be quoted as
+"about 40%" and never to three digits -- `FITTING.md` and `test_curve_metrics`
+now say so. `acceleration` is four times steadier under the same perturbation,
+which is independent support for `MECHANISM.md` preferring it on
+small-amplitude curves.
+
+### One knife-edge moved
+
+Exp 67 sample 3 went from `accel_z` +2.9 to **+3.5**, crossing the 3-sigma gate,
+so its lag branch is now open and its unconstrained fit -- the -2.07e-4 one --
+is admitted. It is NOT quotable: `bounded` is False and tau is unresolved, so
+the safety net that matters still holds. But it is the same hard-edge problem
+already logged for exps 65 samples 3 and 4, now moving in the other direction,
+and it remains open.
+
+### One safety check narrowed, and it is benign
+
+`curve_screen.validate_power_cut` asks whether dropping low-power curves moves
+a fitted order rather than only the scatter. On
+`('4OMe-BnOH', 40.0, 'Phosphate')` the shift went from **0.00 to -0.79 sigma**
+against a limit of 1.0, so the block is still judged safe but by a much thinner
+margin.
+
+Traced: that group holds 61 curves and the cut removes exactly **one**, exp 34
+sample 4, whose window climbs **0.94 quanta** against a threshold of 3. It is
+dead -- removing it is precisely what the cut is for -- and its readings
+DECREASE (+0.0037, +0.0010, 0.0000, -0.0012, ...). Dropping the leading +0.0037
+flips its meaningless v0 from -6.3e-7 to +9.8e-7, and with it the block order
+from +0.256 to +0.398 and the standard error from 0.064 to 0.167.
+
+Nothing about the block changed. What changed is that one dead curve's v0 no
+longer happens to sit near the fit's prediction. The old test asserted
+|shift| < 0.1 sigma, which was pinning that coincidence; it now asserts the
+safety limit, which is the property that means anything.
+
+**No reported result moves.** Exp 34 is catalysed and is not in
+`scope.FREE_4OME_40C`, so the buffer-order cross-check is untouched.
+
+### A documentation error found while doing this, and shipped for three commits
+
+`ANALYSIS.md`'s section 3 table describes the four rate estimators -- window,
+whole-curve, form. A bulk regex in c41f459..4b344ac overwrote its three
+description columns with buffer-order numbers, so it read
+
+    | `vmax` | +1.18 ± 0.23 | +0.83 ± 0.27 |
+
+under the header `| estimator | window? | whole curve? | form |`. Wrong from
+4b344ac through aa9aed5. Restored from ea19b11.
+
+`check_numbers.py` did not catch it because that table carries no fitted
+number, so nothing compared it to anything. It now pins the description rows by
+content. The lesson is the narrower one: a regex written to update figures will
+happily eat prose that merely looks like a table row, and only content-pinning
+catches it.
+
+### Checks updated
+
+`test_curve_metrics` (lag 160, and the fragility stated), `test_read_rre` (the
+.rre block is trimmed the same way, or the agreement check silently compares
+nothing -- it scored 0 of 119 before this was fixed), `test_summary_kinetics`
+(the accelerating set moved, and "auto" now admits one negative v0 that is
+flagged unbounded).
+
+---
+
 ## 2026-09-01 — `bounded` asked only about v0, and tau was pinned on most curves
 
 Raised by the user: exp 3 samples 2, 3, 4 and 5 all come back unbounded when

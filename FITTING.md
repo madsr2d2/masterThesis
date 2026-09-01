@@ -358,7 +358,7 @@ answer and has not been run.
 
 *Re-measured statistic:* `MECHANISM.md` reports 52% of curves reaching peak slope
 past 15% into the run (n = 326). Over the 402 curves the fitting code selects, by
-the same smoothed method, it is **39.3%** (158/402). The selections differ — the
+the same smoothed method, it is **about 40%** (160/402). The selections differ — the
 n = 326 predates the carbonate rule, the exclusions of exps 50, 64 and 85, and
 the cuvette exclusions of 25,2 and 25,4. Neither excluded cuvette lagged, so the
 count was unchanged by those and only the denominator moved.
@@ -371,7 +371,13 @@ exports and neither time because the statistic changed — the export rounds to
 |---|---|
 | 136/402 (34%) | until 2026-08-31, every reading from a .txt export |
 | 151/402 (37.6%) | when the `rate<n>.rre` files were adopted |
-| **158/402 (39.3%)** | from 2026-09-01, when `mads_t<n>.rre` was too — 97 further curves |
+| 158/402 (39.3%) | when `mads_t<n>.rre` was read too — 97 further curves |
+| **160/402 (39.8%)** | from 2026-09-01, when the first reading of every run was dropped |
+
+**Quote this as "about 40%", not to three digits.** Removing a single reading
+flips the verdict on **46 of 402 curves** — 24 gain a lag, 22 lose one, and the
+net +2 hides both. `acceleration` flips on 10 of 402 under the same change,
+which is one more reason `MECHANISM.md` prefers it on small-amplitude curves.
 
 See `data/read_rre.py` and DATA_VERIFICATION.md.
 
@@ -564,5 +570,5 @@ date. Figures rebuild from `data/fits/BnOH_25C_Phosphate.json` in seconds.
 
 Two claims made and withdrawn during the work, recorded so they are not
 resurrected: that `k_can` and `r` are non-identifiable (true only at a single
-pH — F5), and that the observed lag fraction is 52% (39.3% on this selection —
+pH — F5), and that the observed lag fraction is 52% (about 40% on this selection —
 F3).
