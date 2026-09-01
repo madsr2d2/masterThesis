@@ -136,7 +136,82 @@ displacing 15 °C and 40 °C the same way tilts the line hardly at all — so
 "exps 16 and 19 both wrong" is rejected less firmly than "exp 16 alone", though
 it loses every rung too.
 
-## 2. Activation energy, first pass
+## 2. The breakpoint screen: the breaks are the induction, not an artefact
+
+Run first, because exp 65 in the BnOH background showed that the start-versus-end
+shape statistics step straight over a mid-run break, and every conclusion here
+rests on a single rate per curve. `scope.synchronised_break`:
+
+| T | 15 °C | 20 °C | 25 °C | 30 °C | 35 °C | 40 °C |
+|---|---|---|---|---|---|---|
+| slope after / before | 1.50-18.08 | 1.32-2.27 | 0.99-1.81 | 1.27-1.36 | 0.89-1.00 | 0.70-0.86 |
+| cuvettes steepening | 3 of 4 | 2 of 4 | 1 of 4 | 0 of 4 | 0 of 4 | 0 of 4 |
+
+**Nothing here looks like exp 65.** That run's four cuvettes broke within 56 s of
+each other regardless of a 20-fold substrate range, which is the signature of
+something that is not the reaction. Here the ratio falls with temperature — cold
+runs accelerate throughout, hot runs decelerate — and a second, unrelated
+statistic says the same thing: every run from 15 to 30 °C classifies as a **lag**
+curve, with τ falling **6489 → 3666 → 945 → 876 s** as it warms, and 35 and 40 °C
+flip to `burst`. Two independent statistics agreeing on an induction period that
+shortens with heating is chemistry, not an artefact.
+
+**The fall is not quite monotone, and the exception is instructive.** Median
+ratios run 1.75, 1.56, 1.19, **1.33**, 0.91, 0.82 — 30 °C sits above 25 °C. The
+break ratio does not track temperature directly, it tracks **how much of the run
+the induction occupies**, and the runs are not the same length: measured in units
+of its own τ, the 25 °C run is **19τ** long and the 30 °C run only **5.8τ**. The
+quantity that *is* monotone in temperature is τ itself.
+
+**A limitation of the statistic, seen here for the first time.** Exp 19's
+lowest-substrate cuvette reports a ratio of **18.08**, far outside everything
+else. It is a near-zero denominator: that curve is flat at 5.6e-08 AU/s for the
+first 6076 s — the coldest temperature at the lowest substrate, the slowest
+condition in the block — and then rises at 1.0e-06. The reading is "the
+pre-break slope is indistinguishable from flat", not "the post-break slope is
+remarkable". `break_ratio` is unstable wherever `slope_before` approaches zero,
+and a lag curve at the slowest condition is exactly where that happens.
+
+### But it exposed a real problem with `vmax`
+
+`vmax_where` — where the steepest block sits, as a fraction of the run:
+
+| T | 40 °C | 35 °C | 30 °C | 25 °C | 20 °C | 15 °C |
+|---|---|---|---|---|---|---|
+| `vmax_where` | 0.10-0.30 | 0.29-0.49 | 0.48-0.87 | 0.30-0.50 | 0.70-0.90 | 0.70-0.90 |
+
+At 15 and 20 °C the rate is **still rising when the run ends**, so `vmax` there
+is not a maximum — it is wherever the measurement stopped. Under-reading the
+cold end tilts the Arrhenius line and inflates E<sub>a</sub>.
+
+**The two estimators fail at opposite ends**, which is the awkward part. On a lag
+curve the burst form's `v_ss` is the rate `vmax` is trying to reach, and at
+15-30 °C that fit is sound (tau resolved on 15 of 16 curves, residuals 0.94-1.64x
+noise). At 35–40 °C it degenerates — τ unresolved on 7 of 8, the form flipping
+to `burst`, tau unresolved on 7 of 8, because a decelerating curve has no lag to
+measure — so `v_ss` there
+is a meaningless late rate, and `vmax` is the good one.
+
+**How big is the bias?** `arrhenius.truncation_sensitivity` substitutes `v_ss`
+for `vmax` at 15 and 20 °C only, purely to size it:
+
+| | E<sub>a</sub> kJ/mol |
+|---|---|
+| `vmax` throughout | 90.2 |
+| `v_ss` at the cold end | 88.3 |
+| **inflation from truncation** | **1.9** |
+
+`v_ss`/`vmax` is 1.042 at 15 C and 1.065 at 20 C — a 4–6.5% under-read — and
+0.98, 0.99 at 25 and 30 C where the two should agree, which is the check that
+the substitution means anything. (It is 0.67 and 0.29 at 35 and 40 °C, the
+degenerate end, and is not used there.)
+
+**So truncation costs about 1.9 kJ/mol, against a spread of 8.5 across the four
+substrate rungs that should agree.** It is real, it is in a known direction, and
+it is *not* the limiting problem. Mixing estimators is normally the error rather
+than the fix, and it is used here only to size the bias, never for a headline.
+
+## 3. Activation energy, first pass
 
 From `arrhenius.rung_fits()` on `vmax`, per substrate rung:
 

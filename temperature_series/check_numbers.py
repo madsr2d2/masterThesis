@@ -33,7 +33,9 @@ def _normalise(text):
                          .replace("–", "-")
                          .replace("±", "+/-")
                          .replace("×", "x")
-                         .replace("₀", "0"))
+                         .replace("₀", "0")
+                         .replace("→", "->")   # arrow, as in tau falling
+                         .replace("÷", "/"))
                     .split())
 
 
@@ -153,6 +155,77 @@ def main():
           forced.loc[16, "mean_residual"] < plain.loc[16, "mean_residual"],
           f"{plain.loc[16, 'mean_residual']:+.3f} -> "
           f"{forced.loc[16, 'mean_residual']:+.3f}")
+
+    print("\nthe breakpoint screen")
+    # Run because exp 65 in the BnOH background showed the start-versus-end
+    # statistics step over a mid-run break. The claim here is the OPPOSITE of
+    # exp 65's -- that the breaks are chemistry -- so it needs the same
+    # evidence: a trend that tracks a physical variable, and a second,
+    # unrelated statistic agreeing.
+    breaks = scope.synchronised_break(scope.TEMPERATURE_SERIES)
+    temperature = {int(e): float(frame[frame.experiment == e].temperature.iloc[0])
+                   for e in breaks.index}
+    ordered = sorted(breaks.index, key=lambda e: temperature[e])
+    claim("the break-ratio row",
+          "| slope after / before | " + " | ".join(
+              f"{min(breaks.loc[e, 'ratios']):.2f}-"
+              f"{max(breaks.loc[e, 'ratios']):.2f}" for e in ordered) + " |")
+    claim("the steepening row",
+          "| cuvettes steepening | " + " | ".join(
+              f"{int(breaks.loc[e, 'steep'])} of {int(breaks.loc[e, 'n'])}"
+              for e in ordered) + " |")
+    # The trend is the argument. Ratio must fall as temperature rises.
+    # NOT monotone, and the document says so: 30 C sits above 25 C because the
+    # ratio tracks how much of the run the induction occupies, and the 25 C run
+    # is 19 tau long against the 30 C run's 5.8. What must hold is that the
+    # trend falls overall and that the single inversion is the one named.
+    medians = [float(np.median(breaks.loc[e, "ratios"])) for e in ordered]
+    claim("the median ratios",
+          ", ".join(f"{v:.2f}" if abs(v - medians[3]) > 1e-9 else f"**{v:.2f}**"
+                    for v in medians))
+    rises = [i for i, (a, b) in enumerate(zip(medians, medians[1:])) if b > a]
+    check("exactly one inversion, at 25/30 C",
+          rises == [2], f"inversions after index {rises}")
+    lengths = frame.groupby("temperature").apply(
+        lambda g: float(g.duration_s.median() / g.tau.median()),
+        include_groups=False)
+    claim("the run lengths in tau",
+          f"the 25 °C run is **{lengths[25.0]:.0f}τ** long and the 30 °C run "
+          f"only **{lengths[30.0]:.1f}τ**")
+    # The second, independent statistic: the lag time constant.
+    taus = frame.groupby("temperature").tau.median()
+    lag = [t for t in sorted(taus.index) if t <= arrhenius.BURST_TRUSTWORTHY_BELOW_C]
+    claim("tau falls as it warms",
+          "**" + " -> ".join(f"{taus[t]:.0f}" for t in lag) + " s**")
+    check("every run below 32 C is a lag curve",
+          bool((frame[frame.temperature <= arrhenius.BURST_TRUSTWORTHY_BELOW_C]
+                .v0_burst_kind == "lag").all()))
+
+    print("\nwhat the screen exposed about vmax")
+    where = frame.groupby("temperature").vmax_where
+    claim("the vmax_where row",
+          "| `vmax_where` | " + " | ".join(
+              f"{where.min()[t]:.2f}-{where.max()[t]:.2f}"
+              for t in sorted(frame.temperature.unique(), reverse=True)) + " |")
+    sensitivity = arrhenius.truncation_sensitivity()
+    claim("Ea from vmax", f"| `vmax` throughout | {sensitivity['vmax_kJ']:.1f} |")
+    claim("Ea cold-corrected",
+          f"| `v_ss` at the cold end | {sensitivity['cold_corrected_kJ']:.1f} |")
+    claim("the inflation",
+          f"| **inflation from truncation** | **{sensitivity['inflation_kJ']:.1f}** |")
+    ratios = sensitivity["v_ss_over_vmax"]
+    claim("the v_ss/vmax ratios",
+          f"{ratios[15.0]:.3f} at 15 C and {ratios[20.0]:.3f} at 20 C")
+    claim("and where they should agree",
+          f"{ratios[25.0]:.2f}, {ratios[30.0]:.2f} at 25 and 30 C")
+    # tau's trustworthiness boundary, which decides where v_ss may be used.
+    hot = frame[frame.temperature > arrhenius.BURST_TRUSTWORTHY_BELOW_C]
+    warm = frame[frame.temperature <= arrhenius.BURST_TRUSTWORTHY_BELOW_C]
+    claim("tau resolved, cold end",
+          f"tau resolved on {int(warm.tau_resolved.sum())} of {len(warm)} curves")
+    claim("tau unresolved, hot end",
+          f"tau unresolved on {len(hot) - int(hot.tau_resolved.sum())} of "
+          f"{len(hot)}")
 
     print("\nthe activation energy, first pass")
     fits = arrhenius.rung_fits()

@@ -209,6 +209,14 @@ def frame(scope=PRIMARY_SCOPE):
             "v0_burst_bounded": bool(burst.bounded),
             "v0_burst_kind": burst.kind,
             "v0_burst_resid": burst_resid,
+            # The burst form's ASYMPTOTIC rate, after the lag is over. On a lag
+            # curve this is the quantity `vmax` is trying to measure and
+            # cannot when the run ends before the rate levels off -- which is
+            # the whole 15-20 C problem in the temperature series. Carried
+            # beside v0_burst (the INDUCTION rate) because on a lag curve the
+            # two are the opposite ends of the same fit and confusing them is
+            # the error curve_metrics.peak_rate exists to prevent.
+            "v_ss": float(burst.v_ss),
             "v0_quad_resid": v0_quad_resid,
             "tau": burst.tau,
             "tau_resolved": bool(burst.tau_resolved),

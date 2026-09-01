@@ -8,6 +8,82 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — The temperature series' breaks are the induction, and `vmax` runs out of run at the cold end
+
+The breakpoint screen (`curve_metrics.segmented_fit`, built for exp 65) run over
+the temperature series' 24 curves, before anything else is built on them.
+
+### Verdict: chemistry, not an artefact
+
+| T | 15 °C | 20 °C | 25 °C | 30 °C | 35 °C | 40 °C |
+|---|---|---|---|---|---|---|
+| slope after ÷ before | 1.50–18.08 | 1.32–2.27 | 0.99–1.81 | 1.27–1.36 | 0.89–1.00 | 0.70–0.86 |
+| cuvettes steepening | 3 of 4 | 2 of 4 | 1 of 4 | 0 | 0 | 0 |
+
+Nothing resembles exp 65, whose four cuvettes broke within 56 s of each other
+across a 20-fold substrate range. Here a second, unrelated statistic agrees:
+every run from 15 to 30 °C classifies as a **lag** curve with **τ falling
+6489 → 3666 → 945 → 876 s** as it warms, and 35 and 40 °C flip to `burst`. Two
+independent statistics agreeing on an induction that shortens with heating is
+chemistry.
+
+**The fall is not monotone, and the exception is instructive.** Median ratios run
+1.75, 1.56, 1.19, **1.33**, 0.91, 0.82 — 30 °C above 25 °C. The break ratio does
+not track temperature, it tracks how much of the run the induction occupies, and
+the runs differ in length: in units of its own τ the 25 °C run is **19τ** and the
+30 °C run only **5.8τ**. τ is the quantity monotone in temperature. The first
+draft of the analysis claimed monotonicity; the folder's own checks refused it.
+
+**A limitation of `break_ratio`, seen here first.** Exp 19's lowest-substrate
+cuvette reports **18.08**, a near-zero denominator: flat at 5.6e-08 AU/s for
+6076 s — the coldest temperature at the lowest substrate — then rising at
+1.0e-06. The statistic is unstable wherever `slope_before` approaches zero, which
+on a lag curve is exactly the slowest condition. Recorded so the number is not
+read as an exp-65-style anomaly.
+
+### What it exposed: `vmax` is truncated at the cold end
+
+`vmax_where`, the position of the steepest block in the run:
+
+| T | 40 °C | 35 °C | 30 °C | 25 °C | 20 °C | 15 °C |
+|---|---|---|---|---|---|---|
+| `vmax_where` | 0.10–0.30 | 0.29–0.49 | 0.48–0.87 | 0.30–0.50 | **0.70–0.90** | **0.70–0.90** |
+
+At 15 and 20 °C the rate is still rising when the run ends, so `vmax` is not a
+maximum there — it is wherever the measurement stopped. That under-reads the cold
+end and inflates E<sub>a</sub>.
+
+**The two estimators fail at opposite ends.** On a lag curve the burst form's
+`v_ss` is the rate `vmax` is trying to reach, and at 15–30 °C that fit is sound
+(τ resolved on 15 of 16 curves, residuals 0.94–1.64× noise). At 35–40 °C it
+degenerates — τ unresolved on 7 of 8 — so `v_ss` there is a meaningless late rate
+and `vmax` is the good one. No single estimator measures the same quantity across
+the whole range, which is the same trap exp 65 set.
+
+**Sized rather than argued** (`arrhenius.truncation_sensitivity`, substituting
+`v_ss` at 15 and 20 °C only, to measure the bias and never for a headline):
+
+| | E<sub>a</sub> kJ/mol |
+|---|---|
+| `vmax` throughout | 90.2 |
+| `v_ss` at the cold end | 88.3 |
+| **inflation from truncation** | **1.9** |
+
+`v_ss`/`vmax` is **1.042 at 15 °C and 1.065 at 20 °C** — a 4–6.5% under-read —
+and **0.98, 0.99 at 25 and 30 °C** where the two should agree, which is what
+makes the substitution meaningful. So truncation costs about **1.9 kJ/mol**
+against a **spread of 8.5** across four substrate rungs that should agree: real,
+directional, and *not* the limiting problem. The first-pass figure should be read
+as **≈88–90 kJ/mol**.
+
+**Changed:** `scope.frame` gained **`v_ss`**, the burst form's asymptotic rate —
+carried beside `v0_burst`, which on a lag curve is the *induction* rate, the
+opposite end of the same fit. `arrhenius.truncation_sensitivity` and
+`BURST_TRUSTWORTHY_BELOW_C` added; `temperature_series/ANALYSIS.md` §2 written;
+its checks 34 → 49.
+
+---
+
 ## 2026-09-01 — The temperature series' enzyme mismatch is real, not a typing mistake
 
 **The question**, on opening the 4OMe-BnOH temperature series (exps 14–19, the

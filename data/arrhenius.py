@@ -172,3 +172,59 @@ def experiment_residuals(parameter="vmax", override=None,
                      "mean_residual": float(np.mean(values)),
                      "rungs": len(values)})
     return pd.DataFrame(rows).set_index("experiment")
+
+
+# Where the burst form is trustworthy in this block, and it is not everywhere.
+# 15-30 C classify as `lag` with tau resolved on 15 of 16 curves and residuals
+# 0.94-1.64x noise; 35 and 40 C flip to `burst` with tau at the top of its grid
+# (resolved on 1 of 8) because a decelerating curve has no lag to measure. So
+# v_ss is the asymptote at the cold end and a meaningless late rate at the hot
+# end, and this is the boundary between them.
+BURST_TRUSTWORTHY_BELOW_C = 32.0
+
+
+def truncation_sensitivity(experiments=TEMPERATURE_SERIES):
+    """
+    How much does `vmax` running out of run at the cold end inflate E_a?
+
+    THE PROBLEM the segment fit found. Every run from 15 to 30 C is a LAG
+    curve, and at 15 and 20 C the steepest block sits at 70-90% of the run --
+    the rate is still rising when the measurement stops, so `vmax` there is not
+    a maximum, it is wherever the run ended. Under-reading the cold end tilts
+    the Arrhenius line and inflates the activation energy.
+
+    THE MEASUREMENT. On a lag curve the burst form's `v_ss` IS the rate `vmax`
+    is trying to reach, and at 15 and 20 C that fit is sound -- tau resolved on
+    7 of 8 curves, residuals 0.94-1.03x noise. So substituting v_ss for vmax at
+    those two temperatures, and only those, bounds the bias.
+
+    MIXING ESTIMATORS IS NORMALLY THE ERROR, not the fix, and it is done here
+    ONLY to size the bias, never to produce the headline. Both numbers are
+    returned so the difference is the answer rather than the substituted fit.
+
+    Returns a dict: the E_a from vmax throughout, the E_a with v_ss at the cold
+    end, their difference, and the per-temperature v_ss/vmax ratios.
+    """
+    frame = series_frame(experiments)
+    cold = frame.temperature < 22.0
+    ratios = {float(t): float((group.v_ss / group.vmax).median())
+              for t, group in frame.groupby("temperature")}
+
+    def fit(use_v_ss):
+        energies = []
+        for s0 in sorted(frame.s0.unique()):
+            rung = frame[np.isclose(frame.s0, s0)].sort_values("kelvin")
+            rate = rung.vmax.to_numpy(dtype=float)
+            if use_v_ss:
+                swap = (rung.temperature < 22.0).to_numpy()
+                rate = np.where(swap, rung.v_ss.to_numpy(dtype=float), rate)
+            energy, _, _ = arrhenius_fit(rung.kelvin.to_numpy(),
+                                         rate / rung.e0.to_numpy(dtype=float))
+            energies.append(energy)
+        return float(np.mean(energies))
+
+    plain, corrected = fit(False), fit(True)
+    return {"vmax_kJ": plain, "cold_corrected_kJ": corrected,
+            "inflation_kJ": plain - corrected,
+            "cold_curves": int(cold.sum()),
+            "v_ss_over_vmax": ratios}
