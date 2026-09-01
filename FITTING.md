@@ -207,7 +207,10 @@ buffer titrations whose apparent substrate order is a buffer effect. That trap
 was walked into again on 2026-08-31 while measuring the enzyme-free substrate
 turnover: including exps 3 and 6 swings the local `vmax` order above 3 mM from
 −0.245 to −0.431 and turns 2 clean rung-pairs into 7. `scope.FREE_BNOH` now
-holds only exps 65, 67, 69, 70, with the reason recorded beside it.
+holds only exps 65, 67, 69, 70, with the reason recorded beside it — and the
+buffer order's anchor, `scope.BUFFER_FIXED`, is narrower still at 67, 69, 70,
+because exp 65's curves have no usable rate (2026-09-01,
+`scope.BORIC_RATE_UNUSABLE`).
 
 **And a provenance note.** Exps 69 and 70's `.txt` export headers declare exp
 68's substrate ladder rather than their own; ruled to the sheet on 2026-08-31,

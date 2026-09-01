@@ -28,7 +28,7 @@ two designs that do different things:
 
 | set | experiments | curves | `[buf]` | `[sub]` |
 |---|---|---|---|---|
-| `scope.BUFFER_FIXED` | 65, 67, 69, 70 | 16 | held at 85–87.5 mM | ladder |
+| `scope.BUFFER_FIXED` | 67, 69, 70 | 12 | held at 85 mM | ladder |
 | `scope.BUFFER_CONFOUNDED` | 3, 6 | 11 (10 live) | falls 85 → 25 mM | ladder, rising |
 
 All but one of these 27 cuvettes now read from the instrument's own `.rre`. Until
@@ -140,7 +140,7 @@ the **disagreement between the two designs**. Read within runs, so that pH,
 
 | where `[buf]` is | order in `[sub]`, `v0_quad` | order in `[sub]`, `vmax` |
 |---|---|---|
-| held constant (65, 67, 69, 70) | **+0.328 ± 0.054** (n = 14) | +0.282 ± 0.057 (n = 16) |
+| held constant (67, 69, 70) | **+0.321 ± 0.056** (n = 12) | +0.343 ± 0.071 (n = 12) |
 | falling as `[sub]` rises (3, 6) | **−0.306 ± 0.110** (n = 10) | −0.210 ± 0.092 (n = 8) |
 
 **The apparent substrate order changes sign with the buffer design.** If the rate
@@ -150,7 +150,7 @@ term returns a′ = a + d·g, so
 
     d = (a' - a) / g,     g = -0.487
 
-giving **d = +1.30 ± 0.25** on `v0_quad`. Both inputs are within-run contrast, so
+giving **d = +1.29 ± 0.25** on `v0_quad`. Both inputs are within-run contrast, so
 nothing here asks one regression to separate two collinear predictors, and
 nothing lets `[buf]` stand in for pH.
 
@@ -163,11 +163,15 @@ nothing lets `[buf]` stand in for pH.
 
 | rate estimator | order in `[buf]`, BnOH 25 °C | cross-check, 4OMe-BnOH 40 °C |
 |---|---|---|
-| **`v0_quad`** | **+1.30 ± 0.25** | **+0.91 ± 0.38** |
-| `v0_burst` | +1.19 ± 0.25 | +0.69 ± 0.24 |
-| `vmax` | +1.19 ± 0.21 | +0.83 ± 0.29 |
-| `v0` | +1.30 ± 0.30 | +0.85 ± 0.28 |
-| `v0_whole` | +1.52 ± 0.22 | +1.38 ± 0.60 |
+| **`v0_quad`** | **+1.29 ± 0.25** | **+0.91 ± 0.38** |
+| `v0_burst` | +1.20 ± 0.28 | +0.69 ± 0.24 |
+| `vmax` | +1.31 ± 0.23 | +0.83 ± 0.29 |
+| `v0` | +1.33 ± 0.32 | +0.85 ± 0.28 |
+| `v0_whole` | +1.60 ± 0.23 | +1.38 ± 0.60 |
+
+The anchor is exps 67, 69 and 70 — **phosphate only**. Exp 65 was in it until
+2026-09-01 and is not any more, because its curves have no usable rate at all
+(§6a). Every number in this table moved by at most 0.12 when it left.
 
 The cross-check is independent in substrate, temperature and design geometry: its
 buffer contrast lies *between* experiments at fixed pH (6.97–7.00) and fixed
@@ -177,9 +181,9 @@ buffer contrast lies *between* experiments at fixed pH (6.97–7.00) and fixed
 general acid/base catalysis of the H<sub>2</sub>O<sub>2</sub>/carbonyl addition
 predicts (Sander & Jencks; `MECHANISM.md`).
 
-**All four estimators agree**, including the two that choose no window at all.
-The spread across them, +0.77 to +1.67, is smaller than the distance of any of
-them from zero.
+**All five estimators agree**, including the two that choose no window at all.
+They span **+1.20 to +1.60**, a spread narrower than the smallest of them, and
+the weakest sits 4.3σ from zero.
 
 > **Corrected 2026-09-01.** An earlier version of this document reported
 > `v0_whole` at −3.90 ± 2.25 and built an argument on it: that a straight line
@@ -206,11 +210,11 @@ measuring rather than asserting. `buffer_dependence(drop_accelerating=True)`:
 
 | rate estimator | all live curves | accelerating dropped (n = 10 → 6) |
 |---|---|---|
-| `v0_quad` | +1.30 ± 0.25 | +1.37 ± 0.33 |
-| `v0_burst` | +1.19 ± 0.25 | +1.37 ± 0.28 |
-| `vmax` | +1.19 ± 0.21 | +1.22 ± 0.23 |
-| `v0` | +1.30 ± 0.30 | +1.38 ± 0.34 |
-| `v0_whole` | +1.52 ± 0.22 | +1.56 ± 0.27 |
+| `v0_quad` | +1.29 ± 0.25 | +1.36 ± 0.33 |
+| `v0_burst` | +1.20 ± 0.28 | +1.38 ± 0.31 |
+| `vmax` | +1.31 ± 0.23 | +1.34 ± 0.25 |
+| `v0` | +1.33 ± 0.32 | +1.41 ± 0.35 |
+| `v0_whole` | +1.60 ± 0.23 | +1.64 ± 0.27 |
 
 Every estimator moves **up** slightly and every shift is inside its own
 standard error, so the first-order reading does not depend on them. The
@@ -219,26 +223,22 @@ is a stronger claim than the evidence needs.
 
 ## 6. The rate law
 
-**Headline — phosphate buffer only** (`scope.FREE_BNOH_PHOSPHATE`, exps 3, 6,
-67, 69, 70; boric excluded for the reasons in §6a):
+**Phosphate buffer only** — exps 3, 6, 67, 69, 70 (`scope.FREE_BNOH_PHOSPHATE`,
+now the default everywhere in `scope` that fits a rate):
 
     v_background  ~  [S]^+0.32  [H2O2]^+1.49  [HOO-]^+0.82  [buf]^+1.29     (v0_quad)
     v_background  ~  [S]^+0.34  [H2O2]^+1.14  [HOO-]^+0.84  [buf]^+1.31     (vmax)
-
-**All six runs, boric included** — wider in pH, and the version to quote if the
-pH range matters more than the agreement:
-
-    v_background  ~  [S]^+0.33  [H2O2]^+1.87  [HOO-]^+0.63  [buf]^+1.30     (v0_quad)
-    v_background  ~  [S]^+0.28  [H2O2]^+1.15  [HOO-]^+0.84  [buf]^+1.19     (vmax)
 
 Sub-linear in substrate, first order in buffer, and about 0.8 order in [HOO⁻] —
 so the background climbs nearly tenfold per pH unit, and a background measured
 at pH 8 says little about one at pH 7.
 
-Two estimators agreeing is the reason the phosphate version leads: on the
-headline scope they differ by 0.02 in [S], 0.35 in [H₂O₂] and 0.02 in [HOO⁻],
-against 0.05, 0.72 and 0.21 with boric in. `v0_quad`'s pooled R² is 0.968
-against `vmax`'s 0.966; with boric in it is 0.903 against 0.974.
+**There is no "all six runs" version any more.** This document reported one
+until 2026-09-01, labelled as the wider-in-pH alternative. It is withdrawn, not
+demoted: exp 65 has no usable rate (§6a), so a law fitted with it in is not a
+second opinion, it is the same law plus four numbers that do not mean anything.
+The two estimators differ by 0.02 in [S], 0.35 in [H₂O₂] and 0.02 in [HOO⁻];
+`v0_quad`'s pooled R² is 0.968 against `vmax`'s 0.966.
 
 **On "first order in peroxide".** That names the `[H2O2]` coefficient with
 [HOO⁻] carried separately. Since [HOO⁻] = f(pH)·[H₂O₂], the dependence on TOTAL
@@ -469,7 +469,7 @@ a **carbonyl**, and the enzyme-free background has no carbonyl at t = 0. Two
 ways out:
 
 - **Benzaldehyde supplies it as it accumulates.** That route is autocatalytic,
-  and this background does not accelerate — 1 of 16 at the fixed-buffer anchor
+  and this background does not accelerate — 1 of 12 at the fixed-buffer anchor
   against 50 of 110 catalysed increments, with exps 67, 69 and 70 actively
   decelerating (§7). Disfavoured by the data.
 - **The buffer catalyses the oxidant's formation, before the substrate is
@@ -494,7 +494,7 @@ buffer concentrations are not comparable — and adding a buffer term to
 `scope.literature_comparison` does move the median excess over the literature's
 uncatalysed rate, from **34× to 25×** (§9).
 
-### 6a. What the boric run carries
+### 6a. Exp 65 has no usable rate — ruled 2026-09-01
 
 Exp 65 is the only boric-buffer run in the set. `MECHANISM.md` already says to
 treat boric points as suspect and gives three reasons, every one of which bites
@@ -510,7 +510,37 @@ that neither rate form fits (§3a), and its samples 3 and 4 return a negative
 `v0_quad`, so they silently leave any log-log fit — `v0_quad`'s "all runs"
 numbers above rest on two of its four cuvettes.
 
-Excluding it (`scope.FREE_BNOH_PHOSPHATE`, or `--scope free-bnoh-phosphate`):
+**The ruling, and why it is not a sensitivity.** Until 2026-09-01 this section
+reported the fit both ways and called excluding exp 65 a defensible choice.
+That was too weak. The run's curves cannot be reduced to a rate at all:
+
+- All four cuvettes **break upward mid-run**, at 504–560 s, steepening by
+  1.82–15.94× across the break. So `v0` measures the pre-break stretch and
+  `vmax` the post-break one; they are not two estimates of one quantity that
+  disagree, they are **two different quantities**.
+- `v0_quad` returns a **negative** rate on two of the four, which silently drops
+  them from any log-log fit — so the withdrawn "all six runs" law rested on two
+  of exp 65's four cuvettes without saying so.
+- **Neither rate form fits it**: 6.9–8.3× noise for the burst, 4.8–5.7× for the
+  quadratic, against a median 1.08–1.18× over the rest of the block.
+- All four burst fits collapse to B = 0 with τ at its grid floor while still
+  reporting `bounded = True`.
+
+There is no defensible choice of estimator, so there is no defensible number,
+and reporting the fit both ways implies one of them is right. Exp 65 is
+therefore excluded from **every** default in `scope` that fits a rate
+(`BORIC_RATE_UNUSABLE`): `background_orders`, `buffer_dependence`'s anchor,
+`literature_comparison`, `background_model`, `predicted_enhancement`.
+
+**It is deliberately not a `KNOWN_EXCLUSIONS` entry.** That would drop exp 65
+from the dataset, and its *shape* is the most informative thing in the boric
+block — it is the only background run in the archive that breaks, which is the
+only direct evidence bearing on §6b's question. **The shape is evidence; the
+rate is not.** `FREE_BNOH_ALL` still exists and still contains exp 65, for shape
+work and for the record below.
+
+**What the exclusion bought**, kept as the record of the decision rather than a
+live alternative (`scope.FREE_BNOH_PHOSPHATE`, or `--scope free-bnoh-phosphate`):
 
     v_background  ~  [S]^+0.32  [H2O2]^+1.49  [HOO-]^+0.82  [buf]^+1.29     (v0_quad)
     v_background  ~  [S]^+0.34  [H2O2]^+1.14  [HOO-]^+0.84  [buf]^+1.31     (vmax)
@@ -536,13 +566,18 @@ exception and does not need the help: it barely moves for any estimator
 its own standard error). **The headline result is indifferent to boric**, which
 is why §5 is unchanged.
 
-**What excluding it costs, and why this is a scope and not a deletion.** Exp 65
-is the only run at pH 8.51 and carries the top of the [HOO⁻] range by itself —
-0.089 mM against 0.041 and 0.0012. Without it the pH axis has **two levels**, so
-the [HOO⁻] order becomes a two-point contrast that cannot be checked for
-curvature, and at those two levels pH, [buf] (55 vs 85 mM) and run design all
-move together. A tighter number is not automatically a better-determined one.
-Both versions are reported for that reason.
+**What excluding it costs, and it is real.** Exp 65 is the only run at pH 8.51
+and carried the top of the [HOO⁻] range by itself — 0.089 mM against 0.041 and
+0.0012. Without it the pH axis has **two levels**, so the [HOO⁻] order is a
+two-point contrast that cannot be checked for curvature, and at those two levels
+pH, [buf] (58 vs 85 mM) and run design all move together.
+
+That cost is accepted rather than traded off. A rate law fitted with exp 65 in
+it does not *have* the pH coverage it appears to have: it has two good levels
+plus a third whose rate has no defined value. **Missing coverage is preferable
+to coverage that is wrong**, and the honest statement of the range is now in the
+caveats. The experiment that restores it is a repeat of exp 65 — enzyme-free,
+boric, run long — which §6b already wants for a different reason.
 
 ## 7. What the background is *not*
 
@@ -551,7 +586,7 @@ not the variance-floor artefact of `DATA_VERIFICATION.md` 2026-09-01:
 
 | set | accelerating, > 3σ |
 |---|---|
-| enzyme-free BnOH, `[buf]` fixed | **1 of 16** |
+| enzyme-free BnOH, `[buf]` fixed | **1 of 12** |
 | in-scope catalysed increments | **50 of 110 live** |
 
 Exps 67, 69 and 70 actively *decelerate* (median `accel_z` −1.67, −5.15, −2.26).
@@ -568,7 +603,7 @@ the cell. This is an open question, not a settled finding.
 1. **The confound does not reach them.** `[buf]` = 75.013 mM in all 119 in-scope curves across all 17 runs — zero variation — so no buffer effect can enter their substrate order. The correction derived here is needed for exps 3 and 6, not for the scope.
 2. **The background is already subtracted**, per cuvette, at matched conditions, because the catalysed reference omits only the enzyme.
 3. **The amplitude is still missing.** There are 0 enzyme-free curves in the 127-curve pyrophosphate cell, so the absolute size of what was subtracted cannot be recovered without importing it from another buffer, which `MECHANISM.md` forbids. This remains `FITTING.md` F7: *the missing experiment is an enzyme-free control in pyrophosphate.*
-4. **For scale**, on `vmax` within runs, the recorded increment is *flatter* in substrate than the background it was measured against: +0.091 ± 0.052 over all 110 live in−scope curves (+0.004 ± 0.046 on the 11 strong runs) against +0.297 ± 0.080 for the background. Relevant to `FITTING.md` F1, which is not restated here.
+4. **For scale**, on `vmax` within runs, the recorded increment is *flatter* in substrate than the background it was measured against: +0.091 ± 0.052 over all 110 live in−scope curves (+0.004 ± 0.046 on the 11 strong runs) against +0.343 ± 0.071 for the background. Relevant to `FITTING.md` F1, which is not restated here.
 
 ## 8a. Suspect readings are flagged, never removed
 

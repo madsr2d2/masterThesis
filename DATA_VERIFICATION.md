@@ -8,6 +8,100 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — Ruling: exp 65 has no usable rate, and leaves every rate-law default
+
+**The user's call**, following the two entries below: *"we can't use exp 65 in
+combination with the other phosphate buffer experiments to determine the
+background reaction order now can we. It is not clear how we should fit the
+strange boric acid curves."* Correct on both counts, and stronger than what the
+documents said, which was that excluding it was *a defensible choice reported
+as a sensitivity*.
+
+### Why it is a ruling and not a sensitivity
+
+The run's curves cannot be reduced to a rate at all:
+
+- All four cuvettes **break upward mid-run** at 504–560 s and steepen by
+  1.82–15.94× across the break. `v0` measures the pre-break stretch and `vmax`
+  the post-break one — not two estimates of one quantity that disagree, but two
+  different quantities.
+- `v0_quad` returns a **negative** rate on two of the four, which silently drops
+  them from any log-log fit. The withdrawn "all six runs" law therefore rested
+  on two of exp 65's four cuvettes without saying so.
+- **Neither rate form fits it**: 6.9–8.3× noise for the burst, 4.8–5.7× for the
+  quadratic, against a median 1.08–1.18× over the rest of the block.
+- All four burst fits collapse to B = 0 with τ at its grid floor while still
+  reporting `bounded = True`.
+
+There is no defensible choice of estimator, so there is no defensible number.
+Reporting the fit both ways implied one of them was right.
+
+### What changed
+
+`scope.BORIC_RATE_UNUSABLE` declared, and exp 65 removed from every default
+that fits a rate: `background_orders`, `buffer_dependence`'s anchor
+(`BUFFER_FIXED`, now 67, 69, 70), `literature_comparison`, `background_model`,
+`predicted_enhancement`. The **"all six runs" rate law is withdrawn from
+ANALYSIS.md §6**, not demoted — and `check_numbers` now asserts the phrase is
+*absent*, because a check that keeps verifying a withdrawn number keeps it alive.
+
+**It is deliberately NOT a `KNOWN_EXCLUSIONS` entry.** That would drop exp 65
+from the dataset, and its shape is the only direct evidence bearing on the
+peroxo question — it is the only background run in the archive that breaks. The
+shape is evidence; the rate is not. `FREE_BNOH_ALL` still contains exp 65 for
+shape work and for `boric_sensitivity`, which is now the record of what the
+exclusion bought rather than a live alternative.
+
+### What moved
+
+The headline rate law does not move at all — it already excluded exp 65:
+
+    v ~ [S]^+0.32 [H2O2]^+1.49 [HOO-]^+0.82 [buf]^+1.29   (v0_quad)
+    v ~ [S]^+0.34 [H2O2]^+1.14 [HOO-]^+0.84 [buf]^+1.31   (vmax)
+
+What moved is everything that had been quoting the *anchor* with exp 65 in it:
+
+| quantity | with exp 65 | ruled |
+|---|---|---|
+| anchor substrate order, `v0_quad` | +0.328 ± 0.054 (n = 14) | **+0.321 ± 0.056** (n = 12) |
+| anchor substrate order, `vmax` | +0.282 ± 0.057 (n = 16) | **+0.343 ± 0.071** (n = 12) |
+| buffer order, `vmax` | +1.19 ± 0.21 | **+1.31 ± 0.23** |
+| buffer order, `v0_quad` | +1.30 ± 0.25 | **+1.29 ± 0.25** |
+| accelerating at the anchor | 1 of 16 | **1 of 12** |
+| literature median excess | 21.96× | 22.07× |
+
+Every estimator's buffer order stays first order (+1.20 to +1.60, the weakest
+4.3σ from zero), so the §5 conclusion is unchanged. The `v0_quad` **substrate**
+order changes sign on the pooled fit, −0.056 → +0.158, and its pooled R² goes
+0.903 → 0.968 — which is exp 65 leaving, not chemistry.
+
+### What it costs, stated rather than traded away
+
+Exp 65 was the only run at pH 8.51 and carried the top of the [HOO⁻] range
+alone (0.089 mM against 0.041 and 0.0012). The pH axis is now **two levels**, so
+the [HOO⁻] order is a two-point contrast that cannot be checked for curvature.
+
+That cost is accepted. A law fitted with exp 65 in it did not *have* the
+coverage it appeared to have — it had two good levels plus a third whose rate
+has no defined value. Missing coverage is preferable to coverage that is wrong.
+**A repeat of exp 65 — enzyme-free, boric, run long — restores it**, and the
+entry below already wants that experiment for the peroxo question.
+
+### Two drift holes found while doing it
+
+- **`check_numbers` hardcoded the denominator** of the accelerating count at
+  "1 of 16". `BUFFER_FIXED` dropping exp 65 left the check comparing a live
+  numerator against a dead total. Derived now.
+- **`boric_sensitivity` read its "all" column off the default anchor.** When
+  the default stopped containing exp 65, both its columns silently became the
+  same number and the `[buf]` spread read 0.392 against 0.392. Both anchors are
+  named explicitly now.
+- Also corrected: ANALYSIS.md §5 said the estimators span "+0.77 to +1.67", a
+  number nothing derived and which matched no computable quantity. Replaced
+  with a derived span and pinned.
+
+---
+
 ## 2026-09-01 — Retraction: the boric probe's control set was catalysed runs, which cannot show a background shape
 
 **Raised by the user, one hour after the entry below was written:** *"the

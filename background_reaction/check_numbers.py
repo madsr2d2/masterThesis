@@ -85,7 +85,8 @@ def main():
                                 f"{free.experiment.nunique()} experiments")
     fixed = scope.frame(scope.BUFFER_FIXED)
     titration = scope.frame(scope.BUFFER_CONFOUNDED)
-    claim("BUFFER_FIXED size", f"| 65, 67, 69, 70 | {len(fixed)} |")
+    claim("BUFFER_FIXED size",
+          f"| {', '.join(str(e) for e in scope.BUFFER_FIXED)} | {len(fixed)} |")
     claim("BUFFER_CONFOUNDED size",
           f"| 3, 6 | {len(titration)} ({int(titration.live.sum())} live) |")
 
@@ -196,25 +197,30 @@ def main():
                               f"{strong['stderr_s0']:.3f} on the "
                               f"{len(scope.strong_runs())} strong runs)")
 
-    print("\nthe rate law, both scopes")
+    print("\nthe rate law")
     # Pinned at last. The line in section 6 was the PRE-first-reading-drop
     # value from 2026-09-01 to b144b9e -- [H2O2]^+1.78 where the code said
     # +1.87, [HOO-]^+0.68 where it said +0.63 -- because no check re-derived
     # it. Same failure as the legend and the estimator table before it.
+    #
+    # ONE SCOPE, not two. The "all six runs" law was withdrawn on 2026-09-01
+    # when exp 65's rates were ruled unusable, and this loop checked it until
+    # then. A withdrawn number must stop being checked, or the check keeps it
+    # alive in the document.
     for estimator in ("v0_quad", "vmax"):
-        for label, block, anchor in (
-                ("all", scope.FREE_BNOH_ALL, scope.BUFFER_FIXED),
-                ("phosphate", scope.FREE_BNOH_PHOSPHATE, (67, 69, 70))):
-            law = scope.background_orders(block, terms=("s0", "h2o2", "hoo"),
-                                          parameter=estimator)
-            buf = scope.buffer_dependence(anchor=anchor, parameter=estimator)
-            claim(f"rate law, {estimator}, {label}",
-                  f"[S]^{buf['order_s0_fixed']:+.2f}  "
-                  f"[H2O2]^{law['order_h2o2']:+.2f}  "
-                  f"[HOO-]^{law['order_hoo']:+.2f}  "
-                  f"[buf]^{buf['order_buf']:+.2f}     ({estimator})")
-            claim(f"pooled R2, {estimator}, {label}",
-                  f"{law['r2']:.3f}")
+        law = scope.background_orders(scope.FREE_BNOH_PHOSPHATE,
+                                      terms=("s0", "h2o2", "hoo"),
+                                      parameter=estimator)
+        buf = scope.buffer_dependence(parameter=estimator)
+        claim(f"rate law, {estimator}",
+              f"[S]^{buf['order_s0_fixed']:+.2f}  "
+              f"[H2O2]^{law['order_h2o2']:+.2f}  "
+              f"[HOO-]^{law['order_hoo']:+.2f}  "
+              f"[buf]^{buf['order_buf']:+.2f}     ({estimator})")
+        claim(f"pooled R2, {estimator}", f"{law['r2']:.3f}")
+    # And that the withdrawn version is really gone from the document.
+    claim("no all-six rate law survives", "All six runs, boric included",
+          present=False)
 
     print("\nthe species/total degeneracy behind the buffer order")
     # Section 6b claims the design cannot separate a buffer SPECIES from the
@@ -506,12 +512,16 @@ def main():
     claim("legend: the discard is disclosed",
           "first reading of every run is not plotted, fitted or scored",
           document=CURVES_PAGE)
+    # The DENOMINATOR is derived too. It was hardcoded at 16 and survived
+    # BUFFER_FIXED dropping exp 65 on 2026-09-01, so the check went on
+    # comparing a live numerator against a dead total.
+    anchor = list(scope.curves(scope.BUFFER_FIXED))
+    rising = sum(bool(np.isfinite(z) and z > ACCELERATION_SIGMA)
+                 for z, _ in (acceleration(c.times, c.absorbance,
+                                           floor=source_floor(c.source))
+                              for c in anchor))
     claim("the constant-buffer accelerating count",
-          f"| enzyme-free BnOH, `[buf]` fixed | **{sum(
-              bool(np.isfinite(z) and z > ACCELERATION_SIGMA)
-              for z, _ in (acceleration(c.times, c.absorbance,
-                                        floor=source_floor(c.source))
-                           for c in scope.curves(scope.BUFFER_FIXED)))} of 16** |")
+          f"| enzyme-free BnOH, `[buf]` fixed | **{rising} of {len(anchor)}** |")
 
     print()
     if FAILURES:

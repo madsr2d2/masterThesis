@@ -784,8 +784,38 @@ FREE_BNOH_ALL = FREE_BNOH + FREE_BNOH_NEUTRAL
 BORIC_BUFFER = (65,)
 FREE_BNOH_PHOSPHATE = tuple(e for e in FREE_BNOH_ALL if e not in BORIC_BUFFER)
 
+# EXP 65 HAS NO USABLE RATE, and every default in this module that fits one now
+# excludes it. Ruled 2026-09-01. The reason is not that boric is a different
+# buffer -- that would be an argument for a sensitivity, which is what
+# `boric_sensitivity` was -- it is that the run's curves cannot be reduced to a
+# rate at all:
+#
+#   * all four cuvettes break upward mid-run, at 504-560 s, and steepen by
+#     1.82-15.94x across the break (`synchronised_break`). So `v0` measures the
+#     pre-break stretch, `vmax` the post-break one, and they are not estimates
+#     of one quantity that disagree -- they are two different quantities.
+#   * `v0_quad` returns a NEGATIVE rate on two of the four, which silently
+#     drops them from any log-log fit, so the "all six runs" law rested on two
+#     of exp 65's four cuvettes without saying so.
+#   * neither rate form fits it: 6.9-8.3x noise for the burst, 4.8-5.7x for the
+#     quadratic, against a median 1.08-1.18x over the rest of the block.
+#   * all four burst fits collapse to B = 0 with tau at its grid floor while
+#     still reporting bounded = True.
+#
+# There is no defensible choice of estimator, so there is no defensible number,
+# and a sensitivity that reports the fit both ways implies one of them is right.
+#
+# THIS IS NOT A KNOWN_EXCLUSIONS ENTRY, deliberately. That would drop exp 65
+# from the dataset, and its SHAPE is the most informative thing in the boric
+# block: it is the only background run in the archive that breaks, which is the
+# only direct evidence bearing on whether the buffer makes an oxidant. The
+# shape is evidence; the rate is not. `FREE_BNOH_ALL` therefore still exists
+# and still contains exp 65, for shape work and for `boric_sensitivity`, which
+# is now a record of what the exclusion bought rather than a live alternative.
+BORIC_RATE_UNUSABLE = BORIC_BUFFER
 
-def background_orders(scope=FREE_BNOH_ALL, terms=("s0", "h2o2", "hoo"),
+
+def background_orders(scope=FREE_BNOH_PHOSPHATE, terms=("s0", "h2o2", "hoo"),
                       within=False, parameter="vmax", drop_accelerating=False):
     """
     How the enzyme-free rate depends on substrate, peroxide and pH.
@@ -899,13 +929,14 @@ def variance_inflation(data, terms, within=False):
 #
 # BUFFER_CONFOUNDED (exps 3, 6) move [buf] 85 -> 25 mM DOWN as [sub] moves
 # 1.28 -> 8.98 mM UP, because substrate volume displaced buffer volume in the
-# cuvette. BUFFER_FIXED (exps 65, 67, 69, 70) hold [buf] at 85-87.5 mM along
+# cuvette. BUFFER_FIXED (exps 67, 69, 70; exp 65 left it on 2026-09-01,
+# see BORIC_RATE_UNUSABLE) holds [buf] at 85 mM along
 # their substrate ladder. Neither design varies [buf] at constant [sub] --
 # no enzyme-free run in the archive does, in any block -- so the buffer order
 # is not directly measurable and has to be recovered from the disagreement
 # between these two, which is what `buffer_dependence` does.
 BUFFER_CONFOUNDED = FREE_BNOH_NEUTRAL
-BUFFER_FIXED = FREE_BNOH
+BUFFER_FIXED = tuple(e for e in FREE_BNOH if e not in BORIC_RATE_UNUSABLE)
 
 
 def buffer_dependence(anchor=BUFFER_FIXED, titration=BUFFER_CONFOUNDED,
@@ -1022,12 +1053,13 @@ def boric_sensitivity(estimators=("v0_quad", "v0_burst", "vmax", "v0",
                 "phosphate_stderr": both["phosphate"].get(f"stderr_{term}",
                                                           np.nan),
             })
-        # The buffer order comes from the two-design contrast, so its
-        # "without boric" version is the anchor with exp 65 removed.
-        full = buffer_dependence(parameter=estimator)
-        cut = buffer_dependence(
-            anchor=tuple(e for e in BUFFER_FIXED if e not in BORIC_BUFFER),
-            parameter=estimator)
+        # The buffer order comes from the two-design contrast, so its two
+        # versions are the anchor WITH and WITHOUT exp 65. Both anchors are
+        # named explicitly: BUFFER_FIXED stopped containing exp 65 on
+        # 2026-09-01, and reading the "all" column off the default silently
+        # made both columns the same number.
+        full = buffer_dependence(anchor=FREE_BNOH, parameter=estimator)
+        cut = buffer_dependence(anchor=BUFFER_FIXED, parameter=estimator)
         rows.append({
             "estimator": estimator, "term": "buf",
             "all": full["order_buf"], "all_stderr": full["stderr_buf"],
@@ -1269,7 +1301,8 @@ def peroxo_buffer_test(pair=PEROXO_PAIR, orders_scope=FREE_BNOH_PHOSPHATE,
     return pd.DataFrame(rows).set_index("estimator")
 
 
-def literature_comparison(scope=FREE_BNOH_NEUTRAL, orders_scope=FREE_BNOH_ALL,
+def literature_comparison(scope=FREE_BNOH_NEUTRAL,
+                          orders_scope=FREE_BNOH_PHOSPHATE,
                           orders_terms=("s0", "h2o2", "hoo")):
     """
     Our enzyme-free background against the literature's uncatalysed rate.
@@ -1303,7 +1336,8 @@ def literature_comparison(scope=FREE_BNOH_NEUTRAL, orders_scope=FREE_BNOH_ALL,
     return table
 
 
-def background_model(scope=FREE_BNOH_NEUTRAL, orders_scope=FREE_BNOH_ALL,
+def background_model(scope=FREE_BNOH_NEUTRAL,
+                     orders_scope=FREE_BNOH_PHOSPHATE,
                      orders_terms=("s0", "h2o2", "hoo")):
     """
     An amplitude and three orders that predict the enzyme-free rate, in mM/s.
@@ -1330,7 +1364,7 @@ CATALYSED_WITH_BACKGROUND = (66, 68, 71, 73, 83)
 
 def predicted_enhancement(scope=CATALYSED_WITH_BACKGROUND,
                           background_scope=FREE_BNOH_NEUTRAL,
-                          orders_scope=FREE_BNOH_ALL):
+                          orders_scope=FREE_BNOH_PHOSPHATE):
     """
     What the literature's kcat would show at THIS archive's catalyst loading.
 
@@ -1481,30 +1515,34 @@ def main():
               f"{check['stderr_buf']:.2f}   (VIF {check['vif_buf']:.1f})")
         print(f"      order in [sub]  {check['order_s0']:+.2f} +/- "
               f"{check['stderr_s0']:.2f}")
-        phosphate = buffer_dependence(
-            anchor=tuple(e for e in BUFFER_FIXED if e not in BORIC_BUFFER))
-        print(f"\n  and it is a PHOSPHATE result: dropping the one boric run "
-              f"from the anchor leaves\n      order in [buf]  "
-              f"{phosphate['order_buf']:+.2f} +/- "
-              f"{phosphate['stderr_buf']:.2f}   (n={phosphate['n_fixed']})")
+        with_boric = buffer_dependence(anchor=FREE_BNOH)
+        print(f"\n  The anchor is exps {BUFFER_FIXED} -- PHOSPHATE ONLY. Exp 65 "
+              f"left it on 2026-09-01:\n  its curves break mid-run and have no "
+              f"usable rate (BORIC_RATE_UNUSABLE,\n  `synchronised_break`). "
+              f"With it in, this read {with_boric['order_buf']:+.2f} +/- "
+              f"{with_boric['stderr_buf']:.2f}.")
 
-        print(f"\n  WHAT MAKES IT FIRST ORDER. Catalysis by a buffer species, "
-              f"or the buffer making an\n  oxidant? Borate is where the "
-              f"second is not a hypothesis -- exp 65 sits at pH 8.51,\n  "
-              f"above the pH ~7.7 where peroxoborate becomes significant. "
-              f"Predicting it from a\n  law fitted on phosphate alone "
-              f"({PEROXO_PAIR[0]} against {PEROXO_PAIR[1]}, cuvette for "
-              f"cuvette at matched [S] and\n  [H2O2]):\n")
+        print(f"\n  WHAT MAKES IT FIRST ORDER is NOT SETTLED. Catalysis by a "
+              f"buffer species, or the\n  buffer making an oxidant? Both are "
+              f"first order in a buffer species and the\n  phosphate design "
+              f"cannot separate them. Borate is where the second is not a\n  "
+              f"hypothesis, and exp {PEROXO_PAIR[0]} is the only boric "
+              f"BACKGROUND run in the archive -- so the\n  test rests on the "
+              f"one run whose curves are unusable. Predicting it from a law\n  "
+              f"fitted on phosphate alone ({PEROXO_PAIR[0]} against "
+              f"{PEROXO_PAIR[1]}, cuvette for cuvette):\n")
         peroxo = peroxo_buffer_test()
         for estimator, row in peroxo.iterrows():
             print(f"      {estimator:9s} predicted {row['predicted']:.2f}x   "
                   f"observed {row['observed']:.2f}x   "
                   f"excess {row['excess']:.2f}x   (n={int(row['n'])})")
-        print(f"\n  No excess. A buffer that certainly forms a peroxo species "
-              f"is not faster than a\n  law fitted without one, so the "
-              f"first-order term is CATALYSIS, not oxidant-making.\n  "
-              f"See background_reaction/ANALYSIS.md section 6b for what this "
-              f"does and does not settle.")
+        print(f"\n  Read as 'borate is nowhere fast', not as 'borate matches "
+              f"the law': exp 65's\n  vmax reads the post-break stretch and "
+              f"its v0 the pre-break one. The catalysed\n  runs cannot stand "
+              f"in -- their reference channel already subtracted the\n  "
+              f"background, so a buffer-made oxidant cancels. See "
+              f"background_reaction/\n  ANALYSIS.md section 6b; the decisive "
+              f"tests are 31P NMR and a repeat of exp 65.")
 
         print(f"\n  The in-scope block is UNAFFECTED: [buf] = 75.013 mM in "
               f"all 119 of its curves,\n  so no buffer variation can reach "

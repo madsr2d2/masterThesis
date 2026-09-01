@@ -736,12 +736,12 @@ buffer catalysis from pH — which the existing titration data cannot do, since
 
 **Measured 2026-09-01, and it is first order.** The dilution series does not
 exist, but the buffer order is still recoverable, because the archive holds
-*two* enzyme-free BnOH designs that disagree: exps 65/67/69/70 hold `[buf]`
+*two* enzyme-free BnOH designs that disagree: exps 67/69/70 hold `[buf]`
 constant along their substrate ladder and read a substrate order of
-**+0.297 ± 0.080**, while exps 3/6 let `[buf]` fall 85 → 25 mM as `[sub]` rises
-and read **−0.210 ± 0.092**. The order changes *sign* with the buffer design,
+**+0.343 ± 0.071**, while exps 3/6 let `[buf]` fall 85 → 25 mM as `[sub]` rises
+and read **−0.298 ± 0.087**. The order changes *sign* with the buffer design,
 and the gap divided by the runs' own `dlog[buf]/dlog[sub]` gives an order in
-buffer of **+1.17 ± 0.28** — confirmed independently at **+0.83 ± 0.27** on the
+buffer of **+1.31 ± 0.23** — confirmed independently at **+0.83 ± 0.29** on the
 4OMe-BnOH / 40 °C block, whose buffer contrast sits between experiments at
 fixed pH and fixed `[H2O2]`. First order in buffer is exactly what Sander &
 Jencks predict. `python data/scope.py --buffer`; `scope.buffer_dependence`.
