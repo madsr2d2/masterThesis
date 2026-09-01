@@ -8,6 +8,51 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — Correction: `whole_slope` returned the intercept, not the slope
+
+Found while rendering the curve panels to look at them, which is the only
+reason it was found: a panel reported `whole 1.792e-03` for exp 67 sample 2,
+whose whole-curve slope is 2.498e-05. An absorbance had been printed where a
+rate belonged.
+
+`curve_metrics.whole_slope` was written as `return line_fit(times, values,
+floor)[:2]`. `line_fit` returns **(intercept, slope, stderr, rms)**, so the
+slice handed back the intercept as the rate and the slope as its standard
+error. Fixed to use `line_slope`.
+
+### What it cost
+
+Nothing measured, and one thing *argued*. `v0_whole` was one of four rate
+estimators carried purely as a robustness check; no headline number rests on
+it. But its corrupted output — a buffer order of −3.90 ± 2.25 where the other
+three gave +1.17 to +1.67 — was written up in the entry below, in
+`background_reaction/ANALYSIS.md` and on the figure page as a *finding*: that a
+whole-curve straight line is biased by the curves' deceleration and is
+therefore the one estimator that fails. **That argument was an artefact of the
+bug and has been withdrawn in all three places.**
+
+Corrected, `v0_whole` gives **+1.62 ± 0.28** on BnOH and **+1.38 ± 0.60** on the
+4OMe-BnOH cross-check, so all four estimators now agree and the conclusion is
+stronger than it was, not weaker.
+
+The deceleration itself is untouched: it is measured by
+`curve_metrics.quadratic_rate`'s `curvature_t`, which was never involved.
+
+### Why it survived review
+
+It was shipped in c41f459 with `validate_dataset.py --deep`, four test suites
+and `check_numbers.py` all passing, because **nothing checked `whole_slope`
+against anything**. It was new, it had no test, and a plausible-looking number
+came out of it. `check_numbers.py` did its job the moment the code changed — it
+failed on the stale `v0_whole` row — but it can only compare a document to the
+code, not the code to reality.
+
+The thing that caught it was rasterising a figure and reading the numbers on
+it. Worth remembering: the figures are a check on the analysis, not only an
+output of it.
+
+---
+
 ## 2026-09-01 — The background's substrate order is a buffer order wearing its clothes
 
 Raised by the user, asking what the uncatalysed BnOH + H2O2 reaction is, so
@@ -194,14 +239,11 @@ not depend on it:
 | `v0_quad` | none | **+1.33 ± 0.25** | +0.87 ± 0.38 |
 | `vmax` | steepest 20% block | +1.17 ± 0.28 | +0.83 ± 0.27 |
 | `v0` | first 20% | +1.67 ± 0.52 | +0.77 ± 0.26 |
-| `v0_whole` | none | **-3.90 ± 2.25** | -2.63 ± 3.45 |
+| `v0_whole` | none | +1.62 ± 0.28 | +1.38 ± 0.60 |
 
-The last row is worth keeping. A straight line through the whole curve chooses
-no window and uses every point, and it is the only estimator that is badly
-wrong -- because 22 of 27 curves genuinely decelerate, so it reads the average
-rate, and that bias scales with run length and curvature, which differ between
-cuvettes and so do not cancel in a log-log slope. **Using the whole curve helps
-only if the form may bend.**
+**All four agree**, including the two that choose no window at all. The spread
+across them, +0.77 to +1.67, is smaller than the distance of any one of them
+from zero.
 
 A related finding, not yet explained: the deceleration is **not substrate
 depletion**. Conversion runs 0.05-8% across these curves, yet 22 of 27 show

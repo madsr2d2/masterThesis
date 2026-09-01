@@ -111,7 +111,7 @@ nothing lets `[buf]` stand in for pH.
 | **`v0_quad`** | **+1.33 ± 0.25** | **+0.87 ± 0.38** |
 | `vmax` | +1.17 ± 0.28 | +0.83 ± 0.27 |
 | `v0` | +1.67 ± 0.52 | +0.77 ± 0.26 |
-| `v0_whole` | −3.90 ± 2.25 | −2.63 ± 3.45 |
+| `v0_whole` | +1.62 ± 0.28 | +1.38 ± 0.60 |
 
 The cross-check is independent in substrate, temperature and design geometry: its
 buffer contrast lies *between* experiments at fixed pH (6.97–7.00) and fixed
@@ -121,12 +121,18 @@ buffer contrast lies *between* experiments at fixed pH (6.97–7.00) and fixed
 general acid/base catalysis of the H<sub>2</sub>O<sub>2</sub>/carbonyl addition
 predicts (Sander & Jencks; `MECHANISM.md`).
 
-The last row is instructive rather than a defect. A straight line through the
-whole curve chooses no window and uses every point, yet it is the only estimator
-that is badly wrong — because 22 of 27 curves genuinely decelerate, so it measures
-the *average* rate, and that bias scales with run length and curvature, which
-differ between cuvettes and so do not cancel in a log-log slope. **Using the whole
-curve helps only if the fitted form may bend.**
+**All four estimators agree**, including the two that choose no window at all.
+The spread across them, +0.77 to +1.67, is smaller than the distance of any of
+them from zero.
+
+> **Corrected 2026-09-01.** An earlier version of this document reported
+> `v0_whole` at −3.90 ± 2.25 and built an argument on it: that a straight line
+> through the whole curve is biased by the curves' deceleration and so is the
+> one estimator that fails. **That was a bug, not a finding.**
+> `curve_metrics.whole_slope` returned `line_fit(...)[:2]`, and `line_fit`
+> returns `(intercept, slope, stderr, rms)` — so it handed back the *intercept*,
+> an absorbance, as if it were a rate. Fixed; `v0_whole` agrees with the rest.
+> The deceleration in section 7 is measured by `curvature_t` and is unaffected.
 
 ## 6. The rate law
 

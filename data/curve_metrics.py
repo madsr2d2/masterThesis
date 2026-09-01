@@ -248,8 +248,16 @@ def whole_slope(times, values, floor=QUANTISATION_SIGMA):
     over the run, not the initial one, so on a curve that decelerates it reads
     low by however much the curve bends. Quote it beside `initial_rate` rather
     than instead of it: the gap between the two IS the curvature.
+
+    NOT `line_fit(...)[:2]`. `line_fit` returns (intercept, slope, stderr, rms),
+    so slicing its first two hands back the INTERCEPT as the rate -- an
+    absorbance, not a rate at all. That bug shipped in c41f459 on 2026-09-01,
+    and the nonsense buffer order it produced was mistakenly written up as
+    evidence that a whole-curve line is biased by deceleration. See
+    DATA_VERIFICATION.md.
     """
-    return line_fit(times, values, floor)[:2]
+    slope, stderr, _ = line_slope(times, values, floor)
+    return slope, stderr
 
 
 def quadratic_rate(times, values, floor=QUANTISATION_SIGMA):

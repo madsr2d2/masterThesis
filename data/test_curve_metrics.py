@@ -19,7 +19,7 @@ import numpy as np
 from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            QUANTISATION_SIGMA, acceleration, curve_noise,
                            initial_rate, line_fit, line_slope, peak_position,
-                           window_size)
+                           quadratic_rate, whole_slope, window_size)
 from fit_dataset import source_floor
 from read_rre import RRE_SIGMA
 
@@ -222,11 +222,59 @@ def test_floor_belongs_to_the_source():
           and source_floor("txt") == QUANTISATION_SIGMA)
 
 
+def test_whole_curve_estimators_return_rates():
+    """
+    `whole_slope` and `quadratic_rate` must return a RATE, not an intercept.
+
+    This test exists because they did not. `whole_slope` was written as
+    `line_fit(...)[:2]`, and `line_fit` returns (intercept, slope, stderr,
+    rms), so it handed back the intercept -- an absorbance -- as the rate, and
+    the slope as its standard error. It shipped in c41f459 and produced a
+    plausible-looking number that was written up as a finding before a figure
+    made it obvious. See DATA_VERIFICATION.md, 2026-09-01.
+
+    The check is that a line of KNOWN slope and a large NON-ZERO offset comes
+    back as the slope: an intercept-returning implementation fails only if the
+    offset is not zero, which is exactly why the bug was invisible on
+    baseline-subtracted curves that start near zero.
+    """
+    print("\nwhole-curve estimators return rates")
+    times = np.linspace(0.0, 1000.0, 200)
+    slope, offset = 4.0e-5, 0.35
+    values = offset + slope * times
+
+    measured, stderr = whole_slope(times, values)
+    check("whole_slope returns the slope of a straight line",
+          abs(measured - slope) < 1e-12, f"got {measured:.4e}, want {slope:.4e}")
+    check("...and not its intercept",
+          abs(measured - offset) > abs(measured) * 0.5,
+          f"got {measured:.4e}, which is the offset {offset}")
+    check("whole_slope's second return is an error, not the slope",
+          stderr < abs(slope), f"stderr {stderr:.3e} vs slope {slope:.3e}")
+
+    v0, v0_stderr, curvature_t = quadratic_rate(times, values)
+    check("quadratic_rate returns the slope on a straight line",
+          abs(v0 - slope) < 1e-10, f"got {v0:.4e}, want {slope:.4e}")
+    check("...and reports no curvature there",
+          abs(curvature_t) < 3.0, f"curvature t {curvature_t:.2f}")
+
+    # A decelerating curve: the initial rate must exceed the average rate.
+    bend = slope * times - 1.2e-8 * times ** 2
+    initial, *_ = quadratic_rate(times, offset + bend)
+    average, _ = whole_slope(times, offset + bend)
+    check("on a decelerating curve the initial rate exceeds the average",
+          initial > average > 0, f"initial {initial:.3e}, average {average:.3e}")
+    check("and the curvature is flagged negative",
+          quadratic_rate(times, offset + bend)[2] < -3.0,
+          f"curvature t {quadratic_rate(times, offset + bend)[2]:.1f}")
+
+
 if __name__ == "__main__":
     test_no_duplicate_definitions()
     test_lag_statistic()
     test_noise_and_rate()
     test_acceleration()
     test_floor_belongs_to_the_source()
+    test_whole_curve_estimators_return_rates()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

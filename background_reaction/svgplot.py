@@ -31,7 +31,8 @@ class Axes:
         self.xlog, self.ylog = xlog, ylog
         self.xlim = tuple(np.log10(v) if xlog else v for v in xlim)
         self.ylim = tuple(np.log10(v) if ylog else v for v in ylim)
-        self.parts = []
+        self.parts = []      # marks: clipped to the plot area
+        self.overlay = []    # text: never clipped, always drawn on top
 
     def _fx(self, value):
         value = np.log10(value) if self.xlog else np.asarray(value, dtype=float)
@@ -104,7 +105,7 @@ class Axes:
 
     def label(self, x, y, text, colour=INK, size=11, anchor="start",
               weight="normal", dx=0, dy=0):
-        self.parts.append(
+        self.overlay.append(
             f"<text x='{self._fx(x) + dx:.2f}' y='{self._fy(y) + dy:.2f}' "
             f"font-size='{size}' fill='{colour}' text-anchor='{anchor}' "
             f"font-weight='{weight}'>{esc(text)}</text>")
@@ -113,7 +114,7 @@ class Axes:
     def note(self, px, py, text, colour=MUTED, size=10.5, anchor="start",
              weight="normal"):
         """Place text in PIXEL coordinates, for annotations outside the data."""
-        self.parts.append(
+        self.overlay.append(
             f"<text x='{px:.2f}' y='{py:.2f}' font-size='{size}' "
             f"fill='{colour}' text-anchor='{anchor}' "
             f"font-weight='{weight}'>{esc(text)}</text>")
@@ -142,7 +143,8 @@ class Axes:
         # arange's endpoint is computed in floating point and overshoots, which
         # puts a gridline and a tick label outside the frame.
         values = values[(values <= hi + 1e-9) & (values >= lo - 1e-9)]
-        return [(v, f"{v:g}") for v in values]
+        # `f"{-1e-16:g}"` renders as "-0", which reads as a distinct value.
+        return [(v, f"{0.0 if abs(v) < step * 1e-6 else v:g}") for v in values]
 
     def render(self, xlabel="", ylabel="", title="", xticks=True):
         """`xticks=False` for a categorical x-axis, whose labels the caller
@@ -177,6 +179,10 @@ class Axes:
         out.append(f"<g clip-path='url(#{clip})'>")
         out.extend(self.parts)
         out.append("</g>")
+        # Annotations sit OUTSIDE the clip. Axis category labels live below the
+        # frame and legends above it, and clipping them deleted both when this
+        # clip was introduced -- figure C lost its estimator names entirely.
+        out.extend(self.overlay)
         if xlabel:
             out.append(f"<text x='{(x0 + x1) / 2:.1f}' y='{self.height - 3}' "
                        f"font-size='11.5' fill='{INK}' text-anchor='middle'>"
@@ -233,6 +239,20 @@ color:var(--muted);margin:6px 2px 10px}
 .scroll{overflow-x:auto}
 .warn{border-left:3px solid var(--accent);padding:2px 0 2px 13px;
 color:var(--muted);font-size:12.8px;margin:12px 0;max-width:82ch}
+.panel{padding:12px 12px 8px}
+.ph{font-size:12.5px;font-weight:650;letter-spacing:-0.005em}
+.ps{font-size:10.9px;color:var(--muted);margin:1px 0 6px}
+.pf{font-size:10.6px;color:var(--muted);margin-top:5px;
+border-top:1px solid var(--rule);padding-top:5px}
+table.nums{margin:7px 0 0;font-size:11.2px;width:100%}
+table.nums td{padding:2.5px 5px;border-bottom:none;text-align:left;
+white-space:nowrap}
+table.nums td.num{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+text-align:right;font-size:11px}
+table.nums td.dim{color:var(--muted);font-size:10.4px}
+table.nums tr:nth-child(odd){background:rgba(128,128,128,0.055)}
+.sw{width:13px;height:3px;border-radius:2px;display:inline-block;
+margin-right:6px;vertical-align:middle}
 """
 
 

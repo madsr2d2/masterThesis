@@ -132,8 +132,12 @@ def figure_buffer_order():
         rows.append((estimator, result["order_buf"], result["stderr_buf"],
                      cross["order_buf"], cross["stderr_buf"]))
 
-    axes = Axes(560, 380, (-0.6, len(rows) - 0.4), (-6.0, 3.0),
-                pad=(62, 16, 74, 26))
+    # Limits from the data, not hardcoded: they were pinned to (-6, 3) for a
+    # v0_whole value of -3.90 that turned out to be a bug in whole_slope.
+    low = min(v - e for _, v, e, _, _ in rows) - 0.3
+    high = max(max(v + e, o + oe) for _, v, e, o, oe in rows) + 0.3
+    axes = Axes(560, 380, (-0.6, len(rows) - 0.4),
+                (min(-0.4, low), max(2.2, high)), pad=(62, 16, 74, 26))
     axes.hline(0.0, MUTED, "3 3", 1.4)
     axes.hline(1.0, "#3f8a5a", "6 4", 1.6)
     for index, (name, bnoh, bnoh_e, ome, ome_e) in enumerate(rows):
@@ -152,13 +156,23 @@ def figure_buffer_order():
 
 
 # --- the progress curves, with every fit drawn -----------------------------
-WINDOW_COLOUR = PALETTE[0]     # the 20% window line
-QUAD_COLOUR = "#3f8a5a"        # the whole-curve quadratic (headline)
-BURST_COLOUR = "#12856a"       # the burst/lag form, as curve_dossier draws it
+# Four forms are drawn on every panel, so they need four clearly separated
+# hues. The first attempt used #3f8a5a for the quadratic and #12856a for the
+# burst -- both green-teal, and indistinguishable on the page.
+WINDOW_COLOUR = "#2f6fb0"      # the 20% window line          -- blue
+QUAD_COLOUR = "#c25e00"        # the whole-curve quadratic    -- amber (headline)
+BURST_COLOUR = "#7a4bb8"       # the burst/lag form           -- purple
+WHOLE_COLOUR = "#3f8a5a"       # straight line, whole curve   -- green
 
 
-def curve_panel(curve, width=330, height=230):
-    """One cuvette: the data, all three fits, and the numbers behind them."""
+def curve_panel(curve, width=330, height=210):
+    """
+    One cuvette as an HTML block: the plot, then its numbers in a real table.
+
+    The numbers were once floating text inside the SVG. They sat on top of the
+    curves, were clipped by the frame, and could not be selected or searched.
+    Anything textual belongs in HTML; the SVG draws only data and fits.
+    """
     from curve_metrics import initial_rate, quadratic_rate, whole_slope
 
     times = np.asarray(curve.times, dtype=float)
@@ -174,64 +188,90 @@ def curve_panel(curve, width=330, height=230):
 
     lo, hi = float(values.min()), float(values.max())
     margin = max((hi - lo) * 0.16, 4 * curve.noise)
-    axes = Axes(width, height, (0.0, float(times[-1])), (lo - margin, hi + margin),
-                pad=(58, 10, 34, 22))
+    axes = Axes(width, height, (0.0, float(times[-1])),
+                (lo - margin, hi + margin), pad=(56, 12, 32, 12))
 
-    # the data
-    axes.line(times, values, MUTED, width=1.0, opacity=0.55)
-    step = max(1, len(times) // 90)
-    axes.points(times[::step], values[::step], INK, radius=1.5, opacity=0.7)
-
-    # the window the 20% line was fitted through, shaded
     cut = float(times[-1]) * INITIAL_WINDOW
     axes.parts.append(
         f"<rect x='{axes._fx(0):.1f}' y='{axes.top}' "
         f"width='{axes._fx(cut) - axes._fx(0):.1f}' "
         f"height='{height - axes.top - axes.bottom:.1f}' fill='{WINDOW_COLOUR}' "
-        f"fill-opacity='0.09'/>")
+        f"fill-opacity='0.07'/>")
 
-    base = float(np.median(values[:max(1, min(5, len(values) // 10))]))
-    grid = np.linspace(0, float(times[-1]), 120)
-    axes.line(np.array([0, cut]), base + v0 * np.array([0, cut]),
-              WINDOW_COLOUR, width=2.0)
-    axes.line(grid, base + quad * grid
-              + (quad_se * 0 + _quad_curvature(times, values)) * grid ** 2,
-              QUAD_COLOUR, width=1.9)
+    grid = np.linspace(0, float(times[-1]), 140)
+    # Every line is drawn from ITS OWN fitted intercept. Displaying a fit
+    # against an intercept it did not choose puts it visibly off its own data
+    # and misrepresents how well it fits.
+    quad_beta = _quadratic_beta(times, values)
+    window = times <= cut
+    window_beta = np.polyfit(times[window], values[window], 1)
+    whole_beta = np.polyfit(times, values, 1)
+
     if np.isfinite(burst.tau):
-        axes.line(grid, burst.predict(grid), BURST_COLOUR, width=1.6, dash="5 3")
-        # the v0 profile interval, drawn as the fan of slopes it allows
-        reach = float(times[-1]) * 0.22
+        # The v0 profile interval, as the fan of initial slopes the 95% cost
+        # band still allows. A wide fan means the curve does not determine v0,
+        # however well the form fits.
+        reach = float(times[-1]) * 0.25
         axes.band(np.array([0.0, reach]),
-                  base + burst.v0_low * np.array([0.0, reach]),
-                  base + burst.v0_high * np.array([0.0, reach]),
-                  BURST_COLOUR, opacity=0.22)
+                  burst.c + burst.v0_low * np.array([0.0, reach]),
+                  burst.c + burst.v0_high * np.array([0.0, reach]),
+                  BURST_COLOUR, opacity=0.20)
+        axes.line(grid, burst.predict(grid), BURST_COLOUR, width=1.7, dash="6 3")
+    axes.line(grid, whole_beta[1] + whole_beta[0] * grid, WHOLE_COLOUR,
+              width=1.5, dash="2 3")
+    axes.line(np.array([0.0, cut]), window_beta[1] + v0 * np.array([0.0, cut]),
+              WINDOW_COLOUR, width=2.2)
+    axes.line(grid, quad_beta[0] + quad_beta[1] * grid + quad_beta[2] * grid ** 2,
+              QUAD_COLOUR, width=2.2)
 
-    flag = "bounded" if burst.bounded else "UNBOUNDED"
-    head = (f"exp {curve.experiment} s{curve.sample} · "
-            f"[BnOH] {curve.conditions.s0:.3g} · [buf] {curve.buf:.4g} mM")
-    axes.note(axes.left, 12, head, INK, 10.6, weight="600")
-    axes.note(axes.left, height - 4,
-              f"{curve.source} · noise {curve.noise:.1e} · curvature t "
-              f"{curvature:+.1f}", MUTED, 9.4)
+    # The DATA goes on last. Drawn first it disappeared under four fit lines,
+    # which inverts the point of the panel: the fits are the claim, the
+    # readings are the evidence, and the evidence has to stay visible.
+    step = max(1, len(times) // 110)
+    axes.points(times[::step], values[::step], INK, radius=1.7, opacity=0.85)
+
+    svg = axes.render("time / s", "\u0394A")
+
+    verdict = ("bounded" if burst.bounded
+               else f"UNBOUNDED (±{burst.half_width:.0%})")
     rows = [
-        (f"v0 quad {quad:.3e}", QUAD_COLOUR),
-        (f"v0 win  {v0:.3e}", WINDOW_COLOUR),
-        (f"burst   {burst.v0:.3e} ({flag})", BURST_COLOUR),
-        (f"whole   {whole:.3e}", MUTED),
+        (QUAD_COLOUR, "v0 quadratic", f"{quad:.3e}", f"± {quad_se:.1e}",
+         "whole curve, no window"),
+        (WINDOW_COLOUR, "v0 window", f"{v0:.3e}", f"± {v0_se:.1e}",
+         f"first {INITIAL_WINDOW:.0%}, shaded"),
+        (BURST_COLOUR, "v0 burst", f"{burst.v0:.3e}",
+         f"[{burst.v0_low:.1e}, {burst.v0_high:.1e}]", verdict),
+        (WHOLE_COLOUR, "slope, whole", f"{whole:.3e}", f"± {whole_se:.1e}",
+         "straight line, every point"),
     ]
-    for index, (text, colour) in enumerate(rows):
-        axes.parts.append(
-            f"<text x='{width - 12}' y='{26 + 12 * index}' font-size='9.3' "
-            f"fill='{colour}' text-anchor='end' "
-            f"font-family='ui-monospace,Menlo,monospace'>{esc(text)}</text>")
-    return axes.render("time / s", "ΔA")
+    body = "".join(
+        f"<tr><td><i class='sw' style='background:{colour}'></i>{esc(name)}</td>"
+        f"<td class='num'>{esc(value)}</td><td class='num dim'>{esc(spread)}</td>"
+        f"<td class='dim'>{esc(note)}</td></tr>"
+        for colour, name, value, spread, note in rows)
+
+    sub = (f"[BnOH] {curve.conditions.s0:.3g} mM · [buf] {curve.buf:.4g} mM · "
+           f"{curve.source} · noise {curve.noise:.1e} AU")
+    foot = (f"curvature t {curvature:+.1f}"
+            + (f" · burst τ {burst.tau:.3g} s" if np.isfinite(burst.tau) else ""))
+    return (f"<div class='fig panel'>"
+            f"<div class='ph'>exp {curve.experiment} · sample {curve.sample}</div>"
+            f"<div class='ps'>{esc(sub)}</div>{svg}"
+            f"<table class='nums'>{body}</table>"
+            f"<div class='pf'>{esc(foot)}</div></div>")
 
 
-def _quad_curvature(times, values):
-    """The quadratic's t^2 coefficient, for drawing its curve only."""
+def _quadratic_beta(times, values):
+    """
+    (c, v0, a) for DRAWING the quadratic only.
+
+    The quoted v0 and its standard error come from
+    `curve_metrics.quadratic_rate`, which floors its variance by the curve's
+    source. This positions the line on the page and nothing else.
+    """
     design = np.column_stack([np.ones(len(times)), times, times ** 2])
     beta, *_ = np.linalg.lstsq(design, values, rcond=None)
-    return float(beta[2])
+    return [float(v) for v in beta]
 
 
 def figure_curvature():
@@ -404,11 +444,12 @@ asks one regression to separate [buf] from [sub].</p>
 {_table(["rate estimator", "a · [buf] fixed", "a′ · [buf] falling",
          "order in [buf] · BnOH", "cross-check · 4OMe-BnOH 40 °C"], rows,
         highlight=(0,))}
-<p class='warn'>The last row is the instructive failure. A straight line through the whole
-curve uses every point and chooses no window, yet it is the only estimator that gets the
-answer badly wrong — because 22 of 27 curves genuinely decelerate, so it reads the average
-rate, and the bias scales with run length and curvature, which differ between cuvettes.
-Using the whole curve helps only if the fitted form is allowed to bend.</p>
+<p class='warn'>All four estimators agree, including the two that choose no window
+anywhere. The spread across them is smaller than the distance of any one of them from
+zero. An earlier version of this page reported <code>v0_whole</code> at −3.90 ± 2.25 and
+argued from it that a whole-curve straight line is biased by the curves' deceleration;
+that was a bug in <code>curve_metrics.whole_slope</code>, which returned the fitted
+<em>intercept</em> in place of the slope. Corrected 2026-09-01.</p>
 
 <h2>The rate law</h2>
 <p>Each order is taken from the design that can measure it: the substrate order from the
@@ -449,9 +490,7 @@ three fits drawn</a></p>
 
 
 def build_curves_page():
-    panels = []
-    for curve in scope.curves(scope.FREE_BNOH_ALL):
-        panels.append(f"<div class='fig'>{curve_panel(curve)}</div>")
+    panels = [curve_panel(curve) for curve in scope.curves(scope.FREE_BNOH_ALL)]
     bounded = sum(fit_burst_bounded(c.times, c.absorbance).bounded
                   for c in scope.curves(scope.FREE_BNOH_ALL))
     body = f"""
@@ -464,7 +503,7 @@ curves. These are the empirical rate measurements the analysis rests on.</p>
   <span><i class='sw' style='background:{QUAD_COLOUR}'></i>quadratic through every point — v0 is its slope at t = 0 <b>(headline)</b></span>
   <span><i class='sw' style='background:{WINDOW_COLOUR}'></i>least-squares line over the first {INITIAL_WINDOW:.0%} (shaded)</span>
   <span><i class='sw' style='background:{BURST_COLOUR}'></i>burst/lag form, B ≤ 0, dashed; shaded fan = v0 profile interval</span>
-  <span><i class='sw' style='background:{MUTED}'></i>straight line through the whole curve</span>
+  <span><i class='sw' style='background:{WHOLE_COLOUR}'></i>straight line through the whole curve</span>
 </div>
 <p>The <b>quadratic</b> is A = c + v<sub>0</sub>t + at². It chooses no window, uses every
 point, and is linear in its parameters, so v<sub>0</sub> is always identified. Its
