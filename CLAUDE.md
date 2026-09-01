@@ -74,3 +74,15 @@ python data/test_validator.py             # fault injection
 ```
 
 Units: concentrations mM, time s.
+
+## The temperature series
+
+`temperature_series/` holds the archive's only temperature block (exps 14-19,
+4OMe-BnOH / pH 7.00 / phosphate, 15-40 °C) — the sole route to activation
+parameters. `data/arrhenius.py` has the fits; `scope.TEMPERATURE_SERIES` the
+scope. Use `vmax`, never `v0`: 20 of its 24 curves accelerate past 3σ, so an
+initial rate there is the induction rate.
+
+`data/verify_enzyme_stock.py` recomputes every experiment's `[enz]` from the
+weighing recorded beside it — an independent source, the way
+`verify_instrument.py` is for concentrations.

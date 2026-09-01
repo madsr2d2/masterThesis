@@ -1010,6 +1010,13 @@ def buffer_dependence(anchor=BUFFER_FIXED, titration=BUFFER_CONFOUNDED,
     }
 
 
+# The archive's ONLY temperature series: 4OMe-BnOH in 65 mM phosphate at
+# pH 7.00 and 82.5 mM H2O2, run at 15, 20, 25, 30, 35 and 40 C with the same
+# four-rung substrate ladder (1.850, 3.700, 5.549, 7.399 mM) in every one.
+# Listed in temperature order rather than experiment order, because the
+# experiment numbers do not run with temperature: 14 is 25 C and 16 is 40 C.
+TEMPERATURE_SERIES = (19, 18, 14, 17, 15, 16)
+
 # The 4OMe-BnOH / 40 C enzyme-free runs. Exp 31 is deliberately NOT here: it
 # is the same design at 35 C, and temperature moves every rate constant through
 # Arrhenius, so including it would pool two cells (FITTING.md F7).
@@ -1413,6 +1420,7 @@ NAMED_SCOPES = {
     "free-bnoh-neutral": FREE_BNOH_NEUTRAL,
     "free-bnoh-phosphate": FREE_BNOH_PHOSPHATE,
     "boric": BORIC_BUFFER,
+    "temperature-series": TEMPERATURE_SERIES,
     "paired": tuple(sorted({e for free, cat, _ in PAIRED_CONTROLS
                             for e in (*free, cat)})),
 }

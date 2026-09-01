@@ -8,6 +8,113 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — The temperature series' enzyme mismatch is real, not a typing mistake
+
+**The question**, on opening the 4OMe-BnOH temperature series (exps 14–19, the
+only one in the archive): two of the six runs record `[enz]` 11.7% below the
+other four — 0.240683 against 0.272695 mM — and **exp 16, the 40 °C run, sits
+between two runs at the higher value**. A real restock is divided out; a
+transcription error is corrected. Nothing in the pipeline could tell them apart,
+because `[enz]` reaches `experiment_data.csv` from one cell.
+
+**Verdict: real. Use the recorded values.** Three independent lines agree.
+
+### 1. The weighing chain, which the pipeline never reads
+
+New: `data/verify_enzyme_stock.py`. Beside the `kuv` cell the pipeline reads,
+every sheet records the preparation that produced it — mass, molar mass, made-up
+volume, and the cuvette volumes. Recomputing `kuv` from those confirms it
+without consulting it, and a transcription error would leave the chain
+inconsistent while a restock changes the mass and keeps it intact.
+
+Seven distinct stocks across the campaign, each used by a contiguous run:
+
+| weighed | made up to | cuvette mM | experiments |
+|---|---|---|---|
+| 0.0122 g | 3.3 mL | 0.17533 | 2–9 |
+| 0.023 g | 4 mL | 0.272695 | 10–15, **17, 18** |
+| 0.0203 g | 4 mL | 0.240683 | **16**, 19–22, 32, 34–36 |
+| 0.0228 g | 4 mL | 0.270324 | 37, 41–49 |
+| 0.0236 g | 4 mL | 0.167885 | 50–59, 85 |
+| 0.0236 g | 40 mL | 0.0279809 | 60–84 |
+| 0.0027 g | 4 mL | 0.0320121 | 127–131 |
+
+**62 of 63 chains are self-consistent** and **63 of 63 compiled values equal the
+sheet's own `kuv`** — so the extraction is exact and both disputed values
+descend from a real weighing, 0.0203 g against 0.023 g, with stock 3 used by
+nine experiments.
+
+The one break is **exp 58**, whose `kuv` misses its own preparation by 0.5%
+(0.132611 against an implied 0.133242). It is already excluded for running
+backwards, so no result depends on it; the verifier reports it and does not
+fail on it. Recorded here rather than chased.
+
+### 2. The ordering is genuinely odd, and the documents cannot settle it
+
+Stocks are made once and used until exhausted, so a mass should change rarely
+and never change back. **Exp 16 is the only experiment in the whole campaign
+whose stock interrupts a run** (`--sequence`).
+
+That is the shape a copied workbook leaves, and the file evidence is ambiguous:
+exps **16, 17, 18 and 20 are byte-identical in size (92672)** and structure — one
+lineage — and it straddles the boundary, 16 and 20 on stock 3, 17 and 18 on
+stock 2. Someone edited an enzyme block; the documents cannot say which way.
+
+The instrument files add nothing. The `.rre` binaries store an internal path
+that does catch copies elsewhere — **exp 003's file is internally named
+`mads_t006.rre` and exp 029's is `mads_t023.rre`** — but exp 016's is named
+`mads_t016.rre`. The `161008` field is a firmware build code, identical in all
+143 files, not a date.
+
+### 3. The kinetics decide it
+
+New: `data/arrhenius.py`. The six runs share the same four-rung substrate
+ladder, so the block is **four independent Arrhenius fits**, not one. A wrong
+enzyme concentration displaces one run's four points together, off the line the
+other five temperatures define.
+
+On `vmax` (`arrhenius.enzyme_hypotheses`), residual rms in ln units:
+
+| hypothesis | mean rms | worst rung | rungs won |
+|---|---|---|---|
+| **as recorded** | **0.078** | **0.085** | **4 of 4** |
+| exp 16 → 0.273 | 0.108 | 0.115 | 0 of 4 |
+| exps 16 and 19 → 0.273 | 0.129 | 0.143 | 0 of 4 |
+
+The recorded values win every rung, and win every rung again on `v0_quad`
+(0.236 against 0.263 and 0.275), so the verdict does not depend on the
+estimator. Per run: exp 16 sits **−0.060** from the line as recorded — inside
+its neighbours' scatter, exp 15 being +0.050 — and **−0.121** when forced to
+0.273, twice as far out and further out on all four rungs, in the direction a
+too-large divisor produces.
+
+**Weakness stated:** the method cannot test a factor common to every run, and is
+weakest against an error at both ends at once, since displacing 15 °C and 40 °C
+the same way barely tilts the line. "Both wrong" is rejected less firmly than
+"exp 16 alone", though it loses every rung too.
+
+**Still unexplained:** *why* exp 16 is out of sequence. Most likely it was re-run
+with the 19–22 session and kept its design number, but nothing records that, and
+it does not change the treatment.
+
+### Also found
+
+**One cuvette per run comes from the `.txt` export, not the `.rre`** — and the
+six are not scattered: they are the **5.549 mM rung in every run**. That rung is
+the coarse one throughout, its noise pinned at the export's quantisation
+(identical across all six to the last two bits of the float). `scope.frame`
+already floors by source so the rates are right, but any per-rung conclusion
+drawn at 5.549 mM alone rests entirely on export-rounded data. It is currently
+the best-behaved rung, so nothing turns on it yet.
+
+**Changed:** `data/verify_enzyme_stock.py` and `data/arrhenius.py` added;
+`scope.TEMPERATURE_SERIES` and the `temperature-series` named scope; new
+`temperature_series/` folder with `ANALYSIS.md` and a 34-check `check_numbers.py`.
+Its checks caught five errors in the prose as first written, including the
+claim that all 24 curves were `.rre`.
+
+---
+
 ## 2026-09-01 — Ruling: exp 65 has no usable rate, and leaves every rate-law default
 
 **The user's call**, following the two entries below: *"we can't use exp 65 in
