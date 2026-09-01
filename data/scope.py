@@ -723,6 +723,30 @@ FREE_BNOH_NEUTRAL = (3, 6)
 # pair 64/65 cannot supply a within-pair [H2O2] contrast.
 FREE_BNOH_ALL = FREE_BNOH + FREE_BNOH_NEUTRAL
 
+# The boric-buffer runs, isolated so that "what does borate carry" is a scope
+# rather than an argument. In the enzyme-free BnOH data this is exp 65 alone.
+#
+# MECHANISM.md says to treat boric points as suspect and gives three separate
+# reasons, all of which bite hardest exactly where exp 65 sits (pH 8.51):
+# borate forms PEROXOBORATE with H2O2 (K = 2.0e-8, significant above pH ~7.7),
+# a much faster oxidant than H2O2 itself; it generates DIOXABORIRANE, a
+# competing electrophilic oxidant with a 2.8 kcal/mol barrier; and boric acid
+# CATALYSES PEROXYACID HYDROLYSIS ~12-fold with a maximum at pH 8.4-9, which
+# would be actively destroying the intermediate the mechanism runs through.
+#
+# The data agreed before that was consulted. Exp 65 is the only run in the set
+# that NEITHER the quadratic NOR the burst/lag form fits -- 4.8-5.7x noise and
+# 6.9-8.3x respectively -- and its samples 3 and 4 return a negative v0_quad,
+# so they silently leave any log-log fit. See DATA_VERIFICATION.md 2026-09-01.
+#
+# EXCLUDING IT IS NOT FREE. Exp 65 is the only run at pH 8.51 and carries the
+# top of the [HOO-] range on its own (0.089 mM against 0.041 and 0.0012), so
+# without it the pH axis has two levels and a [HOO-] order taken across them
+# is a two-point line that cannot be checked for curvature. That is why this
+# is a named alternative scope and not a deletion.
+BORIC_BUFFER = (65,)
+FREE_BNOH_PHOSPHATE = tuple(e for e in FREE_BNOH_ALL if e not in BORIC_BUFFER)
+
 
 def background_orders(scope=FREE_BNOH_ALL, terms=("s0", "h2o2", "hoo"),
                       within=False, parameter="vmax", drop_accelerating=False):
@@ -924,6 +948,75 @@ def buffer_dependence(anchor=BUFFER_FIXED, titration=BUFFER_CONFOUNDED,
 FREE_4OME_40C = (23, 24, 25, 26, 27, 28, 29, 30, 38, 39)
 
 
+def boric_sensitivity(estimators=("v0_quad", "v0_burst", "vmax", "v0",
+                                  "v0_whole"),
+                      terms=("s0", "h2o2", "hoo")):
+    """
+    Every order in the enzyme-free BnOH set, with and without the boric run.
+
+    Returns a DataFrame indexed by (estimator, term) with columns `all`,
+    `all_stderr`, `phosphate`, `phosphate_stderr`, plus a `buf` pair from
+    `buffer_dependence` -- the buffer order is computed differently, from the
+    contrast between the fixed-buffer and titration designs, so it cannot come
+    out of the same regression.
+
+    THE POINT IS THE SPREAD ACROSS ESTIMATORS, not any single row. Five ways of
+    measuring a rate should give one order; where they do not, the disagreement
+    is the measurement's, not the chemistry's. On the substrate order the five
+    span 0.24 in log units with exp 65 in and 0.06 without it -- so the boric
+    run was the disagreement. The buffer order, by contrast, barely notices it,
+    which is the robustness the headline actually rests on.
+
+    See BORIC_BUFFER for why excluding it is defensible and what it costs.
+    """
+    rows = []
+    for estimator in estimators:
+        both = {}
+        for label, scope_ in (("all", FREE_BNOH_ALL),
+                              ("phosphate", FREE_BNOH_PHOSPHATE)):
+            both[label] = background_orders(scope_, terms=terms,
+                                            parameter=estimator)
+        for term in terms:
+            rows.append({
+                "estimator": estimator, "term": term,
+                "all": both["all"].get(f"order_{term}", np.nan),
+                "all_stderr": both["all"].get(f"stderr_{term}", np.nan),
+                "phosphate": both["phosphate"].get(f"order_{term}", np.nan),
+                "phosphate_stderr": both["phosphate"].get(f"stderr_{term}",
+                                                          np.nan),
+            })
+        # The buffer order comes from the two-design contrast, so its
+        # "without boric" version is the anchor with exp 65 removed.
+        full = buffer_dependence(parameter=estimator)
+        cut = buffer_dependence(
+            anchor=tuple(e for e in BUFFER_FIXED if e not in BORIC_BUFFER),
+            parameter=estimator)
+        rows.append({
+            "estimator": estimator, "term": "buf",
+            "all": full["order_buf"], "all_stderr": full["stderr_buf"],
+            "phosphate": cut["order_buf"], "phosphate_stderr": cut["stderr_buf"],
+        })
+    table = pd.DataFrame(rows).set_index(["estimator", "term"])
+    return table
+
+
+def boric_spread(table=None):
+    """
+    How far the five estimators disagree on each order, with boric and without.
+
+    Returns a DataFrame indexed by term with columns `all`, `phosphate` --
+    the max-minus-min across estimators. This is the summary that decides
+    whether excluding boric helped: a spread that shrinks means the estimators
+    were disagreeing about exp 65 rather than about the chemistry.
+    """
+    if table is None:
+        table = boric_sensitivity()
+    spread = table.groupby("term").agg(
+        all=("all", lambda v: float(v.max() - v.min())),
+        phosphate=("phosphate", lambda v: float(v.max() - v.min())))
+    return spread
+
+
 def buffer_cross_check(scope=FREE_4OME_40C):
     """
     The buffer order again, on the 4OMe-BnOH / 40 C block, independently.
@@ -1048,6 +1141,8 @@ NAMED_SCOPES = {
     "free-bnoh": FREE_BNOH,
     "free-bnoh-all": FREE_BNOH_ALL,
     "free-bnoh-neutral": FREE_BNOH_NEUTRAL,
+    "free-bnoh-phosphate": FREE_BNOH_PHOSPHATE,
+    "boric": BORIC_BUFFER,
     "paired": tuple(sorted({e for free, cat, _ in PAIRED_CONTROLS
                             for e in (*free, cat)})),
 }

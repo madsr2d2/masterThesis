@@ -8,6 +8,100 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-01 — What the boric-buffer run carries, and a stale rate law found doing it
+
+Asked: what happens if the boric-acid buffer experiments are excluded. In the
+enzyme-free BnOH set that is **exp 65 alone**, four cuvettes of 27.
+
+### The chemistry said exclude it before the data was asked
+
+MECHANISM.md has said since it was written to "treat all boric-buffer points as
+suspect and say why", with three reasons. All three bite hardest exactly where
+exp 65 sits, at **pH 8.51**:
+
+- borate forms **peroxoborate** with H2O2 (K = 2.0e-8, significant above
+  pH ~7.7), a much faster oxidant than H2O2 itself;
+- it generates **dioxaborirane**, a competing electrophilic oxidant with a
+  2.8 kcal/mol barrier;
+- boric acid **catalyses peroxyacid hydrolysis** ~12-fold, maximum at
+  **pH 8.4-9** -- destroying the intermediate the mechanism runs through.
+
+Independently, exp 65 is the run that neither rate form fits (see the entry
+above: 4.8-5.7x noise on the quadratic, 6.9-8.3x on the burst), and its samples
+3 and 4 return a negative `v0_quad`, so they leave any log-log fit silently.
+The `v0_quad` "all runs" rate law rests on two of exp 65's four cuvettes.
+
+### The headline does not move
+
+| estimator | order in [buf], all | phosphate only |
+|---|---|---|
+| `v0_quad` | +1.30 +/- 0.25 | +1.29 +/- 0.25 |
+| `v0_burst` | +1.19 +/- 0.25 | +1.20 +/- 0.28 |
+| `vmax` | +1.19 +/- 0.21 | +1.31 +/- 0.23 |
+| `v0` | +1.30 +/- 0.30 | +1.33 +/- 0.32 |
+| `v0_whole` | +1.52 +/- 0.22 | +1.60 +/- 0.23 |
+
+Largest move +0.12, every one inside its own standard error. First order in
+buffer is indifferent to boric.
+
+### The rate law does move, and toward agreement
+
+    with boric        [S]^+0.33  [H2O2]^+1.87  [HOO-]^+0.63  [buf]^+1.30  (v0_quad)
+                      [S]^+0.28  [H2O2]^+1.15  [HOO-]^+0.84  [buf]^+1.19  (vmax)
+    phosphate only    [S]^+0.32  [H2O2]^+1.49  [HOO-]^+0.82  [buf]^+1.29  (v0_quad)
+                      [S]^+0.34  [H2O2]^+1.14  [HOO-]^+0.84  [buf]^+1.31  (vmax)
+
+The [HOO-] order disagreed by 0.21 between the two estimators and now disagrees
+by 0.02. `v0_quad`'s pooled R2 goes **0.903 -> 0.968**, overtaking `vmax`'s
+0.966 -- so ANALYSIS.md's standing claim that an extrapolated initial rate is
+worse conditioned than a block slope was a statement about exp 65, not about
+extrapolation. Corrected.
+
+Across all five estimators, max-minus-min spread (`scope.boric_spread()`):
+
+| order | with boric | phosphate only |
+|---|---|---|
+| [S] | 0.241 | 0.060 |
+| [H2O2] | 0.718 | 0.348 |
+| [HOO-] | 0.210 | 0.148 |
+| [buf] | 0.329 | 0.392 |
+
+Three of four tighten, the substrate order fourfold. The exception is the
+buffer order, which did not need the help.
+
+### What it costs, so this is a SCOPE and not a deletion
+
+Exp 65 is the only run at pH 8.51 and carries the top of the [HOO-] range on
+its own: **0.089 mM against 0.041 and 0.0012**. Without it the pH axis has two
+levels, so the [HOO-] order is a two-point contrast that cannot be checked for
+curvature, and across those two levels pH, [buf] (55 vs 85 mM) and run design
+all move together. A tighter number is not automatically a better-determined
+one. Both versions are reported.
+
+Added: `scope.BORIC_BUFFER`, `scope.FREE_BNOH_PHOSPHATE`, the named scopes
+`free-bnoh-phosphate` and `boric`, and `scope.boric_sensitivity()` /
+`scope.boric_spread()` so this is a function call rather than an argument.
+
+### The stale number this turned up
+
+ANALYSIS.md section 6 read
+
+    v_background ~ [S]^+0.33 [H2O2]^+1.78 [HOO-]^+0.68 [buf]^+1.30  (v0_quad)
+
+Those are the **pre-first-reading-drop** values. Re-derived with
+`DROP_FIRST_READING = False` they reproduce exactly (+1.776, +0.681), so the
+line has been stale since 9d56038 and was published in three commits. The
+`vmax` line and the "pooled R2 0.966 against 0.928" sentence were stale the
+same way.
+
+Cause, for the third time in this session: **a number in prose that no check
+re-derived.** The legend, the estimator description table, and now the rate law
+-- all three were things `check_numbers.py` did not look at. It now pins both
+rate laws, both R2 values, all four spreads, and the two chemistry facts the
+argument hangs on. 45 -> 59 checks.
+
+---
+
 ## 2026-09-01 — The burst/lag v0 was considered as the headline, and declined
 
 Proposed by the user: the burst/lag form is the better SHAPE and the quadratic

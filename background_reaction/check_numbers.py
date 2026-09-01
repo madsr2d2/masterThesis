@@ -191,6 +191,40 @@ def main():
                               f"{strong['stderr_s0']:.3f} on the "
                               f"{len(scope.strong_runs())} strong runs)")
 
+    print("\nthe rate law, both scopes")
+    # Pinned at last. The line in section 6 was the PRE-first-reading-drop
+    # value from 2026-09-01 to b144b9e -- [H2O2]^+1.78 where the code said
+    # +1.87, [HOO-]^+0.68 where it said +0.63 -- because no check re-derived
+    # it. Same failure as the legend and the estimator table before it.
+    for estimator in ("v0_quad", "vmax"):
+        for label, block, anchor in (
+                ("all", scope.FREE_BNOH_ALL, scope.BUFFER_FIXED),
+                ("phosphate", scope.FREE_BNOH_PHOSPHATE, (67, 69, 70))):
+            law = scope.background_orders(block, terms=("s0", "h2o2", "hoo"),
+                                          parameter=estimator)
+            buf = scope.buffer_dependence(anchor=anchor, parameter=estimator)
+            claim(f"rate law, {estimator}, {label}",
+                  f"[S]^{buf['order_s0_fixed']:+.2f}  "
+                  f"[H2O2]^{law['order_h2o2']:+.2f}  "
+                  f"[HOO-]^{law['order_hoo']:+.2f}  "
+                  f"[buf]^{buf['order_buf']:+.2f}     ({estimator})")
+            claim(f"pooled R2, {estimator}, {label}",
+                  f"{law['r2']:.3f}")
+
+    print("\nwhat the boric run carries")
+    spread = scope.boric_spread()
+    for term, name in (("s0", "`[S]`"), ("h2o2", "`[H2O2]`"),
+                       ("hoo", "`[HOO-]`"), ("buf", "`[buf]`")):
+        row = spread.loc[term]
+        highlight = "**" if row["phosphate"] < row["all"] else ""
+        claim(f"estimator spread in {term}",
+              f"| {name} | {row['all']:.3f} | "
+              f"{highlight}{row['phosphate']:.3f}{highlight} |")
+    # The chemistry reason has to stay attached to the number.
+    claim("the borate pH window", "maximum at **pH 8.4-9**")
+    claim("boric is a scope, not a deletion",
+          "0.089 mM against 0.041 and 0.0012")
+
     print("\nthe burst form as a candidate headline")
     # Every number in the "why not the burst/lag v0" section, re-derived. The
     # case for keeping v0_quad rests on these, so drift here would leave a
