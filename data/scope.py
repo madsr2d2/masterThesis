@@ -154,7 +154,7 @@ def frame(scope=PRIMARY_SCOPE):
         # The flag is kept although its statistical case has weakened. The
         # instrument's own first reading was flagged on 21.4% of curves against
         # 14.7% for the last; since that reading is discarded the leading one
-        # is flagged on 13.9% against 15.2%, so it is no longer the outlier
+        # is flagged on 14.7% against 16.2%, so it is no longer the outlier
         # class it was. What survives is structural: t = 0 is where v0 is
         # extrapolated to, so a bad point there costs more than anywhere else,
         # and the run-masking above still hides it from `isolated`.

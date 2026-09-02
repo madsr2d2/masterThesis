@@ -457,11 +457,21 @@ def build_curves_page():
             burst = fit_burst_bounded(times, values,
                                       noise_floor=source_floor(curve.source))
             smooth = np.linspace(0, times[-1], 200)
-            axes.line(smooth,
-                      burst.c + burst.v_ss * smooth
-                      - burst.B * (1.0 - np.exp(-smooth / burst.tau)),
-                      ACCENT, width=1.9)
-            axes.points(times, values, INK, radius=1.9, opacity=0.85)
+            fitted = (burst.c + burst.v_ss * smooth
+                      - burst.B * (1.0 - np.exp(-smooth / burst.tau)))
+            # DATA FIRST, FIT ON TOP. The fit is the claim the panel is making
+            # and it has to be visible; drawn underneath, 368 readings bury it.
+            # Radius and ring both scale with density: at 368 points the marks
+            # sit 0.7 px apart, so a white ring would cover its neighbour's
+            # fill and the series would read as a white band.
+            dense = len(times) > 150
+            axes.points(times, values, INK, radius=1.3 if dense else 2.1,
+                        opacity=0.6 if dense else 0.8,
+                        stroke=None if dense else "white", stroke_width=0.6)
+            # A white halo under the fit, so it stays legible wherever it
+            # crosses the densest part of the data.
+            axes.line(smooth, fitted, "#ffffff", width=3.6, opacity=0.85)
+            axes.line(smooth, fitted, ACCENT, width=2.0)
             where, before, after, ratio = segmented_fit(times, values)
             if np.isfinite(where):
                 py = axes._fy(np.interp(where, times, values))

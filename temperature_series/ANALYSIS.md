@@ -30,16 +30,17 @@ this document cannot disagree without `check_numbers.py` saying so.
 | `[enz]` mM | 0.273 | 0.273 | **0.241** | 0.273 | 0.273 | **0.241** |
 | curves, live | 4 | 4 | 4 | 4 | 4 | 4 |
 
-All 24 curves are live. **18 come from the instrument's own `.rre` and 6 from
-the `.txt` export** — and the six are not scattered: they are the
-5.549 mM rung in every one of the six runs. That rung is therefore the coarse
-one throughout, its noise pinned at the export's quantisation (identical to six
-figures across all six runs, which is the 0.001 AU lattice, not a coincidence).
-`scope.frame` already floors each curve by its own source
-(`fit_dataset.source_floor`), so the rates are treated correctly; it is worth
-knowing because a per-rung conclusion drawn from 5.549 mM alone rests entirely
-on export-rounded data. It is currently the *best*-behaved rung
-(Arrhenius rms 0.073), so nothing turns on it yet.
+All 24 curves are live and **24 of 24 come from the instrument's own `.rre`**.
+
+That was not true until 2026-09-02. Six of them — the 5.549 mM rung in every one
+of the six runs — were being read from the `.txt` export at 1096× the noise
+floor, and the cause was a case-sensitive regex: the instrument wrote sample 3's
+label as `sample003`, lowercase, in **31 files across exps 1–32**, and
+`read_rre` matched only `Sample00\d`. Nothing reported a missing curve because
+the export exists and was silently used instead. It was found from a plot — one
+panel per run looked coarser than its neighbours. All 28 recovered cuvettes
+agree with their own export within its rounding step; none failed. See
+`DATA_VERIFICATION.md` 2026-09-02.
 
 ## 1. The enzyme mismatch is real, not a typing mistake
 
@@ -112,19 +113,19 @@ On `vmax`, residual rms in ln units — a relative scatter:
 
 | hypothesis | mean rms | worst rung | rungs won | E<sub>a</sub> kJ/mol |
 |---|---|---|---|---|
-| **as recorded** | **0.078** | **0.085** | **4 of 4** | 90.2 |
-| exp 16 restocked to 0.273 | 0.108 | 0.115 | 0 of 4 | 87.6 |
-| exps 16 and 19 both 0.273 | 0.129 | 0.143 | 0 of 4 | 90.4 |
+| **as recorded** | **0.078** | **0.085** | **4 of 4** | 90.1 |
+| exp 16 restocked to 0.273 | 0.108 | 0.115 | 0 of 4 | 87.5 |
+| exps 16 and 19 both 0.273 | 0.130 | 0.143 | 0 of 4 | 90.2 |
 
 **The recorded values win every rung.** On `v0_quad` as a sensitivity they win
-every rung again — 0.236 against 0.263 and 0.275 — so the verdict does not
+every rung again — 0.236 against 0.262 and 0.275 — so the verdict does not
 depend on the estimator, and the four rungs are independent fits rather than
 one result counted four times.
 
 Per run it is clearer still. Exp 16's mean distance from the line:
 
 - as recorded (0.241): **−0.060** — about 6% low, inside the others' scatter
-  (exp 15 is +0.050, exp 17 +0.025)
+  (exp 15 is +0.048, exp 17 +0.029)
 - forced to 0.273: **−0.121** — twice as far out, and further out on all four
   rungs
 
@@ -153,7 +154,7 @@ rests on a single rate per curve. `scope.synchronised_break`:
 
 | T | 15 °C | 20 °C | 25 °C | 30 °C | 35 °C | 40 °C |
 |---|---|---|---|---|---|---|
-| slope after / before | 1.50-18.08 | 1.32-2.27 | 0.99-1.81 | 1.27-1.36 | 0.89-1.00 | 0.70-0.86 |
+| slope after / before | 1.50-18.08 | 1.33-2.27 | 0.99-1.81 | 1.27-1.36 | 0.89-1.00 | 0.70-0.86 |
 | cuvettes steepening | 3 of 4 | 2 of 4 | 1 of 4 | 0 of 4 | 0 of 4 | 0 of 4 |
 
 **Nothing here looks like exp 65.** That run's four cuvettes broke within 56 s of
@@ -161,15 +162,15 @@ each other regardless of a 20-fold substrate range, which is the signature of
 something that is not the reaction. Here the ratio falls with temperature — cold
 runs accelerate throughout, hot runs decelerate — and a second, unrelated
 statistic says the same thing: every run from 15 to 30 °C classifies as a **lag**
-curve, with τ falling **6489 → 3666 → 945 → 876 s** as it warms, and 35 and 40 °C
+curve, with τ falling **6489 → 3190 → 945 → 916 s** as it warms, and 35 and 40 °C
 flip to `burst`. Two independent statistics agreeing on an induction period that
 shortens with heating is chemistry, not an artefact.
 
 **The fall is not quite monotone, and the exception is instructive.** Median
-ratios run 1.75, 1.56, 1.19, **1.33**, 0.91, 0.82 — 30 °C sits above 25 °C. The
+ratios run 1.74, 1.56, 1.19, **1.33**, 0.91, 0.82 — 30 °C sits above 25 °C. The
 break ratio does not track temperature directly, it tracks **how much of the run
 the induction occupies**, and the runs are not the same length: measured in units
-of its own τ, the 25 °C run is **19τ** long and the 30 °C run only **5.8τ**. The
+of its own τ, the 25 °C run is **19τ** long and the 30 °C run only **5.5τ**. The
 quantity that *is* monotone in temperature is τ itself.
 
 **A limitation of the statistic, seen here for the first time.** Exp 19's
@@ -195,7 +196,7 @@ cold end tilts the Arrhenius line and inflates E<sub>a</sub>.
 
 **The two estimators fail at opposite ends**, which is the awkward part. On a lag
 curve the burst form's `v_ss` is the rate `vmax` is trying to reach, and at
-15-30 °C that fit is sound (tau resolved on 15 of 16 curves, residuals 0.94-1.64x
+15-30 °C that fit is sound (tau resolved on 16 of 16 curves, residuals 0.94-1.64x
 noise). At 35–40 °C it degenerates — τ unresolved on 7 of 8, the form flipping
 to `burst`, tau unresolved on 7 of 8, because a decelerating curve has no lag to
 measure — so `v_ss` there
@@ -206,11 +207,11 @@ for `vmax` at 15 and 20 °C only, purely to size it:
 
 | | E<sub>a</sub> kJ/mol |
 |---|---|
-| `vmax` throughout | 90.2 |
-| `v_ss` at the cold end | 88.3 |
-| **inflation from truncation** | **1.9** |
+| `vmax` throughout | 90.1 |
+| `v_ss` at the cold end | 88.4 |
+| **inflation from truncation** | **1.7** |
 
-`v_ss`/`vmax` is 1.042 at 15 C and 1.065 at 20 C — a 4–6.5% under-read — and
+`v_ss`/`vmax` is 1.042 at 15 C and 1.035 at 20 C — a 3.5–4% under-read — and
 0.98, 0.99 at 25 and 30 C where the two should agree, which is the check that
 the substitution means anything. (It is 0.67 and 0.29 at 35 and 40 °C, the
 degenerate end, and is not used there.)
@@ -255,7 +256,7 @@ entirely.
 
 | range | experiment | order in `[buf]` | R² |
 |---|---|---|---|
-| 50–200 mM | 32 | **+0.402 ± 0.024** | 0.993 |
+| 50–200 mM | 32 | **+0.400 ± 0.028** | 0.990 |
 | 3.125–25 mM | 34 | +0.803 ± 0.173 | 0.915 |
 
 **The buffer dependence saturates** — about first order at low buffer, about
@@ -267,15 +268,15 @@ meaningless −0.18 ± 0.34.)
 ### So the substrate order is about +0.58, not +0.45
 
 With `[S]^a [buf]^d` and `log[buf] = g·log[S] + c`, a fit without a buffer term
-returns `a' = a + d·g`. Here **g = −0.325** and **d = +0.402**, so the
+returns `a' = a + d·g`. Here **g = −0.325** and **d = +0.400**, so the
 correction adds 0.13:
 
 | T | 15 °C | 20 °C | 25 °C | 30 °C | 35 °C | 40 °C |
 |---|---|---|---|---|---|---|
-| observed | +0.457 | +0.517 | +0.489 | +0.344 | +0.441 | +0.421 |
-| corrected | +0.588 | +0.648 | +0.620 | +0.475 | +0.572 | +0.552 |
+| observed | +0.460 | +0.521 | +0.490 | +0.349 | +0.438 | +0.420 |
+| corrected | +0.590 | +0.651 | +0.620 | +0.479 | +0.569 | +0.550 |
 
-Mean **+0.576**, and it does not drift with temperature — the spread, 0.173, is
+Mean **+0.577**, and it does not drift with temperature — the spread, 0.173, is
 the same before and after correcting, so the correction moved the level and not
 the trend. **Genuine partial saturation in substrate, with no detectable
 temperature dependence**, which is the same as saying K<sub>M</sub> is roughly
@@ -289,7 +290,7 @@ Neither is testable here.
 
 The rung-to-rung spread of 8.5 kJ/mol looked like a composition dependence until
 the standard errors were computed — each rung is **± 2.6–3.0**. Against their
-weighted mean, **χ² = 4.68 on 3 degrees of freedom, reduced χ² = 1.56**. No
+weighted mean, **χ² = 4.91 on 3 degrees of freedom, reduced χ² = 1.64**. No
 composition dependence is detectable, so the rungs can be pooled.
 
 They are pooled by refitting — one slope with a free intercept per rung, over
@@ -304,18 +305,18 @@ four rungs with a free intercept each, Eyring fitted on the same design.
 
 | parameter | E<sub>a</sub> kJ/mol | ΔH‡ kJ/mol | ΔS‡ J/mol/K | ΔG‡(298) kJ/mol | curves |
 |---|---|---|---|---|---|
-| `vmax`, steepest observed rate | 90.2 ± 1.5 | **87.7 ± 1.5** | **−53.1 ± 4.9** | **103.6 ± 0.1** | 24, 6 T |
-| `v_ss`, asymptote after the induction | 88.8 ± 2.9 | 86.4 ± 2.9 | −57.1 ± 9.7 | 103.4 ± 0.1 | 16, 4 T |
-| `1/τ`, induction rate constant | 94.6 ± 16.3 | 92.1 ± 16.3 | +3.0 ± 55.1 | 91.2 ± 0.7 | 15, 4 T |
+| `vmax`, steepest observed rate | 90.1 ± 1.5 | **87.6 ± 1.5** | **−53.5 ± 5.0** | **103.6 ± 0.1** | 24, 6 T |
+| `v_ss`, asymptote after the induction | 89.0 ± 2.6 | 86.6 ± 2.6 | −56.5 ± 9.0 | 103.4 ± 0.1 | 16, 4 T |
+| `1/τ`, induction rate constant | 95.0 ± 15.7 | 92.6 ± 15.7 | +3.7 ± 53.2 | 91.5 ± 0.6 | 16, 4 T |
 
-In kcal/mol: ΔH‡ **21.0**, ΔS‡ **−12.7 cal/mol/K**, ΔG‡(298) **24.8** for
-`vmax`; 22.0 and 21.8 for the induction.
+In kcal/mol: ΔH‡ **20.9**, ΔS‡ **−12.8 cal/mol/K**, ΔG‡(298) **24.8** for
+`vmax`; 22.1 and 21.9 for the induction.
 
 **The two rate estimators agree**, which is the check that matters. `vmax` uses
 all six temperatures and is truncated at the cold end; `v_ss` uses only the four
-where the burst form is sound and is not truncated. They come out at 87.7 and
-86.4 kJ/mol — and the truncation correction of §2 predicted `vmax` would read
-about 1.9 high, i.e. 85.8. Two estimators with different failure modes landing
+where the burst form is sound and is not truncated. They come out at 87.6 and
+86.6 kJ/mol — and the truncation correction of §2 predicted `vmax` would read
+about 1.7 high, i.e. 85.9. Two estimators with different failure modes landing
 within their errors is the best internal evidence this block offers.
 
 **ΔS‡ ≈ −55 J/mol/K is strongly negative** — a well-ordered transition state, as
@@ -365,11 +366,11 @@ is the evidence that pooling is allowed:
 |---|---|---|---|
 | 1.850 | 80 | 94.5 ± 2.8 | 0.078 |
 | 3.700 | 70 | 86.0 ± 3.0 | 0.085 |
-| 5.549 | 60 | 89.0 ± 2.6 | 0.073 |
+| 5.549 | 60 | 88.4 ± 2.7 | 0.074 |
 | 7.399 | 50 | 91.5 ± 2.7 | 0.076 |
 
-Weighted mean **90.4**, reduced χ² **1.56** — see §3. The pooled refit over all
-24 points gives **90.2 ± 1.5**.
+Weighted mean **90.2**, reduced χ² **1.64** — see §3. The pooled refit over all
+24 points gives **90.1 ± 1.5**.
 
 **A caution for whatever comes next.** 20 of these 24 curves clear the 3sigma
 acceleration gate and 8 exceed z = +15, so `v0` is an *induction* rate

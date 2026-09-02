@@ -345,7 +345,7 @@ def local_outlier_z(times, values, noise, half=OUTLIER_NEIGHBOURS,
     identical test -- and since 2026-09-01 `fit_dataset.DROP_FIRST_READING`
     removes it before anything here sees a curve. On the curves this function
     is now given the gap is much smaller and has changed sign on this test:
-    13.9% of leading readings are flagged at 5 sigma against 15.2% of last
+    14.7% of leading readings are flagged at 5 sigma against 16.2% of last
     ones. Point 0 is no longer a special case statistically; it is still where
     an error hurts most.
 
@@ -382,7 +382,7 @@ def isolated_outliers(times, values, noise, sigma=OUTLIER_SIGMA, **kwargs):
     chemistry. Two or more consecutive ones are not separated from chemistry at
     all, and this dataset's striking shapes are live hypotheses -- see
     curve_screen.py, "CURVE SHAPE IS NEVER A DEFECT". Across the archive the
-    split is 442 isolated against 1429 in runs, the longest run being 16
+    split is 445 isolated against 1429 in runs, the longest run being 16
     consecutive readings. (It was 463 against 1470 before the first reading of
     every run was discarded. The DATA_VERIFICATION.md entry quoting those is
     the pre-drop measurement and stands as the evidence for the drop.)

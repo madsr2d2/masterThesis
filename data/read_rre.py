@@ -30,10 +30,18 @@ the same curves have a real noise of 1.15e-4 to 7.5e-4 AU, median 1.8e-4: the
 floor had been overstating the instrument's noise by about 1.6x.
 `fit_dataset.read_all_curves` therefore prefers the .rre wherever one exists
 AND agrees with the export, and records which source each curve came from in
-`Curve.source`, because 28 of the 402 fittable curves still have no .rre and
-keep the coarser floor. That was 125 until 2026-09-01, when `experiment_number`
-stopped matching only `rate<n>.rre`: 32 `mads_t<n>.rre` files covering exps
-2-32 had never been read at all.
+`Curve.source`. Since 2026-09-02 that is **all 402 fittable curves**; the
+fallback path is kept because a disagreement must never be silently
+substituted, not because anything currently takes it.
+
+Two regex defects got it there, and they are the same defect twice. Until
+2026-09-01, 125 curves were on the export because `experiment_number` matched
+only `rate<n>.rre` and never the 32 `mads_t<n>.rre` files covering exps 2-32.
+Until 2026-09-02, 28 more were, because the instrument wrote sample 3's label
+as `sample003` -- lowercase -- in 31 files across exps 1-32 and the block
+pattern was case-sensitive. Neither announced itself: the export exists, so a
+fallback produces a curve rather than an error, and the second one had even
+been written into `test_read_rre` as an expected count.
 
 What this module still does NOT do is add CURVES to the dataset. A .rre
 carries no conditions: no pH, no temperature, no concentrations, not even which
@@ -81,7 +89,14 @@ def read_rre(path):
         raw = handle.read()
 
     samples = []
-    for match in re.finditer(rb"Sample00(\d)", raw):
+    # [Ss]: the instrument wrote sample 3's label in LOWERCASE in 31 files of
+    # the early campaign -- exps 1-32 -- and a case-sensitive pattern dropped
+    # that cuvette from every one of them. Those 28 curves were being read from
+    # the .txt export instead, at 1096x the noise floor, silently: the export
+    # exists, so nothing reported a missing curve. Found 2026-09-02 from a plot,
+    # because one panel per run looked coarser than its neighbours. Same class
+    # of defect as the regex that hid 32 whole files until 2026-09-01.
+    for match in re.finditer(rb"[Ss]ample00(\d)", raw):
         stop = raw.find(b"BestFit1", match.end())
         if stop < 0:
             continue

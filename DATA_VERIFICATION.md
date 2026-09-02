@@ -8,6 +8,94 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-02 — `sample003` is lowercase: 28 cuvettes were on the rounded export, and a test asserted it
+
+**Found from a plot.** The user, reading `temperature_series/progress_curves.html`:
+*"exp 17 and 14 appears to use the txt data and not the rre data. The
+Mads/data/Variable Temperature folder contains the rre files for these
+experiments so I don't see why the txt data appears to be used here."* Correct,
+and the reason is a regex.
+
+### What was wrong
+
+`read_rre.read_rre` matched sample blocks with `rb"Sample00(\d)"`,
+case-sensitive. The instrument wrote **sample 3's label in lowercase** —
+`sample003` — in **31 `.rre` files across exps 1–32**. That block was therefore
+never extracted, `_prefer_rre` found nothing to prefer, and the cuvette fell
+back to the `.txt` export at **1096× the noise floor**.
+
+**It could not announce itself.** The export exists, so the fallback produces a
+curve rather than an error, and a coarser noise floor is a plausible number
+rather than an impossible one. It was visible only as a plot: one panel per run
+looked coarser than its neighbours.
+
+### It had already been seen, and written down as a fact
+
+`test_read_rre.test_source_selection` asserted **"28 cuvettes have no block in
+their run's binary"**, with a comment explaining that *"exp 6 holds Sample001,
+002 and 004 and no 003"*. The missing cuvette was observed, rationalised as
+absent data, and frozen into a check — which is worse than not checking, because
+it made the defect look adjudicated. That assertion is now that **nothing** falls
+back, plus a check that the lowercase label is still matched, so tightening the
+pattern again would fail loudly.
+
+This is the **second** instance of the same defect class. Until 2026-09-01, 125
+curves were on the export because `experiment_number` matched only
+`rate<n>.rre` and never the 32 `mads_t<n>.rre` files covering exps 2–32.
+
+### The recovery
+
+Pattern is now `rb"[Ss]ample00(\d)"`. **28 cuvettes recovered, all 28 agreeing
+with their own export within its rounding step, none failing the drift test.**
+Archive-wide the source split is now **402 of 402 on the instrument's own
+binary**, from 374.
+
+### What moved
+
+Everything shifted in the third digit; no conclusion changed. The in-scope block
+(exps 135–151) is untouched — the lowercase label appears only in exps 1–32.
+
+| | before | after |
+|---|---|---|
+| E<sub>a</sub>, `vmax`, pooled | 90.2 ± 1.5 | **90.1 ± 1.5** |
+| ΔH‡ | 87.7 ± 1.5 | **87.6 ± 1.5** |
+| ΔS‡ J/mol/K | −53.1 ± 4.9 | **−53.5 ± 5.0** |
+| ΔG‡(298) | 103.6 ± 0.1 | **103.6 ± 0.1** |
+| `v_ss` ΔH‡ | 86.4 ± 2.9 | **86.6 ± 2.6** |
+| 1/τ, curves used | 15 of 16 | **16 of 16** |
+| τ at 20 and 30 °C | 3666, 876 s | **3190, 916 s** |
+| truncation inflation | 1.9 | **1.7** kJ/mol |
+| catalysed buffer order, 50–200 mM | +0.402 ± 0.024 | **+0.400 ± 0.028** |
+| corrected substrate order | +0.576 | **+0.577** |
+| reduced χ² across rungs | 1.56 | **1.64** |
+| isolated vs run outliers, archive | 442 / 1429 | **445** / 1429 |
+| leading vs last flag rate | 13.9% / 15.2% | **14.7% / 16.2%** |
+
+The outlier rates moved most, which is expected: 28 curves gained a noise floor
+1096× finer, so more of their readings clear 5σ against a real scatter instead
+of a quantisation floor.
+
+### Also fixed, from the same message
+
+- **The fit was drawn behind the data** in the temperature-series panels, and
+  368 readings buried it. Data first, fit on top, with a white halo under the
+  fit so it stays legible across the densest stretch.
+- **The white ring on each mark inverts at high density.** It separates
+  overlapping marks and is right for a dozen points; at 368 readings in 270 px
+  they sit 0.7 px apart and each ring covers its neighbour's fill, so the series
+  reads as a white band with dots in it. `svgplot.points` gained `stroke`, and
+  the panels pass `stroke=None` with a smaller radius above 150 readings.
+  `background_reaction`'s panels keep the ring and the data-on-top order: they
+  decimate to ~110 marks and carry four overlapping fits, where the opposite
+  convention is right.
+
+**Changed:** `read_rre` pattern and module docstring; `test_read_rre` rewritten
+to assert the recovery and guard the label; `svgplot.points` gained `stroke`;
+`temperature_series/build_figures.py` draw order; every moved number in both
+ANALYSIS.md files, `curve_metrics`, `scope` and `build_figures` comments.
+
+---
+
 ## 2026-09-02 — The temperature series gets its figures, and a published figure was hiding a point
 
 `temperature_series/index.html` and `progress_curves.html` built by

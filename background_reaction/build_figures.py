@@ -254,7 +254,7 @@ def curve_panel(curve, width=330, height=210):
     # often drags its neighbour into a run, and the pair then hides from
     # `isolated`. The case is now the leverage and the masking, NOT a raised
     # flag rate -- since the instrument's first reading is discarded, leading
-    # readings are flagged on 13.9% of curves against 15.2% for last ones.
+    # readings are flagged on 14.7% of curves against 16.2% for last ones.
     # What the surviving rings buy is worth having: they no longer mark the
     # generic settling artefact (that is gone with the dropped reading) but
     # runs whose settling lasted LONGER than one reading, which is a small

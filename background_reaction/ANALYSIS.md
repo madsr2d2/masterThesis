@@ -82,7 +82,7 @@ was objected to:
 |---|---|---|
 | clearly better (> 0.1× noise) | 5 curves | 6 curves |
 | indistinguishable | 16 curves | |
-| median residual | 1.18× noise | 1.08× noise |
+| median residual | 1.18× noise | 1.10× noise |
 | v₀ defined on | 27 of 27 | 24 of 27 bounded |
 
 **Exp 65 is the case that decides it.** All four of its cuvettes are fitted
@@ -141,7 +141,7 @@ the **disagreement between the two designs**. Read within runs, so that pH,
 | where `[buf]` is | order in `[sub]`, `v0_quad` | order in `[sub]`, `vmax` |
 |---|---|---|
 | held constant (67, 69, 70) | **+0.321 ± 0.056** (n = 12) | +0.343 ± 0.071 (n = 12) |
-| falling as `[sub]` rises (3, 6) | **−0.306 ± 0.110** (n = 10) | −0.210 ± 0.092 (n = 8) |
+| falling as `[sub]` rises (3, 6) | **−0.306 ± 0.111** (n = 10) | −0.210 ± 0.092 (n = 8) |
 
 **The apparent substrate order changes sign with the buffer design.** If the rate
 goes as [S]<sup>a</sup>[buf]<sup>d</sup> and within the titrations
@@ -165,8 +165,8 @@ nothing lets `[buf]` stand in for pH.
 |---|---|---|
 | **`v0_quad`** | **+1.29 ± 0.25** | **+0.91 ± 0.38** |
 | `v0_burst` | +1.20 ± 0.28 | +0.69 ± 0.24 |
-| `vmax` | +1.31 ± 0.23 | +0.83 ± 0.29 |
-| `v0` | +1.33 ± 0.32 | +0.85 ± 0.28 |
+| `vmax` | +1.31 ± 0.23 | +0.84 ± 0.29 |
+| `v0` | +1.33 ± 0.32 | +0.86 ± 0.28 |
 | `v0_whole` | +1.60 ± 0.23 | +1.38 ± 0.60 |
 
 The anchor is exps 67, 69 and 70 — **phosphate only**. Exp 65 was in it until
@@ -556,9 +556,9 @@ Across all five estimators (`scope.boric_spread()`), the max-minus-min spread:
 | order | with boric | phosphate only |
 |---|---|---|
 | `[S]` | 0.241 | **0.060** |
-| `[H2O2]` | 0.718 | **0.348** |
+| `[H2O2]` | 0.719 | **0.349** |
 | `[HOO-]` | 0.210 | **0.148** |
-| `[buf]` | 0.329 | 0.392 |
+| `[buf]` | 0.329 | 0.393 |
 
 Three of the four tighten, the substrate order fourfold. The buffer order is the
 exception and does not need the help: it barely moves for any estimator
@@ -623,7 +623,7 @@ Two rules make that safe:
   moves in one interval and reverts in the next, so a single reading out of
   line with both neighbours is an artefact; two or more consecutive ones are
   not separated from chemistry at all. Across the archive as it is now read
-  that splits **442 isolated against 1429 in runs**, the longest run being 16
+  that splits **445 isolated against 1429 in runs**, the longest run being 16
   readings. Runs are counted in the panel footer and never ringed —
   `curve_screen.py` is explicit that curve shape is never a defect.
 
@@ -632,8 +632,8 @@ now means. It was added when the instrument's first reading was the worst-
 behaved point in the archive — **15.9% beyond 5σ against 7.5% of last
 readings** on the identical extrapolation test — but that reading has since
 been discarded from every run (`fit_dataset.DROP_FIRST_READING`), and on the
-curves the flag now sees the excess is largely gone: **13.9% of leading
-readings are flagged against 15.2% of last ones**, so point 0 is no longer a
+curves the flag now sees the excess is largely gone: **14.7% of leading
+readings are flagged against 16.2% of last ones**, so point 0 is no longer a
 distinct outlier class. The flag is kept for two reasons that do survive: v₀ is
 an extrapolation *to* t = 0, so that point carries leverage no interior reading
 has; and a bad leading point drags its neighbour past the threshold, so the

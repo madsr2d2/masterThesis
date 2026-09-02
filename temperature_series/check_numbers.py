@@ -23,6 +23,7 @@ import arrhenius
 import scope
 import verify_enzyme_stock
 from curve_metrics import ACCELERATION_SIGMA
+from fit_dataset import build_curves
 
 DOCUMENT = os.path.join(HERE, "ANALYSIS.md")
 FAILURES = []
@@ -70,22 +71,25 @@ def main():
                                   for t in [25, 35, 40, 30, 20, 15]) + " |")
     check("all 24 curves are live",
           len(frame) == 24 and bool(frame.live.all()), f"{len(frame)}")
-    # The source split, and that the .txt ones are exactly one rung. If a
-    # future rebuild moves that rung onto the .rre the prose must change, so
-    # the shape of the split is checked, not just its size.
-    export = frame[frame.source == "txt"]
+    # Every curve on the instrument's own binary. Six of these were on the
+    # rounded .txt export until 2026-09-02, when `read_rre`'s case-sensitive
+    # regex was found to be dropping `sample003`. The claim is checked in both
+    # directions -- the count here, and archive-wide below -- because a
+    # regression would be silent: the export exists, so a fallback reports
+    # nothing.
     claim("the source split",
-          f"**{int((frame.source == 'rre').sum())} come from the instrument's "
-          f"own `.rre` and {len(export)} from the `.txt` export**")
-    check("the .txt curves are exactly one rung, in every run",
-          export.s0.nunique() == 1 and len(export) == 6,
-          f"{export.s0.nunique()} rung(s), {len(export)} curves")
-    # Rounded, not exact: the six agree to the last two bits of the float
-    # (…234 against …239), which is one lattice value reached by two summation
-    # orders, not two different noises.
-    check("that rung's noise is one quantisation value",
-          export.noise.round(12).nunique() == 1,
-          f"{export.noise.round(12).nunique()} distinct")
+          f"**{int((frame.source == 'rre').sum())} of {len(frame)} come from "
+          f"the instrument's own `.rre`**")
+    check("no curve in the series falls back to the export",
+          bool((frame.source == "rre").all()),
+          f"{int((frame.source == 'txt').sum())} on .txt")
+    everything, _ = build_curves()
+    fallbacks = [c for c in everything if c.source != "rre"]
+    check("nor anywhere in the archive",
+          not fallbacks,
+          f"{len(fallbacks)} of {len(everything)} curves on .txt")
+    claim("the recovery",
+          f"**31 files across exps 1-32**")
     # The four rungs recur in every run -- the claim the whole design rests on.
     rungs = sorted(frame.s0.unique())
     check("the same four rungs in all six runs",

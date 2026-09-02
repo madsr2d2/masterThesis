@@ -47,7 +47,17 @@ class Axes:
         return self.height - self.bottom - (value - self.ylim[0]) / span * inner
 
     # --- marks -----------------------------------------------------------
-    def points(self, x, y, colour, radius=3.2, opacity=1.0, title=None):
+    def points(self, x, y, colour, radius=3.2, opacity=1.0, title=None,
+               stroke="white", stroke_width=0.8):
+        """
+        `stroke=None` for a DENSE series. The white ring separates overlapping
+        marks and is right for a dozen points; on a progress curve of 368 it
+        inverts -- each mark's ring covers its neighbour's fill, so a run of
+        closely spaced readings turns into a band of white with dots in it.
+        Exps 14 and 19 sample 368 readings into 270 px, about 0.7 px apart.
+        """
+        ring = (f"stroke='{stroke}' stroke-width='{stroke_width}'"
+                if stroke else "stroke='none'")
         for xi, yi in zip(np.atleast_1d(x), np.atleast_1d(y)):
             if not (np.isfinite(xi) and np.isfinite(yi)):
                 continue
@@ -55,7 +65,7 @@ class Axes:
             self.parts.append(
                 f"<circle cx='{self._fx(xi):.2f}' cy='{self._fy(yi):.2f}' "
                 f"r='{radius}' fill='{colour}' fill-opacity='{opacity}' "
-                f"stroke='white' stroke-width='0.8'>{tip}</circle>")
+                f"{ring}>{tip}</circle>")
         return self
 
     def ring(self, x, y, colour, radius=6.0, width=1.7, title=None):

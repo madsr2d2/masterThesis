@@ -1,7 +1,7 @@
 """
 Tests for read_rre.py -- that the binary is the same measurement as the export.
 
-The .rre now supplies the READINGS for 374 of the 402 fittable curves, so a
+The .rre now supplies the READINGS for all 402 fittable curves, so a
 misread block would not announce itself: it would quietly change every rate in
 the package. These tests pin the one thing that licenses the substitution --
 that where both sources exist they agree to within the export's own rounding
@@ -9,13 +9,17 @@ step -- and the resolution gain that motivated it.
 
     python data/test_read_rre.py
 """
+import glob
+import os
+import re
 import sys
 
 import numpy as np
 
 from curve_metrics import ABSORBANCE_QUANTUM, QUANTISATION_SIGMA
 from fit_dataset import DROP_FIRST_READING, PRIMARY_SCOPE, build_curves
-from read_rre import RRE_SIGMA, covered, experiment_number, read_all
+from read_rre import (ARCHIVE_DIR, RRE_SIGMA, covered,
+                      experiment_number, read_all)
 
 FAILURES = []
 
@@ -75,25 +79,36 @@ def test_source_selection():
     used = {c.source for c in curves}
     check("sources are only 'rre' and 'txt'", used <= {"rre", "txt"}, str(used))
     from_rre = sum(1 for c in curves if c.source == "rre")
-    check("374 of 402 fittable curves read from the instrument file",
-          from_rre == 374, f"got {from_rre}")
+    check("all 402 fittable curves read from the instrument file",
+          from_rre == len(curves), f"got {from_rre} of {len(curves)}")
     check("every in-scope curve reads from the instrument file",
           all(c.source == "rre" for c in curves if c.experiment in PRIMARY_SCOPE))
-    # Since 2026-09-01 every fittable EXPERIMENT has a readable .rre, so the
-    # fallback is now per SAMPLE rather than per run: a few blocks are absent
-    # from their binary -- exp 6 holds Sample001, 002 and 004 and no 003 -- and
-    # those cuvettes keep the export. The check is therefore that a fallback is
-    # a missing block, never a whole run going dark.
+    # THIS BLOCK USED TO ASSERT THE BUG. Until 2026-09-02 it read "28 cuvettes
+    # have no block in their run's binary" and explained that exp 6 holds
+    # Sample001, 002 and 004 and no 003. The block was there all along: the
+    # instrument wrote sample 3's label lowercase, `sample003`, in 31 files
+    # across exps 1-32, and `read_rre`'s pattern was case-sensitive. A missing
+    # cuvette was observed, rationalised as absent data, and frozen into a
+    # check -- which is worse than not checking, because it made the defect
+    # look adjudicated. The assertion is now that NOTHING falls back.
     available = covered()
     without = [c for c in curves if c.experiment not in available]
     check("every fittable experiment now has a readable .rre",
           not without, f"{len(without)} curves in uncovered runs")
     fallbacks = [c for c in curves if c.source == "txt"]
-    check("the curves still on the export are per-sample fallbacks",
-          all(c.experiment in available for c in fallbacks),
-          f"{sum(1 for c in fallbacks if c.experiment not in available)} outside")
-    check("28 cuvettes have no block in their run's binary",
-          len(fallbacks) == 28, f"got {len(fallbacks)}")
+    check("no cuvette falls back to the export",
+          not fallbacks,
+          f"{len(fallbacks)} on .txt: "
+          f"{sorted({c.experiment for c in fallbacks})}")
+    # And the label the pattern has to keep matching, in both cases. If a
+    # future edit tightens it back to `Sample00\\d`, 28 curves go quietly back
+    # onto the rounded export and no other check would notice.
+    lowercase = [path for path in glob.glob(os.path.join(ARCHIVE_DIR, "*.rre"))
+                 if re.search(rb"sample00\d",
+                              open(path, "rb").read())]
+    check("the lowercase sample label is still matched",
+          len(lowercase) >= 25 and not fallbacks,
+          f"{len(lowercase)} files carry a lowercase label")
 
 
 def test_resolution():
