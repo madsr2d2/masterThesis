@@ -202,6 +202,167 @@ SEGMENT_MINIMUM_POINTS = MINIMUM_WINDOW_POINTS
 SEGMENT_RATIO_STEEP = 1.5
 
 
+# A two-break fit costs three more parameters than a one-break fit -- one
+# breakpoint and one line -- so the same discipline applies as to the fitting
+# forms: it has to earn them on an F test. Set above the nominal F(3, ~120) at
+# alpha = 0.001 (about 5.8) for the same reason `summary_kinetics.TWO_PHASE_F`
+# is: the residuals of a progress curve are serially correlated, and a nominal
+# F over-rejects the simpler description when they are.
+SEGMENT_F = 10.0
+
+
+def _segment_errors(times, values, minimum):
+    """
+    SSE of a straight line through every contiguous stretch, as a matrix.
+
+    error[i, j] is the residual sum of squares of the readings from i to j
+    exclusive, or inf where the stretch is too short. Built from prefix sums so
+    each entry is O(1): a two-break search visits O(n^2) stretch pairs, and at
+    368 readings the naive route refits a line 68000 times.
+    """
+    count = len(times)
+    zero = np.zeros(1)
+    sx = np.concatenate([zero, np.cumsum(times)])
+    sy = np.concatenate([zero, np.cumsum(values)])
+    sxx = np.concatenate([zero, np.cumsum(times * times)])
+    syy = np.concatenate([zero, np.cumsum(values * values)])
+    sxy = np.concatenate([zero, np.cumsum(times * values)])
+    start = np.arange(count + 1)[:, None]
+    stop = np.arange(count + 1)[None, :]
+    length = stop - start
+    with np.errstate(divide="ignore", invalid="ignore"):
+        n = np.where(length > 0, length, np.nan)
+        gx = sx[stop] - sx[start]
+        gy = sy[stop] - sy[start]
+        cxx = (sxx[stop] - sxx[start]) - gx * gx / n
+        cyy = (syy[stop] - syy[start]) - gy * gy / n
+        cxy = (sxy[stop] - sxy[start]) - gx * gy / n
+        error = cyy - np.where(cxx > 0, cxy * cxy / cxx, 0.0)
+    error = np.where(length >= minimum, error, np.inf)
+    # Rounding can push a residual sum of squares slightly negative on a
+    # stretch that lies exactly on a line; it is a cost, so clamp it.
+    return np.where(np.isfinite(error), np.maximum(error, 0.0), np.inf)
+
+
+def _segment_slope(times, values, start, stop):
+    if stop - start < 2:
+        return np.nan
+    x = times[start:stop]
+    y = values[start:stop]
+    centred = x - x.mean()
+    denominator = float(centred @ centred)
+    return float(centred @ (y - y.mean()) / denominator) if denominator > 0 \
+        else np.nan
+
+
+def segment_breaks(times, values, breaks=1, minimum=SEGMENT_MINIMUM_POINTS):
+    """
+    The best split of a curve into `breaks` + 1 straight stretches.
+
+    Returns (break_times, slopes, sse). `breaks` may be 1 or 2; two is what a
+    curve whose rate rises and then falls needs, and one cannot describe it --
+    a single breakpoint on such a curve lands on whichever change is stronger
+    and says nothing about the other. That is how the early break on the
+    temperature series' 40 C curves went unreported: `segmented_fit` looked for
+    one and found the late one.
+
+    Exhaustive over breakpoints, on the O(1) stretch errors from
+    `_segment_errors`, so there is no optimiser and no local minimum.
+    """
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    count = len(times)
+    if breaks not in (1, 2) or count < minimum * (breaks + 1):
+        return (), (), np.nan
+    error = _segment_errors(times, values, minimum)
+
+    if breaks == 1:
+        candidates = np.arange(minimum, count - minimum + 1)
+        if not len(candidates):
+            return (), (), np.nan
+        total = error[0, candidates] + error[candidates, count]
+        best = int(candidates[np.argmin(total)])
+        return ((float(times[best]),),
+                (_segment_slope(times, values, 0, best),
+                 _segment_slope(times, values, best, count)),
+                float(total.min()))
+
+    first = np.arange(minimum, count - 2 * minimum + 1)
+    second = np.arange(2 * minimum, count - minimum + 1)
+    if not len(first) or not len(second):
+        return (), (), np.nan
+    grid = (error[0, first][:, None] + error[np.ix_(first, second)]
+            + error[second, count][None, :])
+    grid = np.where(first[:, None] + minimum <= second[None, :], grid, np.inf)
+    if not np.isfinite(grid).any():
+        return (), (), np.nan
+    flat = int(np.argmin(grid))
+    row, column = divmod(flat, grid.shape[1])
+    a, b = int(first[row]), int(second[column])
+    return ((float(times[a]), float(times[b])),
+            (_segment_slope(times, values, 0, a),
+             _segment_slope(times, values, a, b),
+             _segment_slope(times, values, b, count)),
+            float(grid[row, column]))
+
+
+def segment_selection(times, values, threshold=SEGMENT_F,
+                      minimum=SEGMENT_MINIMUM_POINTS):
+    """
+    One breakpoint or two? Nested, chosen on an F test.
+
+    A k-break fit has 3k + 2 free parameters -- two per stretch plus the
+    breakpoints -- so the second costs three, and F is
+    (SSE1 - SSE2)/3 over SSE2/(n - 8).
+
+    Returns a dict: `breaks`, `times`, `slopes`, `f_statistic`, `pattern`.
+
+    READ `pattern`, NOT `breaks`. A progress curve is smooth, and three
+    straight lines fit a smooth bend better than two whether or not anything
+    happened -- so the F test accepts a second breakpoint on 20 of the
+    temperature series' 24 curves, including the 15 C ones whose slopes simply
+    rise 0.08 -> 0.15 -> 0.17. The COUNT is a statement about piecewise-linear
+    approximation. The SEQUENCE OF SLOPES is the statement about the curve:
+    "rise then fall" needs a maximum in the middle and cannot be produced by
+    bending one way.
+
+    Use it to say WHERE a curve changes, not to decide what it is:
+    `summary_kinetics.fit_progress` is the model.
+    """
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    one_times, one_slopes, one_sse = segment_breaks(times, values, 1, minimum)
+    two_times, two_slopes, two_sse = segment_breaks(times, values, 2, minimum)
+    result = {"breaks": 1, "times": one_times, "slopes": one_slopes,
+              "f_statistic": np.nan, "pattern": _slope_pattern(one_slopes)}
+    if not np.isfinite(one_sse):
+        return result
+    if not np.isfinite(two_sse) or two_sse <= 0:
+        return result
+    degrees = max(1, len(times) - 8)
+    statistic = float(((one_sse - two_sse) / 3.0) / (two_sse / degrees))
+    result["f_statistic"] = statistic
+    if statistic > threshold:
+        result.update(breaks=2, times=two_times, slopes=two_slopes)
+    result["pattern"] = _slope_pattern(result["slopes"])
+    return result
+
+
+def _slope_pattern(slopes):
+    """Name the sequence of slopes: what the curve does, not how many lines."""
+    slopes = [v for v in slopes if np.isfinite(v)]
+    if len(slopes) < 2:
+        return "unresolved"
+    rises = [b > a for a, b in zip(slopes, slopes[1:])]
+    if all(rises):
+        return "rising"
+    if not any(rises):
+        return "falling"
+    if rises[0] and not rises[-1]:
+        return "rise then fall"
+    return "fall then rise"
+
+
 def segmented_fit(times, values, floor=QUANTISATION_SIGMA,
                   minimum=SEGMENT_MINIMUM_POINTS):
     """
@@ -241,30 +402,14 @@ def segmented_fit(times, values, floor=QUANTISATION_SIGMA,
     their ratio, not standard errors, so it takes the argument only to keep the
     signature uniform with the rest of the module. It is deliberately unused.
     """
-    times = np.asarray(times, dtype=float)
-    values = np.asarray(values, dtype=float)
-    count = len(times)
-    if count < 2 * minimum + 1:
+    # One break, via the shared search. Kept as its own name because the
+    # ratio it returns is what `scope.frame` and `synchronised_break` read.
+    breaks, slopes, _ = segment_breaks(times, values, 1, minimum)
+    if not breaks:
         return np.nan, np.nan, np.nan, np.nan
-
-    def fit(x, y):
-        design = np.column_stack([np.ones(len(x)), x - x[0]])
-        beta, *_ = np.linalg.lstsq(design, y, rcond=None)
-        residual = y - design @ beta
-        return float(residual @ residual), float(beta[1])
-
-    best_error, best = np.inf, None
-    for split in range(minimum, count - minimum):
-        left_error, left_slope = fit(times[:split], values[:split])
-        right_error, right_slope = fit(times[split:], values[split:])
-        if left_error + right_error < best_error:
-            best_error = left_error + right_error
-            best = (float(times[split]), left_slope, right_slope)
-    if best is None:
-        return np.nan, np.nan, np.nan, np.nan
-    break_time, before, after = best
-    ratio = after / before if before != 0 else np.nan
-    return break_time, before, after, float(ratio)
+    before, after = slopes
+    ratio = after / before if before else np.nan
+    return breaks[0], before, after, float(ratio)
 
 
 def block_slopes(times, values, fraction=INITIAL_WINDOW,

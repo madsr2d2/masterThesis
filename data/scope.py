@@ -30,7 +30,8 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            OUTLIER_SIGMA, acceleration, initial_rate,
                            isolated_outliers, lag_time, local_outlier_z,
                            model_residual, peak_position, peak_rate,
-                           quadratic_rate, segmented_fit, SEGMENT_RATIO_STEEP,
+                           quadratic_rate, segmented_fit, segment_selection,
+                           SEGMENT_RATIO_STEEP,
                            whole_slope)
 from fit_dataset import (PRIMARY_SCOPE, PRIMARY_SCOPE_BLOCK, build_curves,
                          in_scope, source_floor)
@@ -160,6 +161,11 @@ def frame(scope=PRIMARY_SCOPE):
         # are never treated as artefacts. Neither excludes anything.
         break_time, slope_before, slope_after, break_ratio = segmented_fit(
             times, values, floor=floor)
+        # And the same search allowed TWO breakpoints. A rate that rises and
+        # then falls has two, and a one-break search lands on whichever is
+        # stronger and never reports the other -- which is how the early break
+        # on the 40 C curves went unseen until it was spotted on a plot.
+        segments = segment_selection(times, values)
         isolated, in_runs = isolated_outliers(times, values, noise)
         # The leading reading gets its own flag, taken from z[0] rather than
         # from membership of `isolated`: a bad leading point drags its
@@ -321,6 +327,15 @@ def frame(scope=PRIMARY_SCOPE):
             "slope_before": slope_before,
             "slope_after": slope_after,
             "break_ratio": break_ratio,
+            # Every breakpoint the curve earns, and what the slopes DO across
+            # them. Read `break_pattern`, not `break_count`: three lines fit a
+            # smooth bend better than two whether or not anything happened, so
+            # the count is about approximation and the pattern is about the
+            # curve. See curve_metrics.segment_selection.
+            "break_count": int(segments["breaks"]),
+            "break_times": tuple(round(float(v), 1) for v in segments["times"]),
+            "break_pattern": segments["pattern"],
+            "break_f": float(segments["f_statistic"]),
         })
     return pd.DataFrame(rows)
 

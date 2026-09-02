@@ -21,7 +21,9 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            initial_rate, line_fit, line_slope, peak_position,
                            OUTLIER_SIGMA, isolated_outliers,
                            local_outlier_z, model_residual, quadratic_rate,
-                           segmented_fit, SEGMENT_RATIO_STEEP,
+                           segmented_fit, segment_breaks,
+                           segment_selection, _segment_errors,
+                           SEGMENT_RATIO_STEEP,
                            whole_slope, window_size)
 from fit_dataset import source_floor
 from read_rre import RRE_SIGMA
@@ -470,6 +472,71 @@ def test_segmented_fit():
           float(boric.break_time.max() - boric.break_time.min()) <= 56.0)
 
 
+def test_two_breakpoints():
+    """
+    Two breakpoints are found when there are two, and refused when there is one.
+
+    `segmented_fit` searches for ONE break, so on a curve whose rate rises and
+    then falls it lands on whichever change is stronger and never reports the
+    other. That is not a tuning problem, it is the shape of the search, and it
+    is why the early break on the 40 C curves was invisible until it was seen
+    by eye.
+    """
+    print("two breakpoints")
+    times = np.arange(0, 180) * 40.0
+
+    # rise then fall: slopes 1e-5, 4e-5, 2e-5, breaking at 2000 and 4800 s
+    def piecewise(edges, slopes):
+        out = np.zeros(len(times))
+        level = 0.0
+        previous = 0.0
+        for edge, slope in zip(list(edges) + [times[-1] + 1], slopes):
+            inside = (times >= previous) & (times < edge)
+            out[inside] = level + slope * (times[inside] - previous)
+            level += slope * (min(edge, times[-1] + 1) - previous)
+            previous = edge
+        return out
+
+    generator = np.random.default_rng(1)
+    curve = piecewise((2000.0, 4800.0), (1e-5, 4e-5, 2e-5))
+    noisy = curve + generator.normal(0, 3e-4, len(times))
+    result = segment_selection(times, noisy)
+    check("a rise-then-fall curve takes two breakpoints",
+          result["breaks"] == 2, f"{result['breaks']}, F {result['f_statistic']:.1f}")
+    check("and places them near the truth",
+          len(result["times"]) == 2
+          and abs(result["times"][0] - 2000) < 600
+          and abs(result["times"][1] - 4800) < 600,
+          f"{[round(v) for v in result['times']]}")
+    check("and names the pattern", result["pattern"] == "rise then fall",
+          result["pattern"])
+
+    # one break, monotone: the pattern must not claim a maximum
+    single = piecewise((2500.0,), (1e-5, 3e-5))
+    result = segment_selection(times, single + generator.normal(0, 3e-4, len(times)))
+    check("a single bend is called rising", result["pattern"] == "rising",
+          result["pattern"])
+
+    # The one-break search is a special case and must not beat the two-break
+    # search: more freedom cannot fit worse.
+    for values in (noisy, single):
+        _, _, one = segment_breaks(times, values, 1)
+        _, _, two = segment_breaks(times, values, 2)
+        check("two breakpoints never fit worse than one",
+              two <= one * 1.0001, f"{two:.3e} against {one:.3e}")
+
+    # And the prefix-sum errors must equal an honest least squares.
+    errors = _segment_errors(times, noisy, 4)
+    for start, stop in ((0, 40), (17, 96), (100, len(times))):
+        design = np.column_stack([np.ones(stop - start), times[start:stop]])
+        beta, *_ = np.linalg.lstsq(design, noisy[start:stop], rcond=None)
+        residual = noisy[start:stop] - design @ beta
+        check("the prefix-sum stretch error matches a direct fit",
+              abs(errors[start, stop] - float(residual @ residual))
+              <= 1e-9 * float(residual @ residual),
+              f"{errors[start, stop]:.6e} against {float(residual @ residual):.6e}")
+
+
 if __name__ == "__main__":
     test_no_duplicate_definitions()
     test_lag_statistic()
@@ -480,5 +547,6 @@ if __name__ == "__main__":
     test_outlier_flagging()
     test_model_residual()
     test_segmented_fit()
+    test_two_breakpoints()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

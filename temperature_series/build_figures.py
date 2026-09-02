@@ -531,14 +531,18 @@ def build_curves_page():
                         stroke=None if dense else "white", stroke_width=0.6)
             assert FIT_WIDTH < 2 * radius, "fit line would cover the marks"
             axes.line(smooth, fitted, ACCENT, width=FIT_WIDTH)
-            where, before, after, ratio = segmented_fit(times, values)
-            if np.isfinite(where):
-                py = axes._fy(np.interp(where, times, values))
+            # EVERY breakpoint the curve earned, not just the first. A rate
+            # that rises and then falls has two, and drawing one leaves the
+            # other invisible -- which is how the early break on the 40 C
+            # curves went unnoticed until it was seen by eye on this page.
+            for index, where in enumerate(record.break_times):
                 axes.parts.append(
                     f"<path d='M{axes._fx(where):.2f},{axes.top} "
                     f"L{axes._fx(where):.2f},{axes.height - axes.bottom}' "
                     f"stroke='{MUTED}' stroke-width='1.1' "
                     f"stroke-dasharray='3 3' fill='none'/>")
+                axes.note(axes._fx(where) + 3, axes.top + 10,
+                          f"{index + 1}", MUTED, size=9.5)
             kind = progress.chosen.kind
             panels.append(
                 "<div class='fig panel'>"
@@ -555,12 +559,23 @@ def build_curves_page():
                 + (f" · τ₁ = {record.tau_fast:.0f} s" if record.phases == 2
                    else (f" · τ = {record.tau:.0f} s" if record.tau_resolved
                          else " · τ unresolved"))
-                + f" · break at {where:.0f} s, slope ×{ratio:.2f}</div></div>")
+                + " · breaks at "
+                + (", ".join(f"{v:.0f}" for v in record.break_times) + " s"
+                   if record.break_times else "none")
+                + f" · <strong>{esc(record.break_pattern)}</strong>"
+                + "</div></div>")
     body = ("<p class='lede'>All 24 curves of the temperature series, in "
-            "temperature order. The orange line is the burst/lag form fitted by "
-            "<code>summary_kinetics.fit_burst_bounded</code>; the dashed "
-            "vertical is the best two-line breakpoint from "
-            "<code>curve_metrics.segmented_fit</code>. Nothing is excluded and "
+            "temperature order. The orange line is whichever form the curve "
+            "earned — one relaxation or two — from "
+            "<code>summary_kinetics.fit_progress</code>; the numbered dashed "
+            "verticals are the breakpoints of the best piecewise-linear "
+            "description (<code>curve_metrics.segment_selection</code>), one "
+            "or two according to an F test. <strong>Read the pattern in the "
+            "footer, not the number of breaks</strong>: three straight lines "
+            "fit a smooth bend better than two whether or not anything "
+            "happened, so the count is a statement about approximation and the "
+            "sequence of slopes is the statement about the curve. Nothing is "
+            "excluded and "
             "every fit is computed on every point — except the instrument's "
             "first reading, which is discarded from every run in the archive "
             "(<code>fit_dataset.DROP_FIRST_READING</code>) and is therefore "

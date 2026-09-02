@@ -182,6 +182,44 @@ pre-break slope is indistinguishable from flat", not "the post-break slope is
 remarkable". `break_ratio` is unstable wherever `slope_before` approaches zero,
 and a lag curve at the slowest condition is exactly where that happens.
 
+### The screen itself looked for one break, and there are two
+
+Added 2026-09-02, after the same observation that produced §3a: a rate that
+rises and then falls has **two** breakpoints, and `segmented_fit` searches for
+one. It lands on whichever change is stronger and never reports the other —
+which is exactly how the early break on the 40 °C curves went unseen while the
+late one was written up.
+
+`curve_metrics.segment_breaks` now searches one **or** two, exhaustively, on
+straight-line errors precomputed from prefix sums so a two-break search costs
+O(1) per candidate pair rather than refitting lines 68 000 times.
+`segment_selection` chooses between them on an F test — three extra parameters,
+one breakpoint and one line — with the same nested discipline as the fitting
+forms.
+
+Exp 16's rise-then-fall rungs now report the pair: **490 and 3626 s** (slopes
+2.39 → 3.31 → 2.81 ×10⁻⁵) and **539 and 3871 s** (2.93 → 4.19 → 3.53).
+
+**Read the pattern, not the count.** A progress curve is smooth, and three
+straight lines fit a smooth bend better than two whether or not anything
+happened, so the F test takes a second breakpoint on **20 of 24** — including
+the 15 °C curves whose slopes simply rise 0.08 → 0.15 → 0.17. The *count* is a
+statement about piecewise-linear approximation; the *sequence of slopes* is the
+statement about the curve, and only "rise then fall" needs a maximum in the
+middle.
+
+| T | 15 °C | 20 °C | 25 °C | 30 °C | 35 °C | 40 °C |
+|---|---|---|---|---|---|---|
+| rising | 4 | 4 | 1 | 4 | 0 | 0 |
+| rise then fall | 0 | 0 | **3** | 0 | **2** | **2** |
+| falling | 0 | 0 | 0 | 0 | 2 | 2 |
+
+**This is an independent check on §3a.** The model-free description says
+"rising" at exactly the temperatures where the nested fit selects one phase
+(15, 20, 30 °C) and "rise then fall" or "falling" at exactly those where it
+selects two (25, 35, 40 °C). Two unrelated procedures — piecewise lines and a
+nested exponential fit — partition the block the same way.
+
 ### But it exposed a real problem with `vmax`
 
 `vmax_where` — where the steepest block sits, as a fraction of the run:

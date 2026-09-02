@@ -209,6 +209,40 @@ def main():
           bool((frame[frame.temperature <= arrhenius.BURST_TRUSTWORTHY_BELOW_C]
                 .v0_burst_kind == "lag").all()))
 
+    print("\nthe screen now finds both breakpoints")
+    counts = frame.groupby(["temperature", "break_pattern"]).size()
+    patterns = ("rising", "rise then fall", "falling")
+    temperatures = sorted(frame.temperature.unique())
+    for pattern in patterns:
+        row = [int(counts.get((t, pattern), 0)) for t in temperatures]
+        mark = "**" if pattern == "rise then fall" else ""
+        claim(f"pattern row, {pattern}",
+              f"| {pattern} | " + " | ".join(
+                  f"{mark}{v}{mark}" if (mark and v) else str(v)
+                  for v in row) + " |")
+    two = int((frame.break_count == 2).sum())
+    claim("how many take a second breakpoint",
+          f"the F test takes a second breakpoint on **{two} of {len(frame)}**")
+    # The exp 16 pair the user spotted by eye, now measured.
+    hot = frame[(frame.temperature == 40) & np.isclose(frame.s0, 3.700)].iloc[0]
+    claim("exp 16's early break",
+          f"**{hot.break_times[0]:.0f} and {hot.break_times[1]:.0f} s**")
+    # THE cross-check: the model-free pattern and the nested fit agree on which
+    # temperatures are two-phase. If they ever stop agreeing, one of them is
+    # describing something other than the curve.
+    by_temperature = frame.groupby("temperature").agg(
+        two_phase=("phases", lambda s: (s == 2).sum()),
+        rising=("break_pattern", lambda s: (s == "rising").sum()),
+        total=("phases", "size"))
+    agree = all(
+        (row.two_phase == 0) == (row.rising == row.total)
+        for _, row in by_temperature.iterrows())
+    check("the model-free pattern and the nested fit partition the block alike",
+          agree,
+          "; ".join(f"{t:.0f}C {int(r.two_phase)}/{int(r.total)} two-phase, "
+                    f"{int(r.rising)}/{int(r.total)} rising"
+                    for t, r in by_temperature.iterrows()))
+
     print("\nwhat the screen exposed about vmax")
     where = frame.groupby("temperature").vmax_where
     claim("the vmax_where row",

@@ -8,6 +8,71 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-02 — The breakpoint screen looked for one break, and there are two
+
+**From the user, on the rebuilt panels:** the fitted curves should show both
+breakpoints where there are two. Agreed, and the point is larger than the plot:
+`curve_metrics.segmented_fit` searches for **one** breakpoint by construction,
+so on a curve whose rate rises and then falls it lands on whichever change is
+stronger and never reports the other. That is not a threshold to tune, it is the
+shape of the search — the same blind spot the one-phase fitting form had, in the
+model-free statistic.
+
+It is exactly how the early break went missing. The 40 °C curves were written up
+with a single break at 3283–4116 s, the fall; the rise at ~500 s was never
+reported because nothing looked for it.
+
+### The fix
+
+`segment_breaks(times, values, breaks=1 or 2)` searches exhaustively over
+breakpoints on straight-line errors precomputed from prefix sums, so each
+candidate stretch costs O(1) — a two-break search visits O(n²) pairs and at 368
+readings the naive route would refit a line 68 000 times. `segmented_fit` is now
+a thin wrapper on it and its behaviour is unchanged, which its existing tests
+confirm.
+
+`segment_selection` chooses one or two on an F test — three extra parameters,
+one breakpoint and one line — `SEGMENT_F = 10.0`, above the nominal F(3, ~120)
+at α = 0.001 for the same reason `TWO_PHASE_F` is above its nominal value.
+
+**Exp 16's rise-then-fall rungs now report the pair the user described**:
+**490 and 3626 s** (slopes 2.39 → 3.31 → 2.81 ×10⁻⁵) and **539 and 3871 s**
+(2.93 → 4.19 → 3.53).
+
+### Read the pattern, not the count
+
+A progress curve is smooth, and three straight lines fit a smooth bend better
+than two whether or not anything happened. The F test accordingly takes a second
+breakpoint on **20 of 24**, including the 15 °C curves whose slopes merely rise
+0.08 → 0.15 → 0.17. The count is a statement about piecewise-linear
+approximation; the **sequence of slopes** is the statement about the curve, and
+only "rise then fall" requires a maximum in the middle. `segment_selection`
+returns `pattern` and the docstring says to read it instead of `breaks`.
+
+| T | 15 °C | 20 °C | 25 °C | 30 °C | 35 °C | 40 °C |
+|---|---|---|---|---|---|---|
+| rising | 4 | 4 | 1 | 4 | 0 | 0 |
+| rise then fall | 0 | 0 | **3** | 0 | **2** | **2** |
+| falling | 0 | 0 | 0 | 0 | 2 | 2 |
+
+### An independent check on the fitting form
+
+The model-free description says **rising** at exactly the temperatures where the
+nested exponential fit selects one phase (15, 20, 30 °C), and **rise then fall**
+or **falling** at exactly those where it selects two (25, 35, 40 °C). Two
+unrelated procedures — piecewise lines and a nested exponential fit — partition
+the block the same way, and `check_numbers` now fails if they stop agreeing.
+
+**Changed:** `curve_metrics.segment_breaks`, `segment_selection`,
+`_segment_errors`, `_segment_slope`, `_slope_pattern`, `SEGMENT_F`;
+`segmented_fit` reimplemented on the shared search; `scope.frame` gained
+`break_count`, `break_times`, `break_pattern`, `break_f`; the panels draw every
+breakpoint, numbered, with the pattern in the footer;
+`test_curve_metrics.test_two_breakpoints` covers recovery, refusal, the nesting
+inequality and the prefix-sum errors against a direct fit. Folder checks 92 → 98.
+
+---
+
 ## 2026-09-02 — A two-phase fitting form with nested selection, and a new rate observable
 
 The burst/lag form's rate is `v_ss − (B/τ)e^(−t/τ)` — **monotone**, so it
