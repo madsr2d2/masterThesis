@@ -1008,9 +1008,66 @@ def composition_collinearity(table):
                           [0, 1]))
     if not rows:
         return {"runs": 0}
+    # And the SLOPE, not just the correlation: correcting an order needs
+    # d log[buf] / d log[S], which is what a fit without a buffer term folds
+    # into the substrate coefficient. `temperature_series` 3 uses -0.325 for
+    # its own six runs and corrects the RATE's order with it.
+    live = table[table.live & (table.s0 > 0) & (table.buf > 0)]
+    laddered = live.groupby("experiment").s0.transform("nunique") > 1
+    live = live[laddered]
+    slope = np.nan
+    if len(live) > 4 and live.buf.nunique() > 1:
+        x = np.log(live.s0.to_numpy(dtype=float))
+        y = np.log(live.buf.to_numpy(dtype=float))
+        design = np.column_stack(
+            [x] + [(live.experiment.to_numpy() == e).astype(float)
+                   for e in sorted(live.experiment.unique())])
+        beta, *_ = np.linalg.lstsq(design, y, rcond=None)
+        slope = float(beta[0])
     return {"runs": len(rows),
             "median": float(np.median(rows)),
+            "slope": slope,
             "constant_buffer": int(sum(1 for value in rows if value == 0.0))}
+
+
+def substrate_order_corrected(table, buffer_slope, buffer_stderr,
+                              response="t_ind", floor=INDUCTION_FLOOR):
+    """
+    The substrate order with the buffer that rides on the ladder taken out.
+
+    A fit without a buffer term returns `a' = a + d.g`, where `d` is the order
+    in `[buf]` and `g = d log[buf] / d log[S]` is how steeply buffer rides on
+    the substrate ladder. `temperature_series` 3 does exactly this to the
+    RATE's substrate order, with d = +0.400 from exps 32 and 34; this does it
+    to the INDUCTION's, with d from `buffer_order` on the same two runs.
+
+    IT MATTERS, and not in the direction that flatters this module. The
+    uncorrected order is -0.121 +- 0.148 against the -0.471 a product threshold
+    requires, which excludes it; corrected it moves towards the threshold and
+    stops excluding it. What is NOT reached by any of this is
+    `induction_drivers`, whose regressor is the curve's own measured rate: it
+    asks whether a faster cuvette's induction is shorter, and that question is
+    well posed whatever is making the cuvette faster -- buffer included.
+    """
+    measured = scope.orders(response, frame=table, floor=floor)
+    ladder = composition_collinearity(table)
+    slope = ladder.get("slope", np.nan)
+    correction = buffer_slope * slope
+    corrected = measured["order_s0"] - correction
+    rate = scope.orders("v_peak", frame=table)
+    return {"measured": measured["order_s0"],
+            "measured_stderr": measured["stderr_s0"],
+            "buffer_slope": float(buffer_slope),
+            "ladder_slope": float(slope),
+            "correction": float(correction),
+            "correction_stderr": float(abs(slope) * buffer_stderr),
+            "corrected": float(corrected),
+            "corrected_stderr": float(np.hypot(measured["stderr_s0"],
+                                               abs(slope) * buffer_stderr)),
+            # What a product threshold would require: the rate's own substrate
+            # order with the sign reversed.
+            "threshold": float(-rate["order_s0"]),
+            "points": measured["n"]}
 
 
 # The archive's one direct buffer lever on an induction: exps 32 and 34, 4OMe
@@ -1018,42 +1075,126 @@ def composition_collinearity(table):
 # cuvettes, and [buf] stepped 3.125 -> 200 mM. Sixty-four fold, and two runs.
 BUFFER_LEVER = (34, 32)
 
+# The window this lever's landmark is read through, in SECONDS and not as a
+# fraction of the run. Everywhere else in this module the window is a fraction,
+# for the reason `landmark_window` measures: a cold slow curve needs a wide one.
+# Here that rule inverts, because the two runs differ threefold in length
+# (5280 s against 1767 s) and a fractional window would read them through
+# windows that differ threefold too -- which is the whole reason the two runs
+# looked like they disagreed. These are 40 C curves reaching 0.05-0.31 AU, so
+# they can afford a fixed window where the 15 C curves cannot.
+BUFFER_WINDOW = 450.0
+BUFFER_WINDOW_SWEEP = (300.0, 450.0, 600.0, 900.0, 1200.0)
 
-def buffer_lever(table, experiments=BUFFER_LEVER):
+
+def buffer_landmark(curve, width=BUFFER_WINDOW):
+    """`induction_point` with the window given in seconds rather than as a share."""
+    span = float(curve.times[-1] - curve.times[0])
+    return induction_point(curve, window=min(width / span, 0.5))
+
+
+def buffer_lever(table, experiments=BUFFER_LEVER, width=BUFFER_WINDOW,
+                 floor=INDUCTION_FLOOR):
     """
     Does buffer shorten the induction, as general base catalysis of E -> E* would?
 
-    Returns one row per run with the log-log slope of the induction time on
-    `[buf]` inside it. THE TWO RUNS DISAGREE IN SIGN, which is the answer: this
-    lever is eight curves in two experiments recorded on different days, the
-    step from 25 to 50 mM is also a step between runs, and nothing can be
-    concluded from it. It is reported because the alternative -- leaving the
-    only direct measurement out because it is inconvenient -- is worse, and
-    because the indirect signal in `composition_collinearity` is 28 runs wide
-    and points somewhere.
+    WHAT THIS FUNCTION GOT WRONG FIRST, because the mistake is the reason it is
+    written this way. Its first version regressed `tau_fast` on `[buf]` inside
+    each run and reported that the two runs disagreed in sign, +0.457 +- 0.097
+    against -1.052 +- 0.469. They do not disagree. `tau_fast` is not the same
+    quantity in the two runs: every curve of exp 34 earns the two-phase form
+    (F = 71 to 819 against a threshold of 12) and every curve of exp 32 earns
+    the one-phase form (F = 1.6 to 4.7), so one row was tau1 of a two-phase fit
+    and the other tau of a one-phase fit. And the model form breaks exactly at
+    the run boundary because the SCHEDULE does: exp 34 ran 5280 s and exp 32
+    1767 s, so exp 34's runs are long enough to contain the slow fall and exp
+    32's end before it. A comparison across that boundary was never between two
+    measurements of one thing.
+
+    What is comparable is a landmark read off the READINGS through a window
+    common to both runs, which is what `buffer_landmark` does. On that footing
+    the two runs agree, and they agree in the direction general base catalysis
+    predicts.
+
+    ONE LEVEL PER RUN, always. The rate -- `v_peak`, the one quantity defined
+    identically on both forms -- FALLS 1.80x across the join, from 7.41e-5 at
+    25 mM in exp 34 to 4.13e-5 at 50 mM in exp 32, while the buffer doubles.
+    Whatever separates the two days is larger than the effect being measured,
+    so a fit with a shared intercept is measuring the day. That is the same
+    reason `temperature_series` 3 quotes the buffer order of the RATE as two
+    range-specific numbers, +0.803 +- 0.173 below 25 mM and +0.400 +- 0.028
+    above 50, rather than one pooled one.
     """
     import pandas as pd
     rows = []
-    for experiment in experiments:
-        block = table[(table.experiment == experiment) & table.live]
-        block = block[np.isfinite(block.tau_fast) & (block.tau_fast > 0)
-                      & (block.buf > 0)]
+    for curve in scope.curves(tuple(experiments)):
+        found = buffer_landmark(curve, width)
+        rows.append({"experiment": curve.experiment, "sample": curve.sample,
+                     "buf": curve.buf, "t_ind": found.t_ind,
+                     "depth": found.depth,
+                     "span_s": float(curve.times[-1] - curve.times[0])})
+    ladder = pd.DataFrame(rows)
+    joined = ladder.merge(table[["experiment", "sample", "phases",
+                                 "two_phase_f", "v_peak", "progress_kind"]],
+                          on=["experiment", "sample"])
+    return joined
+
+
+def buffer_order(ladder, response="t_ind", floor=INDUCTION_FLOOR):
+    """
+    The pooled log-log slope of the landmark on `[buf]`, one level per run.
+
+    Returns the pooled slope and each run's own, so that "the two runs agree"
+    is a statement the caller can check rather than one it has to believe.
+    """
+    values = ladder[response].to_numpy(dtype=float)
+    y = np.log(np.maximum(values, floor if response == "t_ind" else DEPTH_FLOOR))
+    x = np.log(ladder.buf.to_numpy(dtype=float))
+    runs = sorted(ladder.experiment.unique())
+    design = np.column_stack([x] + [(ladder.experiment.to_numpy() == run)
+                                    .astype(float) for run in runs])
+    beta, *_ = np.linalg.lstsq(design, y, rcond=None)
+    resid = y - design @ beta
+    rank = int(np.linalg.matrix_rank(design))
+    variance = float(resid @ resid) / max(1, len(y) - rank)
+    covariance = variance * np.linalg.pinv(design.T @ design)
+    out = {"points": int(len(y)), "runs": len(runs),
+           "slope": float(beta[0]),
+           "stderr": float(np.sqrt(max(covariance[0, 0], 0.0)))}
+    for run in runs:
+        block = ladder[ladder.experiment == run]
         if len(block) < 3:
             continue
-        x = np.log(block.buf.to_numpy(dtype=float))
-        y = np.log(block.tau_fast.to_numpy(dtype=float))
-        design = np.column_stack([np.ones(len(x)), x])
-        beta, *_ = np.linalg.lstsq(design, y, rcond=None)
-        resid = y - design @ beta
-        variance = float(resid @ resid) / max(1, len(x) - 2)
-        covariance = variance * np.linalg.pinv(design.T @ design)
-        rows.append({"experiment": int(experiment), "curves": int(len(x)),
-                     "buffer_low": float(block.buf.min()),
-                     "buffer_high": float(block.buf.max()),
-                     "slope": float(beta[1]),
-                     "stderr": float(np.sqrt(covariance[1, 1])),
-                     "lag_first": int(block.lag_first.sum())})
-    return pd.DataFrame(rows)
+        bx = np.log(block.buf.to_numpy(dtype=float))
+        by = np.log(np.maximum(block[response].to_numpy(dtype=float),
+                               floor if response == "t_ind" else DEPTH_FLOOR))
+        single = np.column_stack([bx, np.ones(len(bx))])
+        coefficients, *_ = np.linalg.lstsq(single, by, rcond=None)
+        residual = by - single @ coefficients
+        spread = float(residual @ residual) / max(1, len(bx) - 2)
+        error = spread * np.linalg.pinv(single.T @ single)
+        out[f"slope_{int(run)}"] = float(coefficients[0])
+        out[f"stderr_{int(run)}"] = float(np.sqrt(max(error[0, 0], 0.0)))
+    return out
+
+
+def buffer_join_step(ladder):
+    """
+    The between-run level step, which is why the two runs get separate levels.
+
+    The top rung of the low-buffer run and the bottom rung of the high-buffer
+    one differ twofold in `[buf]`, so the rate should RISE across them and it
+    falls instead. That ratio is the size of whatever separates the two days.
+    """
+    low, high = ladder[ladder.experiment == BUFFER_LEVER[0]], \
+        ladder[ladder.experiment == BUFFER_LEVER[1]]
+    if not len(low) or not len(high):
+        return {}
+    top = low.loc[low.buf.idxmax()]
+    bottom = high.loc[high.buf.idxmin()]
+    return {"from_buf": float(top.buf), "to_buf": float(bottom.buf),
+            "from_rate": float(top.v_peak), "to_rate": float(bottom.v_peak),
+            "step": float(top.v_peak / bottom.v_peak)}
 
 
 # The cuts this question needs, by the frame's own columns. `slowdown` has the
@@ -1257,8 +1398,29 @@ def report(table=None):
             print(f"   {label:32s} {'+ S/N' if control else '     '} "
                   f"{axis:5s} {got[axis]:+.3f} +- {got[axis + '_stderr']:.3f}"
                   f"   n={got['points']:3d}{tail}")
-    print("   the one direct buffer lever, and why it settles nothing:")
-    print(buffer_lever(named["4OMe catalysed"]).to_string(index=False))
+    print("   the one direct buffer lever, read on a common footing:")
+    ladder = buffer_lever(table)
+    print(ladder.to_string(index=False))
+    step = buffer_join_step(ladder)
+    print(f"   the rate falls {step['step']:.2f}x from {step['from_buf']:.0f} "
+          f"to {step['to_buf']:.0f} mM, so the runs get separate levels")
+    for response in ("t_ind", "depth"):
+        got = buffer_order(ladder, response)
+        print(f"   d log {response:6s}/d log[buf]  pooled "
+              f"{got['slope']:+.3f} +- {got['stderr']:.3f}   "
+              f"exp 34 {got['slope_34']:+.3f} +- {got['stderr_34']:.3f}   "
+              f"exp 32 {got['slope_32']:+.3f} +- {got['stderr_32']:.3f}")
+    print("   and across windows, none of which changes its sign:")
+    print("   " + "  ".join(
+        f"{width:.0f}s {buffer_order(buffer_lever(table, width=width))['slope']:+.3f}"
+        for width in BUFFER_WINDOW_SWEEP))
+    order = buffer_order(buffer_lever(table))
+    fixed = substrate_order_corrected(named["4OMe catalysed"], order["slope"],
+                                      order["stderr"])
+    print(f"   what that does to section 3's route two: "
+          f"{fixed['measured']:+.3f} +- {fixed['measured_stderr']:.3f} becomes "
+          f"{fixed['corrected']:+.3f} +- {fixed['corrected_stderr']:.3f}, "
+          f"against {fixed['threshold']:+.3f}")
 
     print("\n5. THE ACTIVATION PARAMETERS")
     gap = activation_contrast()

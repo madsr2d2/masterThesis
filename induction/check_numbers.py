@@ -41,6 +41,12 @@ def _normalise(text):
                          .replace("σ", "sigma")
                          .replace("µ", "u").replace("μ", "u")
                          .replace("°", "")
+                         # Superscript digits and minus, so "10\u207b\u2075" folds
+                         # onto the "10-5" %-formatting emits.
+                         .translate(str.maketrans(
+                             "\u207b\u2070\u00b9\u00b2\u00b3\u2074"
+                             "\u2075\u2076\u2077\u2078\u2079",
+                             "-0123456789"))
                          .replace("`", "").replace("*", ""))
                     .split())
 
@@ -302,14 +308,54 @@ def main():
     check("and every in-scope run has one",
           induction.composition_collinearity(
               named["BnOH in scope (135-151)"])["constant_buffer"] == 17)
-    lever = induction.buffer_lever(named["4OMe catalysed"])
-    for row in lever.itertuples():
-        claim(f"exp {row.experiment}: the buffer slope",
-              f"**{row.slope:+.3f} +/- {row.stderr:.3f}**")
-        claim(f"exp {row.experiment}: its range",
-              f"{row.buffer_low:g}\u2013{row.buffer_high:g} mM")
-    check("the two runs disagree in sign", (lever.slope > 0).any()
-          and (lever.slope < 0).any(), f"{lever.slope.round(3).tolist()}")
+    ladder = induction.buffer_lever(table)
+    for run, label in ((34, "exp 34"), (32, "exp 32")):
+        block = ladder[ladder.experiment == run]
+        claim(f"{label}: its F range",
+              f"F = {block.two_phase_f.min():.0f} to "
+              f"{block.two_phase_f.max():.0f}"
+              if run == 34 else
+              f"F = {block.two_phase_f.min():.1f} to "
+              f"{block.two_phase_f.max():.1f}")
+        claim(f"{label}: its run length", f"{block.span_s.min():.0f} s")
+    step = induction.buffer_join_step(ladder)
+    claim("the level step at the join", f"falls {step['step']:.2f}x")
+    claim("the two rates it is between",
+          f"{step['from_rate'] * 1e5:.2f} x 10-5 at {step['from_buf']:.0f} mM "
+          f"to {step['to_rate'] * 1e5:.2f} x 10-5 at {step['to_buf']:.0f} mM")
+    claim("the withdrawn tau_fast slopes",
+          "+0.457 +/- 0.097 and -1.052 +/- 0.469")
+    claim("the window it is read through",
+          f"({induction.BUFFER_WINDOW:.0f} s;")
+    for response, key in (("t_ind", "t"), ("depth", "d")):
+        got = induction.buffer_order(ladder, response)
+        claim(f"{response}: exp 34's slope",
+              f"{got['slope_34']:+.3f} +/- {got['stderr_34']:.3f}")
+        claim(f"{response}: exp 32's slope",
+              f"{got['slope_32']:+.3f} +/- {got['stderr_32']:.3f}")
+        claim(f"{response}: the pooled slope",
+              f"**{got['slope']:+.3f} +/- {got['stderr']:.3f}**")
+    swept = [induction.buffer_order(
+        induction.buffer_lever(table, width=width))["slope"]
+        for width in induction.BUFFER_WINDOW_SWEEP]
+    claim("the window sweep's range",
+          f"runs {max(swept):.2f} to {min(swept):.2f}")
+    check("and no window changes its sign", all(v < 0 for v in swept),
+          " ".join(f"{v:+.3f}" for v in swept))
+
+    order = induction.buffer_order(ladder)
+    fixed = induction.substrate_order_corrected(
+        named["4OMe catalysed"], order["slope"], order["stderr"])
+    claim("the ladder's own buffer slope", f"= {fixed['ladder_slope']:.3f}")
+    claim("route two as measured",
+          f"| {fixed['measured']:+.3f} +/- {fixed['measured_stderr']:.3f} | "
+          f"{abs(fixed['measured'] - fixed['threshold']) / fixed['measured_stderr']:.1f}sigma |")
+    claim("route two corrected",
+          f"| **{fixed['corrected']:+.3f} +/- {fixed['corrected_stderr']:.3f}** "
+          f"| **{abs(fixed['corrected'] - fixed['threshold']) / fixed['corrected_stderr']:.1f}sigma** |")
+    check("the correction moves it towards the threshold, not away",
+          abs(fixed["corrected"] - fixed["threshold"])
+          < abs(fixed["measured"] - fixed["threshold"]))
 
     print("\nsection 5: the activation parameters")
     for label, key in (("the induction", "induction"),

@@ -639,12 +639,35 @@ correlate at <strong>−0.96</strong> inside every 4OMe run and at
 buffer means a shorter lag — which is <strong>general acid/base catalysis of
 E → E*</strong>, a real candidate for the step this whole folder is trying to
 name.</p>
-<p><strong>The one direct lever settles nothing.</strong> Exps 32 and 34 step
-<code>[buf]</code> 3.125 → 200 mM at fixed everything, which is the only such
-design in the archive. Eight curves in two runs, the step from 25 to 50 mM is
-also a step between experiments, and the two runs disagree in sign:
-<strong>+0.457 ± 0.097</strong> and <strong>−1.052 ± 0.469</strong>. The 28-run
-indirect signal points somewhere and the 2-run direct one cannot say where.</p>
+<p><strong>The one direct lever, and what it took to read it.</strong> Exps 32
+and 34 step <code>[buf]</code> 3.125 → 200 mM at fixed everything, which is the
+only such design in the archive. Reading them together takes two corrections.
+<em>The two runs earn different model forms</em> — every curve of exp 34 earns
+the two-phase form (F = 71 to 819 against a threshold of 12) and every curve of
+exp 32 the one-phase form (F = 1.6 to 4.7) — because the schedule breaks at the
+same place: 5280 s against 1767 s, so exp 34's runs contain the slow fall and
+exp 32's end before it. Regressing <code>tau_fast</code> inside each run, which
+is what this folder did first, compared τ₁ of a two-phase fit with τ of a
+one-phase one and called the difference a disagreement. <em>And the two runs sit
+at different levels</em>: <code>v_peak</code>, the one quantity defined
+identically on both forms, <strong>falls 1.80×</strong> across the join while
+the buffer doubles.</p>
+<p>Read instead through a landmark on the readings, with a window in seconds
+common to both runs, and pooled with one level each:
+<strong>−0.433 ± 0.201</strong> on the induction time and
+<strong>−1.036 ± 0.364</strong> on its depth — exp 34 giving −0.300 ± 0.269 and
+exp 32 −0.728 ± 0.316. <strong>The two runs agree, and in the direction general
+base catalysis predicts.</strong> Across windows of 300 to 1200 s the pooled
+slope runs −0.33 to −0.72 and never changes sign. It is eight curves at one
+temperature: a direction, not a buffer order.</p>
+<p>It also costs section 3 something. With that buffer order taken out, the
+induction's substrate order moves from −0.121 ± 0.148 to
+<strong>−0.235 ± 0.158</strong> against the −0.471 a product threshold needs —
+from 2.4σ to <strong>1.5σ</strong>, so <em>that route no longer excludes product
+control</em>. The driver regression does, at nine standard errors, and it is not
+reached by any of this: its regressor is the curve's own measured rate, so it
+asks whether a faster cuvette's induction is shorter and that is well posed
+whatever is making the cuvette faster.</p>
 
 <h2>7 · What this settles, and what it does not</h2>
 <p><strong>Settled.</strong> The induction is a property of the catalysed
@@ -657,13 +680,14 @@ is a shape, not a mechanism. Everything that survives section 3 is unimolecular
 in what the cuvette holds — the ketone's gem-diol hydrate dehydrating, the
 perhydrate collapsing to the dioxirane, or a conformational change of the
 cyclodextrin — and absorbance at one wavelength cannot choose between them.</p>
-<p><strong>Not settled: whether the buffer is what carries E → E*.</strong>
-Section 6 — the candidate is real, the indirect signal is 28 runs wide, and the
-direct lever is two runs that disagree. The measurement that would settle it is
+<p><strong>Not settled, and the most promising lead here: whether the buffer is
+what carries E → E*.</strong> Section 6 — three things point the same way, and
+none of them is more than a direction. The measurement that would settle it is
 one run with <code>[buf]</code> stepped at fixed <code>[S]</code> on the
 catalysed 4OMe system <em>at 25 °C</em>, where the induction is thousands of
-seconds long rather than nearly over; the archive's only buffer titration sits
-at 40 °C, where it is not.</p>
+seconds long rather than nearly over and every cuvette would earn the same model
+form; the archive's only buffer titration sits at 40 °C, where it is
+neither.</p>
 <p><strong>Not settled: whether the peroxide is involved at all.</strong>
 Section 4a: three things point the same way and none is clean — the induction's
 peroxide order has the wrong sign for an adduct, the joint constraint the scheme

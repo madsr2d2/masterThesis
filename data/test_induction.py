@@ -583,10 +583,48 @@ def test_regressions():
           abs(four["s0"] - 0.182) < 0.005
           and abs(four["s0_stderr"] - 0.073) < 0.005,
           f"{four['s0']:+.3f} +- {four['s0_stderr']:.3f}")
-    buffer = induction.buffer_lever(named["4OMe catalysed"])
-    check("the two buffer runs disagree in sign, which is why nothing follows",
-          (buffer.slope > 0).any() and (buffer.slope < 0).any(),
-          f"{buffer.slope.round(3).tolist()}")
+    ladder = induction.buffer_lever(table)
+    check("the two buffer runs earn different model forms",
+          set(ladder[ladder.experiment == 34].phases) == {2}
+          and set(ladder[ladder.experiment == 32].phases) == {1},
+          f"{ladder.groupby('experiment').phases.unique().to_dict()}")
+    check("and the break is at the run boundary because the schedule is",
+          ladder[ladder.experiment == 34].span_s.min()
+          > 2.5 * ladder[ladder.experiment == 32].span_s.max(),
+          f"{ladder.groupby('experiment').span_s.first().to_dict()}")
+    step = induction.buffer_join_step(ladder)
+    check("the rate falls 1.80x across the join, so the runs need levels",
+          abs(step["step"] - 1.80) < 0.01, f"{step['step']:.3f}")
+    order = induction.buffer_order(ladder)
+    check("read on a common footing the two runs agree in sign",
+          order["slope_32"] < 0 and order["slope_34"] < 0,
+          f"{order['slope_34']:+.3f} and {order['slope_32']:+.3f}")
+    check("and the pooled slope is -0.433 +- 0.201",
+          abs(order["slope"] + 0.433) < 0.005
+          and abs(order["stderr"] - 0.201) < 0.005,
+          f"{order['slope']:+.3f} +- {order['stderr']:.3f}")
+    swept = [induction.buffer_order(
+        induction.buffer_lever(table, width=width))["slope"]
+        for width in induction.BUFFER_WINDOW_SWEEP]
+    check("no window from 300 s to 1200 s changes its sign",
+          all(value < 0 for value in swept),
+          " ".join(f"{value:+.3f}" for value in swept))
+
+    fixed = induction.substrate_order_corrected(
+        named["4OMe catalysed"], order["slope"], order["stderr"])
+    check("correcting route two for the buffer moves it towards the threshold",
+          abs(fixed["corrected"] - fixed["threshold"])
+          < abs(fixed["measured"] - fixed["threshold"]),
+          f"{fixed['measured']:+.3f} -> {fixed['corrected']:+.3f} against "
+          f"{fixed['threshold']:+.3f}")
+    check("and it stops excluding it, which the document says",
+          abs(fixed["corrected"] - fixed["threshold"])
+          < 2 * fixed["corrected_stderr"],
+          f"{abs(fixed['corrected'] - fixed['threshold']) / fixed['corrected_stderr']:.2f} sigma")
+    drivers_again = induction_drivers(named["4OMe catalysed"], rate="v_peak")
+    check("while route one, whose regressor is the rate, is untouched",
+          (drivers_again["slope"] - INDUCTION_PRODUCT_SLOPE)
+          / drivers_again["stderr"] > 5)
 
     lever = substrate_lever(named["4OMe catalysed"])
     check("the in-run substrate lever is 4.0x on 28 of 38 experiments",

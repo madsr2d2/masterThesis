@@ -138,6 +138,13 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   moves alone -- and the two blocks give OPPOSITE substrate effects on the
   sign of the induction, which is what makes the buffer a live candidate for
   the E -> E* step.
+- **Never compare a time constant across two runs of different length.** The
+  archive's one buffer titration (exps 32 and 34) earns the two-phase form in
+  one run and the one-phase form in the other, because the runs are 5280 s and
+  1767 s, so `tau_fast` is tau1 of one fit and tau of another. Read that way it
+  looked like the two runs disagreed in sign; read through a landmark with a
+  window in SECONDS common to both, they agree at -0.433 +- 0.201 -- more
+  buffer, shorter induction. `induction.buffer_lever` and `buffer_order`.
 - **Run `signal_control` before believing any induction result.** The landmark
   is the first crossing of half the largest rolling slope, so on a curve with no
   signal it measures the spectrophotometer. The catalysed 4OMe block passes

@@ -165,19 +165,32 @@ the composition the operator set:
 
 Less sharp, and it has no bias towards the answer. It agrees.
 
-*What the substrate route rests on, and route one does not.* In every 4OMe run
-the substrate was added by volume and displaced buffer, so `[buf]` falls
-80 → 50 mM as `[S]` rises: the two correlate at **−0.96 in logs** across all 28
-runs with a ladder. Route two's "order in [S]" is therefore an order in the
-*pair*, exactly as `temperature_series` §3 found for the rate — and unlike the
-rate, the induction has no measured buffer order to correct it with (§6). The
-correction would have to be large to matter: the induction's buffer order would
-need to be about **−1.1** for the measured −0.121 to be hiding the −0.471 a
-product threshold requires. **Route one is not reached by any of this**, because
-its regressor is the curve's own measured rate rather than a concentration: it
-asks whether a faster cuvette's induction is shorter, and that question is well
-posed whatever is making the cuvette faster. Exps 135–151, where `[buf]` is
-constant in all seventeen runs, are the block where `[S]` moves alone.
+*Route two has a buffer riding on it, and correcting for that costs it.* In
+every 4OMe run the substrate was added by volume and displaced buffer, so
+`[buf]` falls 80 → 50 mM as `[S]` rises: the two correlate at **−0.96 in logs**
+across all 28 runs with a ladder, at a slope of `d log[buf]/d log[S] = −0.264`.
+Route two's "order in [S]" is therefore an order in the *pair*, exactly as
+`temperature_series` §3 found for the rate — and §6 now measures the induction's
+own buffer order, **−0.433 ± 0.201**, so the correction can be made:
+
+| | order in [S] | distance from the −0.471 a product threshold needs |
+|---|---|---|
+| as measured | −0.121 ± 0.148 | 2.4σ |
+| **with the buffer taken out** | **−0.235 ± 0.158** | **1.5σ** |
+
+**So route two no longer excludes product control.** It is reported that way
+rather than dropped, because the correction is real and small-n both — the
+buffer order behind it is eight curves — and because the reader is entitled to
+see the route that weakens as well as the one that holds.
+
+**Route one is not reached by any of this.** Its regressor is the curve's own
+measured rate rather than a concentration: it asks whether a faster cuvette's
+induction is shorter, and that question is well posed whatever is making the
+cuvette faster — buffer included. It is the load-bearing result of this section
+and it stands at −0.025 ± 0.109, nine standard errors from −1.
+
+Exps 135–151, where `[buf]` is constant in all seventeen runs, are the block
+where `[S]` moves alone.
 
 **And the amplitude is a fraction, not a concentration.** `depth`'s substrate
 order is **−0.114 ± 0.169** over the catalysed block and −0.211 ± 0.387 over the
@@ -449,7 +462,7 @@ measured substrate effect is towards **burst** anyway.
 **And the two blocks give opposite signs**, −0.112 ± 0.052 against
 +0.182 ± 0.073. They differ in exactly one structural way.
 
-### The buffer is the candidate, and the archive cannot confirm it
+### The buffer is the candidate, and the one direct lever agrees
 
 `[S]` and `[buf]` correlate at **−0.96** inside every 4OMe run and at **0.00**
 inside every in-scope run — `[buf]` is constant across all seven cuvettes of all
@@ -467,20 +480,50 @@ already hint at from a different direction — the catalysed buffer order of the
 *rate* is +0.400 ± 0.028 at 50–200 mM and +0.803 ± 0.173 below 25, so the buffer
 is doing something to this chemistry that saturates.
 
-**The one direct lever settles nothing.** Exps 32 and 34 hold substrate,
-peroxide, pH and temperature fixed and step `[buf]` 3.125 → 200 mM, which is
-64-fold and is the only such design in the archive. It is eight curves in two
-runs, the step from 25 to 50 mM is also a step between experiments, and the two
-runs disagree in sign:
+**The one direct lever, and what it took to read it.** Exps 32 and 34 hold
+substrate, peroxide, pH and temperature fixed and step `[buf]` 3.125 → 200 mM,
+which is 64-fold and is the only such design in the archive. Eight curves in two
+runs, and reading them together takes two corrections.
 
-| run | curves | [buf] | d log τ / d log[buf] |
-|---|---|---|---|
-| exp 34 | 4 | 3.125–25 mM | **+0.457 ± 0.097** |
-| exp 32 | 4 | 50–200 mM | **−1.052 ± 0.469** |
+*The two runs earn different model forms.* Every curve of exp 34 earns the
+two-phase form (**F = 71 to 819** against a threshold of 12) and every curve of
+exp 32 earns the one-phase form (**F = 1.6 to 4.7**), so `tau_fast` is τ₁ of a
+two-phase fit in one run and τ of a one-phase fit in the other. The break is at
+the run boundary because the *schedule* is: exp 34 ran **5280 s** and exp 32
+**1767 s**, so exp 34's runs are long enough to contain the slow fall and exp
+32's end before it. Regressing `tau_fast` inside each run — which is what this
+folder did first — reported +0.457 ± 0.097 and −1.052 ± 0.469 and called it a
+disagreement. It was never a comparison of two measurements of one thing.
 
-All eight are lag-first, so the shape cannot separate them either. Nothing can
-be concluded, and the honest position is that the 28-run indirect signal points
-somewhere and the 2-run direct one cannot say where.
+*And the two runs sit at different levels.* `v_peak` — the one quantity defined
+identically on both forms — **falls 1.80×** across the join, from 7.41 × 10⁻⁵ at
+25 mM to 4.13 × 10⁻⁵ at 50 mM, while the buffer doubles. Whatever separates the
+two days is larger than the effect being measured, so a fit with a shared
+intercept measures the day. This is the same reason `temperature_series` §3
+quotes the buffer order of the rate as two range-specific numbers rather than
+one pooled one.
+
+Read instead through a landmark on the *readings*, with a window in **seconds**
+common to both runs (450 s; these are 40 °C curves reaching 0.05–0.31 AU, so
+they can afford a fixed window where the 15 °C curves cannot), and pooled with
+one level per run:
+
+| | d log t<sub>ind</sub> / d log[buf] | d log depth / d log[buf] |
+|---|---|---|
+| exp 34, 3.125–25 mM | −0.300 ± 0.269 | −1.426 ± 0.398 |
+| exp 32, 50–200 mM | −0.728 ± 0.316 | −0.171 ± 0.415 |
+| **pooled, one level each** | **−0.433 ± 0.201** | **−1.036 ± 0.364** |
+
+**The two runs agree, and they agree in the direction general base catalysis
+predicts**: more buffer, shorter and shallower induction. Across windows of
+300 to 1200 s the pooled slope runs −0.33 to −0.72 and never changes sign.
+
+It is eight curves. Two runs, one temperature, one substrate, one pH, and the
+step from 25 to 50 mM is also a step between experiments — the pooling handles
+the level and cannot handle a *slope* that differs between days. **Treat it as
+one measurement with a direction and not as a buffer order.** What makes it
+worth having at all is that it agrees with the 28-run indirect signal above,
+which is a different block, a different substrate and a different statistic.
 
 **This is a design, not a result.** The measurement that would settle it is one
 run with `[buf]` stepped at fixed `[S]` on the *catalysed* 4OMe system at 25 °C,
@@ -529,12 +572,15 @@ should have and does not.
   end of the curve cannot be made at the start. What can be said is that the
   block is not one population: 46 of its 110 live curves begin below their
   eventual rate and 45 begin above it (§6).
-- **Whether the buffer is what carries E → E\*.** §6. The 4OMe and in-scope
-  blocks give opposite substrate effects on the sign, and they differ in exactly
-  one structural way — `[buf]` falls with `[S]` at −0.96 in one and is constant
-  in the other. Read as a buffer effect it is general acid/base catalysis of the
-  activation, which is a real candidate and is unconfirmable here: the only
-  direct lever is eight curves in two runs whose slopes disagree in sign.
+- **Whether the buffer is what carries E → E\*.** §6, and this is the most
+  promising open lead in the folder. Three things point the same way: the 4OMe
+  and in-scope blocks give *opposite* substrate effects on the sign and differ
+  in exactly one structural way (`[buf]` falls with `[S]` at −0.96 in one and is
+  constant in the other); the one direct buffer ladder gives
+  **−0.433 ± 0.201** on the induction time, more buffer meaning a shorter
+  induction; and general acid/base catalysis is what a unimolecular activation
+  on a carbonyl centre would be expected to show. It is eight curves in two
+  runs at one temperature, so it is a direction and not a buffer order.
 
 **The three things that would finish it.**
 
