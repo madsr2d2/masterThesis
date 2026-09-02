@@ -706,6 +706,50 @@ buffers at the same nominal pH are not comparable without accounting for this.
   at one pH; and [buf] swept at a THIRD pH, which would break the
   species/total degeneracy outright.
 
+- **The progress curves decay, and it is NOT catalyst inactivation** (tested
+  2026-09-02, `scope.selwyn_test`). Fourteen of the temperature series' 24
+  curves have a rate that RISES to a maximum and then FALLS -- exp 16 peaks at
+  1666-2303 s and ends 30% below its peak. Four candidate causes, three of them
+  now excluded:
+    * *substrate depletion* -- no: conversion at the peak is 0.5-1.1%, and
+      [H2O2] is 82.5 mM against ~0.01 mM of product.
+    * *catalyst inactivation* -- no, by the classical Selwyn test. Exps 59 and
+      60 are the archive's only pair differing in [enz] and nothing else that
+      matters (0.028 against 0.014, exactly 2.000x). Inactivation requires
+      P(low [E]) / P(high [E]) at matched [E]0 t to fall BELOW 1, because the
+      slow run has twice the real time to decay. It is 1.10 to 2.20, median
+      1.58, and never below 1 on any of 20 comparisons.
+    * *a product threshold* -- not supported: the product at the rate maximum
+      spans about fourfold across the runs where the peak is not truncated
+      (0.024 to 0.098 AU), rather than sitting at one level.
+    * *loss of oxidant to catalytic H2O2 decomposition* -- not tested, and the
+      remaining candidate along with product inhibition proper.
+
+  WHAT THIS MEANS FOR FITTING. A second phase belongs in the rate law
+  empirically -- the one-exponential burst/lag form cannot hold a rate that
+  rises then falls, and forcing it produces residuals of 3.8x noise at 40 C
+  against 1.4x for a two-exponential -- but its time constant must NOT be read
+  as a catalyst decay rate constant or given an activation energy, because the
+  process behind it is unidentified. See temperature_series/ANALYSIS.md.
+
+- **The rate may be markedly SUB-FIRST-ORDER in catalyst, and this is
+  unresolved.** The same Selwyn pair implies an order of **+0.34**: at matched
+  [E]0 t a rate going as [E]^n gives P proportional to [E]^(n-1), so a ratio of
+  1.58 across a twofold pair gives n = 1 + ln(1.58)/ln(0.5).
+
+  It matters because every turnover number and every Eyring ENTROPY in this
+  project divides by [enz] to the first power. dH is untouched -- it is a slope
+  -- but dS on the temperature series would move -53.5 -> -46.4 J/mol/K and
+  dG(298) 103.6 -> 101.4 kJ/mol.
+
+  AGAINST IT: the pair is BnOH in boric at pH 8.51, one pair, on days that are
+  not controlled, with [buf] 77.0 against 75.0; and the 4OMe temperature series
+  prefers the opposite -- normalising by [enz]^1 gives an Arrhenius rms of
+  0.078 against 0.109 for [enz]^0.34, a 40% worse fit, though its own [enz]
+  lever is only 11.7%. A dedicated [enz] ladder at one condition would settle
+  it in an afternoon and is the single most valuable missing experiment for the
+  activation parameters.
+
 - **Pyrophosphate is probably acting as a metal chelator** (reasoning, not
   sourced): trace Fe/Cu catalyse H2O2 decomposition, which is why essentially
   every dioxirane paper adds EDTA. Pyrophosphate chelates; phosphate and

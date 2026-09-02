@@ -8,6 +8,110 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-02 — The decay is not catalyst inactivation, and the catalyst order may not be 1
+
+**The question**, from the user: the burst/lag form has one exponential and a
+monotone rate, so it can fit a lag *or* a burst and not both — yet exp 16 has
+two breakpoints, an early one where the rate is still climbing and a late one
+where it falls. Confirmed: **14 of the 24 temperature-series curves rise to a
+rate maximum and then fall.** Exp 16's three upper rungs peak at 1666–2303 s and
+end ~30% below their peak. Before choosing a new functional form, what the second
+phase *is* had to be tested.
+
+### Test 1, within-run collapse — under-powered, and provably so
+
+For each run, normalise each cuvette's decay-phase rate by its own peak and ask
+which axis collapses the four onto one curve: time since the peak, product since
+the peak, or conversion. Residual rms:
+
+| T | by time | by product | by conversion |
+|---|---|---|---|
+| 15 °C | 0.2265 | 0.2271 | 0.2303 |
+| 25 °C | 0.1021 | 0.1044 | 0.1024 |
+| 40 °C | 0.0594 | 0.0798 | 0.0497 |
+
+**It decides nothing, and the reason is algebraic rather than statistical.**
+Over the decay phase product-since-peak ≈ rate × time-since-peak, so
+log(product) = log(time) + log(rate); the four cuvettes' rates differ by only
+about twofold, so the two axes differ by a per-curve offset spanning log 2 =
+0.69, which any smooth common curve absorbs. No amount of care with this block
+fixes it — the lever has to be bigger, and the only bigger lever in the archive
+is `[enz]`.
+
+### Test 2, Selwyn — decisive, and it excludes inactivation
+
+**Exps 59 and 60** are the archive's only pair differing in `[enz]` and nothing
+else that matters: BnOH, boric, pH 8.51, 25 °C, 122.426 mM H₂O₂, the same
+substrate ladder, **`[enz]` 0.028 against 0.014 — exactly 2.000×**, from 0.01 mL
+of a 5.596 mM stock against 0.05 mL of a 0.5596 mM one, both chains verified.
+Buffer differs 77.0 vs 75.0 mM, about 1% at a buffer order of 0.4.
+
+Selwyn (1965): when the rate is proportional to active catalyst and the
+curvature comes from the solution, product is a function of `[E]₀·t` alone and
+progress curves at different `[E]₀` superimpose on that axis. **Inactivation
+breaks it downward** — the low-`[E]` run needs twice the real time to reach the
+same `[E]₀·t`, so its catalyst has decayed twice as long and it lands *below*.
+
+`P(low)/P(high)` at matched `[E]₀·t`, over the usable overlap only (0–18.4 mM·s;
+the first draft interpolated past the low-`[E]` run's end and compared a curve
+with its own last reading):
+
+| `[S]` mM | 4 | 8 | 12 | 16 | 18 |
+|---|---|---|---|---|---|
+| 0.596 | 1.33 | 1.31 | 1.19 | 1.10 | 1.10 |
+| 2.981 | 2.20 | 1.74 | 1.59 | 1.56 | 1.56 |
+| 5.366 | 1.98 | 1.70 | 1.60 | 1.56 | 1.55 |
+| 7.751 | 2.08 | 1.77 | 1.62 | 1.61 | 1.56 |
+
+**Never below 1 on any of 20 comparisons; median 1.58.** Catalyst inactivation
+is excluded.
+
+### What the decay is, then
+
+- **substrate depletion** — excluded: 0.5–1.1% conversion at the peak.
+- **catalyst inactivation** — excluded, above.
+- **a product threshold** — not supported: the product at the rate maximum spans
+  about fourfold (0.024–0.098 AU) across the runs whose peak is not truncated.
+- **loss of oxidant to catalytic H₂O₂ decomposition, or product inhibition
+  proper** — untested, and what remains.
+
+**Consequence for the fitting form.** A second phase belongs in it empirically —
+the one-exponential form cannot hold a rate that rises then falls, and forcing it
+gives 3.8× noise at 40 °C against 1.4× for a two-exponential — but **its time
+constant must not be read as a decay rate constant or given an activation
+energy**, because the process behind it is unidentified. That withdraws part of
+what was proposed on 2026-09-02: the new form would yield a switch-on activation
+energy, not two.
+
+### The bigger finding: the catalyst order may not be 1
+
+At matched `[E]₀·t` a rate going as `[E]^n` gives P proportional to `[E]^(n−1)`,
+so a ratio of 1.58 across a twofold pair gives **n = 1 + ln(1.58)/ln(0.5) =
++0.34**.
+
+Every turnover number and every Eyring **entropy** in this project divides by
+`[enz]` to the first power. **ΔH‡ is untouched** — it is a slope, and no constant
+factor reaches it — but on the temperature series ΔS‡ would move **−53.5 →
+−46.4 J/mol/K** and ΔG‡(298) **103.6 → 101.4 kJ/mol**.
+
+**It is not settled, and the evidence conflicts.** Against n = 0.34: the pair is
+BnOH in boric at pH 8.51 — the buffer this project treats as suspect — it is one
+pair on uncontrolled days, and **the 4OMe temperature series prefers n = 1**,
+giving an Arrhenius rms of **0.078** under `[enz]^1` against **0.109** under
+`[enz]^0.34`, a 40% worse fit. Its own `[enz]` lever is only 11.7%, so that is
+weak, but it points the other way.
+
+**The missing experiment is an `[enz]` ladder at one condition** — four cuvettes,
+one afternoon. It is now the single most valuable missing measurement for the
+activation parameters, ahead of the ³¹P NMR.
+
+**Changed:** `scope.SELWYN_PAIR`, `scope.selwyn_test`, `scope.catalyst_order`,
+`scope.curves_of`; MECHANISM.md gained two entries; the enzyme-order caveat in
+`temperature_series/ANALYSIS.md` now carries the number and both sides of the
+tension; its checks 74 → 79.
+
+---
+
 ## 2026-09-02 — `sample003` is lowercase: 28 cuvettes were on the rounded export, and a test asserted it
 
 **Found from a plot.** The user, reading `temperature_series/progress_curves.html`:

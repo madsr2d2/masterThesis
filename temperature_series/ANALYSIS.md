@@ -345,8 +345,23 @@ the *entropies* differ, the enthalpies are not resolved apart.
   order is +0.58, not 0, so the reaction is not saturated and this constant
   carries a substrate dependence. ΔH‡ does **not** depend on this; ΔS‡ and the
   absolute ΔG‡ do.
-- **It also assumes first order in enzyme**, which this block cannot test:
-  `[enz]` takes only two values here and they differ by 11.7%.
+- **It also assumes first order in enzyme, and the archive's one test of that
+  disagrees.** This block cannot test its own assumption — `[enz]` takes two
+  values here, 11.7% apart. Exps 59 and 60 can: the only pair in the archive
+  differing in `[enz]` and nothing else that matters, **0.028 against 0.014,
+  exactly 2.000×**. A Selwyn test on them
+  (`scope.selwyn_test`, `scope.catalyst_order`) gives an order in catalyst of
+  **+0.34**, not 1.
+
+  If that transferred here, **ΔH‡ would not move at all** — it is a slope, and
+  no constant factor touches it — but ΔS‡ would go **−53.5 → −46.4 J/mol/K** and
+  ΔG‡(298) **103.6 → 101.4 kJ/mol**. It may well not transfer: exps 59/60 are
+  BnOH in boric at pH 8.51, and this block's own normalisation prefers the
+  opposite — `[enz]^1` gives an Arrhenius rms of **0.078** against **0.109** for
+  `[enz]^0.34`, a 40% worse fit. The lever is only 11.7%, so that is weak, but
+  it points the other way. **ΔH‡ is the number to put beside a calculation;
+  ΔS‡ and the absolute ΔG‡ carry an unresolved ±7 J/mol/K and ∓2 kJ/mol on top
+  of their fit errors.**
 - **The curves are background-subtracted** (`with_E`, reference omits the
   enzyme), so these are the activation parameters of the *catalytic increment*,
   not of the overall reaction. The uncatalysed background has its own

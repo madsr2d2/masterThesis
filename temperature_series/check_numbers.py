@@ -340,6 +340,36 @@ def main():
           f"gate and {strongly} exceed z = +15")
 
 
+    print("\nthe catalyst-order test, which the block cannot do for itself")
+    order = scope.catalyst_order()
+    claim("the pair",
+          f"**0.028 against 0.014,\nexactly {2.0:.3f}x**")
+    claim("the order in catalyst",
+          f"**+{order['order_in_catalyst']:.2f}**, not 1")
+    # The DIRECTION is the verdict, not the number: inactivation requires the
+    # ratio to fall BELOW 1 and it never does.
+    check("catalyst inactivation is excluded by the direction of the effect",
+          not order["inactivation"],
+          f"lowest ratio {order['lowest_ratio']:.2f}, "
+          f"median {order['median_ratio']:.2f}")
+    # And the tension, which has to stay visible: this block prefers n = 1.
+    frame_local = arrhenius.series_frame()
+    rms = {}
+    for power in (1.0, order["order_in_catalyst"]):
+        values = []
+        for s0 in sorted(frame_local.s0.unique()):
+            rung = frame_local[np.isclose(frame_local.s0, s0)].sort_values("kelvin")
+            fit = arrhenius.arrhenius_fit(
+                rung.kelvin, rung.vmax / rung.e0 ** power)
+            values.append(fit["rms"])
+        rms[round(power, 2)] = float(np.mean(values))
+    claim("the tension",
+          f"`[enz]^1` gives an Arrhenius rms of **{rms[1.0]:.3f}** against "
+          f"**{rms[round(order['order_in_catalyst'], 2)]:.3f}** for")
+    check("this block still prefers first order in enzyme",
+          rms[1.0] < rms[round(order["order_in_catalyst"], 2)],
+          f"{rms[1.0]:.3f} vs {rms[round(order['order_in_catalyst'], 2)]:.3f}")
+
     print("\nthe figures: the fit never covers the data it is fitting")
     # Three passes were needed to get this right -- fit under the data, then
     # fit over it on a white halo wider than a mark, then this -- so the

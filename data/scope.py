@@ -50,6 +50,12 @@ LADDER_MINIMUM = 2.0
 LIVE_SIGNAL_NOISE_MULTIPLE = 20.0
 
 
+def curves_of(experiment):
+    """Every curve of one experiment. A named alias so functions that
+    take a `scope` argument can still reach the curve list."""
+    return list(curves((int(experiment),)))
+
+
 def curves(scope=PRIMARY_SCOPE):
     """The in-scope Curve objects, in (experiment, sample) order."""
     all_curves, _ = build_curves()
@@ -1145,6 +1151,87 @@ PEROXO_PAIR = (65, 67)
 # only as the catalysed boric-vs-phosphate comparison it actually is, which is
 # a statement about the CATALYSED reaction in the two buffers.
 CATALYSED_PEROXO_PAIR = (66, 68)
+
+
+# The archive's only pair of runs that differ in [enz] and in nothing else that
+# matters: BnOH, boric, pH 8.51, 25 C, 122.426 mM H2O2, the same substrate
+# ladder, [enz] 0.028 against 0.014 -- exactly 2.000x, from 0.01 ml of a
+# 5.596 mM stock against 0.05 ml of a 0.5596 mM one. Buffer differs 77.0 vs
+# 75.0 mM, a 2.6% gap that a buffer order of ~0.4 turns into about 1%.
+SELWYN_PAIR = (59, 60)
+
+
+def selwyn_test(pair=SELWYN_PAIR, levels=(4, 8, 12, 16, 18)):
+    """
+    Is the curvature in these progress curves catalyst INACTIVATION?
+
+    THE CLASSICAL TEST (Selwyn 1965). Whenever the rate is proportional to
+    active catalyst and the departure from linearity comes from the SOLUTION --
+    substrate depletion, product inhibition -- product is a function of
+    [E]0 x t alone, so progress curves at different [E]0 superimpose on that
+    axis. Catalyst inactivation breaks the superposition, because inactivation
+    runs on real time rather than on [E]0 t: the low-[E] run needs twice the
+    real time to reach the same [E]0 t and its catalyst has decayed twice as
+    long, so it lands BELOW.
+
+    So the ratio P(low [E]) / P(high [E]) at matched [E]0 t is the statistic:
+    1.00 superimposes, below 1.00 is inactivation, above 1.00 is neither and
+    means the rate is sub-first-order in catalyst.
+
+    ONLY THE OVERLAP IS USABLE. The low-[E] run reaches half the [E]0 t of the
+    high-[E] one in the same wall-clock time, so the comparison stops at the
+    shorter axis -- 18.4 mM s here. Interpolating past it silently compares a
+    curve with its own last reading, which is what the first draft of this did.
+
+    Returns a DataFrame indexed by the rung's [S], one column per level.
+    """
+    low_experiment, high_experiment = (
+        sorted(pair, key=lambda e: frame((e,)).e0.median()))
+    curves = {}
+    for experiment in pair:
+        for curve in curves_of(experiment):
+            curves[(experiment, round(float(curve.conditions.s0), 3))] = curve
+    rows = []
+    for s0 in sorted({key[1] for key in curves}):
+        high = curves.get((high_experiment, s0))
+        low = curves.get((low_experiment, s0))
+        if high is None or low is None:
+            continue
+        high_axis = np.asarray(high.times) * high.conditions.e0
+        low_axis = np.asarray(low.times) * low.conditions.e0
+        ceiling = min(high_axis.max(), low_axis.max())
+        row = {"s0": float(s0)}
+        for level in levels:
+            row[level] = (
+                float(np.interp(level, low_axis, low.absorbance)
+                      / np.interp(level, high_axis, high.absorbance))
+                if level <= ceiling else np.nan)
+        rows.append(row)
+    return pd.DataFrame(rows).set_index("s0")
+
+
+def catalyst_order(pair=SELWYN_PAIR, levels=(4, 8, 12, 16, 18)):
+    """
+    The order in catalyst implied by `selwyn_test`, and the inactivation verdict.
+
+    At matched [E]0 t, a rate going as [E]^n gives P proportional to
+    [E]^(n-1), so the ratio between a pair differing twofold is 0.5^(n-1) and
+
+        n = 1 + ln(ratio) / ln(0.5).
+
+    Returns a dict with the median ratio, n, the ratio's range, and
+    `inactivation`, which is True only if the ratio falls below 1.
+    """
+    table = selwyn_test(pair, levels)
+    values = table.to_numpy(dtype=float).ravel()
+    values = values[np.isfinite(values)]
+    median = float(np.median(values))
+    return {"median_ratio": median,
+            "lowest_ratio": float(values.min()),
+            "highest_ratio": float(values.max()),
+            "order_in_catalyst": float(1 + np.log(median) / np.log(0.5)),
+            "inactivation": bool(values.min() < 1.0),
+            "n": int(len(values)), "pair": tuple(pair)}
 
 
 def synchronised_break(scope=FREE_BNOH_ALL):
