@@ -168,15 +168,20 @@ class Axes:
         # `f"{-1e-16:g}"` renders as "-0", which reads as a distinct value.
         return [(v, f"{0.0 if abs(v) < step * 1e-6 else v:g}") for v in values]
 
-    def render(self, xlabel="", ylabel="", title="", xticks=True):
+    def render(self, xlabel="", ylabel="", title="", xticks=True,
+               yticks=True):
         """`xticks=False` for a categorical x-axis, whose labels the caller
-        draws itself -- numeric ticks under named categories are noise."""
+        draws itself -- numeric ticks under named categories are noise. Same
+        for `yticks` on a horizontal categorical chart, where the y coordinate
+        is a row index and printing it invites the reader to read meaning into
+        it."""
         out = [f"<svg viewBox='0 0 {self.width} {self.height}' "
                f"width='100%' style='max-width:{self.width}px' "
                f"font-family=\"system-ui,-apple-system,'Segoe UI',sans-serif\">"]
         x0, x1 = self.left, self.width - self.right
         y0, y1 = self.height - self.bottom, self.top
-        for value, text in self._ticks(*self.ylim, self.ylog):
+        for value, text in (self._ticks(*self.ylim, self.ylog)
+                            if yticks else []):
             py = self._fy(10 ** value if self.ylog else value)
             out.append(f"<path d='M{x0},{py:.2f} L{x1},{py:.2f}' stroke='{GRID}' "
                        f"stroke-width='1' fill='none'/>")

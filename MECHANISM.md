@@ -561,6 +561,25 @@ against the mechanism.
   low-mM range, so PBA sees 10–100× more aldehyde than active-site ketone. For
   the catalytic cycle to run at all, `k6` must beat this sink by roughly that
   factor. Worth watching closely in the fit.
+
+  **Found, 2026-09-02, and it is the biggest thing in the 4OMe progress
+  curves.** `temperature_series/ANALYSIS.md` §6 shows the catalysed 4OMe-BnOH
+  rate falls **linearly in the accumulated product**, which is `A′ = v − kA` —
+  production minus first-order consumption of the aldehyde — on 24 of 29 curves
+  against 0 for the hyperbolic law that reversible product inhibition would
+  give. The stationary level `A∞ = v(S)/k` carries substrate order
+  **+0.610 ± 0.067** against the **+0.577** measured on the rates beforehand,
+  and the implied selectivity is `k_A/k_S` ≈ **54**: the oxidant attacks the
+  aldehyde about fifty times faster than the alcohol. The same statistic on the
+  catalysed BnOH blocks is **+0.119 ± 0.096** — no product-driven deceleration
+  at all, at 0.386 mM of benzaldehyde against 4OMe's 0.214. So S2 is switched on
+  by the 4-methoxy group and effectively off without it, which is what an
+  electron-rich ring should do to an electrophilic oxidant and to
+  Baeyer–Villiger migration alike. Note that this cuts against steps 1–2 for
+  4OMe in the same stroke: the substituent that makes the aldehyde a better
+  target for the oxidant makes it a worse **hydride acceptor**, and the 4OMe
+  curves show no autocatalysis while the BnOH curves do. `COMPUTATIONAL.md` C5
+  and C6 are the two calculations that would confirm the pair of signs.
 - **S3. Radical-chain autoxidation.** Benzoylperoxy radicals from aerobic
   benzaldehyde autoxidation abstract H from benzyl alcohol (Sankar et al., item
   21 — 2% benzyl alcohol suffices to suppress benzaldehyde autoxidation at room

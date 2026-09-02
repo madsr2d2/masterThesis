@@ -71,6 +71,7 @@ python data/validate_dataset.py --deep    # 0 errors expected
 python data/test_curve_metrics.py         # duplicate guard + the lag statistic
 python data/test_fit_kinetics.py          # selection, scope, parameter recovery
 python data/test_validator.py             # fault injection
+python data/test_slowdown.py              # the slowdown models and their regressions
 ```
 
 Units: concentrations mM, time s.
@@ -86,3 +87,10 @@ initial rate there is the induction rate.
 `data/verify_enzyme_stock.py` recomputes every experiment's `[enz]` from the
 weighing recorded beside it — an independent source, the way
 `verify_instrument.py` is for concentrations.
+
+`data/slowdown.py` answers why those curves rise to a maximum rate and then
+fall: the catalysed 4OMe rate declines **linearly in the product it has made**,
+while the same chemistry with no enzyme declines on a clock instead. Use
+`deceleration_drivers` before asserting that anything in this archive slowed
+down "over time" — one progress curve cannot tell time from product, and the
+separation only exists across curves. `ANALYSIS.md` §6 has the argument.

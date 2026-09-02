@@ -42,6 +42,8 @@ see the note on vibronic intensity below.
 | [C2](#c2--criegee-adduct-pka) | pKa of the Criegee adduct at the active-site ketone | backlog | whether the pH-rate inflection can discriminate step 6's branching |
 | [C3](#c3--dioxirane-closure-vs-baeyer-villiger) | TS comparison, 3-exo-tet closure vs Baeyer–Villiger | backlog | whether step 6 is energetically sane; no literature comparison exists |
 | [C4](#c4--peroxide-cannizzaro-feasibility) | barrier for HOO⁻ vs OH⁻ Cannizzaro hydride transfer | backlog | whether steps 1–2, which have **no literature precedent**, are plausible at all |
+| [C5](#c5--why-the-two-substrates-bend-in-opposite-directions) | substituent effect on the hydride-acceptor step, Ph vs 4-MeO-C₆H₄ | **PENDING** | whether the methoxy group is what removes BnOH's autocatalysis in the 4OMe runs |
+| [C6](#c6--the-oxidant-attacks-the-product-fifty-times-faster-than-the-substrate) | ArCH₂OH vs ArCHO oxidation barriers, Ph and 4-MeO-C₆H₄ | **PENDING** | what the 4OMe progress curves' slowdown is, and why BnOH's curves do not show it |
 
 ---
 
@@ -147,6 +149,121 @@ only if the spectrophotometer is not available.
 
 ---
 
+## C5 — why the two substrates bend in opposite directions
+
+**Status: PENDING.** Specced 2026-09-02, not started.
+
+### What it decides
+
+`temperature_series/ANALYSIS.md` §6 establishes that the catalysed 4OMe-BnOH
+curves slow **in proportion to the product they have made** — −0.919 ± 0.161 on
+the comparison that holds every condition fixed — while the catalysed BnOH
+curves do not, at product concentrations nearly twice as high. The two
+substrates' progress curves bend in opposite directions, and the difference is
+5.8σ.
+
+The conjecture this task tests is that **one substituent turns both signs**:
+
+- steps 1–2 of `MECHANISM.md` make the autocatalysis run through the product
+  aldehyde acting as the **hydride acceptor** (`C1 + A → PBA + S`). Accepting a
+  hydride at the carbonyl is favoured by electron withdrawal, ρ > 0, so a
+  4-methoxy group should **shut that step down** — no autocatalysis;
+- attack by an electrophilic oxidant on the ring or the aldehyde is favoured by
+  electron donation, ρ < 0 on σ⁺, so the same group should **switch a
+  competing consumption of the product on** — the slowdown (C6).
+
+If the calculation gives those two signs with a big enough separation, the
+substituent explains the whole contrast and steps 1–2 gain their first
+independent support. If step 2's barrier is insensitive to the substituent, the
+autocatalysis is not running through the product as hydride acceptor and
+`MECHANISM.md`'s step 2 needs rewriting.
+
+### What to compute
+
+Step 2's transition state, `C1 + A → PBA + S`, twice: Ar = phenyl and
+Ar = 4-methoxyphenyl on **both** partners, since both the tetrahedral adduct and
+the hydride acceptor carry the ring. Same functional, same basis, same implicit
+solvation, same conformer search protocol, and report the **difference**, not
+the two absolute barriers.
+
+### Validation gate
+
+The classical hydroxide Cannizzaro has a measured Hammett ρ. The method must
+reproduce its **sign and rough magnitude** on the OH⁻ reaction before its
+answer on the HOO⁻ reaction is quoted. *No source has been read for that ρ yet
+— find one before running anything, and record it here.* Without the gate this
+is an estimate, per the conventions above.
+
+### Relationship to C4
+
+C4 asks whether steps 1–2 are feasible **at all** (HOO⁻ against OH⁻ as the
+initiating nucleophile). C5 asks whether they are **substituent-sensitive in the
+direction the kinetics require**. C4's geometries are most of C5's work, so run
+C4 first; C5 is then two more substituted analogues on the same protocol.
+
+---
+
+## C6 — the oxidant attacks the product fifty times faster than the substrate
+
+**Status: PENDING.** Specced 2026-09-02, not started.
+
+### What it decides
+
+The same §6 shows the 4OMe slowdown has the form `A′ = v − kA`: the rate falls
+**linearly** in the accumulated product, on 24 of 29 curves against 0 for the
+hyperbolic form that reversible product inhibition would give. That is
+production minus a first-order loss of the measured species — the oxidant
+attacking the aldehyde it has just made, either destroying it or being diverted
+from the alcohol by it. **Absorbance cannot tell those two apart**; they are the
+same reaction seen from two ends. A calculation can.
+
+### The gate is already measured, which is what makes this worth running
+
+The stationary level `A∞ = v(S)/k` gives a selectivity directly:
+
+| | |
+|---|---|
+| k<sub>A</sub>/k<sub>S</sub>, 4OMe-BnOH | **median 54, IQR 42–81** (an upper bound) |
+| as a barrier difference at 25 °C | **≈ 9.9 kJ/mol**, i.e. 2.4 kcal/mol |
+| the same quantity for BnOH | **not resolvable**: 0.386 mM of benzaldehyde produces no measurable product-driven deceleration, so k<sub>A</sub>/k<sub>S</sub> is small enough to hide |
+| independent corroboration | the plateau carries substrate order **+0.610 ± 0.067**, against **+0.577** measured on the rates before this was looked for |
+
+So the calculation has a number to hit and a sign to get right, and the two are
+independent of each other.
+
+### What to compute
+
+ΔG‡ for the oxidant attacking
+
+1. the benzylic C–H of ArCH₂OH — the productive step 7, `KD + S → K + A`
+2. the aldehyde of ArCHO — Baeyer–Villiger addition at the carbonyl, and
+   ring/side-chain attack if the surface offers one
+
+for **Ar = phenyl and Ar = 4-methoxyphenyl**, at one level, in one solvation
+model. Four transition states, and what is quoted is the pair of differences.
+
+Whether the oxidant modelled is the dioxirane (`KD`) or the peracid (`PBA`) is a
+second axis; start with the dioxirane, which is step 7's own oxidant, and add
+the peracid only if the dioxirane answer disagrees with 9.9 kJ/mol.
+
+### Expected result, stated in advance so the run cannot be read backwards
+
+ΔΔG‡(4-MeO) ≈ +10 kJ/mol in favour of attacking the aldehyde, and
+ΔΔG‡(H) at least ~10 kJ/mol smaller. If instead the two substrates come out the
+same, the slowdown is not a substituent effect on the oxidation and §6's
+substrate contrast needs a different explanation — the most likely alternative
+being that it belongs to the buffer, since the BnOH set is largely
+pyrophosphate and this block is phosphate.
+
+### What it would also give the observation equation
+
+If the 4-methoxy aldehyde is being consumed, the products of that consumption
+absorb at 300 nm too — 4-methoxyphenol and its formate, on the
+Baeyer–Villiger route. Their ε at 300 nm belongs in **C1**, which currently
+scopes only the aldehydes and acids. Fold them in when C1 is run.
+
+---
+
 ## Backlog
 
 Not yet specced. Each is grounded in an open question in `MECHANISM.md`.
@@ -201,6 +318,23 @@ step in the mechanism with no external support of any kind.
 Newest first. Record the ORCA version, the input files, the wall time and the
 outcome — including failed and abandoned runs, which are the ones most easily
 forgotten and most expensive to repeat.
+
+### 2026-09-02 — C5 and C6 specced, not started
+
+Arose from the deep dive in `temperature_series/ANALYSIS.md` §6 into why the
+4OMe progress curves rise to a maximum rate and then fall at 0.3–1.1%
+conversion. The archive settled more of it than expected: the fall tracks the
+product and not the clock, the same chemistry without the catalyst does the
+opposite, the rate is linear in the product rather than hyperbolic in it, and
+the stationary level carries a substrate order measured before anyone looked
+for it. What the archive cannot do is separate "the oxidant consumes the
+product" from "the product scavenges the oxidant", or say why benzaldehyde does
+neither — both of which are barrier comparisons, and both of which now have a
+measured number to be checked against.
+
+No calculation run yet. C6 is the one with a live validation gate
+(9.9 kJ/mol, plus a sign for BnOH); C5's gate is a literature Hammett ρ that has
+not been sourced yet.
 
 ### 2026-08-30 — C1 specced, not started
 

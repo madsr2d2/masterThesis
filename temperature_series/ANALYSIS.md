@@ -383,11 +383,12 @@ curve's own noise.
 Nothing is selected where the one-phase form already sits at noise. Every
 selected fit is `lag then fall` bar one.
 
-**The second phase is descriptive and must stay that way.** Its time constant is
-not given an activation energy, for two independent reasons: the process behind
-the fall is unidentified (§6 — substrate depletion excluded at 0.5–1.1%
-conversion, catalyst inactivation excluded by the Selwyn test, a product
-threshold unsupported), and τ₂ is not resolved on 9 of the 11 curves anyway.
+**The second phase is descriptive and must stay that way**, even now that §6
+has named the process behind it. τ₂ is not resolved on 9 of the 11 curves, and
+`fit_two_phase`'s second exponential is not the sink's rate constant in any
+case: the sink is a loss term on the accumulated signal, `A′ = v − kA`, and its
+k is read off the rate-against-product line in §6, not off τ₂. An activation
+energy taken from τ₂ would be an activation energy of a fitting parameter.
 
 ### And it changes which rate to put on an Arrhenius plot
 
@@ -512,3 +513,184 @@ here and must not be used — `vmax` is the estimator throughout. And none of
 these curves has been through `curve_metrics.segmented_fit`; exp 65 in the BnOH
 background taught us that the start-versus-end statistics step straight over a
 mid-run break.
+
+## 6. What the slowdown is
+
+Eleven of these 24 curves rise to a maximum rate and then fall. §3a described
+that fall with a second exponential and said the description had to stay a
+description, for two reasons: τ₂ is unresolved on 9 of the 11, and the process
+behind it was unnamed. This section names it, and the naming needed the rest of
+the archive — the block on its own is too small.
+
+    data/slowdown.py             the models, the landmarks and the regressions
+    python data/slowdown.py      the whole argument, printed
+    python data/test_slowdown.py parameter recovery and the published numbers
+
+### The four candidates, and why two of them were already gone
+
+| | | |
+|---|---|---|
+| the substrate runs out | **excluded** | conversion is 0.3–1.1% |
+| the catalyst dies | **excluded** for BnOH | Selwyn on exps 59/60; the ratio never falls below 1 on 20 comparisons, and inactivation requires it to |
+| a **clock** — something shared is consumed on its own schedule | `A′ = v(t)·e^(−kt)` | untested |
+| the **product** sets the rate | `A′ = v(t) − kA` or `A′ = v(t)/(1 + A/K_i)` | untested |
+
+**One progress curve cannot separate the last two.** Within a curve the product
+only ever grows with time, so "the rate fell after 2000 s" and "the rate fell
+after 0.1 AU" are the same sentence. The separation has to come from a design
+where run length and product move independently — and the archive has one, by
+accident: it holds 1470 s runs that reached 0.27 AU and 17934 s runs that
+reached 0.045. Across the catalysed 4OMe phosphate set the two regressors
+correlate only **−0.39**.
+
+### It is the product, and it is not the clock
+
+Each curve's deceleration is `scope`'s own `late_over_early` — the last fifth's
+slope over the first fifth's — regressed on the run's length and on the product
+it made, in **mM** rather than absorbance, so the two substrates are compared as
+concentrations across their factor-of-6.1 difference in ε.
+
+| block | curves | fell with **run length** | fell with **product** |
+|---|---|---|---|
+| **the temperature series** | 23 | +0.118 ± 0.122 | **−0.525 ± 0.071** |
+| 4OMe catalysed, phosphate | 84 | −0.124 ± 0.079 | **−0.598 ± 0.053** |
+| …with pH and temperature in the model | 84 | −0.020 ± 0.107 | **−0.670 ± 0.107** |
+| …with one dummy per experiment | 84 | — | **−0.919 ± 0.161** |
+| **4OMe, no enzyme at all** | 49 | **−0.361 ± 0.047** | +0.025 ± 0.048 |
+| BnOH, exps 135–151 | 84 | **−0.697 ± 0.136** | +0.283 ± 0.129 |
+| BnOH catalysed, every buffer | 137 | −0.138 ± 0.075 | +0.119 ± 0.096 |
+| …with one dummy per experiment | 137 | — | +0.245 ± 0.121 |
+
+Read the first row and the fifth together. **The temperature series slows in
+proportion to what it has made and not at all with how long it has run.** The
+same 4OMe chemistry with **no enzyme in the cuvette** does the exact opposite:
+it is a clock, at 7.7σ, with no product term at all. That block is not a
+curiosity — it is the reference channel every catalysed curve in this document
+is measured against, and its decay is subtracted out per cuvette.
+
+The pH-and-temperature row matters because `net` is bigger where the reaction is
+faster, and the reaction is faster at high pH. Putting pH in the model moves the
+product coefficient the *wrong* way for that objection, and pH's own coefficient
+is +0.003 ± 0.157.
+
+The last row of each block is the strongest form of the test. One dummy per
+experiment absorbs temperature, pH, buffer, enzyme, run length, day and cell, so
+the only thing left to carry the product term is **the substrate ladder inside
+each run** — four cuvettes that differ in nothing but composition and sit in the
+same cell block for the same number of seconds. On that comparison alone the
+coefficient is **−0.919 ± 0.161**, indistinguishable from the −1 a rate that
+falls as `1/(product)` would give.
+
+**One bias cannot be removed, and it runs the safe way.** `net` is the integral
+of the rate, so a curve that decelerates *less* makes *more* product at the same
+starting rate; that pushes the product coefficient upwards, towards zero. Every
+negative coefficient above is a floor.
+
+### What the product does: consumed, not blocking
+
+Two mechanisms fit "the product sets the rate", and they put a straight line
+through different transforms of the same two columns:
+
+    A' = v - k A          the rate is linear in A          a SINK
+    A' = v / (1 + A/Ki)   1/rate is linear in A            INHIBITION
+
+Both are two-parameter lines on the same points, read off the rolling rate after
+each curve's maximum, so the comparison is fair. Of the **29** catalysed 4OMe
+phosphate curves whose decline is deep enough to have a shape (R² > 0.95),
+**24 favour the rate, 0 favour the reciprocal** and 5 tie within 1%; the median
+R² is **0.989** against **0.971**. The discrimination is carried by the curves
+that fall furthest — over a 30% decline both transforms are nearly straight and
+neither can win.
+
+So the rate is linear in the product. That is production minus a **first-order
+loss of the very thing being measured**, and it has one immediate consequence: a
+stationary level `A∞ = v(S)/k`, which the run is heading for.
+
+### The level it is heading for was predicted before it was measured
+
+If the signal is a species the oxidant makes from the substrate and then
+destroys, `A∞ = v(S)/k` must carry whatever substrate order the **rate** has —
+not first order, because the production is partly saturated. §3 measured that
+order on the rates of this block, **+0.577**, with nothing in this section
+existing yet.
+
+**The plateau's own order is +0.610 ± 0.067**, over a 37× range in [S] and 29
+curves. Nothing was fitted to make those agree.
+
+Where the two meet gives the one number a calculation can be checked against:
+
+    k_A/k_S = [S] / [A]inf     median 54, IQR 42-81
+
+the oxidant attacks the **aldehyde about fifty times faster than the alcohol**,
+which at 25 °C is a barrier difference of about **9.9 kJ/mol**. It is an
+**upper** bound, and the reason is worth stating: the plateau is read off the
+catalytic *increment*, while the aldehyde in the cuvette is the increment plus
+whatever the enzyme-free background made, and the background is not measured at
+these compositions.
+
+### There is not enough product to inhibit the catalyst
+
+Blocking a fraction of the catalyst takes that fraction of `[enz]` **bound**,
+whatever the binding constant — tightening the binding moves an equilibrium, it
+does not create inhibitor.
+
+| exp | T | product made | `[enz]` | product as a share of it | late/early |
+|---|---|---|---|---|---|
+| 19 | 15 °C | 5.5 µM | 241 µM | 2.3% | 2.32 |
+| 18 | 20 °C | 5.0 µM | 273 µM | 1.8% | 2.02 |
+| 14 | 25 °C | 24.5 µM | 273 µM | 9.0% | 1.11 |
+| 17 | 30 °C | 11.8 µM | 273 µM | 4.3% | 1.43 |
+| 15 | 35 °C | 31.9 µM | 273 µM | 11.7% | 0.88 |
+| 16 | 40 °C | 39.8 µM | 241 µM | 16.5% | 0.84 |
+
+At 40 °C the numbers are within a factor of about one of each other, so this
+argument **narrows the field rather than closing it** — and the loophole is the
+same one as above, that the background's aldehyde is in the cuvette and not in
+the signal. It bites harder elsewhere: **exp 21 loses 40% of its rate on 36 µM
+of product against 241 µM of catalyst**, where blocking that fraction would take
+97 µM bound.
+
+### And it is specific to this substrate
+
+The BnOH blocks reach **0.386 mM** of product against this block's **0.214 mM**, and
+their product coefficient is **positive** — more product, *less* deceleration,
+which is the autocatalysis the in-scope analysis reports. On the
+one-dummy-per-experiment comparison the two substrates differ by
+
+    -0.919 +/- 0.161   against   +0.245 +/- 0.121     a gap of 1.16 +/- 0.20
+
+**5.8σ.** Note what the in-scope BnOH block does instead: it decelerates with
+**run length** (−0.697 ± 0.136) while accelerating with product. A clock and an
+autocatalysis at once, which is a different problem from this one and is not
+solved here.
+
+### What this settles, and what it does not
+
+**Settled.** The fall is set by the product; it is a property of the catalysed
+pathway and not of the solution, because the enzyme-free channel does something
+else; the rate is linear in the product rather than hyperbolic in it; the
+stationary level carries the substrate order it has to; and the effect is
+specific to 4OMe-BnOH at product concentrations where BnOH shows nothing.
+
+**Not settled — and not settleable from absorbance.** Whether the aldehyde is
+*consumed* by the oxidant or merely *scavenges* it. Those are the same reaction
+seen from two ends: an oxidant that attacks the electron-rich aldehyde is both
+destroying the chromophore and being diverted from the alcohol, and a
+single-wavelength trace cannot say which half is being watched. Both give
+`A′ = v − kA`; both give `A∞ ∝ v(S)`; both are the electron-rich ring doing what
+an electron-rich ring does.
+
+Also not settled: **what the enzyme-free clock is.** `background_reaction`
+§7 left it open for BnOH ("something else decays during these runs — peroxide,
+or the cell"), and this section adds only that it is rate-independent and
+product-independent, which rules product effects out of it and leaves the rest.
+
+**Two calculations would decide the rest** — `COMPUTATIONAL.md` C5 and C6. C6
+computes the barrier for oxidising ArCH₂OH against ArCHO for Ar = phenyl and
+4-methoxyphenyl, and has a gate waiting for it: ΔΔG‡ ≤ 9.9 kJ/mol for
+4-methoxy, and enough smaller for phenyl that 0.386 mM of benzaldehyde does
+nothing. C5 tests the conjecture this section grew out of — that the methoxy
+group also stops the product accepting a hydride, which is the step the BnOH
+autocatalysis is built on. The two have **opposite signs in ρ**, and one
+substituent turning both is the economical explanation for why the two
+substrates' curves bend in opposite directions.
