@@ -242,6 +242,12 @@ def frame(scope=PRIMARY_SCOPE):
             # runs of 51 and 480 minutes; a mechanism predicts a time.
             "vmax_time_s": vmax_where * float(times[-1] - times[0]),
             "lag_time_s": lag_time(times, values, floor=floor),
+            # The extinction coefficient the sheet declares for this run,
+            # carried so a rate in AU/s can be turned into one in mM/s. That is
+            # what an ABSOLUTE rate constant needs, and therefore what an
+            # Eyring entropy needs: a slope survives any constant factor, an
+            # intercept does not. `conversion` below already relies on it.
+            "epsilon": float(curve.epsilon),
             "conversion": (net / (curve.epsilon * curve.conditions.s0)
                            if curve.epsilon > 0 and curve.conditions.s0 > 0
                            else np.nan),

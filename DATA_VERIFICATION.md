@@ -8,6 +8,116 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-02 — Activation parameters for the temperature series, and what the block is actually doing
+
+Three things had to be separated before any activation energy meant anything.
+
+### 1. The induction is real and its clock is temperature
+
+Every run from 15 to 30 °C is a **lag** curve with τ falling **6489 → 3666 →
+945 → 876 s**; by 35 °C the induction is over before the run is under way and
+the curves decelerate. The block is not six measurements of one shape — it is a
+shape changing with temperature, and which end of a curve is informative changes
+with it.
+
+### 2. The substrate ladder is not a substrate ladder
+
+`[buf]` falls **80 → 70 → 60 → 50 mM** as `[S]` rises **1.850 → 7.399 mM** —
+substrate volume displacing buffer volume, the same confound as BnOH exps 3/6.
+
+**It leaves the activation energies alone**, because the gradient is identical
+in all six runs, so each rung is one fixed composition measured at six
+temperatures. It corrupts only the substrate order.
+
+### 3. The catalysed buffer order, measured at last, and it saturates
+
+Exps **32 and 34** are the design the BnOH set lacks entirely: `[S]` held at
+8.251 mM, `[buf]` stepped, catalysed, 40 °C, pH 7.00.
+
+| range | experiment | order in `[buf]` | R² |
+|---|---|---|---|
+| 50–200 mM | 32 | **+0.402 ± 0.024** | 0.993 |
+| 3.125–25 mM | 34 | +0.803 ± 0.173 | 0.915 |
+
+About first order at low buffer, about half order above 50 mM. The temperature
+series sits at 50–80 mM, so +0.40 applies to it. (`v_ss` is unusable here —
+three of exp 34's four curves have unresolved τ and negative `v_ss`, giving
+−0.18 ± 0.34.)
+
+With **g = −0.325** and **d = +0.402**, the substrate order corrects from a mean
+**+0.445 to +0.576**, and the spread across temperatures is **0.173 before and
+after** — the correction moved the level, not the trend. **Genuine partial
+saturation in substrate with no detectable temperature dependence**, i.e.
+K<sub>M</sub> roughly constant over 15–40 °C.
+
+### The rungs share one activation energy
+
+The 8.5 kJ/mol rung spread read as a composition dependence until the standard
+errors were computed — each rung is ± 2.6–3.0. Against their weighted mean,
+**χ² = 4.68 on 3 dof, reduced χ² = 1.56**. Nothing to explain.
+
+Pooled by **refitting** — one slope, a free intercept per rung, all 24 points —
+not by averaging four fits whose errors are correlated through the same six runs,
+six days and six cells. That gives **90.2 ± 1.5 kJ/mol**.
+
+### The activation parameters
+
+`arrhenius.parameter_table()`:
+
+| parameter | E<sub>a</sub> | ΔH‡ | ΔS‡ J/mol/K | ΔG‡(298) | curves |
+|---|---|---|---|---|---|
+| `vmax` | 90.2 ± 1.5 | **87.7 ± 1.5** | **−53.1 ± 4.9** | **103.6 ± 0.1** | 24, 6 T |
+| `v_ss` | 88.8 ± 2.9 | 86.4 ± 2.9 | −57.1 ± 9.7 | 103.4 ± 0.1 | 16, 4 T |
+| `1/τ` | 94.6 ± 16.3 | 92.1 ± 16.3 | +3.0 ± 55.1 | 91.2 ± 0.7 | 15, 4 T |
+
+kJ/mol unless stated. In kcal/mol for `vmax`: ΔH‡ 21.0, ΔS‡ −12.7 cal/mol/K,
+ΔG‡(298) 24.8.
+
+**The load-bearing check is that the two rate estimators agree.** `vmax` uses all
+six temperatures and is truncated at the cold end; `v_ss` uses only the four
+where the burst form is sound and is not truncated. 87.7 against 86.4 — and the
+truncation correction recorded yesterday predicted `vmax` would read ~1.9 high,
+i.e. 85.8. Two estimators with different failure modes landing within their
+errors.
+
+**ΔS‡ ≈ −55 J/mol/K**, a well-ordered transition state. It is quoted **at the
+median rung, [S] = 5.549 mM and [buf] = 60 mM** — an intercept is a level, the
+four rungs sit at four levels, and a ΔS‡ with no composition attached is not
+comparable to anything.
+
+**The induction is a different process**: ΔG‡ **12 kJ/mol lower** than the
+turnover's, so it is the faster of the two, and ΔS‡ near zero rather than −55 —
+a much looser transition state. Its enthalpy, 92 ± 16, is not resolved apart from
+the turnover's 88 ± 1.5; the *entropies* are what distinguish them.
+
+### Caveats that must travel with these numbers
+
+- **Composite, not elementary.** These are whole-turnover rates through a
+  seven-step mechanism; compare against `COMPUTATIONAL.md`'s **highest** step,
+  never a sum.
+- **ΔS‡ assumes a pseudo-first-order constant**, `v/(ε·[enz])` in s⁻¹ — needed
+  because a slope survives any constant factor and an intercept does not. The
+  substrate order is +0.58, not 0, so that constant carries a substrate
+  dependence. **ΔH‡ does not depend on this; ΔS‡ and the absolute ΔG‡ do.**
+- **First order in enzyme is assumed and untestable here** — `[enz]` takes two
+  values in this block, differing by 11.7%.
+- **These are the catalytic increment's parameters**, not the overall reaction's:
+  the curves are `with_E`, so the background is subtracted. The background's own
+  temperature dependence is measured nowhere in the archive.
+- **ΔG‡ is far better determined than ΔH‡ or ΔS‡** (± 0.1 against ± 1.5 and
+  ± 4.9) because both come from one line and their errors are strongly
+  anti-correlated; at 25 °C, inside the measured range, they cancel. Propagated
+  with the covariance rather than from the two standard errors, which would
+  overstate it several-fold.
+
+**Changed:** `arrhenius.py` gained standard errors on every fit, `eyring_fit`,
+`pooled_arrhenius`, `rungs_agree`, `turnover`, `catalysed_buffer_order`,
+`substrate_order`, `activation_parameters`, `parameter_table` and the
+`FITTED_PARAMETERS` declaration of where each is trustworthy; `scope.frame`
+gained `epsilon`. `temperature_series/ANALYSIS.md` §3–5; its checks 49 → 69.
+
+---
+
 ## 2026-09-01 — The temperature series' breaks are the induction, and `vmax` runs out of run at the cold end
 
 The breakpoint screen (`curve_metrics.segmented_fit`, built for exp 65) run over

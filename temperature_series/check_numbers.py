@@ -35,7 +35,10 @@ def _normalise(text):
                          .replace("×", "x")
                          .replace("₀", "0")
                          .replace("→", "->")   # arrow, as in tau falling
-                         .replace("÷", "/"))
+                         .replace("÷", "/")
+                         .replace("χ²", "chi2")   # chi-square, as typed
+                         .replace("Δ", "D").replace("‡", "")
+                         .replace("τ", "tau"))
                     .split())
 
 
@@ -227,14 +230,102 @@ def main():
           f"tau unresolved on {len(hot) - int(hot.tau_resolved.sum())} of "
           f"{len(hot)}")
 
+    print("\nwhat is going on: the buffer riding on the substrate ladder")
+    # The ladder's [buf] gradient is the reason the substrate order needs
+    # correcting and the reason the activation energies do NOT -- both halves
+    # are checked, because the second is the licence for everything in section 4.
+    ladder = frame.pivot_table(index="temperature", columns="sample",
+                               values="buf")
+    check("[buf] falls 80-50 along the ladder, identically in all six runs",
+          bool((ladder.nunique() == 1).all())
+          and list(ladder.iloc[0]) == [80.0, 70.0, 60.0, 50.0],
+          f"{list(ladder.iloc[0])}")
+    high = arrhenius.catalysed_buffer_order()
+    low = arrhenius.catalysed_buffer_order(arrhenius.BUFFER_TITRATION_LOW)
+    claim("buffer order, high range",
+          f"| 50-200 mM | 32 | **+{high['order_buf']:.3f} +/- "
+          f"{high['stderr_buf']:.3f}** | {high['r2']:.3f} |")
+    claim("buffer order, low range",
+          f"| 3.125-25 mM | 34 | +{low['order_buf']:.3f} +/- "
+          f"{low['stderr_buf']:.3f} | {low['r2']:.3f} |")
+    check("the buffer dependence saturates",
+          low["order_buf"] > high["order_buf"] + 0.2,
+          f"{low['order_buf']:.2f} against {high['order_buf']:.2f}")
+
+    orders = arrhenius.substrate_order()
+    claim("the coupling and buffer order used",
+          f"**g = {orders.attrs['coupling']:+.3f}** and "
+          f"**d = +{orders.attrs['buffer_order']:.3f}**")
+    claim("the observed order row",
+          "| observed | " + " | ".join(
+              f"{orders.observed[t]:+.3f}" for t in sorted(orders.index)) + " |")
+    claim("the corrected order row",
+          "| corrected | " + " | ".join(
+              f"{orders.corrected[t]:+.3f}" for t in sorted(orders.index)) + " |")
+    claim("the mean corrected order",
+          f"Mean **{orders.corrected.mean():+.3f}**")
+    check("correcting moves the level, not the trend",
+          abs(float(np.ptp(orders.observed) - np.ptp(orders.corrected))) < 1e-9,
+          f"{np.ptp(orders.observed):.3f} vs {np.ptp(orders.corrected):.3f}")
+
+    print("\nthe rungs share one activation energy")
+    agree = arrhenius.rungs_agree("vmax")
+    claim("the chi-square",
+          f"**chi2 = {agree['chi2']:.2f} on {agree['dof']} degrees of freedom, "
+          f"reduced chi2 = {agree['reduced_chi2']:.2f}**")
+    check("the spread is unremarkable against the errors",
+          agree["reduced_chi2"] < 3.0, f"{agree['reduced_chi2']:.2f}")
+
+    print("\nthe activation parameters")
+    table = arrhenius.parameter_table()
+    labels = {"vmax": "`vmax`, steepest observed rate",
+              "v_ss": "`v_ss`, asymptote after the induction",
+              "inverse_tau": "`1/tau`, induction rate constant"}
+    for name, row in table.iterrows():
+        mark = "**" if name == "vmax" else ""
+        claim(f"parameter row, {name}",
+              f"| {labels[name]} | {row.activation_kJ:.1f} +/- "
+              f"{row.activation_stderr:.1f} | {mark}{row.enthalpy_kJ:.1f} +/- "
+              f"{row.enthalpy_stderr:.1f}{mark} | {mark}{row.entropy_J:+.1f} +/- "
+              f"{row.entropy_stderr:.1f}{mark} | {mark}{row.gibbs_kJ:.1f} +/- "
+              f"{row.gibbs_stderr:.1f}{mark} | {int(row.n)}, "
+              f"{int(row.temperatures)} T |")
+    kcal = 4.184
+    vmax_row = table.loc["vmax"]
+    claim("the kcal restatement",
+          f"ΔH‡ **{vmax_row.enthalpy_kJ / kcal:.1f}**, ΔS‡ "
+          f"**{vmax_row.entropy_J / kcal:.1f} cal/mol/K**, ΔG‡(298) "
+          f"**{vmax_row.gibbs_kJ / kcal:.1f}**")
+    # The composition DS is quoted at. A DS with none attached is not a number.
+    claim("the composition the entropy is quoted at",
+          f"[S] = {vmax_row.at_s0:.3f} mM and [buf] = {vmax_row.at_buf:.0f} mM**")
+    # The two estimators agreeing is the load-bearing check of section 4.
+    check("vmax and v_ss agree within their errors",
+          abs(table.loc["vmax", "enthalpy_kJ"] - table.loc["v_ss", "enthalpy_kJ"])
+          < 2 * table.loc["v_ss", "enthalpy_stderr"],
+          f"{table.loc['vmax', 'enthalpy_kJ']:.1f} vs "
+          f"{table.loc['v_ss', 'enthalpy_kJ']:.1f}")
+    claim("they come out at",
+          f"They come out at {table.loc['vmax', 'enthalpy_kJ']:.1f} and\n"
+          f"{table.loc['v_ss', 'enthalpy_kJ']:.1f} kJ/mol")
+    # The induction is a DIFFERENT process, and the entropy is what says so.
+    gap = table.loc["vmax", "gibbs_kJ"] - table.loc["inverse_tau", "gibbs_kJ"]
+    claim("the induction's gap", f"**{gap:.0f} kJ/mol lower**")
+
     print("\nthe activation energy, first pass")
     fits = arrhenius.rung_fits()
+    buffers = frame.groupby("s0").buf.median()
     for s0, row in fits.iterrows():
         claim(f"rung {s0:.3f}",
-              f"| {s0:.3f} | {row.activation_kJ:.1f} | {row.rms:.3f} |")
-    claim("mean activation energy",
-          f"Mean **{fits.activation_kJ.mean():.1f} kJ/mol**, spread "
-          f"{fits.activation_kJ.max() - fits.activation_kJ.min():.1f}")
+              f"| {s0:.3f} | {buffers[s0]:.0f} | {row.activation_kJ:.1f} +/- "
+              f"{row.stderr_kJ:.1f} | {row.rms:.3f} |")
+    agree = arrhenius.rungs_agree("vmax")
+    pooled = arrhenius.pooled_arrhenius("vmax")
+    claim("weighted mean and pooled refit",
+          f"Weighted mean **{agree['weighted_mean_kJ']:.1f}**, reduced chi2 "
+          f"**{agree['reduced_chi2']:.2f}**")
+    claim("the pooled value",
+          f"**{pooled['activation_kJ']:.1f} +/- {pooled['stderr_kJ']:.1f}**")
 
     print("\nthe caution about v0")
     rising = int((frame.accel_z > ACCELERATION_SIGMA).sum())

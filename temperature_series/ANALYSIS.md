@@ -211,23 +211,156 @@ substrate rungs that should agree.** It is real, it is in a known direction, and
 it is *not* the limiting problem. Mixing estimators is normally the error rather
 than the fix, and it is used here only to size the bias, never for a headline.
 
-## 3. Activation energy, first pass
+## 3. What is actually going on in these runs
 
-From `arrhenius.rung_fits()` on `vmax`, per substrate rung:
+Three things, and they have to be separated before any activation energy means
+anything.
 
-| `[S]` mM | E<sub>a</sub> kJ/mol | rms |
-|---|---|---|
-| 1.850 | 94.5 | 0.078 |
-| 3.700 | 86.0 | 0.085 |
-| 5.549 | 89.0 | 0.073 |
-| 7.399 | 91.5 | 0.076 |
+### The reaction has an induction period, and it is what the breaks are
 
-Mean **90.2 kJ/mol**, spread 8.5 across four rungs that should agree. This is a
-first pass and is not yet a result: it is an *apparent* activation energy of
-`vmax`, which is a composite of every step, and the background is subtracted out
-of these curves so it is the catalysed increment's temperature dependence, not
-the reaction's. The Eyring form, the enthalpy/entropy split, and the comparison
-against `COMPUTATIONAL.md`'s barriers are not done here.
+Every run from 15 to 30 °C is a **lag** curve and τ falls monotonically as it
+warms: **6489 → 3666 → 945 → 876 s**. By 35 °C the induction is over before the
+measurement is properly under way and the curves decelerate instead, which is
+why the burst form flips to `burst` there and τ stops being resolved. So the
+block is not six measurements of one shape; it is a shape *changing with
+temperature*, and which end of a curve is informative changes with it.
+
+### The substrate ladder is not a substrate ladder
+
+`[buf]` falls **80 → 70 → 60 → 50 mM** as `[S]` rises **1.850 → 7.399 mM**,
+because substrate volume displaced buffer volume in the cuvette. It is the same
+volume-displacement confound as the BnOH titrations (exps 3 and 6) and the 4OMe
+background block.
+
+**It leaves the activation energies alone.** The gradient is identical in all
+six runs, so each rung is one *fixed composition* measured at six temperatures —
+which is exactly what an Arrhenius fit needs. What it corrupts is the substrate
+order.
+
+### The catalysed buffer order, and it is not one number
+
+The temperature series cannot measure it — its own `[buf]` moves only as a
+by-product. Exps **32 and 34** can: 4OMe-BnOH at 40 °C and pH 7.00 with `[S]`
+held at 8.251 mM and `[buf]` stepped. This is the design the BnOH set lacks
+entirely.
+
+| range | experiment | order in `[buf]` | R² |
+|---|---|---|---|
+| 50–200 mM | 32 | **+0.402 ± 0.024** | 0.993 |
+| 3.125–25 mM | 34 | +0.803 ± 0.173 | 0.915 |
+
+**The buffer dependence saturates** — about first order at low buffer, about
+half order above 50 mM. The temperature series sits at 50–80 mM, so +0.40 is
+the value that applies to it. (`v_ss` cannot be used here: three of exp 34's
+four curves have an unresolved τ and return a negative `v_ss`, giving a
+meaningless −0.18 ± 0.34.)
+
+### So the substrate order is about +0.58, not +0.45
+
+With `[S]^a [buf]^d` and `log[buf] = g·log[S] + c`, a fit without a buffer term
+returns `a' = a + d·g`. Here **g = −0.325** and **d = +0.402**, so the
+correction adds 0.13:
+
+| T | 15 °C | 20 °C | 25 °C | 30 °C | 35 °C | 40 °C |
+|---|---|---|---|---|---|---|
+| observed | +0.457 | +0.517 | +0.489 | +0.344 | +0.441 | +0.421 |
+| corrected | +0.588 | +0.648 | +0.620 | +0.475 | +0.572 | +0.552 |
+
+Mean **+0.576**, and it does not drift with temperature — the spread, 0.173, is
+the same before and after correcting, so the correction moved the level and not
+the trend. **Genuine partial saturation in substrate, with no detectable
+temperature dependence**, which is the same as saying K<sub>M</sub> is roughly
+constant over 15–40 °C.
+
+*What this rests on*: that the buffer order measured at 40 °C holds at 15 °C,
+and at 1.85–7.4 mM substrate as well as at the 8.251 mM it was measured at.
+Neither is testable here.
+
+### And the four rungs share one activation energy
+
+The rung-to-rung spread of 8.5 kJ/mol looked like a composition dependence until
+the standard errors were computed — each rung is **± 2.6–3.0**. Against their
+weighted mean, **χ² = 4.68 on 3 degrees of freedom, reduced χ² = 1.56**. No
+composition dependence is detectable, so the rungs can be pooled.
+
+They are pooled by refitting — one slope with a free intercept per rung, over
+all 24 points — rather than by averaging the four fits, because those four share
+the same six runs, the same six days and the same six cells, so their errors are
+correlated and averaging would shrink the error by a factor that is not there.
+
+## 4. Activation parameters
+
+`arrhenius.parameter_table()`. Three fitted quantities, each pooled over the
+four rungs with a free intercept each, Eyring fitted on the same design.
+
+| parameter | E<sub>a</sub> kJ/mol | ΔH‡ kJ/mol | ΔS‡ J/mol/K | ΔG‡(298) kJ/mol | curves |
+|---|---|---|---|---|---|
+| `vmax`, steepest observed rate | 90.2 ± 1.5 | **87.7 ± 1.5** | **−53.1 ± 4.9** | **103.6 ± 0.1** | 24, 6 T |
+| `v_ss`, asymptote after the induction | 88.8 ± 2.9 | 86.4 ± 2.9 | −57.1 ± 9.7 | 103.4 ± 0.1 | 16, 4 T |
+| `1/τ`, induction rate constant | 94.6 ± 16.3 | 92.1 ± 16.3 | +3.0 ± 55.1 | 91.2 ± 0.7 | 15, 4 T |
+
+In kcal/mol: ΔH‡ **21.0**, ΔS‡ **−12.7 cal/mol/K**, ΔG‡(298) **24.8** for
+`vmax`; 22.0 and 21.8 for the induction.
+
+**The two rate estimators agree**, which is the check that matters. `vmax` uses
+all six temperatures and is truncated at the cold end; `v_ss` uses only the four
+where the burst form is sound and is not truncated. They come out at 87.7 and
+86.4 kJ/mol — and the truncation correction of §2 predicted `vmax` would read
+about 1.9 high, i.e. 85.8. Two estimators with different failure modes landing
+within their errors is the best internal evidence this block offers.
+
+**ΔS‡ ≈ −55 J/mol/K is strongly negative** — a well-ordered transition state, as
+an associative step should be. Note what it is quoted *at*: an intercept is a
+level, the four rungs sit at four levels, and this is the **median rung,
+[S] = 5.549 mM and [buf] = 60 mM**. A ΔS‡ with no composition attached is not
+comparable to anything.
+
+**The induction is a different process.** Its ΔG‡ is **12 kJ/mol lower** than the
+turnover's, so it is the faster of the two, and its ΔS‡ is near zero rather than
+−55 — a much looser transition state. Its enthalpy, 92 ± 16, is indistinguishable
+from the turnover's 88 ± 1.5, but with an error that wide that is not evidence
+of anything. Treat the induction's numbers as an order-of-magnitude statement:
+the *entropies* differ, the enthalpies are not resolved apart.
+
+### Before comparing any of this to a calculation
+
+- **These are composite, not elementary.** `vmax` and `v_ss` are whole-turnover
+  rates through a seven-step mechanism; ΔH‡ is the barrier of whatever step is
+  rate-limiting at that composition, plus any pre-equilibria in front of it.
+  `COMPUTATIONAL.md`'s barriers are for single steps. The comparison to make is
+  against the **highest** step, not against a sum.
+- **ΔS‡ assumes a pseudo-first-order rate constant.** The rate constant used is
+  `v / (ε·[enz])`, in s⁻¹, which is what makes an entropy possible at all — a
+  slope survives any constant factor, an intercept does not. But the substrate
+  order is +0.58, not 0, so the reaction is not saturated and this constant
+  carries a substrate dependence. ΔH‡ does **not** depend on this; ΔS‡ and the
+  absolute ΔG‡ do.
+- **It also assumes first order in enzyme**, which this block cannot test:
+  `[enz]` takes only two values here and they differ by 11.7%.
+- **The curves are background-subtracted** (`with_E`, reference omits the
+  enzyme), so these are the activation parameters of the *catalytic increment*,
+  not of the overall reaction. The uncatalysed background has its own
+  temperature dependence and it is not measured anywhere in the archive.
+- **ΔG‡ is much better determined than either ΔH‡ or ΔS‡** — ± 0.1 against
+  ± 1.5 and ± 4.9 — because both come from one line and their errors are
+  strongly anti-correlated. That is real, not a mistake: at 25 °C, inside the
+  measured range, the errors cancel. Quote ΔG‡ with confidence and the split
+  with care.
+
+## 5. Activation energy per rung
+
+From `arrhenius.rung_fits()` on `vmax`, kept because the agreement between them
+is the evidence that pooling is allowed:
+
+| `[S]` mM | `[buf]` mM | E<sub>a</sub> kJ/mol | rms |
+|---|---|---|---|
+| 1.850 | 80 | 94.5 ± 2.8 | 0.078 |
+| 3.700 | 70 | 86.0 ± 3.0 | 0.085 |
+| 5.549 | 60 | 89.0 ± 2.6 | 0.073 |
+| 7.399 | 50 | 91.5 ± 2.7 | 0.076 |
+
+Weighted mean **90.4**, reduced χ² **1.56** — see §3. The pooled refit over all
+24 points gives **90.2 ± 1.5**.
 
 **A caution for whatever comes next.** 20 of these 24 curves clear the 3sigma
 acceleration gate and 8 exceed z = +15, so `v0` is an *induction* rate
