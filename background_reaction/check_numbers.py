@@ -32,6 +32,9 @@ DOCUMENT = os.path.join(HERE, "ANALYSIS.md")
 # became per-curve, and nothing noticed, because every check here read
 # ANALYSIS.md and the stale sentence lived in build_figures.py.
 CURVES_PAGE = os.path.join(HERE, "progress_curves.html")
+# And the index, for the same reason. Its prose was typed rather than derived
+# until 2026-09-02 and four of its numbers had drifted -- see build_figures.py.
+INDEX_PAGE = os.path.join(HERE, "index.html")
 # MECHANISM.md carries the same boric-probe numbers, in ASCII. A figure quoted
 # in two documents is two copies, and this project has had a number go stale in
 # one file while the other stayed right.
@@ -72,6 +75,13 @@ def claim(label, rendered, present=True, document=None):
     if not ok:
         FAILURES.append(f"{label} -- {rendered!r} not found in "
                         f"{os.path.basename(path)}")
+
+
+def check(label, ok, detail=""):
+    """Require a condition that is not a quoted string."""
+    print(f"  {'pass' if ok else 'FAIL'}  {label}{': ' + detail if detail else ''}")
+    if not ok:
+        FAILURES.append(f"{label} {detail}")
 
 
 def main():
@@ -524,6 +534,62 @@ def main():
     claim("the constant-buffer accelerating count",
           f"| enzyme-free BnOH, `[buf]` fixed | **{rising} of {len(anchor)}** |")
 
+
+    print("\nsection 7: what the background is not")
+    # Audited 2026-09-02. The conversion range read 0.04-7.9% and the exp 69
+    # claim "roughly halves"; the range was stale and the verb understated a
+    # curve that keeps an eighth of its rate. Neither had ever been checked.
+    free = scope.frame(scope.FREE_BNOH_ALL)
+    claim("the conversion range",
+          f"{free.conversion.min() * 100:.2f}-{free.conversion.max() * 100:.2f}%")
+    claim("how many curves bend",
+          f"{int((free.curvature_t.abs() > 3).sum())} of {len(free)} curves "
+          "show curvature at |t| > 3")
+    worst = free[(free.experiment == 69) & (free["sample"] == 3)].iloc[0]
+    claim("what exp 69 sample 3 does",
+          f"ends at **{worst.late_over_early:.0%} of its early rate** at "
+          f"{worst.conversion * 100:.2f}% conversion")
+
+    print("\nthe pyrophosphate cell the amplitude is missing from")
+    whole = scope.frame(tuple(range(1, 152)))
+    cell = whole[(whole.buffer == "Pyrophosphate") & (whole.substrate == "BnOH")]
+    claim("its size, and that it holds no enzyme-free curve",
+          f"{int((~cell.differential).sum())} enzyme-free curves in the "
+          f"{len(cell)}-curve BnOH pyrophosphate cell")
+
+    print("\nthe page: every number in its prose is derived, not typed")
+    # The index and the curves page quote figures the document also quotes.
+    # They used to be typed and four of them had drifted; they are f-strings
+    # now, and these checks read them back OUT of the rendered HTML so that a
+    # future edit cannot quietly retype one.
+    page = io.open(INDEX_PAGE, encoding="utf-8").read()
+    pooled = {name: scope.background_orders(terms=("s0", "h2o2", "hoo"),
+                                            parameter=name)
+              for name in ("v0_quad", "vmax")}
+    held = sorted(scope.frame(scope.BUFFER_FIXED).buf.unique())
+    in_scope = scope.frame(scope.PRIMARY_SCOPE)
+    claim("the buffer the fixed design holds", f"[buf] at {held[0]:g} mM",
+          document=INDEX_PAGE)
+    claim("the pooled R2 on v0_quad",
+          f"R\u00b2 {pooled['v0_quad']['r2']:.3f} on <code>v0_quad</code>",
+          document=INDEX_PAGE)
+    claim("the pooled R2 on vmax",
+          f"{pooled['vmax']['r2']:.3f} on <code>vmax</code>",
+          document=INDEX_PAGE)
+    claim("the in-scope buffer",
+          f"{in_scope.buf.iloc[0]:.3f} mM in all {len(in_scope)}",
+          document=INDEX_PAGE)
+    claim("the pyrophosphate cell on the page", f"{len(cell)}-curve BnOH",
+          document=INDEX_PAGE)
+    check("the withdrawn 0.961/0.909 comparison is named as withdrawn",
+          "argument is withdrawn" in page or "0.961" not in page)
+
+    print("\nthe figures: lettered once each, in order")
+    letters = re.findall(r">([A-Z]) \u00b7 ", page)
+    expected = [chr(ord("A") + index) for index in range(len(letters))]
+    check("every figure letter is used exactly once, A onwards",
+          letters == expected,
+          f"{''.join(letters)} against {''.join(expected)}")
 
     print("\nthe figures: no data point drawn outside its own frame")
     # Marks are clipped to the plot area deliberately, so a data point outside

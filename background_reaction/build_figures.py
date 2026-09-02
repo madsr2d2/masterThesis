@@ -7,6 +7,15 @@ transforms applied here are for display: centring a run's points on its own
 geometric mean so that a within-experiment slope can be seen on one axis.
 
     python background_reaction/build_figures.py
+
+NOTHING NUMERIC IS TYPED INTO THE PROSE OR THE CAPTIONS. The figures always
+derived their numbers; the running text did not, and an audit on 2026-09-02
+found four places where it had drifted -- a buffer range that still included
+exp 65 after its rates were withdrawn, an experiment list in a legend that did
+the same, a pooled R2 comparison whose argument had reversed sign, and a
+worked identifiability example whose numbers changed when exps 3 and 6 were
+recovered from the .rre. Every one of them is now an f-string over the same
+call `check_numbers.py` uses.
 """
 import os
 import sys
@@ -399,8 +408,9 @@ def figure_curvature():
         axes.note(430, 210 + 16 * index, f"exp {experiment}", colour, 11)
     axes.note(axes._fx(0.034), axes._fy(-3.0) - 6,
               "|t| = 3: curvature is real below this line", ACCENT, 10.2)
-    axes.note(90, 44, "every curve is under 8% converted,", INK, 11.5,
-              weight="600")
+    axes.note(90, 44, f"every curve is under "
+                      f"{np.ceil(live.conversion.max() * 100):.0f}% converted,",
+              INK, 11.5, weight="600")
     axes.note(90, 61, "so substrate depletion cannot bend them this far",
               INK, 11.5, weight="600")
     return axes.render("conversion at end of run / %",
@@ -410,10 +420,22 @@ def figure_curvature():
 
 def figure_acceleration():
     """The in-scope curves accelerate; the background does not."""
-    sets = [("enzyme-free, [buf] fixed\n(65,67,69,70)", scope.BUFFER_FIXED,
-             PALETTE[0]),
-            ("enzyme-free titrations\n(3,6)", scope.BUFFER_CONFOUNDED, ACCENT),
-            ("in-scope catalysed\n(135-151)", scope.PRIMARY_SCOPE, PALETTE[2])]
+    # The experiment lists come from the constants, not from the label. This
+    # one read "(65,67,69,70)" for a day after exp 65's rates were withdrawn
+    # from BUFFER_FIXED on 2026-09-01, which is a legend naming a curve that
+    # is not on the chart.
+    def _named(experiments):
+        listed = sorted(int(e) for e in experiments)
+        if listed == list(range(listed[0], listed[-1] + 1)) and len(listed) > 3:
+            return f"({listed[0]}-{listed[-1]})"
+        return "(" + ",".join(str(e) for e in listed) + ")"
+
+    sets = [(f"enzyme-free, [buf] fixed\n{_named(scope.BUFFER_FIXED)}",
+             scope.BUFFER_FIXED, PALETTE[0]),
+            (f"enzyme-free titrations\n{_named(scope.BUFFER_CONFOUNDED)}",
+             scope.BUFFER_CONFOUNDED, ACCENT),
+            (f"in-scope catalysed\n{_named(scope.PRIMARY_SCOPE)}",
+             scope.PRIMARY_SCOPE, PALETTE[2])]
     axes = Axes(560, 380, (-0.6, 2.6), (-12.0, 22.0), pad=(62, 16, 62, 26))
     axes.hline(ACCELERATION_SIGMA, ACCENT, "5 3", 1.6)
     axes.hline(0.0, MUTED, "3 3", 1.2)
@@ -507,6 +529,16 @@ def _fig(svg, caption):
 
 def build_index():
     buffer = scope.buffer_dependence(parameter=HEADLINE)
+    fixed_buf = sorted(scope.frame(scope.BUFFER_FIXED).buf.unique())
+    held = (f"{fixed_buf[0]:g} mM" if len(fixed_buf) == 1
+            else f"{fixed_buf[0]:g}\u2013{fixed_buf[-1]:g} mM")
+    pooled = {name: scope.background_orders(terms=("s0", "h2o2", "hoo"),
+                                            parameter=name)
+              for name in ("v0_quad", "vmax")}
+    free = scope.frame(scope.FREE_BNOH_ALL)
+    whole = scope.frame(tuple(range(1, 152)))
+    cell = whole[(whole.buffer == "Pyrophosphate") & (whole.substrate == "BnOH")]
+    in_scope = scope.frame(scope.PRIMARY_SCOPE)
     rows = []
     for estimator in ESTIMATORS:
         result = scope.buffer_dependence(parameter=estimator)
@@ -534,7 +566,7 @@ designs that disagree, and the disagreement is what carries the buffer order.</p
 {_fig(figure_separation(), "<b>A.</b> Every cuvette, divided by its own run's geometric "
       "mean in both axes — which is exactly what a per-experiment offset does on a log "
       "scale, so the common within-run slope is what you see. Blue: the runs that hold "
-      "[buf] at 85–87.5 mM. Orange: the runs where [buf] falls as [sub] rises. The same "
+      f"[buf] at {held}. Orange: the runs where [buf] falls as [sub] rises. The same "
       "reaction reads a positive substrate order in one design and a negative one in the "
       "other. Hover a point for its buffer concentration.")}
 {_fig(figure_coupling(), "<b>B.</b> Why. Substrate was pipetted in and buffer volume shrank "
@@ -561,33 +593,42 @@ that was a bug in <code>curve_metrics.whole_slope</code>, which returned the fit
 
 <h2>The rate law</h2>
 <p>Each order is taken from the design that can measure it: the substrate order from the
-constant-buffer runs only, the peroxide and [HOO⁻] orders pooled across all six runs, the
-buffer order from the two designs' disagreement. Shown under both estimators, because
-neither dominates: <code>v0_quad</code> is the tighter on substrate and buffer, but the
-pooled peroxide fit is better conditioned on <code>vmax</code> (R² 0.961 against 0.909),
-since an extrapolated initial rate adds variance where a block slope does not.</p>
+constant-buffer runs only, the peroxide and [HOO⁻] orders pooled across the runs with a
+usable rate, the buffer order from the two designs' disagreement. Shown under both
+estimators, because neither dominates: <code>v0_quad</code> is the tighter on substrate
+and buffer, and the pooled fit is a dead heat — R²
+{pooled['v0_quad']['r2']:.3f} on <code>v0_quad</code> against
+{pooled['vmax']['r2']:.3f} on <code>vmax</code>, on the same
+{pooled['v0_quad']['n']} curves. An earlier version of this page put those at 0.961 and
+0.909 and argued from the gap that an extrapolated initial rate adds variance where a
+block slope does not. The gap is {abs(pooled['v0_quad']['r2'] - pooled['vmax']['r2']):.3f}
+and points the other way; the argument is withdrawn.</p>
 <div class='grid two'>
 {_fig(figure_rate_law('v0_quad'), "Headline estimator — no window anywhere.")}
 {_fig(figure_rate_law('vmax'), "The estimator the in-scope block was measured with.")}
 </div>
 
 <h2>What the background is not</h2>
-{_fig(figure_curvature(), "The curves bend, and it is not substrate being consumed: every "
-      "one is under 8% converted, yet most show curvature far beyond |t| = 3. Something "
-      "else decays during these runs — peroxide, or the cell.")}
+{_fig(figure_curvature(), "The curves bend, and it is not substrate being consumed: "
+      f"conversion runs {free.conversion.min() * 100:.2f}\u2013"
+      f"{free.conversion.max() * 100:.2f}%, yet "
+      f"{int((free.curvature_t.abs() > 3).sum())} of {len(free)} show curvature beyond "
+      "|t| = 3. Something else decays during these runs — peroxide, or the cell.")}
 {_fig(figure_acceleration(), "Both sets compared here are entirely .rre, so this is not "
       "the variance-floor artefact of DATA_VERIFICATION.md 2026-09-01. The enzyme-free "
       "curves do not accelerate; several actively decelerate.")}
 
 <h2>What this means for exps 135–151</h2>
-<p><b>The confound does not reach them.</b> <code>[buf]</code> is 75.013 mM in all 119
-in-scope curves across all 17 runs — zero variation — so no buffer effect can enter their
-substrate order.</p>
+<p><b>The confound does not reach them.</b> <code>[buf]</code> is
+{in_scope.buf.iloc[0]:.3f} mM in all {len(in_scope)} in-scope curves across all
+{in_scope.experiment.nunique()} runs — zero variation — so no buffer effect can enter
+their substrate order.</p>
 <p><b>The background is already subtracted.</b> Every run is double-beam and the catalysed
 sheets' reference omits only the enzyme, so an in-scope curve is a catalytic increment
 taken against a background at identical buffer, substrate, peroxide and pH.</p>
-<p><b>What is still missing is the amplitude.</b> There are 0 enzyme-free curves in the
-127-curve pyrophosphate cell, so the absolute size of what was subtracted cannot be
+<p><b>What is still missing is the amplitude.</b> There are
+{int((~cell.differential).sum())} enzyme-free curves in the {len(cell)}-curve BnOH
+pyrophosphate cell, so the absolute size of what was subtracted cannot be
 recovered without importing it from another buffer — which MECHANISM.md's buffer section
 forbids. That remains FITTING.md's F7.</p>
 
@@ -611,9 +652,29 @@ def build_curves_page():
         for z, _ in (acceleration(c.times, c.absorbance,
                                   floor=source_floor(c.source))
                      for c in scope.curves(scope.FREE_BNOH_ALL)))
+    curves = list(scope.curves(scope.FREE_BNOH_ALL))
+    # The identifiability example, chosen by the data rather than named in the
+    # prose. It used to name exp 3 sample 3 with numbers that stopped being
+    # true when exps 3 and 6 were recovered from the .rre on 2026-09-01: its
+    # unconstrained v0 now runs +3.2e-07 to +6.8e-07, no sign change at all.
+    widest, worst = None, 0.0
+    unstable = 0
+    for curve in curves:
+        fitted = fit_burst_bounded(curve.times, curve.absorbance,
+                                   constrain=False,
+                                   noise_floor=source_floor(curve.source))
+        if not (np.isfinite(fitted.v0_low) and np.isfinite(fitted.v0_high)
+                and fitted.v0):
+            continue
+        if fitted.v0_low < 0 < fitted.v0_high:
+            unstable += 1
+        reach = abs((fitted.v0_high - fitted.v0_low) / fitted.v0)
+        if reach > worst:
+            widest, worst = (curve, fitted), reach
+    example, span = widest
     body = f"""
-<p class='lede'>All 27 enzyme-free BnOH cuvettes, each with every rate estimator drawn on
-it. Nothing here is a kinetic-model fit: the mechanism has never been fitted to these
+<p class='lede'>All {len(curves)} enzyme-free BnOH cuvettes, each with every rate
+estimator drawn on it. Nothing here is a kinetic-model fit: the mechanism has never been fitted to these
 curves. These are the empirical rate measurements the analysis rests on.</p>
 
 <h2>What is drawn</h2>
@@ -638,16 +699,19 @@ point, and is linear in its parameters, so v<sub>0</sub> is always identified. I
 <p>The <b>burst/lag</b> form is A = c + v<sub>ss</sub>t − B(1 − e<sup>−t/τ</sup>), with
 v<sub>0</sub> = v<sub>ss</sub> − B/τ. The lag branch (B &gt; 0) is opened or shut
 <b>per curve</b>, by that curve's own <code>acceleration</code> z-score against a 3σ gate:
-open on the {accelerating} of 27 that clear it, shut elsewhere. τ is profiled rather than
+open on the {accelerating} of {len(curves)} that clear it, shut elsewhere. τ is profiled rather than
 optimised. The shaded fan shows every initial slope allowed by a τ within the 95% cost
 band. Where that fan is wide the curve does not determine v<sub>0</sub>, however well the
-form fits: <b>{bounded} of 27</b> curves are bounded by the {BURST_V0_HALFWIDTH:.0%}
+form fits: <b>{bounded} of {len(curves)}</b> curves are bounded by the {BURST_V0_HALFWIDTH:.0%}
 half-width criterion, and the rest are marked UNBOUNDED.</p>
-<p class='warn'>Fitting well is not the same as being identified. Exp 3 sample 3 is fitted
-by the unconstrained burst form to better than its own noise, yet across statistically
-indistinguishable values of τ its v<sub>0</sub> ranges from −1.6e-05 to +5.8e-07 — a factor
-of 28 and a change of sign. That is why v<sub>0</sub> is profiled here and why the
-quadratic, not the burst form, carries the headline numbers.</p>
+<p class='warn'>Fitting well is not the same as being identified. The worst case in this
+set is <b>exp {example.experiment} sample {example.sample}</b>: across statistically
+indistinguishable values of τ its unconstrained v<sub>0</sub> ranges from
+{span.v0_low:.2e} to {span.v0_high:.2e} — a span of {worst:.0f}× its own fitted value
+{'and a change of sign' if span.v0_low < 0 < span.v0_high else ''}. It is not alone:
+<b>{unstable} of {len(curves)}</b> curves have an unconstrained v<sub>0</sub> interval
+that straddles zero. That is why v<sub>0</sub> is profiled here and why the quadratic,
+not the burst form, carries the headline numbers.</p>
 
 <h2>The curves</h2>
 <div class='grid three'>{''.join(panels)}</div>
