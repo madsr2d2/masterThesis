@@ -44,6 +44,8 @@ see the note on vibronic intensity below.
 | [C4](#c4--peroxide-cannizzaro-feasibility) | barrier for HOO⁻ vs OH⁻ Cannizzaro hydride transfer | backlog | whether steps 1–2, which have **no literature precedent**, are plausible at all |
 | [C5](#c5--why-the-two-substrates-bend-in-opposite-directions) | substituent effect on the hydride-acceptor step, Ph vs 4-MeO-C₆H₄ | **PENDING** | whether the methoxy group is what removes BnOH's autocatalysis in the 4OMe runs |
 | [C6](#c6--the-oxidant-attacks-the-product-fifty-times-faster-than-the-substrate) | ArCH₂OH vs ArCHO oxidation barriers, Ph and 4-MeO-C₆H₄ | **PENDING** | what the 4OMe progress curves' slowdown is, and why BnOH's curves do not show it |
+| [C7](#c7--what-the-catalyst-is-doing-during-the-induction-period) | hydration equilibrium and dehydration barrier of the active-site ketone in water | **PENDING** | what the induction period is — the one step in the cycle with a measured barrier and no assignment |
+| [C8](#c8--is-the-perhydrate-on-the-activation-path-or-off-it) | free-energy profile K + H₂O₂ ⇌ KP → KD, and the KP resting fraction | **PENDING** | whether the peroxide adduct is the catalyst waking up or the state it has to leave |
 
 ---
 
@@ -264,6 +266,138 @@ scopes only the aldehydes and acids. Fold them in when C1 is run.
 
 ---
 
+## C7 — what the catalyst is doing during the induction period
+
+**Status: PENDING.** Specced 2026-09-02, not started.
+
+### What it decides
+
+`induction/ANALYSIS.md` measures the induction of the catalysed 4OMe curves and
+gets further than expected without a mechanism, which is exactly the position
+that makes a calculation worth running. What is established:
+
+| | |
+|---|---|
+| it needs the catalyst | 0 of 49 enzyme-free 4OMe curves have one, at matched composition, including a 17934 s run |
+| it ends on a clock, not at a product threshold | **−0.025 ± 0.109** on 147 curves, where product control requires −1 |
+| its amplitude is a fraction, not a concentration | substrate order **−0.114 ± 0.169** |
+| it is 126× faster than turnover | ΔG‡ gap **−11.99 ± 0.62 kJ/mol** at 298 K |
+| **its barrier** | **E<sub>a</sub> = 95.0 ± 15.7 kJ/mol**, ΔH‡ = 92.6 ± 15.7 |
+
+The last row is the gate. **95 kJ/mol is four times too large for dissolution,
+diffusion, de-aggregation or a cuvette reaching temperature** — those run at
+15–25 — so the catalyst is making or breaking a bond before it can turn over.
+The concentration orders say the step is unimolecular in everything the cuvette
+holds. What is left is a unimolecular change on the catalyst itself, and the
+leading candidate has a name.
+
+### The candidate
+
+**The active-site ketone in water is largely its gem-diol hydrate, and only the
+free ketone can add H₂O₂.** Hydration is fast and the equilibrium can lie a long
+way towards the diol for an electronically activated ketone; **dehydration is
+unimolecular**, general acid/base catalysed, and can be slow. That reproduces
+every measured feature at once: it needs the catalyst, it is first order in
+nothing else, its amplitude is the equilibrium hydrate fraction (a fraction, not
+a concentration) and its barrier is a covalent one.
+
+It also makes a prediction the archive cannot test and this calculation can: the
+hydrate fraction at equilibrium has to be **large enough to be the measured
+amplitude**. The depth of the induction is 0.79 at 15 °C and 0.06 at 40 °C, and
+those are *lower bounds* — the rolling window that reads them understates the
+amplitude, and understates it most where the induction is fastest. So the
+computed hydrate fraction must be at least ~0.8 at 15 °C, and must fall with
+temperature.
+
+### What to compute
+
+For the chemzyme's active-site ketone (and, as a calibration, for acetone and
+for one α-halo ketone whose K<sub>hyd</sub> is known experimentally):
+
+1. ΔG of hydration, `K=O + H₂O ⇌ K(OH)₂`, in implicit water with explicit
+   waters in the first shell. Report K<sub>hyd</sub> at 288 and 313 K, which
+   brackets the block.
+2. ΔG‡ for the **dehydration** `K(OH)₂ → K=O + H₂O`, water-assisted and
+   general-base assisted (one phosphate dianion in the model — the block is
+   50–80 mM phosphate at pH 7.00).
+3. ΔG‡ for `K=O + H₂O₂ → KP` at the same level, for comparison with (2).
+
+### Validation gate, stated in advance
+
+- ΔG‡ for (2) within about **±20 kJ/mol of 92.6** — the measurement's own error
+  is ±15.7 and no solvated barrier is worth more than that.
+- K<sub>hyd</sub> at 288 K corresponding to a hydrate fraction **≥ 0.8**, falling
+  towards 313 K.
+- (3) **smaller** than (2), or the assignment is wrong: if adding peroxide is
+  the slow step, the induction should have carried an order in `[H₂O₂]`, and
+  §4a's inability to measure one becomes the whole story rather than a caveat.
+
+Failing the first two does not merely weaken this candidate, it eliminates it,
+and the next ones in line are the perhydrate collapse (**C8**) and a
+conformational change of the cyclodextrin — the last of which is not a
+calculation this project can do credibly.
+
+### The experiment that would replace all of this
+
+**Pre-incubate the catalyst with H₂O₂, then add substrate.** If the induction is
+catalyst activation it disappears; if it waits for product it does not. One
+cuvette, and it settles in an afternoon what C7 and C8 together only make
+plausible. Recorded here because the archive is closed and it is the single most
+valuable measurement that was never made.
+
+---
+
+## C8 — is the perhydrate on the activation path, or off it?
+
+**Status: PENDING.** Specced 2026-09-02, not started.
+
+### What it decides
+
+`MECHANISM.md` step 4 makes `K + H₂O₂ ⇌ KP` the catalyst's entry into the cycle,
+and the natural reading of an induction period is that this is what is being
+timed. **The archive's one attempt to test that gets the wrong sign**: in exps
+127–131, the only 4OMe cuvettes that move `[H₂O₂]` (3.879 against 195.882 mM),
+the induction *time* has an order of **+0.302 ± 0.092** in peroxide. A
+relaxation towards `K + H₂O₂ ⇌ KP` goes as `1/τ = k_f[H₂O₂] + k_r` and therefore
+has an order between 0 and −1; it cannot be positive.
+
+That result is **not usable as it stands** — the same block's induction
+statistic regresses on signal-to-noise at +0.702 ± 0.241 and `[H₂O₂]` is what
+sets the signal, so 15 curves cannot separate the two. But the sign it points
+at is a coherent mechanism, and it inverts the role of step 4: **the perhydrate
+would be a resting state the catalyst has to leave**, not the activation itself.
+More peroxide would then mean more catalyst parked as KP and a *longer* wait
+before enough dioxirane exists to turn over.
+
+### What to compute
+
+The free-energy profile along `K + H₂O₂ ⇌ KP` and onward, at one level and one
+solvation model:
+
+1. ΔG and ΔG‡ for `K + H₂O₂ ⇌ KP` in both directions.
+2. ΔG‡ for `KP → KD + H₂O` — direct closure of the perhydrate to the dioxirane,
+   the route that would make KP an intermediate.
+3. ΔG‡ for `PBA + K → KD + BA` — `MECHANISM.md`'s own step 6, the route that
+   makes KP a **dead end** because the acylating agent is the peracid and not
+   the peroxide.
+
+### The discriminating comparison
+
+Compare (2) with (3). If (3) is much the lower, KP is off the path, the
+catalyst's activation waits for the first PBA, and step 4 is a trap — which
+would also explain why the induction is not first order in peroxide. If (2) is
+competitive, the perhydrate is on the path and the positive peroxide order in
+§4a has to be an artefact of signal-to-noise after all.
+
+### What it needs from C7
+
+The KP resting fraction at 82.5 mM H₂O₂, which is C7's item (1) and (3)
+together. A trap only matters if the catalyst is actually in it: if
+K<sub>eq</sub>[H₂O₂] ≪ 1 at 82.5 mM, KP is neither an intermediate nor a trap
+and both branches of this question are moot.
+
+---
+
 ## Backlog
 
 Not yet specced. Each is grounded in an open question in `MECHANISM.md`.
@@ -318,6 +452,24 @@ step in the mechanism with no external support of any kind.
 Newest first. Record the ORCA version, the input files, the wall time and the
 outcome — including failed and abandoned runs, which are the ones most easily
 forgotten and most expensive to repeat.
+
+### 2026-09-02 — C7 and C8 specced, not started
+
+Arose from `induction/ANALYSIS.md`, the same exercise as C5/C6 done at the other
+end of the same curves. The archive again settled more than expected — the
+induction needs the catalyst, ends on a clock rather than at a product
+threshold, has an amplitude that is a fraction rather than a concentration, and
+carries a barrier of 95 ± 16 kJ/mol that is far too large to be physical — and
+again stopped exactly where a barrier comparison begins. It also produced a
+clean negative worth recording: **the archive holds no usable peroxide lever on
+an induction period.** The two blocks that move `[H2O2]` inside a run both have
+induction statistics that track their own signal-to-noise, because `[H2O2]` is
+what sets the signal, so the one experiment that would test the obvious
+candidate cannot be done on these data at all.
+
+No calculation run yet. C7 has three gates and all three are measured; C8's
+discriminating comparison is internal to the calculation and needs C7's resting
+fraction to be worth running.
 
 ### 2026-09-02 — C5 and C6 specced, not started
 

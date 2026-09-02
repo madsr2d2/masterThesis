@@ -272,11 +272,19 @@ anything.
 ### The reaction has an induction period, and it is what the breaks are
 
 Every run from 15 to 30 °C is a **lag** curve and τ falls monotonically as it
-warms: **6489 → 3666 → 945 → 876 s**. By 35 °C the induction is over before the
+warms: **6489 → 3190 → 945 → 916 s**. By 35 °C the induction is over before the
 measurement is properly under way and the curves decelerate instead, which is
 why the burst form flips to `burst` there and τ stops being resolved. So the
 block is not six measurements of one shape; it is a shape *changing with
 temperature*, and which end of a curve is informative changes with it.
+
+**What the induction is** is not a property of this block either, and it is
+written up in **[`induction/`](../induction/ANALYSIS.md)** for the same reason
+the fall is written up in `product_fate/`: separating "the rise waited for time"
+from "the rise waited for product" needs the substrate ladder repeated across
+enough runs to have an error bar, and 24 curves with a two-fold lever give
+±0.44. On the whole catalysed 4OMe archive the answer is **a clock**, and §7
+below has the paragraph.
 
 ### The substrate ladder is not a substrate ladder
 
@@ -454,11 +462,15 @@ level, the four rungs sit at four levels, and this is the **median rung,
 comparable to anything.
 
 **The induction is a different process.** Its ΔG‡ is **12 kJ/mol lower** than the
-turnover's, so it is the faster of the two, and its ΔS‡ is near zero rather than
-−55 — a much looser transition state. Its enthalpy, 92 ± 16, is indistinguishable
-from the turnover's 88 ± 1.5, but with an error that wide that is not evidence
-of anything. Treat the induction's numbers as an order-of-magnitude statement:
-the *entropies* differ, the enthalpies are not resolved apart.
+turnover's — **−11.99 ± 0.62**, so 126× faster as a rate constant, which is what
+a step that must finish before turnover can begin is required to be. That gap is
+the solid number here. Its *decomposition* is not: the point estimates put the
+whole of it in the entropy, near zero against −57.7, but the entropy gap carries
+±53.6 J/mol/K and the enthalpy gap ±15.8 kJ/mol, so each is about one standard
+error from zero. Do not quote "the entropies differ" from this table.
+[`induction/`](../induction/ANALYSIS.md) §5 makes the same point at length and
+§3 there carries the conclusion instead, from concentration orders that share no
+assumption with the Eyring fit.
 
 ### The fall has a name now, and it does not move these numbers
 
@@ -583,3 +595,27 @@ implied selectivity is `k_A/k_S ~ 54`.
 And it does not happen to BnOH, at product concentrations nearly twice as high —
 `MECHANISM.md`'s S2, switched on by the methoxy group. The effect on the
 activation parameters is in §4 above: none that this block can resolve.
+
+## 7. What the induction is — and where it is written up
+
+Same shape of answer as §6, at the other end of the curve, and in
+**[`induction/`](../induction/ANALYSIS.md)** for the same reason: 24 curves
+cannot separate a rise that waits for time from one that waits for product.
+
+What it concludes, in one paragraph. **The induction is a property of the
+catalysed reaction**: not one of the 49 enzyme-free 4OMe curves in the archive
+has one, at matched substrate, buffer, peroxide, pH and temperature, and that
+includes a 17934 s run at 40 °C. **It ends on a clock, not at a product
+threshold** — regressing each curve's induction time on its own rate with one
+offset per experiment gives **−0.025 ± 0.109** on 147 curves where product
+control requires −1, and the route with no errors-in-variables agrees at
+−0.26 ± 0.32. **Its amplitude is a fraction and not a concentration** (substrate
+order −0.114 ± 0.169). And its barrier, 95 ± 16 kJ/mol, is four times too large
+for dissolution or a cuvette reaching temperature, so it is a covalent step.
+
+**This is the exact mirror of §6**: the fall of these curves is set by the
+product and not by the clock, and the rise by the clock and not by the product.
+Which step it is remains open, and so does whether the peroxide is involved at
+all — the only 4OMe block that moves `[H2O2]` has an induction statistic that
+tracks its own signal-to-noise, so it cannot answer. `COMPUTATIONAL.md` C7 and
+C8 are what would.

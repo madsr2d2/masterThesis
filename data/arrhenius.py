@@ -354,9 +354,15 @@ def _prediction_stderr(fit, x):
     return float(np.sqrt(max(float(vector @ covariance @ vector), 0.0)))
 
 
-def pooled_arrhenius(parameter="v_ss", experiments=TEMPERATURE_SERIES):
+def pooled_arrhenius(parameter="v_ss", experiments=TEMPERATURE_SERIES,
+                     frame=None, per_enzyme=True):
     """
     One activation energy from all four rungs at once, with a free offset each.
+
+    `frame` injects a table this module does not build, and `per_enzyme=False`
+    stops the division by [enz]: a quantity that is ALREADY a first-order rate
+    constant in s^-1 -- an induction relaxation rate, say -- must not be
+    divided by an enzyme concentration a second time. `induction` uses both.
 
     WHY NOT AVERAGE THE FOUR. The rungs differ in composition -- [S] rises
     1.85 -> 7.399 mM while [buf] FALLS 80 -> 50 mM -- so they sit at different
@@ -370,13 +376,17 @@ def pooled_arrhenius(parameter="v_ss", experiments=TEMPERATURE_SERIES):
     same six cells, so their errors are correlated and averaging them would
     shrink the error by a factor that is not there.
     """
-    frame = series_frame(experiments)
-    rate = frame[parameter].to_numpy(dtype=float) / frame.e0.to_numpy(dtype=float)
+    frame = series_frame(experiments) if frame is None else frame
+    rate = frame[parameter].to_numpy(dtype=float)
+    if per_enzyme:
+        rate = rate / frame.e0.to_numpy(dtype=float)
     keep = np.isfinite(rate) & (rate > 0)
     frame, rate = frame[keep], rate[keep]
     rungs = sorted(frame.s0.unique())
+    kelvin = (frame.kelvin if "kelvin" in frame
+              else frame.temperature + 273.15).to_numpy(dtype=float)
     design = np.column_stack(
-        [1.0 / frame.kelvin.to_numpy(dtype=float)]
+        [1.0 / kelvin]
         + [(np.isclose(frame.s0, s0)).astype(float) for s0 in rungs])
     y = np.log(rate)
     beta, *_ = np.linalg.lstsq(design, y, rcond=None)

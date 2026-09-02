@@ -207,8 +207,16 @@ def main():
     # The second, independent statistic: the lag time constant.
     taus = frame.groupby("temperature").tau.median()
     lag = [t for t in sorted(taus.index) if t <= arrhenius.BURST_TRUSTWORTHY_BELOW_C]
-    claim("tau falls as it warms",
-          "**" + " -> ".join(f"{taus[t]:.0f}" for t in lag) + " s**")
+    ladder = " -> ".join(f"{taus[t]:.0f}" for t in lag) + " s"
+    claim("tau falls as it warms", "**" + ladder + "**")
+    # And the same ladder in figure E's caption. It drifted there and nowhere
+    # else -- the document carried 6489 -> 3190 -> 945 -> 916 in one section and
+    # 6489 -> 3666 -> 945 -> 876 in another, four sections apart, for as long as
+    # both existed, because only the prose was ever checked.
+    drawn = _normalise(io.open(os.path.join(HERE, "build_figures.py"),
+                               encoding="utf-8").read())
+    check("figure E's caption carries the same ladder",
+          _normalise(ladder) in drawn, ladder)
     check("every run below 32 C is a lag curve",
           bool((frame[frame.temperature <= arrhenius.BURST_TRUSTWORTHY_BELOW_C]
                 .v0_burst_kind == "lag").all()))

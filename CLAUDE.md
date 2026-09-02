@@ -72,6 +72,7 @@ python data/test_curve_metrics.py         # duplicate guard + the lag statistic
 python data/test_fit_kinetics.py          # selection, scope, parameter recovery
 python data/test_validator.py             # fault injection
 python data/test_slowdown.py              # the slowdown models and their regressions
+python data/test_induction.py             # the induction landmark and its controls
 ```
 
 Units: concentrations mM, time s.
@@ -100,3 +101,26 @@ across the whole 4OMe archive; the temperature series' 23 cannot make it.
 asserting that anything in this archive slowed down "over time" — one progress
 curve cannot tell time from product, because inside a curve the product only
 grows with time, and the separation exists only across curves.
+
+## What the catalyst does first
+
+`induction/` holds the other end of the same curves: every catalysed 4OMe run
+begins slowly, and the induction is **the catalyst becoming active on its own
+clock**, not the product seeding anything. It needs the catalyst (0 of 49
+enzyme-free curves have one), it has no substrate order, and its barrier is
+95 kJ/mol — four times too large to be physical.
+
+`data/induction.py` has the machinery, and two rules come with it.
+
+- **The induction landmark is safe within a run and not between runs.** Its
+  rolling window is a tenth of the run, so a between-run comparison compares
+  windows: at 25 °C the induction time regresses on run length at
+  +0.437 ± 0.181 and on pH at −0.004 ± 0.123. Every concentration order is
+  measured with one offset per experiment, and the temperature dependence comes
+  from `arrhenius`'s fitted `inverse_tau`, which is not windowed.
+- **Run `signal_control` before believing any induction result.** The landmark
+  is the first crossing of half the largest rolling slope, so on a curve with no
+  signal it measures the spectrophotometer. The catalysed 4OMe block passes
+  (+0.003 ± 0.149); both blocks that carry a peroxide ladder fail, which is why
+  this archive cannot say whether the induction is the catalyst binding
+  H<sub>2</sub>O<sub>2</sub>.

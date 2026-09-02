@@ -261,7 +261,7 @@ def figure_tau():
         "profile actually pinned τ. Above 30 °C the induction is over before "
         "the run is under way, the burst form flips to a decelerating shape and "
         "τ stops being resolved — so those points are not measurements and are "
-        "not plotted. τ falls <strong>6489 → 3666 → 945 → 876 s</strong> over "
+        "not plotted. τ falls <strong>6489 → 3190 → 945 → 916 s</strong> over "
         "these four temperatures.")
 
 

@@ -1,0 +1,807 @@
+"""
+What the catalysed 4OMe-BnOH progress curves are doing before they start.
+
+Every catalysed 4OMe run from 15 to 30 C begins slowly and speeds up over
+thousands of seconds before it reaches the rate `temperature_series/ANALYSIS.md`
+puts on an Arrhenius plot. That document names the induction, times it
+(tau falls 6489 -> 3190 -> 945 -> 916 s from 15 to 30 C) and stops there.
+`product_fate/` did the same job for the FALL at the other end of the curve.
+This module is the attempt to name the RISE.
+
+Four candidates, and each makes a different prediction about what the induction
+waits for:
+
+    seeding      the catalyst-free Cannizzaro loop needs product before it can
+                 run (MECHANISM.md steps 1-3), so the induction ends when
+                 enough A has been made.        -> needs no catalyst;
+                                                   ends at a fixed PRODUCT
+    scavenger    something in the reagents consumes the oxidant until it is
+                 burned off.                    -> needs no catalyst;
+                                                   ends at a fixed TURNOVER
+    activation   the catalyst is not in its active form when the run starts
+                 and converts into it.          -> needs the catalyst;
+                                                   ends at a fixed TIME
+    schedule     the induction is an artefact of when the operator started and
+                 stopped recording.             -> tracks the run length and
+                                                   nothing else
+
+The first two end on the PRODUCT, the third on a CLOCK. That is the same
+discrimination `slowdown.deceleration_drivers` makes for the fall, and it is
+made the same way: within one curve the product only grows with time, so the
+two can only be separated ACROSS curves whose rates differ. The substrate
+ladder inside every 4OMe run moves the rate by half an order while holding the
+schedule, the peroxide, the catalyst, the buffer and the temperature fixed,
+which is exactly the lever this needs.
+
+THE STATISTIC, AND WHY IT IS A LANDMARK HERE WHEN IT WAS NOT THERE.
+`slowdown` withdrew a landmark -- when does the rate fall to three quarters of
+its peak -- because a curve whose rate never falls that far has no landmark,
+and dropping those curves biases the answer towards the clock. The rise has no
+such problem, and for a reason that is structural rather than lucky: the
+landmark here is a fraction of the curve's OWN maximum, and a curve always
+reaches its own maximum. `induction_point` is therefore defined for every
+curve in the archive, and a curve with no induction returns zero rather than
+nothing. Nothing here is censored.
+
+What it costs instead is a WINDOW. The rolling slope is read through a window
+of a tenth of the run (`curve_metrics.LAG_WINDOW`), because a slow curve needs
+a wide window to have a slope at all -- at 15 C the whole run is 0.04 AU -- and
+a fixed window in seconds turns the 15 C curves into noise (a 300 s window puts
+their induction at 529 s against 4289 s, and drags the block's activation
+energy from 86 to 24 kJ/mol). A window that is a fraction of the run is safe
+for comparisons WITHIN a run, where every cuvette shares the schedule, and
+unsafe between runs, where it does not: across the 4OMe archive at 25 C the
+induction time regresses on run length with an exponent of +0.75 +- 0.14 and on
+pH, once run length is in the model, with -0.05 +- 0.09.
+
+    SO: every concentration order here is measured within experiments.
+    Between-run comparisons of `t_ind` are not evidence, and the one
+    between-run quantity that is -- the temperature dependence -- is taken
+    from `arrhenius`'s fitted `inverse_tau`, which is not windowed.
+
+    python data/induction.py
+"""
+import sys
+import os
+from dataclasses import dataclass
+
+import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from curve_metrics import LAG_WINDOW, rolling_slope
+from fit_dataset import source_floor
+import arrhenius
+import scope
+
+
+# The fraction of the rise that marks "the reaction has started". Half, the
+# same level curve_metrics.lag_time uses, so the two are the same landmark and
+# differ only in the gate described below.
+INDUCTION_LEVEL = 0.5
+
+# The log floor for a curve with no induction at all. `t_ind` is a time and a
+# curve that is fastest in its first window returns 0.0 honestly; the
+# regressions take logs, so they need a floor rather than a dropped row --
+# dropping is the censoring this statistic was built to avoid.
+#
+# 60 s is the coarsest sampling interval in the archive (they run 28-60 s), and
+# the rolling slope's window centres are one interval apart, so 60 s is the
+# shortest induction the readings can resolve: the smallest non-zero `t_ind`
+# in the 4OMe archive is 49 s. Putting the floor there is what makes "no
+# induction" and "an induction shorter than one reading" the same number,
+# which is what they are. `report` prints the answer at floors from 1 to 300 s;
+# the coefficient that carries this module's conclusion moves from +0.000 to
+# -0.021 across that range, so nothing here rests on the choice.
+INDUCTION_FLOOR = 60.0
+
+# Below this the "induction" is a fraction of a percent of the peak rate and
+# is not distinguishable from where the first window happened to land. It is a
+# resolution threshold and not a gate: a curve below it gets `t_ind = 0`, which
+# is a measurement, and keeps its row. An exact straight line needs it -- its
+# rolling slopes are equal to within floating-point dust, the largest of them
+# lands wherever the dust does, and without this a noiseless line reports an
+# induction of 3890 s. `curve_metrics.lag_time` handles the same pathology with
+# an acceleration gate, which is the thing this statistic may not have.
+DEPTH_FLOOR = 0.01
+
+# Where the two hypotheses put the slope of log(induction time) on log(rate).
+# A clock fixes the TIME and lets the product land where it may; product
+# control fixes the PRODUCT at which the induction ends, so the time to reach
+# it is inversely proportional to the rate.
+INDUCTION_CLOCK_SLOPE = 0.0
+INDUCTION_PRODUCT_SLOPE = -1.0
+
+# The floors `report` sweeps, to show what the answer owes to INDUCTION_FLOOR.
+FLOOR_SWEEP = (1.0, 30.0, 60.0, 120.0, 300.0)
+
+
+@dataclass(frozen=True)
+class InductionPoint:
+    """
+    Where one curve's rate first reaches half of its own maximum.
+
+    `t_ind` is that time in seconds from the first reading, `made` the
+    absorbance built up by then, `depth` the fraction of the peak rate that is
+    missing at the start, and `t_peak` where the maximum itself is. `depth` is
+    a FRACTION on purpose: a catalyst that starts partly inactive gives the
+    same fraction whatever the run's rate, and a build-up whose level depends
+    on the substrate does not.
+
+    `depth` IS A LOWER BOUND, not the amplitude. The first rolling slope is an
+    average over a tenth of the run, so a curve that truly starts at zero rate
+    reads back at `(tau/w)(1 - e^(-w/tau))` for a window `w`: a relaxation as
+    long as the window reads 0.63 rather than 1.00, and only tau >> w recovers
+    the whole of it. Every depth quoted anywhere is therefore an underestimate.
+    The bias is towards zero for every curve and it is deepest where the
+    induction is fastest, so the depths in this module understate how different
+    the cold runs are from the warm ones, not the reverse.
+    """
+    t_ind: float
+    made: float
+    peak_rate: float
+    start_rate: float
+    depth: float
+    t_peak: float
+    points: int
+
+
+def induction_point(curve, level=INDUCTION_LEVEL, window=LAG_WINDOW):
+    """
+    The landmark, read off the READINGS through `curve_metrics.rolling_slope`.
+
+    No model and no extrapolation, the same discipline `slowdown.sink_fit`
+    uses at the other end of the curve. The floor passed to the rolling slope
+    is the curve's own -- `.rre` readings and `.txt` exports differ by a factor
+    of 1096 and a floor left at the export's suppresses the very structure this
+    is looking for (CLAUDE.md).
+
+    This is `curve_metrics.lag_time` WITHOUT its acceleration gate, and the
+    difference is the point: `lag_time` returns nan for a curve whose rise does
+    not clear 3 sigma, which is the right answer when the question is "how many
+    curves have a lag" and the wrong one when the question is "does the length
+    of the lag track the rate", because the gate is passed more often by fast
+    curves. `test_induction` checks that the two agree wherever both are
+    defined.
+    """
+    times = np.asarray(curve.times, dtype=float)
+    values = np.asarray(curve.absorbance, dtype=float)
+    centres, slopes = rolling_slope(times, values, window,
+                                    source_floor(curve.source))
+    blank = InductionPoint(np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, 0)
+    if len(slopes) < 3:
+        return blank
+    top = int(np.argmax(slopes))
+    peak, start = float(slopes[top]), float(slopes[0])
+    if not peak > 0:
+        return blank
+    if peak <= start:
+        # Fastest in its first window: no induction, and that is a measurement
+        # rather than a failure. Every enzyme-free 4OMe curve lands here.
+        return InductionPoint(0.0, 0.0, peak, start, 0.0, 0.0, len(slopes))
+    if 1.0 - start / peak <= DEPTH_FLOOR:
+        # A rise smaller than the resolution threshold. Same answer as no rise
+        # at all, and for the same reason: nothing here is a measurement.
+        return InductionPoint(0.0, 0.0, peak, start, 0.0, 0.0, len(slopes))
+    threshold = start + level * (peak - start)
+    index = int(np.flatnonzero(slopes >= threshold)[0])
+    return InductionPoint(
+        t_ind=float(centres[index] - centres[0]),
+        made=float(np.interp(centres[index], times, values) - values[0]),
+        peak_rate=peak, start_rate=start,
+        depth=float(1.0 - start / peak),
+        t_peak=float(centres[top] - centres[0]),
+        points=int(len(slopes)))
+
+
+def induction_table(experiments, frame=None):
+    """
+    `scope.frame`'s columns for these experiments, plus the five landmark ones.
+
+    Built by joining onto the frame rather than by recomputing any of it, so
+    every condition, rate and flag here is the same number the rest of the
+    package uses.
+    """
+    import pandas as pd
+    experiments = tuple(experiments)
+    if frame is None:
+        frame = scope.frame(experiments)
+    rows = []
+    for curve in scope.curves(experiments):
+        found = induction_point(curve)
+        rows.append({"experiment": curve.experiment, "sample": curve.sample,
+                     "t_ind": found.t_ind, "made": found.made,
+                     "peak_rate": found.peak_rate,
+                     "start_rate": found.start_rate, "depth": found.depth,
+                     "t_peak": found.t_peak})
+    landmarks = pd.DataFrame(rows)
+    return frame.merge(landmarks, on=["experiment", "sample"], how="inner")
+
+
+def substrate_lever(table):
+    """
+    How far the substrate ladder moves [S] INSIDE a run, and the rate with it.
+
+    The whole of section 3 rests on this lever: a design that changes the rate
+    while the schedule, the peroxide, the catalyst, the buffer, the pH and the
+    temperature stay where they are. Quoted as the median over experiments,
+    because two runs of the archive carry a single cuvette each.
+    """
+    live = table[table.live & (table.s0 > 0)]
+    per_run = live.groupby("experiment").s0.agg(
+        lambda column: float(column.max() / column.min()))
+    laddered = per_run[per_run > 1]
+    return {"experiments": int(len(per_run)),
+            "laddered": int(len(laddered)),
+            "median_lever": float(laddered.median()) if len(laddered) else np.nan,
+            "largest_lever": float(per_run.max()),
+            "curves": int(len(live))}
+
+
+def induction_drivers(table, response="t_ind", rate="peak_rate",
+                      floor=INDUCTION_FLOOR, fixed=True):
+    """
+    Regress how long the induction lasted on how FAST the curve went.
+
+        log(induction time) = b . log(rate) + one offset per experiment
+
+        b = 0    a clock: the induction takes the time it takes
+        b = -1   product control: it ends at a fixed amount of product, so a
+                 curve twice as fast gets there in half the time
+
+    `fixed=True` puts one dummy per experiment, which absorbs temperature, pH,
+    buffer, enzyme, cell, day AND the run length -- and the run length is the
+    one that matters, because the window this landmark is read through is a
+    fraction of it. Inside an experiment every cuvette shares a schedule, so
+    the coefficient is carried only by the substrate ladder, which is what the
+    ladder is for. Set `fixed=False` only to see how much worse the pooled
+    answer is.
+
+    The rate regressor is the landmark's own peak, not `vmax`, so the two sides
+    of the regression come from the same windows; `report` prints the same fit
+    against `vmax` and `v_peak` as a check that the answer is not an artefact
+    of that choice.
+
+    BEWARE THE DIRECTION OF THE BIAS THIS CANNOT REMOVE. Response and
+    regressor are both measured off the same curve, so noise in the rate is
+    errors-in-variables and attenuates `b` TOWARDS ZERO -- towards the clock,
+    which is the answer this returns. A slope of zero here is therefore not by
+    itself evidence. `order_ratio` is the route that does not have the problem:
+    it replaces the measured rate with the composition the operator set, and
+    it has to agree.
+    """
+    live = table[table.live & np.isfinite(table[response])
+                 & (table[rate] > 0)].copy()
+    if len(live) < 8:
+        return {"points": int(len(live))}
+    response_values = np.log(np.maximum(live[response].to_numpy(dtype=float),
+                                        floor))
+    columns = [np.log(live[rate].to_numpy(dtype=float))]
+    if fixed:
+        for experiment in sorted(live.experiment.unique()):
+            columns.append((live.experiment == experiment).to_numpy(float))
+    else:
+        columns.append(np.ones(len(live)))
+    design = np.column_stack(columns)
+    beta, *_ = np.linalg.lstsq(design, response_values, rcond=None)
+    resid = response_values - design @ beta
+    rank = int(np.linalg.matrix_rank(design))
+    variance = float(resid @ resid) / max(1, len(live) - rank)
+    covariance = variance * np.linalg.pinv(design.T @ design)
+    spread = float(((response_values - response_values.mean()) ** 2).sum())
+    return {"points": int(len(live)),
+            "slope": float(beta[0]),
+            "stderr": float(np.sqrt(max(covariance[0, 0], 0.0))),
+            "r2": float(1 - float(resid @ resid) / spread) if spread else np.nan,
+            "floored": int((live[response].to_numpy(dtype=float) < floor).sum()),
+            "experiments": int(live.experiment.nunique())}
+
+
+def order_ratio(table, response="t_ind", axis="s0", floor=INDUCTION_FLOOR,
+                rate="v_peak"):
+    """
+    The same discrimination, done through the two substrate orders separately.
+
+    `induction_drivers` regresses the induction time on the rate directly,
+    which puts a quantity measured off the same windows on both sides.
+    This route instead measures the order of the induction time in [S] and the
+    order of the RATE in [S] -- two independent regressions against a
+    composition the operator set -- and divides:
+
+        d log(t_ind) / d log(rate) = order(t_ind) / order(rate)
+
+    Product control predicts -1 and a clock predicts 0, exactly as above, and
+    the answer must not depend on which route is taken. The error is the delta
+    method on the ratio, with the two orders treated as independent: they are
+    fitted to different responses on the same design, so their errors are
+    correlated, and ignoring that makes this interval slightly too wide.
+
+    Both orders come from `scope.orders`, which is the package's own
+    within-experiment log-log fit; nothing about the design is re-derived here.
+    """
+    numerator = scope.orders(response, frame=table, floor=floor)
+    denominator = scope.orders(rate, frame=table)
+    top = numerator[f"order_{axis}"]
+    bottom = denominator[f"order_{axis}"]
+    ratio = top / bottom if bottom else np.nan
+    error = (abs(ratio) * np.sqrt((numerator[f"stderr_{axis}"] / top) ** 2
+                                  + (denominator[f"stderr_{axis}"] / bottom) ** 2)
+             if top and bottom else np.nan)
+    return {"axis": axis,
+            "induction_order": top,
+            "induction_stderr": numerator[f"stderr_{axis}"],
+            "rate_order": bottom, "rate_stderr": denominator[f"stderr_{axis}"],
+            "ratio": float(ratio), "ratio_stderr": float(error),
+            "points": numerator["n"], "rate_points": denominator["n"]}
+
+
+# How near a matched cell has to be in pH before two blocks may be compared.
+# The 4OMe archive's nominal pH values are quoted to two decimals; 0.3 spans
+# the 6.97/7.00 pair and the 7.50/7.53 pair and admits nothing else. Buffer
+# identity and [H2O2] have to match exactly, not nearly: the buffer is a
+# catalyst in this chemistry (temperature_series/ANALYSIS.md 3) and [H2O2] is
+# the largest single lever on the rate there is.
+MATCH_PH = 0.3
+MATCH_TEMPERATURES = (25.0, 40.0)
+
+
+def channel_contrast(frame, temperatures=MATCH_TEMPERATURES, tolerance=MATCH_PH):
+    """
+    The induction with the catalyst and without it, at matched composition.
+
+    `differential` is the structural classification and not the filename: a
+    run whose reference channel omits the ENZYME is a catalytic increment, one
+    whose reference omits the H2O2 is the raw background (see `scope.frame`).
+    Two of the three candidates -- a product-seeded loop and a scavenger in the
+    reagents -- run in the cuvette with no catalyst in it, so a contrast at
+    matched substrate, peroxide, buffer, pH and temperature is the whole test.
+
+    The cell is centred on the ENZYME-FREE block, which is the scarce one: it
+    exists at two temperatures and one buffer, and centring on the catalysed
+    median instead lands at pH 8.5 where there is nothing to compare with.
+
+    Returns one row per (temperature, channel) cell with the induction depth,
+    the acceleration count and the longest run in it. The last column is there
+    because the obvious objection to a null in the enzyme-free channel is that
+    those runs were too short to show anything.
+    """
+    import pandas as pd
+    four = frame[frame.substrate == "4OMe-BnOH"]
+    rows = []
+    for temperature in temperatures:
+        cell = four[four.temperature == temperature]
+        free = cell[~cell.differential]
+        if not len(free):
+            continue
+        centre = float(free.pH.median())
+        cell = cell[((cell.pH - centre).abs() <= tolerance)
+                    & cell.buffer.isin(free.buffer.unique())
+                    & cell.h2o2.isin(free.h2o2.unique())]
+        for differential, block in cell.groupby("differential"):
+            rows.append({
+                "temperature": temperature,
+                "channel": "catalysed" if differential else "enzyme-free",
+                "curves": int(len(block)),
+                "experiments": tuple(sorted(int(e) for e
+                                            in block.experiment.unique())),
+                "depth": float(block.depth.median()),
+                "deep": int((block.depth > 0.25).sum()),
+                "accelerates": int(block.accelerates.sum()),
+                "longest_s": float(block.duration_s.max()),
+                "pH": f"{block.pH.min():.2f}-{block.pH.max():.2f}",
+            })
+    return pd.DataFrame(rows)
+
+
+def channel_summary(frame):
+    """The same contrast over the whole 4OMe archive, matched on nothing."""
+    four = frame[frame.substrate == "4OMe-BnOH"]
+    out = {}
+    for differential, block in four.groupby("differential"):
+        name = "catalysed" if differential else "enzyme_free"
+        out[name] = {
+            "curves": int(len(block)),
+            "median_depth": float(block.depth.median()),
+            "deep": int((block.depth > 0.25).sum()),
+            "accelerates": int(block.accelerates.sum()),
+            "max_accel_z": float(block.accel_z.max()),
+            "longest_s": float(block.duration_s.max()),
+        }
+    return out
+
+
+# The one pair of runs in the block that holds the SCHEDULE fixed while the
+# temperature moves: exps 19 and 14 were both recorded for 17934 s.
+SCHEDULE_PAIR = (19, 14)
+
+
+def schedule_control(frame, pair=SCHEDULE_PAIR):
+    """
+    Two runs of identical length whose induction times differ sevenfold.
+
+    The induction's temperature dependence is the one between-run comparison
+    this module makes, and the objection to it is that the operator gave the
+    cold runs longer. These two did not differ: the same 17934 s at 15 C and at
+    25 C. Whatever the run length does to `tau`, it does equally to both.
+    """
+    rows = frame[frame.experiment.isin(pair) & frame.tau_resolved]
+    out = {}
+    for experiment, block in rows.groupby("experiment"):
+        out[int(experiment)] = {
+            "temperature": float(block.temperature.iloc[0]),
+            "duration_s": float(block.duration_s.iloc[0]),
+            "curves": int(len(block)),
+            "tau": float(block.tau.median()),
+            "t_ind": float(block.t_ind.median()),
+        }
+    spans = {v["duration_s"] for v in out.values()}
+    taus = [out[e]["tau"] for e in pair if e in out]
+    out["same_span"] = len(spans) == 1
+    out["tau_ratio"] = float(taus[0] / taus[1]) if len(taus) == 2 else np.nan
+    return out
+
+
+def activation_contrast():
+    """
+    The induction's activation parameters against the turnover's.
+
+    Both come from `arrhenius.activation_parameters` and neither is refitted
+    here. `inverse_tau` is the only parameter in that table whose Eyring
+    entropy rests on no assumption about the rate law -- it is already a
+    first-order relaxation rate in s^-1, so it needs neither an extinction
+    coefficient nor an enzyme concentration -- which is what makes the entropy
+    comparison below worth making at all.
+
+    The gap that matters is not the enthalpy, which the two do not resolve
+    apart, but the ENTROPY: a step that has to bring two solutes together in
+    water pays 40-80 J/mol/K for it, and the induction pays nothing.
+    """
+    induction = arrhenius.activation_parameters("inverse_tau")
+    turnover = arrhenius.activation_parameters("v_peak")
+    entropy_gap = induction["entropy_J"] - turnover["entropy_J"]
+    entropy_error = float(np.hypot(induction["entropy_stderr"],
+                                   turnover["entropy_stderr"]))
+    gibbs_gap = induction["gibbs_kJ"] - turnover["gibbs_kJ"]
+    gibbs_error = float(np.hypot(induction["gibbs_stderr"],
+                                 turnover["gibbs_stderr"]))
+    return {
+        "induction": induction, "turnover": turnover,
+        "entropy_gap_J": float(entropy_gap),
+        "entropy_gap_stderr": entropy_error,
+        "gibbs_gap_kJ": float(gibbs_gap),
+        "gibbs_gap_stderr": gibbs_error,
+        # exp(-dG/RT): how many times faster the induction step is as a rate
+        # constant at 298 K. A ratio of free energies, so the two prefactors
+        # cancel and nothing about the rate law enters.
+        "rate_ratio": float(np.exp(-gibbs_gap * 1000.0
+                                   / (arrhenius.GAS_CONSTANT
+                                      * arrhenius.REFERENCE_KELVIN))),
+        "enthalpy_gap_kJ": float(induction["enthalpy_kJ"]
+                                 - turnover["enthalpy_kJ"]),
+        "enthalpy_gap_stderr": float(np.hypot(induction["enthalpy_stderr"],
+                                              turnover["enthalpy_stderr"])),
+    }
+
+
+# The windows `landmark_window` compares, as a fraction of the run and in
+# seconds. `curve_metrics.LAG_WINDOW` is the one everything else here uses.
+WINDOW_SWEEP = (LAG_WINDOW, 0.05, 0.20)
+ABSOLUTE_WINDOWS = (300.0, 900.0)
+# The block whose schedule dependence is quoted: one temperature, so that the
+# run length is the operator's choice and not the chemistry's.
+SCHEDULE_TEMPERATURE = 25.0
+
+
+def schedule_dependence(table, temperature=SCHEDULE_TEMPERATURE,
+                        floor=INDUCTION_FLOOR):
+    """
+    How much of the induction time BETWEEN runs is the operator's schedule.
+
+    The landmark's window is a tenth of the run, so a longer run reads its
+    slope through a wider window and cannot resolve a short induction. This is
+    the size of that problem, and it is why nothing in this module compares
+    induction times across experiments.
+
+    Fitted at one temperature, on the catalysed 4OMe runs, with pH beside run
+    length because pH is the axis a between-run comparison would most want:
+    it moves the rate by an order of magnitude across this block, and it is
+    confounded with run length because the operator stopped the fast runs
+    sooner.
+    """
+    block = table[(table.substrate == "4OMe-BnOH") & table.differential
+                  & table.live & (table.temperature == temperature)
+                  & np.isfinite(table.t_ind)]
+    if len(block) < 8:
+        return {"points": int(len(block))}
+    response = np.log(np.maximum(block.t_ind.to_numpy(dtype=float), floor))
+    design = np.column_stack([np.log(block.duration_s.to_numpy(dtype=float)),
+                              block.pH.to_numpy(dtype=float),
+                              np.ones(len(block))])
+    beta, *_ = np.linalg.lstsq(design, response, rcond=None)
+    resid = response - design @ beta
+    variance = float(resid @ resid) / max(1, len(block) - design.shape[1])
+    covariance = variance * np.linalg.pinv(design.T @ design)
+    spread = float(((response - response.mean()) ** 2).sum())
+    return {"points": int(len(block)),
+            "span": float(beta[0]),
+            "span_stderr": float(np.sqrt(covariance[0, 0])),
+            "pH": float(beta[1]),
+            "pH_stderr": float(np.sqrt(covariance[1, 1])),
+            "r2": float(1 - float(resid @ resid) / spread) if spread else np.nan,
+            "experiments": int(block.experiment.nunique())}
+
+
+def landmark_window(experiments=scope.TEMPERATURE_SERIES,
+                    windows=WINDOW_SWEEP, absolute=ABSOLUTE_WINDOWS):
+    """
+    What the landmark and its activation energy do as the window changes.
+
+    A window in SECONDS is the obvious way to make the statistic comparable
+    between runs, and it does not survive contact with the cold end of this
+    block: a 15 C run is 0.04 AU over five hours, so a 300 s window is reading
+    a slope through noise, its maximum lands on an early excursion and the
+    induction collapses. The activation energy goes with it. This is the
+    measurement that decided `curve_metrics.LAG_WINDOW` -- a fraction of the
+    run -- and with it the limitation stated at the top of this module.
+
+    Returns one row per window: the geometric mean induction time at the
+    coldest temperature, at the warmest, and the pooled activation energy of
+    `1/t_ind` over all six temperatures with one offset per rung.
+    """
+    import pandas as pd
+    frame = scope.frame(tuple(experiments))
+    curves = list(scope.curves(tuple(experiments)))
+    rows = []
+    settings = ([(f"{w:.2f} of the run", w, None) for w in windows]
+                + [(f"{a:.0f} s", None, a) for a in absolute])
+    for label, fraction, seconds in settings:
+        found = []
+        for curve in curves:
+            span = float(curve.times[-1] - curve.times[0])
+            width = fraction if fraction is not None else min(seconds / span, 0.5)
+            found.append({"experiment": curve.experiment,
+                          "sample": curve.sample,
+                          "t_ind": induction_point(curve, window=width).t_ind})
+        table = frame.merge(pd.DataFrame(found), on=["experiment", "sample"])
+        table = table[table.t_ind > 0].copy()
+        table["rate_ind"] = 1.0 / table.t_ind
+        fitted = arrhenius.pooled_arrhenius("rate_ind", frame=table,
+                                            per_enzyme=False)
+        cold = table[table.temperature == table.temperature.min()].t_ind
+        warm = table[table.temperature == table.temperature.max()].t_ind
+        rows.append({"window": label,
+                     "curves": int(len(table)),
+                     "cold_s": float(np.exp(np.log(cold).mean())),
+                     "warm_s": float(np.exp(np.log(warm).mean())),
+                     "activation_kJ": fitted["activation_kJ"],
+                     "stderr_kJ": fitted["stderr_kJ"]})
+    return pd.DataFrame(rows)
+
+
+# The only cuvettes in the 4OMe archive that hold everything fixed and move
+# the PEROXIDE: exps 127-131, 3.879 against 195.882 mM at five pH values, two
+# cuvettes per level, 25 C, pyrophosphate, [S] fixed at 9.47 mM. Fifty-fold,
+# and that is the whole lever this substrate has -- every other 4OMe run in the
+# archive sits at 82.5 mM.
+PEROXIDE_LEVER = (127, 128, 129, 130, 131)
+
+
+def peroxide_lever(table, experiments=PEROXIDE_LEVER):
+    """
+    Does more peroxide shorten the induction, as forming an adduct with it must?
+
+    `K + H2O2 <=> KP` relaxes at `1/tau = k_f[H2O2] + k_r`, so if what the
+    induction times is the catalyst binding the oxidant, the induction time
+    has an order in [H2O2] between 0 and -1 and can have no other sign. Any
+    positive order falsifies that reading whatever else it means.
+
+    The block is small and its cuvettes are not all live, so the answer comes
+    with the signal-to-noise control beside it: the landmark is read off a
+    rolling slope, a curve with no signal has a noisy one, and [H2O2] sets the
+    signal. `signal_control` is the same test for the block this module's
+    conclusion actually rests on.
+    """
+    block = table[table.experiment.isin(experiments)]
+    induction_order = scope.orders("t_ind", frame=block, floor=INDUCTION_FLOOR)
+    rate_order = scope.orders("v_peak", frame=block)
+    return {"curves": int(len(block)),
+            "live": int(block.live.sum()),
+            "levels": sorted(float(v) for v in block.h2o2.unique()),
+            "induction_order": induction_order["order_h2o2"],
+            "induction_stderr": induction_order["stderr_h2o2"],
+            "rate_order": rate_order["order_h2o2"],
+            "rate_stderr": rate_order["stderr_h2o2"],
+            "points": induction_order["n"],
+            **signal_control(block)}
+
+
+def signal_control(table, floor=INDUCTION_FLOOR):
+    """
+    Regress the induction time on the curve's signal-to-noise, same design.
+
+    The one artefact that could manufacture every result in this module: the
+    landmark is the first crossing of half the LARGEST rolling slope, and on a
+    curve with no signal the largest rolling slope is a noise excursion that
+    can land anywhere, usually early. If `t_ind` tracked signal-to-noise the
+    orders would be measuring the spectrophotometer.
+
+    Signal-to-noise is `net/noise`, both of them `scope`'s own columns.
+    """
+    live = table[table.live & np.isfinite(table.t_ind)
+                 & (table.net > 0) & (table.noise > 0)]
+    if len(live) < 8:
+        return {"signal_slope": np.nan, "signal_stderr": np.nan,
+                "signal_points": int(len(live))}
+    response = np.log(np.maximum(live.t_ind.to_numpy(dtype=float), floor))
+    columns = [np.log((live.net / live.noise).to_numpy(dtype=float))]
+    for experiment in sorted(live.experiment.unique()):
+        columns.append((live.experiment == experiment).to_numpy(float))
+    design = np.column_stack(columns)
+    beta, *_ = np.linalg.lstsq(design, response, rcond=None)
+    resid = response - design @ beta
+    rank = int(np.linalg.matrix_rank(design))
+    variance = float(resid @ resid) / max(1, len(live) - rank)
+    covariance = variance * np.linalg.pinv(design.T @ design)
+    return {"signal_slope": float(beta[0]),
+            "signal_stderr": float(np.sqrt(max(covariance[0, 0], 0.0))),
+            "signal_points": int(len(live))}
+
+
+# The cuts this question needs, by the frame's own columns. `slowdown` has the
+# same idea for the fall and a different set of blocks: this one separates the
+# 4OMe archive by CHANNEL, because the catalyst is the variable under test, and
+# keeps the BnOH scope whole, because there the question is whether the early
+# curve is the same object at all.
+def induction_blocks(frame):
+    """The named cuts, from the frame's own columns."""
+    four = frame.substrate == "4OMe-BnOH"
+    return {
+        "4OMe catalysed": frame[four & frame.differential],
+        "4OMe catalysed, 25 C": frame[four & frame.differential
+                                      & (frame.temperature == 25.0)],
+        "4OMe enzyme-free": frame[four & ~frame.differential],
+        "temperature series":
+            frame[frame.experiment.isin(scope.TEMPERATURE_SERIES)],
+        "BnOH in scope (135-151)":
+            frame[frame.experiment.isin(scope.PRIMARY_SCOPE)],
+    }
+
+
+WHOLE_ARCHIVE = tuple(range(1, 152))
+
+
+def report(table=None):
+    """Print the whole argument, in the order it has to be made."""
+    if table is None:
+        table = induction_table(WHOLE_ARCHIVE)
+    named = induction_blocks(table)
+
+    print("\n1. DOES THE INDUCTION NEED THE CATALYST")
+    summary = channel_summary(table)
+    for name in ("catalysed", "enzyme_free"):
+        row = summary[name]
+        print(f"   4OMe {name:11s} {row['curves']:3d} curves   "
+              f"median depth {row['median_depth']:.3f}   "
+              f"deep {row['deep']:3d}   accelerating {row['accelerates']:3d}   "
+              f"max z {row['max_accel_z']:.2f}   "
+              f"longest {row['longest_s']:.0f} s")
+    print()
+    print(channel_contrast(table).to_string(index=False))
+
+    print("\n2. IS IT THE SCHEDULE")
+    control = schedule_control(table)
+    for experiment in SCHEDULE_PAIR:
+        row = control[experiment]
+        print(f"   exp {experiment}  {row['temperature']:.0f} C   "
+              f"{row['duration_s']:.0f} s   tau {row['tau']:.0f} s   "
+              f"t_ind {row['t_ind']:.0f} s")
+    print(f"   same span: {control['same_span']}   "
+          f"tau ratio {control['tau_ratio']:.1f}x")
+
+    print("\n2a. WHAT THE STATISTIC OWES TO ITS WINDOW AND TO THE SCHEDULE")
+    print(landmark_window().to_string(index=False))
+    drift = schedule_dependence(table)
+    print(f"   between runs at {SCHEDULE_TEMPERATURE:.0f} C, "
+          f"{drift['points']} curves in {drift['experiments']} experiments:")
+    print(f"   t_ind on run length {drift['span']:+.3f} +- "
+          f"{drift['span_stderr']:.3f}   on pH {drift['pH']:+.3f} +- "
+          f"{drift['pH_stderr']:.3f}")
+
+    print("\n3. A CLOCK OR A PRODUCT THRESHOLD")
+    lever = substrate_lever(named["4OMe catalysed"])
+    print(f"   the lever: [S] moves {lever['median_lever']:.1f}x inside the "
+          f"median run, on {lever['laddered']} of {lever['experiments']} "
+          f"experiments")
+    print("   log(induction time) on log(rate), one offset per experiment.")
+    print(f"   clock predicts {INDUCTION_CLOCK_SLOPE:+.1f}, "
+          f"product control {INDUCTION_PRODUCT_SLOPE:+.1f}")
+    for name in ("4OMe catalysed", "temperature series",
+                 "BnOH in scope (135-151)"):
+        block = named[name]
+        for rate in ("peak_rate", "v_peak", "vmax"):
+            fit = induction_drivers(block, rate=rate)
+            if "slope" not in fit:
+                continue
+            print(f"   {name:26s} vs {rate:10s} "
+                  f"{fit['slope']:+.3f} +- {fit['stderr']:.3f}   "
+                  f"n={fit['points']:3d}  floored {fit['floored']:2d}")
+    print("   and the same fit at other floors, to show it is not the floor:")
+    for floor in FLOOR_SWEEP:
+        fit = induction_drivers(named["4OMe catalysed"], floor=floor)
+        print(f"   4OMe catalysed, floor {floor:5.0f} s        "
+              f"{fit['slope']:+.3f} +- {fit['stderr']:.3f}")
+
+    print("\n4. THE SAME QUESTION THROUGH THE SUBSTRATE ORDERS")
+    print("   the route with no errors-in-variables: the regressor is the")
+    print("   composition, not a rate measured off the same curve.")
+    for name in ("4OMe catalysed", "temperature series"):
+        ratio = order_ratio(named[name])
+        print(f"   {name:22s} order(t_ind) "
+              f"{ratio['induction_order']:+.3f} +- {ratio['induction_stderr']:.3f}"
+              f"   order(v_peak) {ratio['rate_order']:+.3f} +- "
+              f"{ratio['rate_stderr']:.3f}"
+              f"   ratio {ratio['ratio']:+.2f} +- {ratio['ratio_stderr']:.2f}")
+    print("   and the amplitude, which a product build-up would make "
+          "composition dependent:")
+    for name in ("4OMe catalysed", "temperature series"):
+        depth = scope.orders("depth", frame=named[name], floor=DEPTH_FLOOR)
+        print(f"   {name:22s} order(depth) in [S] "
+              f"{depth['order_s0']:+.3f} +- {depth['stderr_s0']:.3f}  "
+              f"n={depth['n']}")
+
+    print("\n4a. THE ONE PEROXIDE LEVER THIS SUBSTRATE HAS")
+    lever = peroxide_lever(table)
+    print(f"   exps {PEROXIDE_LEVER} -- {lever['levels']} mM, "
+          f"{lever['curves']} curves, {lever['live']} live")
+    print(f"   order of t_ind in [H2O2]  "
+          f"{lever['induction_order']:+.3f} +- {lever['induction_stderr']:.3f}"
+          f"   (an adduct with H2O2 requires 0 to -1)")
+    print(f"   order of v_peak in [H2O2] "
+          f"{lever['rate_order']:+.3f} +- {lever['rate_stderr']:.3f}")
+    print(f"   t_ind on signal-to-noise  "
+          f"{lever['signal_slope']:+.3f} +- {lever['signal_stderr']:.3f}"
+          f"   n={lever['signal_points']}")
+    print("   the same control on the block the conclusion rests on:")
+    for name in ("4OMe catalysed", "BnOH in scope (135-151)"):
+        got = signal_control(named[name])
+        print(f"   {name:26s} {got['signal_slope']:+.3f} "
+              f"+- {got['signal_stderr']:.3f}   n={got['signal_points']}")
+
+    print("\n5. THE ACTIVATION PARAMETERS")
+    gap = activation_contrast()
+    for key in ("induction", "turnover"):
+        row = gap[key]
+        print(f"   {row['label'][:34]:34s} Ea {row['activation_kJ']:6.2f} "
+              f"+- {row['activation_stderr']:5.2f}   "
+              f"dH {row['enthalpy_kJ']:6.2f}   "
+              f"dS {row['entropy_J']:+7.2f} +- {row['entropy_stderr']:5.2f}   "
+              f"dG {row['gibbs_kJ']:6.2f}")
+    print(f"   entropy gap {gap['entropy_gap_J']:+.1f} "
+          f"+- {gap['entropy_gap_stderr']:.1f} J/mol/K")
+    print(f"   enthalpy gap {gap['enthalpy_gap_kJ']:+.1f} "
+          f"+- {gap['enthalpy_gap_stderr']:.1f} kJ/mol")
+    print(f"   free energy gap {gap['gibbs_gap_kJ']:+.2f} "
+          f"+- {gap['gibbs_gap_stderr']:.2f} kJ/mol "
+          f"-> {gap['rate_ratio']:.0f}x faster at 298 K")
+
+    print("\n6. THE OTHER SUBSTRATE")
+    print("   exps 135-151 vary [H2O2] 30-fold inside every run, which the")
+    print("   4OMe archive does not; the temperature series holds it at 82.5")
+    print("   mM on all 24 curves and can carry no peroxide order at all.")
+    scoped = named["BnOH in scope (135-151)"]
+    for parameter, floor in (("t_ind", INDUCTION_FLOOR),
+                             ("depth", DEPTH_FLOOR), ("vmax", None)):
+        got = scope.orders(parameter, frame=scoped, floor=floor)
+        print(f"   order of {parameter:6s} in [S] {got['order_s0']:+.3f} "
+              f"+- {got['stderr_s0']:.3f}   in [H2O2] "
+              f"{got['order_h2o2']:+.3f} +- {got['stderr_h2o2']:.3f}   "
+              f"n={got['n']}")
+    return table
+
+
+def main():
+    report()
+
+
+if __name__ == "__main__":
+    main()

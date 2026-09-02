@@ -65,6 +65,14 @@ autocatalytic kinetics):
    the aldehyde. Hypothesized as the slow, non-autocatalytic "seed" step that
    produces the first trace of A needed to start the autocatalytic loop, before
    enough product has accumulated for steps 1–2 to run.
+
+   *2026-09-02.* The induction period of the catalysed 4OMe curves is **not**
+   this step running to its threshold: it ends on a clock rather than at a
+   product level, it has no substrate order, and it is absent from every
+   enzyme-free curve in the archive. Whatever v5 does, something slower and
+   unimolecular has to happen to the catalyst first. Step 4's own status is
+   affected too and in the opposite direction to the obvious one — see
+   `COMPUTATIONAL.md` C8 and `induction/ANALYSIS.md` §4a.
 6. `PBA + K → KD + BA` — the ketone catalyst reacts with the perbenzoic acid
    produced in step 2 (not with H2O2/Oxone directly), forming a Criegee-type
    adduct that collapses by expelling benzoic acid as the leaving group and
@@ -376,6 +384,27 @@ Reading these:
   rho = +0.19 (p = 0.018, wrong sign), but pH (rho = -0.43, p = 5e-9) and T
   (rho = -0.31, p = 5e-5) also vary between experiments, so that number is pure
   confounding and should not be used.
+
+**2026-09-02 — the sign survives and the magnitude does not.** `induction/`
+re-ran this question with an induction statistic that is defined for every curve
+rather than only where a landmark exists, and with the two channels separated.
+The `[S]` correlation is still weakly negative — the induction time's substrate
+order is **−0.121 ± 0.148** over the 147 live catalysed 4OMe curves — but that is
+the wrong *size* for the seed step. If the induction ended when v5 had made
+enough A, the induction time would carry the whole of the rate's substrate
+order with the sign reversed, and that order is measured on the same curves at
+**+0.471 ± 0.084**. Regressing the induction time directly on each curve's own
+rate gives **−0.025 ± 0.109** where a product threshold requires −1.
+
+So this row should no longer be read as support for the seed step. Two further
+results decide it. **The induction does not exist without the catalyst at all**
+— 0 of 49 enzyme-free 4OMe curves have one, at matched substrate, buffer,
+peroxide, pH and temperature, including a 17934 s run — which is fatal to any
+account in which the induction is the catalyst-free loop of steps 1–3 waiting
+for its first aldehyde. And **its barrier, 95 ± 16 kJ/mol, is a covalent one**,
+four times too large for anything physical. What the induction times is a
+unimolecular change on the catalyst, before turnover begins. See
+`induction/ANALYSIS.md` §3 and `COMPUTATIONAL.md` C7.
 
 ## Step-by-step reasoning and literature support
 

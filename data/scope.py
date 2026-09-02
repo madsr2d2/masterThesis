@@ -607,12 +607,19 @@ def strong_runs(scope=PRIMARY_SCOPE, floor=AGREEMENT_FLOOR):
                         table.index[table.agreement >= floor]))
 
 
-def orders(parameter="v0", scope=PRIMARY_SCOPE, within=True, live_only=True):
+def orders(parameter="v0", scope=PRIMARY_SCOPE, within=True, live_only=True,
+           frame=None, floor=None):
     """
     Apparent reaction orders in [S] and [H2O2], from a log-log regression.
 
     Fits log(parameter) = intercept + a*log[S] + b*log[H2O2], with a free
     offset per experiment when `within` is True.
+
+    `frame` lets a caller measure the orders of a column this module does not
+    build -- `induction` passes its own table in, the way `arrhenius` accepts
+    one -- and then `scope` is ignored. `floor` is the response's log floor:
+    the default None drops non-positive rows, which is right for a rate and
+    wrong for a quantity whose zero is a measurement rather than a failure.
 
     THE OFFSETS ARE THE POINT. A run holds pH, [HOO-], enzyme batch, cell and
     day constant across its own cuvettes, so a per-experiment offset absorbs
@@ -625,17 +632,28 @@ def orders(parameter="v0", scope=PRIMARY_SCOPE, within=True, live_only=True):
 
     Returns a dict: order_s0, stderr_s0, order_h2o2, stderr_h2o2, n, r2.
     """
-    data = frame(scope)
+    data = globals()["frame"](scope) if frame is None else frame
     if live_only:
         data = data[data.live]
-    data = data[(data[parameter] > 0) & np.isfinite(data[parameter])]
+    data = data[np.isfinite(data[parameter])]
+    data = data[data[parameter] > 0] if floor is None else data[
+        data[parameter] >= 0]
     if len(data) < 4:
         return {"order_s0": np.nan, "stderr_s0": np.nan, "order_h2o2": np.nan,
                 "stderr_h2o2": np.nan, "n": len(data), "r2": np.nan}
 
-    y = np.log(data[parameter].to_numpy(dtype=float))
+    y = data[parameter].to_numpy(dtype=float)
+    y = np.log(y if floor is None else np.maximum(y, floor))
     columns = [np.log(data.s0.to_numpy(dtype=float)),
                np.log(data.h2o2.to_numpy(dtype=float))]
+    # An axis the block does not move is not identified, and saying so is not
+    # optional: with `within=True` a constant axis is collinear with the
+    # experiment indicators, `lstsq` splits the coefficient between them
+    # through the pseudo-inverse, and the number that comes back looks like a
+    # measurement. Exps 127-131 hold [S] at 9.47 mM on every cuvette and
+    # returned an order of +2.14 +- 0.18 in it before this guard existed.
+    identified = [float(np.ptp(column)) > 0 for column in columns]
+    columns = [column for column, keep in zip(columns, identified) if keep]
     if within:
         # One indicator per experiment, and no separate intercept -- the
         # indicators already span it. Adding both would make X rank-deficient.
@@ -646,20 +664,28 @@ def orders(parameter="v0", scope=PRIMARY_SCOPE, within=True, live_only=True):
         columns.append(np.ones(len(data)))
     design_matrix = np.column_stack(columns)
 
+    if not columns:
+        return {"order_s0": np.nan, "stderr_s0": np.nan, "order_h2o2": np.nan,
+                "stderr_h2o2": np.nan, "n": len(data), "r2": np.nan}
     coefficients, *_ = np.linalg.lstsq(design_matrix, y, rcond=None)
     residual = y - design_matrix @ coefficients
     degrees = max(1, len(y) - np.linalg.matrix_rank(design_matrix))
     variance = float(residual @ residual) / degrees
     covariance = variance * np.linalg.pinv(design_matrix.T @ design_matrix)
     total = float(((y - y.mean()) ** 2).sum())
-    return {
-        "order_s0": float(coefficients[0]),
-        "stderr_s0": float(np.sqrt(covariance[0, 0])),
-        "order_h2o2": float(coefficients[1]),
-        "stderr_h2o2": float(np.sqrt(covariance[1, 1])),
-        "n": int(len(y)),
-        "r2": float(1 - (residual @ residual) / total) if total > 0 else np.nan,
-    }
+    out = {"order_s0": np.nan, "stderr_s0": np.nan,
+           "order_h2o2": np.nan, "stderr_h2o2": np.nan,
+           "n": int(len(y)),
+           "r2": float(1 - (residual @ residual) / total) if total > 0
+           else np.nan}
+    position = 0
+    for name, keep in zip(("s0", "h2o2"), identified):
+        if not keep:
+            continue
+        out[f"order_{name}"] = float(coefficients[position])
+        out[f"stderr_{name}"] = float(np.sqrt(covariance[position, position]))
+        position += 1
+    return out
 
 
 def order_table(scope=PRIMARY_SCOPE, parameters=ORDER_PARAMETERS):
