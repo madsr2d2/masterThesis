@@ -550,6 +550,19 @@ def main():
           f"ends at **{worst.late_over_early:.0%} of its early rate** at "
           f"{worst.conversion * 100:.2f}% conversion")
 
+    print("\nwhat product_fate narrowed the open question to")
+    import slowdown
+    whole_frame = scope.frame(tuple(range(1, 152)))
+    free4 = slowdown.substrate_blocks(whole_frame)["4OMe enzyme-free"]
+    row = slowdown.deceleration_drivers(free4)
+    claim("the clock loads on run length",
+          f"{row['span']:+.3f} +/- {row['span_stderr']:.3f} on run length")
+    claim("and not on product",
+          f"{row['product']:+.3f} +/- {row['product_stderr']:.3f} on\nproduct")
+    live4 = free4[free4.live]
+    claim("over what absorbances",
+          f"over {live4.net.min():.3f}-{live4.net.max():.3f} AU")
+
     print("\nthe pyrophosphate cell the amplitude is missing from")
     whole = scope.frame(tuple(range(1, 152)))
     cell = whole[(whole.buffer == "Pyrophosphate") & (whole.substrate == "BnOH")]

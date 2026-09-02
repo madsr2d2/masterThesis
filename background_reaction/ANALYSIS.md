@@ -598,6 +598,13 @@ background.**
 its early rate** at 4.02% conversion. Something else decays during these runs —
 peroxide, or the cell. This is an open question, not a settled finding.
 
+[`product_fate/`](../product_fate/ANALYSIS.md) narrows it without closing it, on
+the 4OMe side of the archive where the same decay is much larger: whatever it is
+depends on **elapsed time and not on how much product has been made** — the
+enzyme-free 4OMe curves load −0.361 ± 0.047 on run length and +0.025 ± 0.048 on
+product, over 0.012–0.581 AU. So it is not a product effect, and it is not the
+photometer. That rules two things out of a list that is otherwise unchanged.
+
 *(Those three figures read 0.04–7.9%, "roughly halves", and 3.9% until
 2026-09-02, when they were checked against the code for the first time. The
 range and the conversion were stale; "roughly halves" understated a curve that

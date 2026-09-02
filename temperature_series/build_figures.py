@@ -866,8 +866,13 @@ for this document, which is none that these six temperatures can resolve.</p>
 <p><code>python data/verify_enzyme_stock.py --sequence</code> ·
 <code>python temperature_series/build_figures.py</code> ·
 <code>python temperature_series/check_numbers.py</code> — which re-derives every
-number quoted in <code>ANALYSIS.md</code> from the modules and fails if the prose
-and the code disagree. Fits: <code>data/arrhenius.py</code>. Curves:
+number quoted in <code>ANALYSIS.md</code> from the modules, checks that this
+page's figures are lettered once each, and fails if any of it disagrees with the
+code. Nothing numeric on this page is typed: it is all f-strings over the same
+calls those checks use.</p>
+<p>Fits: <code>data/arrhenius.py</code>. The sink correction of section 5:
+<code>data/slowdown.py</code> and
+<a href='../product_fate/index.html'>product_fate</a>. Curves:
 <a href='progress_curves.html'>all 24 progress curves</a>.</p>
 """
     return page("Temperature series — activation parameters", body,

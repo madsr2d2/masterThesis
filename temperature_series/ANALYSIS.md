@@ -13,6 +13,8 @@ and the only kinetic quantity that can be compared against the ORCA barriers in
 
     scope.TEMPERATURE_SERIES        the six experiments, in temperature order
     data/arrhenius.py               the fits
+    data/slowdown.py                the sink correction of §4
+    product_fate/                   what the fall of §3a turned out to be
     python data/verify_enzyme_stock.py --sequence
     python temperature_series/build_figures.py
     python temperature_series/check_numbers.py
@@ -20,9 +22,12 @@ and the only kinetic quantity that can be compared against the ORCA barriers in
 **Figures**: `index.html` is the presentation — fifteen figures, A to O, one per
 claim in this document. `progress_curves.html` carries all 24 curves with the
 burst/lag fit and the breakpoint drawn on each. Both are rebuilt by
-`build_figures.py`, which computes nothing: every number in a figure comes from
-`arrhenius`, `scope`, `curve_metrics` or `verify_enzyme_stock`, so a figure and
-this document cannot disagree without `check_numbers.py` saying so.
+`build_figures.py`, which computes nothing: every number in a figure — **and
+since 2026-09-02 every number in the page's running text as well** — comes from
+`arrhenius`, `scope`, `curve_metrics`, `slowdown` or `verify_enzyme_stock`, so
+the page and this document cannot disagree without `check_numbers.py` saying so.
+The prose was typed until then and had drifted: it quoted `vmax`'s enthalpy,
+entropy and free energy under a heading that had made `v_peak` the headline.
 
 | exp | 14 | 15 | 16 | 17 | 18 | 19 |
 |---|---|---|---|---|---|---|
@@ -385,11 +390,12 @@ curve's own noise.
 Nothing is selected where the one-phase form already sits at noise. Every
 selected fit is `lag then fall` bar one.
 
-**The second phase is descriptive and must stay that way**, even now that §6
-has named the process behind it. τ₂ is not resolved on 9 of the 11 curves, and
-`fit_two_phase`'s second exponential is not the sink's rate constant in any
-case: the sink is a loss term on the accumulated signal, `A′ = v − kA`, and its
-k is read off the rate-against-product line in §6, not off τ₂. An activation
+**The second phase is descriptive and must stay that way**, even now that
+[`product_fate/`](../product_fate/ANALYSIS.md) has named the process behind it.
+τ₂ is not resolved on 9 of the 11 curves, and `fit_two_phase`'s second
+exponential is not the sink's rate constant in any case: the sink is a loss term
+on the accumulated signal, `A′ = v − kA`, and its k is read off the
+rate-against-product line in that document's §3, not off τ₂. An activation
 energy taken from τ₂ would be an activation energy of a fitting parameter.
 
 ### And it changes which rate to put on an Arrhenius plot
