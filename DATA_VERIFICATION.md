@@ -8,6 +8,61 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-02 — The temperature series gets its figures, and a published figure was hiding a point
+
+`temperature_series/index.html` and `progress_curves.html` built by
+`build_figures.py`, which draws only: every number in a figure comes from
+`arrhenius`, `scope`, `curve_metrics` or `verify_enzyme_stock`, so a figure and
+ANALYSIS.md cannot disagree without `check_numbers.py` saying so.
+
+Twelve figures, A–L, one per claim: the seven enzyme stocks as a step plot with
+exp 16 ringed; the enzyme-hypothesis residuals; the break ratio and `vmax_where`
+against temperature; 1/τ as an Arrhenius plot; the `v_ss`/`vmax` truncation
+bound; the exps 32/34 buffer titration; the buffer gradient riding on the
+substrate ladder and the corrected order; the Arrhenius fit; the per-rung
+energies with error bars against the pooled band; and the Eyring fit. Plus all
+24 progress curves with the burst/lag fit and the breakpoint drawn on each.
+
+**`svgplot.py` moved to the repository root**, since both folders now use it and
+a second copy is the duplication `data/test_curve_metrics.py` exists to forbid.
+
+### A published figure was silently missing a data point
+
+Marks are clipped to the plot area on purpose — a fit whose extrapolation leaves
+the frame should visibly run off rather than draw over the axis labels. The cost
+is that a **data** point outside the axis limits disappears the same way, and the
+figure still looks complete.
+
+`background_reaction/index.html`'s curvature figure had a y-floor of **−90**
+while **exp 6 sample 4 sits at −91.66**. One live curve was missing from that
+page for as long as it existed. Nothing caught it: every check in this project
+reads the prose, and a missing point changes no number.
+
+Fixed (floor now −100) and made permanent: **`svgplot.clipped_marks`** parses a
+rendered page and returns every mark drawn outside its own frame, and both
+`check_numbers.py` now run it over both of their pages. Fault-injected —
+restoring the −90 floor names the figure and the pixel.
+
+**Colour**, decided rather than inherited. Substrate rung and temperature are
+*ordered*, so they get sequential single-hue ramps; cycling categorical hues over
+an ordinal variable throws the order away. The one genuinely categorical set —
+three enzyme hypotheses, three fitted parameters — uses a trio validated for
+colour-vision separation and contrast in both light and dark. The repo's existing
+eight-colour categorical palette does **not** pass as a set: `#4a9ab0` falls
+below the chroma floor and reads gray, and `#3f8a5a`↔`#c0522a` separate by only
+ΔE 6.6 under deuteranopia. It is left alone where it is already used; the new
+figures do not use it. Figure panels sit on a fixed light surface whatever the
+page theme, because a sequential ramp cannot clear 3:1 against a white *and* a
+near-black surface at once — it needs the lightness range the contrast rule
+would spend.
+
+**Changed:** `temperature_series/build_figures.py`; `svgplot.py` moved to the
+root and gained `clipped_marks`; `background_reaction/build_figures.py`'s
+curvature floor and its import path; both `check_numbers.py` gained the figure
+audit; ANALYSIS.md links the pages. Temperature-series checks 69 → 71.
+
+---
+
 ## 2026-09-02 — Activation parameters for the temperature series, and what the block is actually doing
 
 Three things had to be separated before any activation energy meant anything.

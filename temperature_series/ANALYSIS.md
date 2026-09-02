@@ -14,6 +14,15 @@ and the only kinetic quantity that can be compared against the ORCA barriers in
     scope.TEMPERATURE_SERIES        the six experiments, in temperature order
     data/arrhenius.py               the fits
     python data/verify_enzyme_stock.py --sequence
+    python temperature_series/build_figures.py
+    python temperature_series/check_numbers.py
+
+**Figures**: `index.html` is the presentation — twelve figures, A to L, one per
+claim in this document. `progress_curves.html` carries all 24 curves with the
+burst/lag fit and the breakpoint drawn on each. Both are rebuilt by
+`build_figures.py`, which computes nothing: every number in a figure comes from
+`arrhenius`, `scope`, `curve_metrics` or `verify_enzyme_stock`, so a figure and
+this document cannot disagree without `check_numbers.py` saying so.
 
 | exp | 14 | 15 | 16 | 17 | 18 | 19 |
 |---|---|---|---|---|---|---|

@@ -275,3 +275,43 @@ def page(title, body, subtitle=""):
             f"<div class='wrap'><h1>{esc(title)}</h1>"
             + (f"<p class='lede'>{subtitle}</p>" if subtitle else "")
             + body + "</div></body></html>")
+
+
+def clipped_marks(html_text):
+    """
+    Every drawn point that falls outside its own figure's plot frame.
+
+    Marks are clipped to the plot area on purpose -- a fit whose extrapolation
+    leaves the frame should visibly run off rather than be drawn over the axis
+    labels. The cost is that a DATA point outside the axis limits disappears in
+    exactly the same way, silently, and the figure looks complete.
+
+    That happened: the curvature figure's y-axis floor was -90 while exp 6
+    sample 4 sits at -91.66, so a live curve was missing from a published page
+    for as long as the page existed. Nothing caught it because every check in
+    this project read the prose, and a missing point changes no number.
+
+    Returns a list of (figure title, x, y, frame) tuples, empty when clean.
+    Pass the rendered HTML of a whole page.
+    """
+    import re
+    found = []
+    for svg in re.findall(r"<svg .*?</svg>", html_text, re.S):
+        frame = re.search(r"<clipPath id='[^']*'><rect x='([\d.]+)' "
+                          r"y='([\d.]+)' width='([\d.]+)' height='([\d.]+)'",
+                          svg)
+        if not frame or "clip-path=" not in svg:
+            continue
+        x0, y0, width, height = (float(v) for v in frame.groups())
+        title = re.search(r"font-weight='600'>([^<]*)</text>", svg)
+        body = svg.split("clip-path=", 1)[1]
+        for cx, cy in re.findall(r"<circle cx='(-?[\d.]+)' cy='(-?[\d.]+)'",
+                                 body):
+            cx, cy = float(cx), float(cy)
+            # Half a pixel of slack: a point exactly on the axis is drawn on
+            # the frame line and is not lost.
+            if not (x0 - 0.5 <= cx <= x0 + width + 0.5
+                    and y0 - 0.5 <= cy <= y0 + height + 0.5):
+                found.append((title.group(1) if title else "(untitled)",
+                              cx, cy, (x0, y0, width, height)))
+    return found

@@ -15,7 +15,10 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "data"))
-sys.path.insert(0, HERE)
+# svgplot lives at the repository root, not beside this file: it is shared with
+# temperature_series/build_figures.py, and a second copy is exactly the
+# duplication data/test_curve_metrics.py exists to forbid.
+sys.path.insert(0, os.path.dirname(HERE))
 
 import scope
 from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, OUTLIER_SIGMA,
@@ -380,7 +383,10 @@ def figure_curvature():
     """Deceleration against conversion: it is not substrate depletion."""
     frame = scope.frame(scope.FREE_BNOH_ALL)
     live = frame[frame.live]
-    axes = Axes(560, 380, (0.03, 12.0), (-90.0, 15.0), xlog=True,
+    # The floor was -90 until 2026-09-02 and exp 6 sample 4 sits at -91.66, so
+    # one point was drawn outside the frame and silently clipped away. Found by
+    # `svgplot.clipped_marks`, which now runs in both check_numbers.
+    axes = Axes(560, 380, (0.03, 12.0), (-100.0, 15.0), xlog=True,
                 pad=(62, 16, 46, 22))
     axes.hline(0.0, MUTED, "3 3", 1.3)
     axes.hline(-3.0, ACCENT, "5 3", 1.4)

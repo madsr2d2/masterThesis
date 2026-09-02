@@ -18,6 +18,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "data"))
+sys.path.insert(0, os.path.dirname(HERE))
 
 import scope
 from curve_metrics import (ACCELERATION_SIGMA, OUTLIER_SIGMA, acceleration,
@@ -522,6 +523,26 @@ def main():
                               for c in anchor))
     claim("the constant-buffer accelerating count",
           f"| enzyme-free BnOH, `[buf]` fixed | **{rising} of {len(anchor)}** |")
+
+
+    print("\nthe figures: no data point drawn outside its own frame")
+    # Marks are clipped to the plot area deliberately, so a data point outside
+    # the axis limits vanishes silently and the figure still looks complete.
+    # That is how exp 6 sample 4 went missing from the curvature figure for as
+    # long as it existed: no number changes, so no prose check could see it.
+    from svgplot import clipped_marks
+    for name in ("index.html", "progress_curves.html"):
+        path = os.path.join(HERE, name)
+        if not os.path.exists(path):
+            continue
+        lost = clipped_marks(io.open(path, encoding="utf-8").read())
+        ok = not lost
+        print(f"  {'pass' if ok else 'FAIL'}  {name}: {len(lost)} clipped")
+        if not ok:
+            for title, x, y, _ in lost[:4]:
+                print(f"        {title!r} at ({x:.0f},{y:.0f})")
+            FAILURES.append(f"{name} draws {len(lost)} point(s) outside the "
+                            f"plot frame; widen the axis limits")
 
     print()
     if FAILURES:
