@@ -26,8 +26,9 @@ from curve_metrics import (ACCELERATION_SIGMA, SEGMENT_RATIO_STEEP,
 from fit_dataset import source_floor
 from summary_kinetics import fit_burst_bounded, fit_progress
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc, page, PAGE_CSS
-from figure_kit import (CATEGORY, FIT_WIDTH, RUNGS, SURFACE, TEMPERATURES,
-                        fig, styled, write_pages)
+from figure_kit import (CATEGORY, FIT_WIDTH, RUNGS, SURFACE,
+                        TEMPERATURES, breakpoints, fig, panel,
+                        progress_overlay, styled, write_pages)
 
 # ORDERED VARIABLES GET SEQUENTIAL RAMPS, not categorical hues. Substrate rung
 # and temperature are both ordinal, so a light-to-dark single hue carries the
@@ -491,57 +492,25 @@ def build_curves_page():
                         (min(values.min(), 0) * 1.1 - 1e-4,
                          max(values.max(), 1e-4) * 1.12),
                         pad=(56, 12, 34, 20))
-            # WHICHEVER FORM THE CURVE EARNED. Drawing the one-phase fit on a
-            # two-phase curve is how the shape stayed invisible for as long as
-            # it did -- the panel showed a fit that could not bend the way the
-            # readings do, and it read as scatter.
-            progress = fit_progress(times, values)
-            smooth = np.linspace(0, times[-1], 300)
-            fitted = progress.predict(smooth)
-            # DATA FIRST, FIT ON TOP, AND THE FIT MUST BE NARROWER THAN THE
-            # MARKS. Three passes to get this right, so the constraint is
-            # written down rather than re-derived:
-            #
-            #   1. fit under the data   -> 368 readings bury the fit
-            #   2. fit over the data, 2.0 px wide on a 3.6 px white halo
-            #      -> the halo is wider than a mark, so wherever the curve is
-            #         tight the fit erases the very points it is fitting
-            #   3. this: a light-grey scatter with a thin rust line over it.
-            #
-            # Separation is by HUE and LIGHTNESS, not by a halo: grey cloud,
-            # dark rust line. FIT_WIDTH stays below the mark diameter so a mark
-            # centred on the line still shows on both sides -- asserted below,
-            # because it is the property that keeps both visible and it is easy
-            # to break by nudging a radius.
+            # The readings first and the fit over them; `progress_overlay`
+            # carries the reason and asserts the width against the radius.
             dense = len(times) > 150
             radius = 1.6 if dense else 2.1
             axes.points(times, values, MUTED, radius=radius,
                         opacity=0.75 if dense else 0.9,
                         stroke=None if dense else "white", stroke_width=0.6)
-            assert FIT_WIDTH < 2 * radius, "fit line would cover the marks"
-            axes.line(smooth, fitted, ACCENT, width=FIT_WIDTH)
-            # EVERY breakpoint the curve earned, not just the first. A rate
-            # that rises and then falls has two, and drawing one leaves the
-            # other invisible -- which is how the early break on the 40 C
-            # curves went unnoticed until it was seen by eye on this page.
-            for index, where in enumerate(record.break_times):
-                axes.parts.append(
-                    f"<path d='M{axes._fx(where):.2f},{axes.top} "
-                    f"L{axes._fx(where):.2f},{axes.height - axes.bottom}' "
-                    f"stroke='{MUTED}' stroke-width='1.1' "
-                    f"stroke-dasharray='3 3' fill='none'/>")
-                axes.note(axes._fx(where) + 3, axes.top + 10,
-                          f"{index + 1}", MUTED, size=9.5)
+            progress = progress_overlay(axes, times, values,
+                                        mark_radius=radius)
+            breakpoints(axes, record.break_times)
             kind = progress.chosen.kind
-            panels.append(
-                "<div class='fig panel'>"
-                f"<div class='ph'>{temperature:.0f} °C · [S] = {s0:.3f} mM"
-                f"<span class='pill'>exp {int(record.experiment)}</span></div>"
-                f"<div class='ps'>[buf] {record.buf:.0f} mM · "
-                f"{int(record.points)} readings over {record.duration_s / 60:.0f} min"
-                f" · {record.source}</div>"
-                + axes.render("time, s", "ΔA at 300 nm")
-                + f"<div class='pf'><strong>{int(record.phases)} phase"
+            panels.append(panel(
+                f"{temperature:.0f} °C · [S] = {s0:.3f} mM"
+                f"<span class='pill'>exp {int(record.experiment)}</span>",
+                f"[buf] {record.buf:.0f} mM · "
+                f"{int(record.points)} readings over "
+                f"{record.duration_s / 60:.0f} min · {record.source}",
+                axes.render("time, s", "ΔA at 300 nm"),
+                f"<strong>{int(record.phases)} phase"
                 + ("s" if record.phases == 2 else "")
                 + f"</strong> · {esc(kind)} · F = {record.two_phase_f:.0f}"
                 + f" · fit {record.progress_resid:.2f}x noise"
@@ -551,8 +520,7 @@ def build_curves_page():
                 + " · breaks at "
                 + (", ".join(f"{v:.0f}" for v in record.break_times) + " s"
                    if record.break_times else "none")
-                + f" · <strong>{esc(record.break_pattern)}</strong>"
-                + "</div></div>")
+                + f" · <strong>{esc(record.break_pattern)}</strong>"))
     body = ("<p class='lede'>All 24 curves of the temperature series, in "
             "temperature order. The orange line is whichever form the curve "
             "earned — one relaxation or two — from "

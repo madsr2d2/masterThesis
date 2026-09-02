@@ -36,7 +36,8 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, OUTLIER_SIGMA,
 from fit_dataset import source_floor
 from summary_kinetics import BURST_V0_HALFWIDTH, fit_burst_bounded
 from svgplot import ACCENT, GRID, INK, MUTED, PALETTE, Axes, esc, page
-from figure_kit import (fig, styled, write_pages)
+from figure_kit import (decimated, fig, panel, styled,
+                        write_pages)
 
 # The estimator the headline numbers are quoted on, and the two reported
 # beside it. v0_quad answers the "the 20% window is arbitrary" objection: it is
@@ -279,15 +280,8 @@ def curve_panel(curve, width=330, height=210):
     # The DATA goes on last. Drawn first it disappeared under four fit lines,
     # which inverts the point of the panel: the fits are the claim, the
     # readings are the evidence, and the evidence has to stay visible.
-    #
-    # Long runs are decimated to about 110 marks, or a 400-reading curve is a
-    # solid bar. The RINGS ARE NOT DECIMATED, so the two sets have to be
-    # unioned or a ring lands where no mark was drawn and reads as a flag on
-    # nothing. That is what it did: exp 3 sample 1 ringed reading 85 and sample
-    # 6 ringed reading 225, both odd, both skipped by a step of 2. Every
-    # ringed reading is drawn whether or not the stride would have reached it.
-    step = max(1, len(times) // 110)
-    shown = sorted(set(range(0, len(times), step)) | set(ringed))
+    # `decimated` carries the stride and the ring union.
+    shown = decimated(len(times), 110, keep=ringed)
     axes.points(times[shown], values[shown], INK, radius=1.7, opacity=0.85)
 
     for index in ringed:
@@ -369,11 +363,8 @@ def curve_panel(curve, width=330, height=210):
     foot = (f"curvature t {curvature:+.1f}"
             + (f" · burst τ {burst.tau:.3g} s" if np.isfinite(burst.tau) else "")
             + (" · " + " · ".join(marks) if marks else ""))
-    return (f"<div class='fig panel'>"
-            f"<div class='ph'>exp {curve.experiment} · sample {curve.sample}</div>"
-            f"<div class='ps'>{esc(sub)}</div>{svg}"
-            f"<table class='nums'>{body}</table>"
-            f"<div class='pf'>{esc(foot)}</div></div>")
+    return panel(f"exp {curve.experiment} · sample {curve.sample}",
+                 esc(sub), svg, esc(foot), body)
 
 
 def _quadratic_beta(times, values):

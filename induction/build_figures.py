@@ -23,7 +23,8 @@ import scope
 from curve_metrics import LAG_WINDOW, rolling_slope
 from fit_dataset import source_floor
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc, page, PAGE_CSS
-from figure_kit import (CATEGORY, RUNGS, fig, styled, write_pages)
+from figure_kit import (CATEGORY, RUNGS, breakpoints, fig, panel,
+                        progress_axes, progress_overlay, styled, write_pages)
 
 
 
@@ -483,6 +484,99 @@ def figure_which_way():
         "that one may be the buffer wearing substrate's clothes.")
 
 
+def build_curves_page():
+    """
+    Both channels of the 4OMe block, with the landmark drawn on every curve.
+
+    BOTH CHANNELS, because this folder's first claim is a CONTRAST -- 0 of the
+    enzyme-free curves accelerate, including a 17934 s run at 40 C -- and a
+    page that showed only the catalysed ones would be showing the half that
+    agrees. The control is the evidence here, so it is drawn at the same size,
+    with the same fit, on the same axes convention.
+
+    The landmark is `induction_point`'s, whose window is a TENTH OF THE RUN.
+    That is safe within a run and not between runs, which is why the page
+    prints each curve's duration beside it: two panels with different durations
+    carry landmarks read through different windows, and the folder's
+    between-run comparisons all use something else.
+    """
+    table = _table()
+    blocks = induction.induction_blocks(table)
+    sections = (("catalysed", blocks["4OMe catalysed"], CATEGORY[1]),
+                ("enzyme-free", blocks["4OMe enzyme-free"], CATEGORY[0]))
+    rendered, counts = [], {}
+    for label, block, colour in sections:
+        block = block[block.live]
+        experiments = tuple(sorted(int(e) for e in block.experiment.unique()))
+        lookup = {(c.experiment, c.sample): c
+                  for c in scope.curves(experiments)}
+        panels = []
+        for row in block.sort_values(["experiment", "sample"]).itertuples():
+            curve = lookup.get((row.experiment, row.sample))
+            if curve is None:
+                continue
+            times = np.asarray(curve.times, dtype=float)
+            values = np.asarray(curve.absorbance, dtype=float)
+            axes, radius = progress_axes(times, values, limit=110)
+            progress = progress_overlay(axes, times, values,
+                                        mark_radius=radius)
+            marks, labels = [], []
+            if np.isfinite(row.t_ind) and row.t_ind > 0:
+                marks.append(row.t_ind)
+                labels.append("t_ind")
+            breakpoints(axes, marks, labels, colour=colour)
+            panels.append(panel(
+                f"exp {int(row.experiment)} · sample {int(row.sample)}"
+                f"<span class='pill'>{row.temperature:.0f} °C</span>",
+                f"[S] {row.s0:.3f} mM · [H₂O₂] {row.h2o2:g} mM · "
+                f"pH {row.pH:.2f} · [buf] {row.buf:.0f} mM · "
+                f"{int(row.points)} readings over "
+                f"{row.duration_s / 60:.0f} min · {row.source}",
+                axes.render("time, s", "ΔA"),
+                f"<strong>{int(row.phases)} phase"
+                + ("s" if row.phases == 2 else "")
+                + f"</strong> · {esc(str(row.progress_kind))} · "
+                + (f"t_ind {row.t_ind:.0f} s · depth {row.depth:.3f}"
+                   if np.isfinite(row.t_ind) else "no landmark")
+                + f" · accel z {row.accel_z:+.2f}"
+                + (" · <strong>accelerates</strong>" if row.accelerates
+                   else "")))
+        counts[label] = len(panels)
+        rendered.append((label, panels))
+    summary = induction.channel_summary(table)
+    body = (f"<p class='lede'>Every live 4OMe cuvette in the archive, both "
+            "channels, in experiment order. The rust line is whichever form "
+            "the curve earned from "
+            "<code>summary_kinetics.fit_progress</code>, and the dashed "
+            "vertical is the <strong>induction landmark</strong> — the first "
+            "crossing of half the largest rolling slope "
+            "(<code>induction.induction_point</code>). Nothing is excluded.</p>"
+            "<p class='lede'><strong>Read the two blocks against each "
+            "other.</strong> That is the folder's first claim and it is a "
+            f"contrast: {summary['catalysed']['accelerates']} of "
+            f"{summary['catalysed']['curves']} catalysed curves accelerate "
+            f"past 3σ and <strong>{summary['enzyme_free']['accelerates']} of "
+            f"{summary['enzyme_free']['curves']}</strong> enzyme-free ones do, "
+            "the largest z in that block being "
+            f"{summary['enzyme_free']['max_accel_z']:.2f} — over runs as long "
+            f"as {summary['enzyme_free']['longest_s']:.0f} s. A curve with no "
+            "induction still gets a landmark, because dropping those rows is "
+            "the censoring the statistic exists to avoid; its footer says so "
+            "through the depth.</p>"
+            "<p class='lede'><strong>The landmark's window is a tenth of the "
+            "run</strong>, so it is safe within a run and not between runs — "
+            "two panels of different duration carry landmarks read through "
+            "different windows. Each panel prints its duration for that "
+            "reason, and every between-run comparison in "
+            "<code>ANALYSIS.md</code> uses something that is not windowed.</p>")
+    for label, panels in rendered:
+        body += (f"<h2>{esc(label)} — {len(panels)} curves</h2>"
+                 "<div class='grid three'>" + "".join(panels) + "</div>")
+    return styled("The 4OMe curves and their induction landmarks", body,
+                  f"{counts['catalysed']} catalysed · "
+                  f"{counts['enzyme-free']} enzyme-free")
+
+
 def build_index():
     table = _table()
     summary = induction.channel_summary(table)
@@ -711,7 +805,8 @@ disagree.</p>
 
 
 def main():
-    return write_pages(HERE, {"index.html": build_index()})
+    return write_pages(HERE, {"index.html": build_index(),
+                              "progress_curves.html": build_curves_page()})
 
 
 if __name__ == "__main__":

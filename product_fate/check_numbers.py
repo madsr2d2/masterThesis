@@ -7,6 +7,7 @@ times.
 
     python product_fate/check_numbers.py
 """
+import io
 import os
 import sys
 
@@ -256,12 +257,24 @@ def main():
               "six figures, A to " + letters[-1] if len(letters) == 6
               else f"{len(letters)} figures")
 
+    print("\nthe curves page draws the block the fall is measured on")
+    page = io.open(os.path.join(HERE, "progress_curves.html"),
+                   encoding="utf-8").read()
+    drawn = page.count("<div class='fig panel'>")
+    block = slowdown.substrate_blocks()["4OMe catalysed, phosphate"]
+    expected = int(block.live.sum())
+    doc.check("one panel per live cuvette in the block",
+              drawn == expected, f"{drawn} panels, {expected} curves")
+    doc.check("and the shaded tail is sink_fit's own, not a guess",
+              "rate max" in page)
+
     print("\nthe figures: no data point drawn outside its own frame")
     # Marks are clipped to the plot area deliberately, so a data point outside
     # the axis limits vanishes silently and the figure still looks complete.
     # That is how exp 6 sample 4 went missing from a curvature figure for as
     # long as it existed: no number changes, so no prose check could see it.
-    doc.unclipped(os.path.join(HERE, "index.html"))
+    doc.unclipped(os.path.join(HERE, "index.html"),
+                  os.path.join(HERE, "progress_curves.html"))
     return doc.summary()
 
 

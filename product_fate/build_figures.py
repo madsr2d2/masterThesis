@@ -23,7 +23,8 @@ import slowdown
 from curve_metrics import rolling_slope
 from fit_dataset import source_floor
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc, page, PAGE_CSS
-from figure_kit import (CATEGORY, FIT_WIDTH, RUNGS, fig, styled, write_pages)
+from figure_kit import (CATEGORY, FIT_WIDTH, RUNGS, breakpoints, fig, panel,
+                        progress_axes, progress_overlay, styled, write_pages)
 
 # ORDERED VARIABLES GET SEQUENTIAL RAMPS. Substrate rung is ordinal; the two
 # channels (with and without enzyme) and the two straight-line laws are not.
@@ -305,6 +306,93 @@ def figure_substrates():
         "comes back at −0.124 ± 0.079 against the product's −0.598 ± 0.053.")
 
 
+def build_curves_page():
+    """
+    Every curve the deceleration is measured on, with the fitted tail drawn.
+
+    THE BLOCK IS THE ONE THE DISCRIMINATION NEEDS, not the one that is easiest
+    to draw: `4OMe catalysed, phosphate`, which is where the clock and the
+    product come apart. The temperature series' 24 curves cannot do it alone
+    and are drawn in `temperature_series/progress_curves.html`.
+
+    The shaded tail is `slowdown.sink_fit`'s own -- it starts at the rolling
+    rate's MAXIMUM, which the data chooses, so `tail_start` is carried on the
+    fit rather than guessed here. A page that guessed it would be drawing a
+    different window from the one that was fitted, which is the failure this
+    page exists to make impossible.
+    """
+    block = slowdown.substrate_blocks()["4OMe catalysed, phosphate"]
+    block = block[block.live]
+    experiments = tuple(sorted(int(e) for e in block.experiment.unique()))
+    lookup = {(c.experiment, c.sample): c for c in scope.curves(experiments)}
+    panels = []
+    for row in block.sort_values(["experiment", "sample"]).itertuples():
+        curve = lookup.get((row.experiment, row.sample))
+        if curve is None:
+            continue
+        times = np.asarray(curve.times, dtype=float)
+        values = np.asarray(curve.absorbance, dtype=float)
+        axes, radius = progress_axes(times, values, limit=110)
+        fit = slowdown.sink_fit(curve)
+        if np.isfinite(fit.tail_start):
+            left, right = axes._fx(fit.tail_start), axes._fx(times[-1])
+            axes.parts.append(
+                f"<rect x='{left:.1f}' y='{axes.top}' "
+                f"width='{max(right - left, 0):.1f}' "
+                f"height='{axes.height - axes.top - axes.bottom:.1f}' "
+                f"fill='{CATEGORY[1]}' fill-opacity='0.08'/>")
+        progress = progress_overlay(axes, times, values, mark_radius=radius)
+        if np.isfinite(fit.tail_start):
+            breakpoints(axes, [fit.tail_start], ["rate max"],
+                        colour=CATEGORY[1])
+        read = (f"sink k = {fit.k:.3g} · R² {fit.rate_r2:.3f} vs "
+                f"{fit.reciprocal_r2:.3f} reciprocal · {esc(fit.prefers)} · "
+                f"fell to {fit.decline:.0%} over {fit.windows:.1f} windows"
+                if np.isfinite(fit.k) else
+                "<strong>no sink fit</strong> — the tail does not decline far "
+                "enough, or is shorter than "
+                f"{slowdown.SINK_MINIMUM_WINDOWS:g} windows")
+        panels.append(panel(
+            f"exp {int(row.experiment)} · sample {int(row.sample)}"
+            f"<span class='pill'>{row.temperature:.0f} °C</span>",
+            f"[S] {row.s0:.3f} mM · [H₂O₂] {row.h2o2:g} mM · "
+            f"pH {row.pH:.2f} · [buf] {row.buf:.0f} mM · "
+            f"{int(row.points)} readings over {row.duration_s / 60:.0f} min · "
+            f"{row.source}",
+            axes.render("time, s", "ΔA"),
+            f"<strong>{int(row.phases)} phase"
+            + ("s" if row.phases == 2 else "")
+            + f"</strong> · {esc(str(row.progress_kind))} · {read}"))
+    fitted = sum(1 for p in panels if "no sink fit" not in p)
+    drivers = slowdown.deceleration_drivers(block)
+    body = (f"<p class='lede'>All {len(panels)} live cuvettes of the "
+            "<strong>4OMe catalysed, phosphate</strong> block — the one the "
+            "discrimination needs, because a single progress curve cannot tell "
+            "time from product and the separation exists only across curves. "
+            "The rust line is whichever form the curve earned; nothing is "
+            "excluded and every fit uses every point except the instrument's "
+            "discarded first reading. The driver regression the analysis "
+            f"quotes runs on <strong>{drivers['points']}</strong> of them — "
+            "the ones whose fall is measurable at all — so the "
+            f"{len(panels) - drivers['points']} that are here and not there "
+            "are visible rather than dropped silently.</p>"
+            f"<p class='lede'>The shaded band is the tail "
+            f"<code>slowdown.sink_fit</code> actually read, and the dashed "
+            "vertical is where it begins — the <strong>rolling rate's "
+            "maximum</strong>, which the data chooses rather than the "
+            "analyst. Its width is "
+            f"<code>SINK_WINDOW = {slowdown.SINK_WINDOW:g}</code> of the run, "
+            "and section 4's window sweep is the reason that number is quoted "
+            "with a systematic rather than an error: a wider window smooths "
+            "the slow cold curves more than the fast warm ones. "
+            f"<strong>{fitted} of {len(panels)}</strong> curves decline far "
+            "enough, over a long enough tail, to be read this way; the rest "
+            "say so in their footer.</p>"
+            "<div class='grid three'>" + "".join(panels) + "</div>")
+    return styled("The 4OMe deceleration — every progress curve", body,
+                  "4OMe-BnOH · catalysed · phosphate")
+
+
 def build_index():
     frame = _whole_frame()
     named = _slowdown_blocks()
@@ -462,7 +550,8 @@ disagree.</p>
 
 
 def main():
-    return write_pages(HERE, {"index.html": build_index()})
+    return write_pages(HERE, {"index.html": build_index(),
+                              "progress_curves.html": build_curves_page()})
 
 
 if __name__ == "__main__":

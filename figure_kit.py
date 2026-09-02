@@ -16,6 +16,10 @@ Nothing here computes anything. A number reaches a figure from `scope`,
 """
 import os
 
+import numpy as np
+
+from svgplot import ACCENT, MUTED
+
 
 # ORDERED VARIABLES GET SEQUENTIAL RAMPS, not categorical hues. Substrate rung
 # and temperature are both ordinal, so a light-to-dark single hue carries the
@@ -65,6 +69,120 @@ def fig(svg, caption, extra=""):
     """One figure: the drawing, its caption, and anything that follows it."""
     return (f"<div class='fig'>{svg}"
             f"<div class='cap'>{caption}</div>{extra}</div>")
+
+
+def decimated(count, limit, keep=()):
+    """
+    The indices to draw for a long run, with `keep` forced in whatever the stride.
+
+    A 400-reading curve drawn whole is a solid bar, so long runs are thinned to
+    about `limit` marks. RINGS ARE NOT THINNED, so anything ringed has to be
+    unioned back in or a ring lands where no mark was drawn and reads as a flag
+    on nothing -- which it did: one curve ringed reading 85 and another reading
+    225, both odd, both skipped by a stride of 2.
+    """
+    step = max(1, count // limit)
+    return sorted(set(range(0, count, step)) | set(int(i) for i in keep))
+
+
+def progress_overlay(axes, times, values, colour=ACCENT, width=FIT_WIDTH,
+                     mark_radius=None, samples=300):
+    """
+    Draw whichever form the curve earned, and return the fit.
+
+    WHICHEVER FORM IT EARNED. Drawing the one-phase fit on a two-phase curve is
+    how the shape stayed invisible for as long as it did -- the panel showed a
+    fit that could not bend the way the readings do, and it read as scatter.
+    `summary_kinetics.fit_progress` fits both and returns the one an F test
+    chooses.
+
+    DATA FIRST, FIT ON TOP, AND THE FIT NARROWER THAN THE MARKS. Three passes
+    to get this right, so the constraint is written down rather than re-derived:
+
+      1. fit under the data   -> 368 readings bury the fit
+      2. fit over the data, 2.0 px wide on a 3.6 px white halo -> the halo is
+         wider than a mark, so wherever the curve is tight the fit erases the
+         very points it is fitting
+      3. this: a light scatter with a thin rust line over it.
+
+    Separation is by HUE and LIGHTNESS, not by a halo. Pass `mark_radius` and
+    the constraint is asserted rather than trusted; it is easy to break by
+    nudging a radius and invisible once broken.
+    """
+    from summary_kinetics import fit_progress          # local: heavy import
+    progress = fit_progress(times, values)
+    smooth = np.linspace(0, float(times[-1]), samples)
+    if mark_radius is not None:
+        assert width < 2 * mark_radius, "fit line would cover the marks"
+    axes.line(smooth, progress.predict(smooth), colour, width=width)
+    return progress
+
+
+def breakpoints(axes, where, labels=None, colour=MUTED):
+    """
+    EVERY landmark the curve earned, labelled, not just the first.
+
+    A rate that rises and then falls has two breakpoints, and drawing one
+    leaves the other invisible -- which is how the early break on the 40 C
+    curves went unnoticed until it was seen by eye on a page like this. The
+    same drawing serves an induction landmark or a window edge; `labels`
+    defaults to the ordinal.
+    """
+    for index, cut in enumerate(where):
+        x = axes._fx(cut)
+        axes.parts.append(
+            f"<path d='M{x:.2f},{axes.top} "
+            f"L{x:.2f},{axes.height - axes.bottom}' "
+            f"stroke='{colour}' stroke-width='1.1' "
+            f"stroke-dasharray='3 3' fill='none'/>")
+        text = f"{index + 1}" if labels is None else labels[index]
+        axes.note(x + 3, axes.top + 10, text, colour, size=9.5)
+
+
+def progress_axes(times, values, width=340, height=210, limit=None,
+                  colour=MUTED, pad=(56, 12, 34, 20)):
+    """
+    Axes over one progress curve with its readings already drawn on.
+
+    The limits are the convention the two existing curve pages settled on: from
+    t = 0, and a y range that always includes zero so a curve that starts
+    negative is not cropped into looking like it starts at its own minimum.
+
+    `limit` thins a long run to about that many marks (see `decimated`); left
+    None every reading is drawn, which is right for a 24-panel page and wrong
+    for a 200-panel one. Returns the axes and the mark radius, so the caller
+    can pass the radius to `progress_overlay` and have the width asserted.
+    """
+    from svgplot import Axes
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    axes = Axes(width, height, (0, float(times[-1]) * 1.02),
+                (min(float(values.min()), 0.0) * 1.1 - 1e-4,
+                 max(float(values.max()), 1e-4) * 1.12), pad=pad)
+    dense = len(times) > 150
+    radius = 1.6 if dense else 2.1
+    shown = (slice(None) if limit is None
+             else decimated(len(times), limit))
+    axes.points(times[shown], values[shown], colour, radius=radius,
+                opacity=0.75 if dense else 0.9,
+                stroke=None if dense else "white", stroke_width=0.6)
+    return axes, radius
+
+
+def panel(header, subhead, svg, footer="", table=""):
+    """
+    One cuvette as an HTML block: heading, conditions, the plot, its numbers.
+
+    The numbers were once floating text inside the SVG. They sat on top of the
+    curves, were clipped by the frame, and could not be selected or searched.
+    Anything textual belongs in HTML; the SVG draws only data and fits.
+    """
+    return (f"<div class='fig panel'>"
+            f"<div class='ph'>{header}</div>"
+            f"<div class='ps'>{subhead}</div>{svg}"
+            + (f"<table class='nums'>{table}</table>" if table else "")
+            + (f"<div class='pf'>{footer}</div>" if footer else "")
+            + "</div>")
 
 
 def styled(title, body, subtitle=""):

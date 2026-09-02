@@ -17,8 +17,12 @@ independently, which takes 84.
     python product_fate/check_numbers.py
 
 **Figures**: [`index.html`](index.html) is the presentation — six figures, A to
-F, one per claim below. It is rebuilt by `build_figures.py`, which computes
-nothing.
+F, one per claim below. [`progress_curves.html`](progress_curves.html) carries
+all 92 live cuvettes of the 4OMe catalysed phosphate block with the tail
+`sink_fit` actually read shaded on each — the tail starts at the rolling rate's
+maximum, which the data chooses, so the page draws the window that was fitted
+rather than one it guessed. Both are rebuilt by `build_figures.py`, which
+computes nothing.
 
 Related: [`../temperature_series/`](../temperature_series/ANALYSIS.md) for the
 activation parameters this bears on, [`../background_reaction/`](../background_reaction/ANALYSIS.md)

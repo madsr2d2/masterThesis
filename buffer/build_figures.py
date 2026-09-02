@@ -20,7 +20,8 @@ import buffer_role
 import induction
 import scope
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc, page, PAGE_CSS
-from figure_kit import (CATEGORY, PH_RAMP, SURFACE, fig, styled, write_pages)
+from figure_kit import (CATEGORY, PH_RAMP, SURFACE, breakpoints, fig, panel,
+                        progress_axes, progress_overlay, styled, write_pages)
 
 
 
@@ -278,6 +279,80 @@ def figure_confound():
         "fitting is scoped to.")
 
 
+def build_curves_page():
+    """
+    Every curve the five titrations are made of, with the landmark drawn on it.
+
+    THIS PAGE IS THE AUDIT SURFACE FOR SECTION 6. The joint buffer order is
+    read off `v_peak` and off a landmark whose window is 450 SECONDS, chosen
+    because exps 32 and 34 differ in length and a window given as a share of
+    the run would be two different windows. That is exactly the sort of choice
+    that has to be visible on the curves rather than argued for in prose, and
+    the folder had no page showing it.
+    """
+    frame = scope.frame(buffer_role.TITRATIONS)
+    lookup = {(c.experiment, c.sample): c
+              for c in scope.curves(buffer_role.TITRATIONS)}
+    panels = []
+    for row in frame.sort_values(["pH", "experiment", "buf"]).itertuples():
+        curve = lookup.get((row.experiment, row.sample))
+        if curve is None:
+            continue
+        times = np.asarray(curve.times, dtype=float)
+        values = np.asarray(curve.absorbance, dtype=float)
+        axes, radius = progress_axes(times, values, limit=140)
+        progress = progress_overlay(axes, times, values, mark_radius=radius)
+        found = induction.buffer_landmark(curve)
+        marks, labels = [], []
+        if np.isfinite(found.t_ind) and found.t_ind > 0:
+            marks.append(found.t_ind)
+            labels.append("t_ind")
+        breakpoints(axes, marks, labels, colour=CATEGORY[0])
+        panels.append(panel(
+            f"[buf] = {row.buf:g} mM · pH {row.pH:.2f}"
+            f"<span class='pill'>exp {int(row.experiment)}</span>",
+            f"[S] {row.s0:.3f} mM · [H₂O₂] {row.h2o2:g} mM · "
+            f"{row.temperature:.0f} °C · {int(row.points)} readings over "
+            f"{row.duration_s / 60:.0f} min · {row.source}",
+            axes.render("time, s", "ΔA"),
+            f"<strong>{int(row.phases)} phase"
+            + ("s" if row.phases == 2 else "")
+            + f"</strong> · {esc(str(row.progress_kind))} "
+            f"· F = {row.two_phase_f:.0f}"
+            f" · v_peak {row.v_peak:.2e}"
+            + (f" · t_ind {found.t_ind:.0f} s · depth {found.depth:.3f}"
+               if np.isfinite(found.t_ind) else " · no landmark")
+            + ("" if row.live else " · <strong>NOT LIVE</strong>")))
+    order = induction.buffer_order(induction.buffer_lever(
+        induction.induction_table(induction.WHOLE_ARCHIVE)))
+    body = (f"<p class='lede'>All {len(panels)} cuvettes of the five buffer "
+            "titrations — 4OMe-BnOH, 40 °C, phosphate, 82.5 mM H₂O₂, with "
+            "<code>[S]</code> fixed inside each run — in pH order. The rust "
+            "line is whichever form the curve earned, one relaxation or two, "
+            "from <code>summary_kinetics.fit_progress</code>; nothing is "
+            "excluded and every fit uses every point except the instrument's "
+            "first reading, which is discarded from every run in the archive."
+            "</p>"
+            "<p class='lede'>The blue dashed vertical is the <strong>induction "
+            "landmark</strong>, read through a window of "
+            f"<strong>{induction.BUFFER_WINDOW:.0f} seconds</strong> — in "
+            "seconds, not as a share of the run, because exps 32 and 34 ran "
+            "5280 s and 1767 s and a fractional window would be two different "
+            "windows. Section 6's joint order and section 4c's "
+            f"<code>{order['slope']:+.3f} ± {order['stderr']:.3f}</code> are "
+            "read off these two quantities: the peak rate and this landmark."
+            "</p>"
+            "<p class='lede'><strong>Exps 32 and 34 earn different model "
+            "forms</strong>, and it is visible here: every curve of exp 34 "
+            "takes the two-phase form and every curve of exp 32 the one-phase, "
+            "because exp 34's runs are long enough to contain the slow fall "
+            "and exp 32's end before it. That is why nothing on this page "
+            "compares a time constant between the two runs.</p>"
+            "<div class='grid three'>" + "".join(panels) + "</div>")
+    return styled("The buffer titrations — every progress curve", body,
+                  "Exps 32, 34, 35, 36, 37 · 4OMe-BnOH · 40 °C · phosphate")
+
+
 def build_index():
     table = _table()
     prediction = buffer_role.species_prediction(7.00, 7.53)
@@ -430,7 +505,8 @@ disagree.</p>
 
 
 def main():
-    return write_pages(HERE, {"index.html": build_index()})
+    return write_pages(HERE, {"index.html": build_index(),
+                              "progress_curves.html": build_curves_page()})
 
 
 if __name__ == "__main__":

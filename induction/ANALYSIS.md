@@ -27,8 +27,11 @@ enough runs to have an error bar worth quoting.
     python induction/check_numbers.py
 
 **Figures**: [`index.html`](index.html) is the presentation — nine figures, A
-to I, one per claim below. It is rebuilt by `build_figures.py`, which computes
-nothing.
+to I, one per claim below. [`progress_curves.html`](progress_curves.html)
+carries **both channels of the 4OMe block**, 147 catalysed and 49 enzyme-free,
+each with the form it earned and its induction landmark — §1's claim is a
+contrast, so a page showing only the catalysed half would show only the half
+that agrees. Both are rebuilt by `build_figures.py`, which computes nothing.
 
 Related: [`../temperature_series/`](../temperature_series/ANALYSIS.md) for the
 activation parameters, [`../product_fate/`](../product_fate/ANALYSIS.md) for the

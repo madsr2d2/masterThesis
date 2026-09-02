@@ -8,6 +8,7 @@ printed two different ways four sections apart.
 
     python induction/check_numbers.py
 """
+import io
 import os
 import sys
 
@@ -388,12 +389,24 @@ def main():
     doc.figures(os.path.join(HERE, "index.html"), "ABCDEFGHI")
     doc.claim("the document's own count of them", "nine figures, A\nto I")
 
+    print("\nthe curves page draws both channels, whole")
+    page = io.open(os.path.join(HERE, "progress_curves.html"),
+                   encoding="utf-8").read()
+    drawn = page.count("<div class='fig panel'>")
+    live = named["4OMe catalysed"], named["4OMe enzyme-free"]
+    expected = sum(int(block.live.sum()) for block in live)
+    doc.check("one panel per live 4OMe cuvette, both channels",
+              drawn == expected, f"{drawn} panels, {expected} curves")
+    doc.check("the enzyme-free control is drawn, not summarised",
+              "enzyme-free —" in page)
+
     print("\nthe figures: no data point drawn outside its own frame")
     # Marks are clipped to the plot area deliberately, so a data point outside
     # the axis limits vanishes silently and the figure still looks complete.
     # That is how exp 6 sample 4 went missing from a curvature figure for as
     # long as it existed: no number changes, so no prose check could see it.
-    doc.unclipped(os.path.join(HERE, "index.html"))
+    doc.unclipped(os.path.join(HERE, "index.html"),
+                  os.path.join(HERE, "progress_curves.html"))
     return doc.summary()
 
 

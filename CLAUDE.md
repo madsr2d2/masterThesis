@@ -117,6 +117,19 @@ light `SURFACE` its palette was validated against.
 - **`write_pages` reports clipped marks at build time**, which two of the five
   folders did and three did not. A mark outside the axis limits vanishes
   silently and the figure still looks finished, so the build has to say so.
+- **Every folder has a `progress_curves.html`**, and it is the audit surface:
+  `index.html` presents the argument, the curves page shows the fits the
+  argument is read off. Build one with `progress_axes`, `progress_overlay` and
+  `panel`; `progress_overlay` draws WHICHEVER FORM THE CURVE EARNED and asserts
+  the fit is narrower than a mark. Draw the window a statistic was read
+  through, and take it from the fit -- `sink_fit.tail_start` exists because a
+  page that guessed the tail would draw a different window from the one that
+  was fitted.
+- **A curves page shows the whole block, including the control.** `induction/`
+  draws both channels because its first claim is a contrast, and a page with
+  only the catalysed half would show only the half that agrees. Each folder's
+  `check_numbers.py` asserts one panel per live curve, so a page cannot lose
+  one quietly.
 
 ## The temperature series
 

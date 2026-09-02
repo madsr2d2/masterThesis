@@ -6,6 +6,7 @@ typed into a document is a copy, and copies in this project have gone stale.
 
     python buffer/check_numbers.py
 """
+import io
 import os
 import sys
 
@@ -200,8 +201,19 @@ def main():
     doc.figures(os.path.join(HERE, "index.html"), "ABCDE")
     doc.claim("the document's own count of them", "five figures, A to\nE")
 
+    print("\nthe curves page draws every cuvette it claims to")
+    page = io.open(os.path.join(HERE, "progress_curves.html"),
+                   encoding="utf-8").read()
+    drawn = page.count("<div class='fig panel'>")
+    live = scope.frame(buffer_role.TITRATIONS)
+    doc.check("one panel per titration cuvette",
+              drawn == len(live), f"{drawn} panels, {len(live)} cuvettes")
+    doc.check("and it names the window it reads the landmark through",
+              f"{induction.BUFFER_WINDOW:.0f} seconds" in page)
+
     print("\nthe figures: no data point drawn outside its own frame")
-    doc.unclipped(os.path.join(HERE, "index.html"))
+    doc.unclipped(os.path.join(HERE, "index.html"),
+                  os.path.join(HERE, "progress_curves.html"))
     return doc.summary()
 
 

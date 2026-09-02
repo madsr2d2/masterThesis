@@ -19,7 +19,9 @@ cannot.
     python buffer/check_numbers.py
 
 **Figures**: [`index.html`](index.html) is the presentation — five figures, A to
-E, one per claim below.
+E, one per claim below. [`progress_curves.html`](progress_curves.html) carries
+all 20 titration cuvettes with the form each earned and the 450 s landmark §6
+is read through, which is the audit surface for every number here.
 
 Related: [`../background_reaction/`](../background_reaction/ANALYSIS.md) §5–6b
 owns the uncatalysed buffer order and is not restated here;

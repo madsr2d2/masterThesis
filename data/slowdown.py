@@ -453,6 +453,12 @@ class SinkFit:
     decline: float
     windows: float
     points: int
+    # Where the tail this was read from begins: the time of the rolling-rate
+    # MAXIMUM, not t = 0. Carried on the fit so a curve page can draw the
+    # window the constant came from instead of re-deriving it -- the tail is
+    # chosen by the data, and a page that guessed it would be drawing a
+    # different window from the one that was fitted.
+    tail_start: float = np.nan
 
     @property
     def prefers(self):
@@ -488,7 +494,7 @@ def sink_fit(curve, fraction=SINK_WINDOW, decline=SINK_DECLINE):
     values = np.asarray(curve.absorbance, dtype=float)
     floor = source_floor(curve.source)
     centres, slopes = rolling_slope(times, values, fraction, floor)
-    blank = SinkFit(*([np.nan] * 8), 0)
+    blank = SinkFit(*([np.nan] * 8), 0, np.nan)
     if len(slopes) < SINK_MINIMUM_POINTS:
         return blank
     product = np.interp(centres, times, values) - values[0]
@@ -516,7 +522,8 @@ def sink_fit(curve, fraction=SINK_WINDOW, decline=SINK_DECLINE):
         ki=(float(inverse_intercept / inverse_slope)
             if inverse_slope != 0 else np.nan),
         rate_r2=rate_r2, reciprocal_r2=reciprocal_r2,
-        decline=fallen, windows=float(independent), points=int(len(rate)))
+        decline=fallen, windows=float(independent), points=int(len(rate)),
+        tail_start=float(centres[top]))
 
 
 def sink_table(experiments, fraction=SINK_WINDOW, decline=SINK_DECLINE):
