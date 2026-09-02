@@ -41,6 +41,9 @@ CATEGORY = ["#2f6fb0", "#c0522a", "#8a5aa8"]
 # AND a near-black surface at once -- it needs the lightness range that the
 # contrast rule would spend.
 SURFACE = "#fbfbfa"
+# Narrower than the smallest mark diameter used on a progress panel, so the
+# fit never covers a reading whole. See build_curves_page.
+FIT_WIDTH = 1.5
 
 EXTRA_CSS = """
 .fig{background:#fbfbfa;border-color:#e4e4e2}
@@ -459,19 +462,28 @@ def build_curves_page():
             smooth = np.linspace(0, times[-1], 200)
             fitted = (burst.c + burst.v_ss * smooth
                       - burst.B * (1.0 - np.exp(-smooth / burst.tau)))
-            # DATA FIRST, FIT ON TOP. The fit is the claim the panel is making
-            # and it has to be visible; drawn underneath, 368 readings bury it.
-            # Radius and ring both scale with density: at 368 points the marks
-            # sit 0.7 px apart, so a white ring would cover its neighbour's
-            # fill and the series would read as a white band.
+            # DATA FIRST, FIT ON TOP, AND THE FIT MUST BE NARROWER THAN THE
+            # MARKS. Three passes to get this right, so the constraint is
+            # written down rather than re-derived:
+            #
+            #   1. fit under the data   -> 368 readings bury the fit
+            #   2. fit over the data, 2.0 px wide on a 3.6 px white halo
+            #      -> the halo is wider than a mark, so wherever the curve is
+            #         tight the fit erases the very points it is fitting
+            #   3. this: a light-grey scatter with a thin rust line over it.
+            #
+            # Separation is by HUE and LIGHTNESS, not by a halo: grey cloud,
+            # dark rust line. FIT_WIDTH stays below the mark diameter so a mark
+            # centred on the line still shows on both sides -- asserted below,
+            # because it is the property that keeps both visible and it is easy
+            # to break by nudging a radius.
             dense = len(times) > 150
-            axes.points(times, values, INK, radius=1.3 if dense else 2.1,
-                        opacity=0.6 if dense else 0.8,
+            radius = 1.6 if dense else 2.1
+            axes.points(times, values, MUTED, radius=radius,
+                        opacity=0.75 if dense else 0.9,
                         stroke=None if dense else "white", stroke_width=0.6)
-            # A white halo under the fit, so it stays legible wherever it
-            # crosses the densest part of the data.
-            axes.line(smooth, fitted, "#ffffff", width=3.6, opacity=0.85)
-            axes.line(smooth, fitted, ACCENT, width=2.0)
+            assert FIT_WIDTH < 2 * radius, "fit line would cover the marks"
+            axes.line(smooth, fitted, ACCENT, width=FIT_WIDTH)
             where, before, after, ratio = segmented_fit(times, values)
             if np.isfinite(where):
                 py = axes._fy(np.interp(where, times, values))

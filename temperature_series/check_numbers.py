@@ -340,6 +340,35 @@ def main():
           f"gate and {strongly} exceed z = +15")
 
 
+    print("\nthe figures: the fit never covers the data it is fitting")
+    # Three passes were needed to get this right -- fit under the data, then
+    # fit over it on a white halo wider than a mark, then this -- so the
+    # invariant is checked rather than remembered. On the tightest panel the
+    # scatter is sub-pixel, so the only thing keeping the readings visible is
+    # that the line is narrower than a mark.
+    import re
+    panels = io.open(os.path.join(HERE, "progress_curves.html"),
+                     encoding="utf-8").read().split("<div class='fig panel'>")[1:]
+    worst = None
+    for block in panels:
+        marks = re.findall(r"<circle cx='[\d.]+' cy='[\d.]+' r='([\d.]+)'", block)
+        line = re.search(r"stroke='#c0522a' stroke-width='([\d.]+)'", block)
+        if not marks or not line:
+            continue
+        margin = 2 * float(marks[0]) - float(line.group(1))
+        worst = margin if worst is None else min(worst, margin)
+    ok = worst is not None and worst > 0
+    print(f"  {'pass' if ok else 'FAIL'}  the fit is narrower than a mark on "
+          f"every panel: {worst:.2f} px of margin at worst")
+    if not ok:
+        FAILURES.append("the fit line is at least as wide as a data mark, so a "
+                        "reading centred on it is covered whole")
+    # And nothing white is drawn over the data: a halo erases rather than
+    # overlays, which is what the second attempt did.
+    haloed = [b for b in panels if "stroke='#ffffff'" in b]
+    check("no white halo is drawn over the readings", not haloed,
+          f"{len(haloed)} panels")
+
     print("\nthe figures: no data point drawn outside its own frame")
     # Marks are clipped to the plot area deliberately, so a data point outside
     # the axis limits vanishes silently and the figure still looks complete.

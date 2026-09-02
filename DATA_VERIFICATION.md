@@ -78,8 +78,22 @@ of a quantisation floor.
 ### Also fixed, from the same message
 
 - **The fit was drawn behind the data** in the temperature-series panels, and
-  368 readings buried it. Data first, fit on top, with a white halo under the
-  fit so it stays legible across the densest stretch.
+  368 readings buried it. It took three passes, and the second was worse than
+  the first:
+
+  1. fit under the data — the readings bury the fit;
+  2. fit over the data, 2.0 px wide on a 3.6 px **white** halo — the halo is
+     wider than a mark, so wherever the curve is tight the fit *erases* the very
+     points it is fitting. This is what exp 14 showed: its scatter about the fit
+     is **0.84 px**, sub-pixel, so the halo covered the lot;
+  3. a light-grey scatter with a thin rust line over it, separated by hue and
+     lightness rather than by a halo.
+
+  On the tightest panel the cloud is now ~5.9 px thick against a 1.5 px line,
+  leaving **2.2 px of data visible on each side**. `FIT_WIDTH` is asserted below
+  the mark diameter in `build_figures.py` — the build refuses to write a page
+  that violates it — and `check_numbers` re-checks it on the rendered page along
+  with "no white is drawn over the readings".
 - **The white ring on each mark inverts at high density.** It separates
   overlapping marks and is right for a dozen points; at 368 readings in 270 px
   they sit 0.7 px apart and each ring covers its neighbour's fill, so the series
