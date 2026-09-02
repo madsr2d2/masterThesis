@@ -40,7 +40,8 @@ def _normalise(text):
                          .replace("τ", "tau")
                          .replace("σ", "sigma")
                          .replace("µ", "u").replace("μ", "u")
-                         .replace("°", ""))
+                         .replace("°", "")
+                         .replace("`", "").replace("*", ""))
                     .split())
 
 
@@ -251,6 +252,24 @@ def main():
           f"{effect['sink_temperatures'][-1] - 273.15:.0f} C")
     check("the corrected route is the noisier one",
           effect["corrected"]["rms"] > effect["published"]["rms"])
+
+    print("\nthe sink constant's window systematic")
+    sweep = slowdown.sink_window_sensitivity()
+    for row in sweep.itertuples():
+        claim(f"window {row.window:.2f}: the sink activation energy",
+              f"| {row.activation_kJ:.1f} +/- {row.stderr_kJ:.1f} |")
+        claim(f"window {row.window:.2f}: the shift it implies",
+              f"{row.shift_kJ:+.2f} +/- {row.shift_stderr:.2f}")
+    claim("the spread across windows",
+          f"rises by {sweep.attrs['activation_spread']:.0f} kJ/mol")
+    check("and the null holds at every one of them",
+          sweep.attrs["null_holds"],
+          f"{sweep.shift_kJ.round(2).tolist()} against "
+          f"{sweep.shift_stderr.round(2).tolist()}")
+    check("the guard keeps every curve the published window admits",
+          int(sweep[np.isclose(sweep.window, slowdown.SINK_WINDOW)]
+              .curves.iloc[0]) == 8,
+          f"{sweep.curves.tolist()}")
 
     print("\nthe figures: lettered once each, in order")
     # The sibling folder had J and K twice for as long as it had a section 3a,

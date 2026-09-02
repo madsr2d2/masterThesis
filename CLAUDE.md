@@ -97,6 +97,13 @@ same chemistry with no enzyme declines on a clock instead. It is its own folder
 and not part of `temperature_series/` because the discrimination needs 84 curves
 across the whole 4OMe archive; the temperature series' 23 cannot make it.
 
+The sink's own activation energy carries a **window systematic larger than its
+error** — 72 kJ/mol at the published window and 102 at 0.30, because a wider
+window smooths the slow cold curves more than the fast warm ones. Quote it as
+"72 with a systematic of about +30", never as 72.3 ± 10.0.
+`slowdown.sink_window_sensitivity` is the sweep, and the null it feeds is
+unaffected.
+
 `data/slowdown.py` has the machinery. Use `deceleration_drivers` before
 asserting that anything in this archive slowed down "over time" — one progress
 curve cannot tell time from product, because inside a curve the product only

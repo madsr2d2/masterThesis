@@ -392,6 +392,20 @@ def decay_point(curve, fraction=0.5, samples=4000):
 # windows to regress.
 SINK_WINDOW = 0.15
 SINK_MINIMUM_POINTS = 8
+# HOW MUCH INDEPENDENT INFORMATION THE TAIL HAS TO CONTAIN, as a multiple of
+# the window's own width. `SINK_MINIMUM_POINTS` counts window POSITIONS, and
+# consecutive positions overlap by all but one reading, so it can be satisfied
+# by a tail shorter than a single window -- a straight line drawn through less
+# than one independent measurement of the rate.
+#
+# That is not hypothetical. At a window of 0.30 of the run the 15 and 20 C
+# cuvettes are admitted with tails of 0.32, 0.47 and 0.54 windows, they return
+# a k at 15 C larger than the k at 25 C, and the sink's activation energy
+# collapses from 72.3 +- 10.0 to 7.9 +- 33.0 -- which then breaks
+# `sink_effect_on_activation`'s null, the one this package's section 5 rests
+# on. 1.5 keeps every curve the published window admits (the tightest is 2.08)
+# and rejects all three of those. `sink_window_sensitivity` prints the sweep.
+SINK_MINIMUM_WINDOWS = 1.5
 # A curve has to be described by the straight line before which straight line
 # it is can be argued about. 0.95 keeps the curves whose decline is deep
 # enough to have a shape and drops the ones whose "decline" is a slope through
@@ -437,6 +451,7 @@ class SinkFit:
     rate_r2: float
     reciprocal_r2: float
     decline: float
+    windows: float
     points: int
 
     @property
@@ -473,13 +488,21 @@ def sink_fit(curve, fraction=SINK_WINDOW, decline=SINK_DECLINE):
     values = np.asarray(curve.absorbance, dtype=float)
     floor = source_floor(curve.source)
     centres, slopes = rolling_slope(times, values, fraction, floor)
-    blank = SinkFit(*([np.nan] * 7), 0)
+    blank = SinkFit(*([np.nan] * 8), 0)
     if len(slopes) < SINK_MINIMUM_POINTS:
         return blank
     product = np.interp(centres, times, values) - values[0]
     top = int(np.argmax(slopes))
     rate, made = slopes[top:], product[top:]
     if len(rate) < SINK_MINIMUM_POINTS or not np.all(rate > 0):
+        return blank
+    # The tail in units of the window it is read through. See
+    # SINK_MINIMUM_WINDOWS: the point count above cannot catch this, because
+    # window positions overlap.
+    width = fraction * float(times[-1] - times[0])
+    independent = (float(centres[-1] - centres[top]) / width
+                   if width > 0 else np.nan)
+    if not independent >= SINK_MINIMUM_WINDOWS:
         return blank
     fallen = float(rate[-1] / rate[0])
     if fallen > decline:
@@ -493,7 +516,7 @@ def sink_fit(curve, fraction=SINK_WINDOW, decline=SINK_DECLINE):
         ki=(float(inverse_intercept / inverse_slope)
             if inverse_slope != 0 else np.nan),
         rate_r2=rate_r2, reciprocal_r2=reciprocal_r2,
-        decline=fallen, points=int(len(rate)))
+        decline=fallen, windows=float(independent), points=int(len(rate)))
 
 
 def sink_table(experiments, fraction=SINK_WINDOW, decline=SINK_DECLINE):
@@ -514,6 +537,7 @@ def sink_table(experiments, fraction=SINK_WINDOW, decline=SINK_DECLINE):
             "v0": fitted.v0, "k_sink": fitted.k, "plateau": fitted.plateau,
             "ki": fitted.ki, "rate_r2": fitted.rate_r2,
             "reciprocal_r2": fitted.reciprocal_r2, "decline": fitted.decline,
+            "windows": fitted.windows,
             "prefers": fitted.prefers, "points": fitted.points,
         })
     return pd.DataFrame(rows)
@@ -771,6 +795,12 @@ def report(frame=None):
 
     print("\n5. WHAT IT DOES TO THE ACTIVATION PARAMETERS")
     effect = sink_effect_on_activation()
+    sweep = sink_window_sensitivity()
+    print("\n   what the sink constant owes to its window:")
+    print(sweep.to_string(index=False))
+    print(f"   activation spread across windows "
+          f"{sweep.attrs['activation_spread']:.1f} kJ/mol; "
+          f"the null holds at every width: {sweep.attrs['null_holds']}")
     print(f"   the sink's own Ea  {effect['sink_activation_kJ']:.1f} +/- "
           f"{effect['sink_stderr_kJ']:.1f} kJ/mol, on "
           + ", ".join(f"{t - 273.15:.0f}" for t in effect["sink_temperatures"])
@@ -849,6 +879,79 @@ def sink_activation(experiments, floor=SINK_ARRHENIUS_R2):
     fit["temperatures"] = [float(k) for k in grouped.index]
     fit["curves"] = int(len(live))
     return fit
+
+
+# The windows `sink_window_sensitivity` sweeps. 0.15 is what everything here is
+# quoted at; the others are there to put a systematic on it.
+SINK_WINDOW_SWEEP = (0.15, 0.20, 0.25, 0.30)
+
+
+def sink_window_sensitivity(experiments=None, widths=SINK_WINDOW_SWEEP,
+                            floor=SINK_ARRHENIUS_R2):
+    """
+    What the sink's rate constant, and everything pinned to it, owe to the window.
+
+    `k` is read as the slope of the rolling rate against the product already
+    made, and that rolling rate comes through a window that is a FRACTION of
+    the run -- so a comparison of k across runs of 1470 and 17934 s is a
+    comparison through windows that differ twelvefold. This sweeps the width
+    and reports what moves.
+
+    WHAT IT FOUND, and the reason it exists. Two things, and only one of them
+    was a defect:
+
+      the sink's own activation energy is WINDOW-DEPENDENT, rising 72 -> 88 ->
+      95 -> 102 kJ/mol across 0.15 to 0.30 because a wider window smooths the
+      slow cold curves more than the fast warm ones and flattens their
+      rate-against-product slope. That systematic is larger than the +- 10.0
+      statistical error and belongs beside it.
+
+      the NULL that section 5 rests on -- that naming the fall does not move
+      the activation parameters -- holds at every width, and holds more
+      strongly as the window widens. That is the load-bearing result and it is
+      not affected.
+
+    Before `SINK_MINIMUM_WINDOWS` existed a width of 0.30 also admitted three
+    cold cuvettes whose tail was shorter than a single window, returned a k at
+    15 C larger than the k at 25 C, and broke the null. That is a guard now
+    rather than a caveat.
+    """
+    import pandas as pd
+    experiments = (scope.TEMPERATURE_SERIES if experiments is None
+                   else experiments)
+    original = sink_table.__defaults__
+    rows = []
+    try:
+        for width in widths:
+            sink_table.__defaults__ = (width, original[1])
+            live = sink_constants(experiments, floor=floor)
+            row = {"window": float(width), "curves": int(len(live)),
+                   "temperatures": int(live.kelvin.nunique())}
+            try:
+                fit = sink_activation(experiments, floor=floor)
+                row["activation_kJ"] = fit["activation_kJ"]
+                row["stderr_kJ"] = fit["stderr_kJ"]
+            except ValueError:
+                row["activation_kJ"] = np.nan
+                row["stderr_kJ"] = np.nan
+            try:
+                effect = sink_effect_on_activation(experiments, floor=floor)
+                row["shift_kJ"] = effect["activation_shift"]
+                row["shift_stderr"] = effect["activation_shift_stderr"]
+            except ValueError:
+                row["shift_kJ"] = np.nan
+                row["shift_stderr"] = np.nan
+            rows.append(row)
+    finally:
+        sink_table.__defaults__ = original
+    table = pd.DataFrame(rows)
+    good = table[np.isfinite(table.activation_kJ)]
+    table.attrs["activation_spread"] = (float(good.activation_kJ.max()
+                                              - good.activation_kJ.min())
+                                        if len(good) else np.nan)
+    table.attrs["null_holds"] = bool(
+        (table.shift_kJ.abs() < table.shift_stderr).all())
+    return table
 
 
 def production_frame(experiments=None, floor=SINK_ARRHENIUS_R2):

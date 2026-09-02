@@ -256,6 +256,39 @@ would trade a bias smaller than the error for a variance larger than it.
 fitted to three temperatures (25, 35 and 40 °C — the only ones whose curves turn
 over far enough to give a slope) and extrapolated down to 15 °C.
 
+### That activation energy carries a window systematic larger than its error
+
+`k` is the slope of the rolling rate against the product already made, and the
+rolling rate comes through a window that is a **fraction of the run** — so
+comparing `k` across runs of 1470 s and 17934 s compares windows that differ
+twelvefold. Sweeping the width (`slowdown.sink_window_sensitivity`):
+
+| window | curves | E<sub>a</sub>(sink), kJ/mol | shift on `v_prod`, kJ/mol |
+|---|---|---|---|
+| **0.15** — quoted above | 8 | **72.3 ± 10.0** | −2.96 ± 3.83 |
+| 0.20 | 7 | 88.1 ± 3.3 | −1.99 ± 3.86 |
+| 0.25 | 9 | 95.4 ± 4.4 | −1.64 ± 3.88 |
+| 0.30 | 9 | 102.5 ± 3.3 | −1.41 ± 3.89 |
+
+**The sink's activation energy rises by 30 kJ/mol across that range** — a wider
+window smooths the slow cold curves more than the fast warm ones and flattens
+their rate-against-product slope, so the 25 °C `k` falls from 1.7 to 0.96 ×
+10⁻⁵ while the 40 °C one does not move. That systematic is three times the
+statistical error and belongs beside it: read the number as **72 kJ/mol with a
+window systematic of about +30**, not as 72.3 ± 10.0.
+
+**The null this section rests on is not affected.** The shift on `v_prod` stays
+inside its own error at every width, and gets smaller as the window widens.
+
+*And one guard came out of the sweep.* At 0.30 the fit used to admit three cold
+cuvettes whose post-maximum tail was **shorter than a single window** — 0.32,
+0.47 and 0.54 of one — because `SINK_MINIMUM_POINTS` counts window *positions*
+and consecutive positions overlap by all but one reading. They returned a `k` at
+15 °C larger than the `k` at 25 °C, collapsed the sink Arrhenius to 7.9 ± 33.0,
+and broke the null (−13.15 ± 3.64, outside its error). `SINK_MINIMUM_WINDOWS`
+now requires the tail to be at least 1.5 window-widths long; the published
+window's tightest curve is 2.08, so nothing quoted here moved.
+
 ## 6. What this settles, and what it does not
 
 **Settled.** The fall is set by the product; it belongs to the catalysed pathway

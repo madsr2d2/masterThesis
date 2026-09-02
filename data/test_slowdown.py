@@ -266,6 +266,52 @@ def test_pinning_k_recovers_the_production_rate():
           f"passes, pinning may no longer be necessary")
 
 
+def test_the_tail_has_to_be_longer_than_its_own_window():
+    """
+    SINK_MINIMUM_POINTS counts overlapping window positions and cannot catch a
+    tail shorter than one window. This is the guard that can.
+
+    Planted: a curve whose rate turns over only at the very end, so its tail is
+    a fraction of a wide window. Without the guard it yields a `k` drawn
+    through less than one independent measurement of the rate.
+    """
+    print("\nthe tail's own length")
+    times, values = sink_curve(v=5e-5, k=8e-5, tau=300.0, span=6000.0,
+                               points=360, seed=3)
+    curve = FakeCurve(times, values)
+    wide = sink_fit(curve, fraction=0.45)
+    narrow = sink_fit(curve, fraction=0.15)
+    check("a window wide enough to swallow the tail is refused",
+          not np.isfinite(wide.k), f"k = {wide.k}")
+    check("and the same curve at a workable window is not",
+          np.isfinite(narrow.k) and narrow.windows >= slowdown.SINK_MINIMUM_WINDOWS,
+          f"k = {narrow.k:.3g}, {narrow.windows:.2f} windows")
+    check("the threshold is stated, not implied",
+          slowdown.SINK_MINIMUM_WINDOWS >= 1.0,
+          f"{slowdown.SINK_MINIMUM_WINDOWS}")
+
+
+def test_the_sink_window_does_not_carry_the_null():
+    """
+    The published null must hold at every window, and the systematic must be
+    reported rather than hidden -- it is three times the statistical error.
+    """
+    print("\nthe sink constant's window")
+    sweep = slowdown.sink_window_sensitivity()
+    check("the null holds at every width", sweep.attrs["null_holds"],
+          f"{sweep.shift_kJ.round(2).tolist()}")
+    check("the activation energy does not: it spreads by 30 kJ/mol",
+          abs(sweep.attrs["activation_spread"] - 30.1) < 0.5,
+          f"{sweep.attrs['activation_spread']:.1f}")
+    check("which is larger than the error quoted at the published window",
+          sweep.attrs["activation_spread"]
+          > 2 * float(sweep[np.isclose(sweep.window,
+                                       slowdown.SINK_WINDOW)].stderr_kJ.iloc[0]))
+    check("and the published width still admits its 8 curves",
+          int(sweep[np.isclose(sweep.window, slowdown.SINK_WINDOW)]
+              .curves.iloc[0]) == 8, f"{sweep.curves.tolist()}")
+
+
 def test_regressions():
     """The published numbers, so a refactor cannot move them quietly."""
     print("\npublished numbers")
@@ -308,6 +354,8 @@ if __name__ == "__main__":
     test_the_driver_regression_tells_a_clock_from_a_product()
     test_selectivity_and_plateau_scaling()
     test_pinning_k_recovers_the_production_rate()
+    test_the_tail_has_to_be_longer_than_its_own_window()
+    test_the_sink_window_does_not_carry_the_null()
     test_regressions()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)
