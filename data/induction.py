@@ -206,6 +206,7 @@ def induction_table(experiments, frame=None):
     experiments = tuple(experiments)
     if frame is None:
         frame = scope.frame(experiments)
+    frame = sign_table(frame)
     rows = []
     for curve in scope.curves(experiments):
         found = induction_point(curve)
@@ -875,6 +876,186 @@ def signal_control(table, floor=INDUCTION_FLOOR):
             "signal_points": int(len(live))}
 
 
+# ---------------------------------------------------------------------------
+# WHICH WAY THE INDUCTION POINTS.
+#
+# Everything above measures how LONG the induction is on curves that have one.
+# The archive also contains curves that begin FAST and slow down, and until
+# `progress_kind` reached `scope.frame` on 2026-09-02 nothing here could tell
+# the two apart: `depth` is 1 - start/peak and cannot go below zero, so a curve
+# that is fastest in its first window and one that starts a hair below its peak
+# both read as "no induction".
+#
+# The sign comes from the form the curve earned, on the convention B > 0 means
+# the rate starts BELOW its eventual value. The two-phase form has carried both
+# signs since it was written -- `B1 > 0 > B2` is a lag then a fall, `B1 < 0` a
+# burst -- so nothing needed refitting; what was missing was reading it.
+LAG_FIRST_KINDS = ("lag", "lag then fall", "two lags")
+
+
+def sign_table(frame):
+    """
+    The frame with `lag_first`: does this curve begin below its eventual rate?
+
+    A BINARY, and deliberately. The obvious continuous statistic is the fast
+    phase's amplitude, `B_fast`, normalised by the run's own signal -- and it
+    is unusable. When the two exponentials are nearly degenerate the linear
+    solve trades enormous opposite amplitudes between them (exp 135 sample 3
+    comes back with B_fast = -241 and B_slow = +303 on a curve that moves 0.06
+    AU), so `B_fast/net` has an interquartile range of 1.8 and a 10-90 range of
+    35. The SIGN of that trade is stable where its size is not.
+    """
+    table = frame.copy()
+    table["lag_first"] = table.progress_kind.isin(LAG_FIRST_KINDS)
+    return table
+
+
+def ladder_arms(table):
+    """
+    Split exps 135-151's L into the two arms that each move one thing.
+
+    The seven cuvettes of an in-scope run are not a grid: four step the
+    substrate at the run's top peroxide, and four step the peroxide at the run's
+    top substrate, sharing the corner. Pooled, `log[S]` and `log[H2O2]`
+    correlate about -0.5 by construction, so a banded table against either axis
+    is reading the other one too. Splitting is not optional here -- the pooled
+    bands say the sign tracks peroxide at 10% against 56%, and inside the
+    peroxide arm alone that effect is gone.
+    """
+    live = table[table.live]
+    top_substrate = live.groupby("experiment").s0.transform("max")
+    top_peroxide = live.groupby("experiment").h2o2.transform("max")
+    return {"substrate arm": live[np.isclose(live.h2o2, top_peroxide)],
+            "peroxide arm": live[np.isclose(live.s0, top_substrate)]}
+
+
+def sign_drivers(table, axis="s0", control=True):
+    """
+    Does the sign of the induction track `axis`, within runs?
+
+    A LINEAR PROBABILITY MODEL: least squares of the 0/1 `lag_first` on
+    `log(axis)` with one offset per experiment. Not a logit, and the reason is
+    the design rather than taste -- 63 rows carrying 17 run offsets separate
+    perfectly in several runs, where a logit's coefficient runs to infinity and
+    its standard error with it. What is wanted here is a direction and a rough
+    size, and for that the linear model is honest as long as it is read as one:
+    the coefficient is a change in probability per e-fold of `axis`, and it is
+    not constrained to keep the fitted values inside [0, 1].
+
+    `control=True` adds each curve's own signal-to-noise. It has to be there:
+    on a curve with little signal the two-phase fit has little to choose
+    between the shapes, and the sign it returns leans burst. In-scope the share
+    of lag-first curves rises from 0.29 to 0.50 across the signal-to-noise
+    quartiles. What makes the substrate result below worth reporting is that it
+    runs AGAINST that lean rather than with it.
+    """
+    live = table[table.live & np.isfinite(table[axis]) & (table[axis] > 0)
+                 & (table.net > 0) & (table.noise > 0)].copy()
+    if len(live) < 8 or live[axis].nunique() < 2:
+        return {"points": int(len(live))}
+    response = live.lag_first.to_numpy(dtype=float)
+    columns = [np.log(live[axis].to_numpy(dtype=float))]
+    names = [axis]
+    if control:
+        columns.append(np.log((live.net / live.noise).to_numpy(dtype=float)))
+        names.append("signal")
+    for experiment in sorted(live.experiment.unique()):
+        columns.append((live.experiment == experiment).to_numpy(float))
+    design = np.column_stack(columns)
+    beta, *_ = np.linalg.lstsq(design, response, rcond=None)
+    resid = response - design @ beta
+    rank = int(np.linalg.matrix_rank(design))
+    variance = float(resid @ resid) / max(1, len(live) - rank)
+    covariance = variance * np.linalg.pinv(design.T @ design)
+    out = {"points": int(len(live)),
+           "experiments": int(live.experiment.nunique()),
+           "lag_first": float(live.lag_first.mean())}
+    for index, name in enumerate(names):
+        out[name] = float(beta[index])
+        out[name + "_stderr"] = float(np.sqrt(max(covariance[index, index],
+                                                  0.0)))
+    return out
+
+
+def composition_collinearity(table):
+    """
+    How far `[S]` and `[buf]` move together inside a run, per block.
+
+    THE CAVEAT THIS FUNCTION EXISTS FOR. In every 4OMe run the substrate was
+    added by volume and displaced buffer, so `[buf]` falls 80 -> 50 mM as `[S]`
+    rises 1.85 -> 7.4: the two correlate at -0.96 in logs. That is already
+    known to corrupt the substrate order of the RATE -- `temperature_series`
+    3 corrects it with the buffer order measured on exps 32 and 34 -- and it
+    corrupts the substrate order of the INDUCTION in exactly the same way.
+
+    Exps 135-151 are the block where it does not: `[buf]` is constant across all
+    seven cuvettes of all seventeen runs, so there `[S]` moves alone.
+
+    Which is why the two blocks may disagree about the substrate without either
+    being wrong, and why `induction_drivers` -- whose regressor is the measured
+    RATE and not a concentration -- is the route in section 3 that this does
+    not reach.
+    """
+    rows = []
+    for experiment, block in table[table.live].groupby("experiment"):
+        if block.s0.nunique() < 2:
+            continue
+        if block.buf.nunique() < 2:
+            rows.append(0.0)
+            continue
+        rows.append(float(np.corrcoef(np.log(block.s0.to_numpy(dtype=float)),
+                                      np.log(block.buf.to_numpy(dtype=float)))
+                          [0, 1]))
+    if not rows:
+        return {"runs": 0}
+    return {"runs": len(rows),
+            "median": float(np.median(rows)),
+            "constant_buffer": int(sum(1 for value in rows if value == 0.0))}
+
+
+# The archive's one direct buffer lever on an induction: exps 32 and 34, 4OMe
+# at 40 C and pH 7.00 with [S] at 8.251 mM and [H2O2] at 82.5 mM on all eight
+# cuvettes, and [buf] stepped 3.125 -> 200 mM. Sixty-four fold, and two runs.
+BUFFER_LEVER = (34, 32)
+
+
+def buffer_lever(table, experiments=BUFFER_LEVER):
+    """
+    Does buffer shorten the induction, as general base catalysis of E -> E* would?
+
+    Returns one row per run with the log-log slope of the induction time on
+    `[buf]` inside it. THE TWO RUNS DISAGREE IN SIGN, which is the answer: this
+    lever is eight curves in two experiments recorded on different days, the
+    step from 25 to 50 mM is also a step between runs, and nothing can be
+    concluded from it. It is reported because the alternative -- leaving the
+    only direct measurement out because it is inconvenient -- is worse, and
+    because the indirect signal in `composition_collinearity` is 28 runs wide
+    and points somewhere.
+    """
+    import pandas as pd
+    rows = []
+    for experiment in experiments:
+        block = table[(table.experiment == experiment) & table.live]
+        block = block[np.isfinite(block.tau_fast) & (block.tau_fast > 0)
+                      & (block.buf > 0)]
+        if len(block) < 3:
+            continue
+        x = np.log(block.buf.to_numpy(dtype=float))
+        y = np.log(block.tau_fast.to_numpy(dtype=float))
+        design = np.column_stack([np.ones(len(x)), x])
+        beta, *_ = np.linalg.lstsq(design, y, rcond=None)
+        resid = y - design @ beta
+        variance = float(resid @ resid) / max(1, len(x) - 2)
+        covariance = variance * np.linalg.pinv(design.T @ design)
+        rows.append({"experiment": int(experiment), "curves": int(len(x)),
+                     "buffer_low": float(block.buf.min()),
+                     "buffer_high": float(block.buf.max()),
+                     "slope": float(beta[1]),
+                     "stderr": float(np.sqrt(covariance[1, 1])),
+                     "lag_first": int(block.lag_first.sum())})
+    return pd.DataFrame(rows)
+
+
 # The cuts this question needs, by the frame's own columns. `slowdown` has the
 # same idea for the fall and a different set of blocks: this one separates the
 # 4OMe archive by CHANNEL, because the catalyst is the variable under test, and
@@ -1043,6 +1224,41 @@ def report(table=None):
           f"({saturation['constant_low']:.4f}-{saturation['constant_high']:.4f})"
           f"   {saturation['bound_fraction']:.0%} bound at "
           f"{saturation['working_mM']:.1f} mM")
+
+    print("\n4c. WHICH WAY THE INDUCTION POINTS, AND WHAT MOVES IT")
+    for name in ("4OMe catalysed", "temperature series",
+                 "BnOH in scope (135-151)", "4OMe enzyme-free"):
+        block = named[name]
+        block = block[block.live]
+        counts = block.progress_kind.value_counts()
+        print(f"   {name:26s} lag-first {int(block.lag_first.sum()):3d} of "
+              f"{len(block):3d}   " + "  ".join(f"{k} {v}" for k, v
+                                                in counts.items()))
+    print("   [S] and [buf] move together inside a run, which is what makes")
+    print("   a substrate order in the 4OMe block an order in the pair:")
+    for name in ("4OMe catalysed", "temperature series",
+                 "BnOH in scope (135-151)"):
+        got = composition_collinearity(named[name])
+        print(f"   {name:26s} {got['runs']:2d} runs with a ladder, "
+              f"median corr(log S, log buf) {got['median']:+.2f}, "
+              f"{got['constant_buffer']} with [buf] constant")
+    print("   P(lag first) per e-fold, within runs, signal-to-noise controlled:")
+    arms = ladder_arms(named["BnOH in scope (135-151)"])
+    for label, block, axis in (("in scope, substrate arm",
+                                arms["substrate arm"], "s0"),
+                               ("in scope, peroxide arm",
+                                arms["peroxide arm"], "h2o2"),
+                               ("4OMe catalysed ([S] and [buf])",
+                                named["4OMe catalysed"], "s0")):
+        for control in (False, True):
+            got = sign_drivers(block, axis=axis, control=control)
+            tail = (f"   signal {got['signal']:+.3f} +- "
+                    f"{got['signal_stderr']:.3f}" if control else "")
+            print(f"   {label:32s} {'+ S/N' if control else '     '} "
+                  f"{axis:5s} {got[axis]:+.3f} +- {got[axis + '_stderr']:.3f}"
+                  f"   n={got['points']:3d}{tail}")
+    print("   the one direct buffer lever, and why it settles nothing:")
+    print(buffer_lever(named["4OMe catalysed"]).to_string(index=False))
 
     print("\n5. THE ACTIVATION PARAMETERS")
     gap = activation_contrast()

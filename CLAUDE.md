@@ -126,6 +126,18 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   either -- `peroxide_saturation` rejects a = 1 at F = 32 on the in-scope
   ladder. Do not assume "first order in H2O2": that is the *unsaturated* limit
   of the scheme, not a consequence of it.
+- **`scope.frame` carries the SIGN of the early curve** -- `progress_kind`,
+  `B_fast`, `B_slow`, from the form the curve earned. `depth` is floored at
+  zero and cannot see a curve that begins fast; the in-scope block splits
+  almost evenly (46 lag-first against 45 burst-first of 110 live), so an
+  induction time averaged over it means little.
+- **`[S]` and `[buf]` move together in every 4OMe run**, at -0.96 in logs,
+  because substrate volume displaced buffer volume. A substrate order measured
+  there is an order in the pair, and `induction.composition_collinearity` is
+  the number. Exps 135-151 are the block where `[buf]` is constant and `[S]`
+  moves alone -- and the two blocks give OPPOSITE substrate effects on the
+  sign of the induction, which is what makes the buffer a live candidate for
+  the E -> E* step.
 - **Run `signal_control` before believing any induction result.** The landmark
   is the first crossing of half the largest rolling slope, so on a curve with no
   signal it measures the spectrophotometer. The catalysed 4OMe block passes

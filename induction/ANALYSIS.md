@@ -26,8 +26,8 @@ enough runs to have an error bar worth quoting.
     python induction/build_figures.py
     python induction/check_numbers.py
 
-**Figures**: [`index.html`](index.html) is the presentation — eight figures, A
-to H, one per claim below. It is rebuilt by `build_figures.py`, which computes
+**Figures**: [`index.html`](index.html) is the presentation — nine figures, A
+to I, one per claim below. It is rebuilt by `build_figures.py`, which computes
 nothing.
 
 Related: [`../temperature_series/`](../temperature_series/ANALYSIS.md) for the
@@ -164,6 +164,20 @@ the composition the operator set:
 | the temperature series | −0.008 ± 0.220 | +0.468 ± 0.039 | −0.02 ± 0.47 |
 
 Less sharp, and it has no bias towards the answer. It agrees.
+
+*What the substrate route rests on, and route one does not.* In every 4OMe run
+the substrate was added by volume and displaced buffer, so `[buf]` falls
+80 → 50 mM as `[S]` rises: the two correlate at **−0.96 in logs** across all 28
+runs with a ladder. Route two's "order in [S]" is therefore an order in the
+*pair*, exactly as `temperature_series` §3 found for the rate — and unlike the
+rate, the induction has no measured buffer order to correct it with (§6). The
+correction would have to be large to matter: the induction's buffer order would
+need to be about **−1.1** for the measured −0.121 to be hiding the −0.471 a
+product threshold requires. **Route one is not reached by any of this**, because
+its regressor is the curve's own measured rate rather than a concentration: it
+asks whether a faster cuvette's induction is shorter, and that question is well
+posed whatever is making the cuvette faster. Exps 135–151, where `[buf]` is
+constant in all seventeen runs, are the block where `[S]` moves alone.
 
 **And the amplitude is a fraction, not a concentration.** `depth`'s substrate
 order is **−0.114 ± 0.169** over the catalysed block and −0.211 ± 0.387 over the
@@ -364,7 +378,117 @@ amplitude has none either, and the same is true of every rung of the ladder in
 every run. Whatever the induction is waiting for, it is not waiting for anything
 whose concentration this archive varies.
 
-## 6. What this settles, and what it does not
+## 6. Which way the induction points, and what moves it
+
+Everything above measures how *long* the induction is on curves that have one.
+The archive also holds curves that begin **fast** and slow down, and `depth`
+cannot see them: it is `1 − start/peak` and cannot go below zero, so a curve
+that is fastest in its first window and one that starts a hair below its peak
+both read as "no induction".
+
+**Nothing needed refitting.** The two-phase form has carried both signs since it
+was written — `A = c + v_ss·t − B₁(1−e^(−t/τ₁)) − B₂(1−e^(−t/τ₂))` with `B > 0`
+a lag and `B < 0` a burst, and `TwoPhaseFit.kind` naming all four combinations.
+What was missing is that `scope.frame` carried the time constants, the peak rate
+and no sign at all, so no analysis in the package could ask which way a curve
+pointed. It now carries `progress_kind`, `B_fast` and `B_slow`.
+
+| block | curves | lag-first | the shapes |
+|---|---|---|---|
+| **4OMe catalysed** | 147 | **98** | 50 lag then fall, 46 lag, 21 burst, 20 mixed, 8 burst then fall, 2 two lags |
+| the temperature series | 24 | **22** | 12 lag, 10 lag then fall, 1 mixed, 1 burst |
+| **BnOH in scope (135–151)** | 110 | **46** | 34 burst, 26 lag then fall, 20 lag, 19 mixed, 11 burst then fall |
+| 4OMe enzyme-free | 49 | **10** | 28 burst, 11 burst then fall, 6 lag then fall, 4 lag |
+
+**So yes, the in-scope curves have an induction — on 46 of 110 of them.** The
+block is not one population: it splits almost evenly between curves that begin
+below their eventual rate and curves that begin above it, which is why a single
+induction time averaged over it has never meant much. The 4OMe blocks are not
+split at all (98 of 147, and 22 of 24 in the temperature series), and the
+enzyme-free block is split the other way (10 of 49) — the same
+catalysed/enzyme-free contrast §2 makes, seen through the shape rather than
+through the depth.
+
+The sign is a **binary** here on purpose. The obvious continuous statistic is
+the fast phase's amplitude normalised by the run's own signal, and it is
+unusable: when the two exponentials are nearly degenerate the linear solve
+trades enormous opposite amplitudes between them — exp 135 sample 3 returns
+`B_fast = −241` and `B_slow = +303` on a curve that moves 0.06 AU — so
+`B_fast/net` has an interquartile range of 1.8. The sign of that trade is stable
+where its size is not.
+
+### What moves it, and the two blocks disagree
+
+A linear probability model: least squares of the 0/1 on `log(axis)` with one
+offset per run. Not a logit, because 63 rows carrying 17 run offsets separate
+perfectly in several runs and a logit's coefficient runs to infinity there. Read
+it as a change in probability per e-fold, and no more than that.
+
+| | axis | alone | with signal-to-noise |
+|---|---|---|---|
+| in scope, **substrate arm** | [S] | −0.054 ± 0.042 | **−0.112 ± 0.052** |
+| in scope, **peroxide arm** | [H₂O₂] | +0.082 ± 0.046 | **−0.011 ± 0.069** |
+| **4OMe catalysed** | [S] | +0.252 ± 0.059 | **+0.182 ± 0.073** |
+
+Three things follow.
+
+**The L has to be split.** Pooled over all seven cuvettes the sign looks like it
+tracks peroxide hard — 10% lag-first below 10 mM against 56% above 30. Inside
+the peroxide arm, where `[S]` is held at the run's top, that effect is gone
+(−0.011 ± 0.069). The pooled version was reading the substrate arm's low-`[S]`
+cuvettes, which all sit at the run's top peroxide.
+
+**Signal-to-noise leans burst, and the substrate result runs against it.** The
+share of lag-first curves rises from 0.29 to 0.50 across the in-scope
+signal-to-noise quartiles: a curve with little signal gives the two-phase fit
+little to choose between the shapes. That is the same objection figure G raises
+against the induction *time*, and here it works in the analysis's favour — more
+substrate means more signal, so the confound pushes towards *lag*, and the
+measured substrate effect is towards **burst** anyway.
+
+**And the two blocks give opposite signs**, −0.112 ± 0.052 against
++0.182 ± 0.073. They differ in exactly one structural way.
+
+### The buffer is the candidate, and the archive cannot confirm it
+
+`[S]` and `[buf]` correlate at **−0.96** inside every 4OMe run and at **0.00**
+inside every in-scope run — `[buf]` is constant across all seven cuvettes of all
+seventeen. So in the 4OMe block "more substrate" also means "less buffer", and
+the two blocks can disagree about the substrate without either being wrong:
+
+> in scope, buffer fixed: **more substrate → burst**
+> 4OMe, buffer falling with substrate: **more substrate → lag**, which is the
+> same as **more buffer → burst**
+
+Read as a buffer effect, that is what **general acid/base catalysis of E → E\***
+predicts: more buffer base, faster activation, and the lag over before the run
+is properly under way. It is the mechanism the temperature series' own numbers
+already hint at from a different direction — the catalysed buffer order of the
+*rate* is +0.400 ± 0.028 at 50–200 mM and +0.803 ± 0.173 below 25, so the buffer
+is doing something to this chemistry that saturates.
+
+**The one direct lever settles nothing.** Exps 32 and 34 hold substrate,
+peroxide, pH and temperature fixed and step `[buf]` 3.125 → 200 mM, which is
+64-fold and is the only such design in the archive. It is eight curves in two
+runs, the step from 25 to 50 mM is also a step between experiments, and the two
+runs disagree in sign:
+
+| run | curves | [buf] | d log τ / d log[buf] |
+|---|---|---|---|
+| exp 34 | 4 | 3.125–25 mM | **+0.457 ± 0.097** |
+| exp 32 | 4 | 50–200 mM | **−1.052 ± 0.469** |
+
+All eight are lag-first, so the shape cannot separate them either. Nothing can
+be concluded, and the honest position is that the 28-run indirect signal points
+somewhere and the 2-run direct one cannot say where.
+
+**This is a design, not a result.** The measurement that would settle it is one
+run with `[buf]` stepped at fixed `[S]` on the *catalysed* 4OMe system at 25 °C,
+where the induction is thousands of seconds long instead of nearly over. It
+belongs beside the pre-incubation experiment in §6 as something the archive
+should have and does not.
+
+## 7. What this settles, and what it does not
 
 **Settled.**
 
@@ -378,6 +502,9 @@ whose concentration this archive varies.
 - It is a **covalent step**: 95 ± 16 kJ/mol is four times too large for
   dissolution, diffusion or thermal equilibration.
 - It is **faster than turnover** by 126× in free energy, as it must be.
+- The **sign** of the early curve is a property of the block: 98 of 147
+  catalysed 4OMe curves begin below their eventual rate, against 10 of 49
+  enzyme-free ones. §6.
 
 **Not settled, and the reasons are different in each case.**
 
@@ -399,7 +526,15 @@ whose concentration this archive varies.
 - **Whether the same thing happens with BnOH.** Exps 135–151 have the peroxide
   design and not the signal-to-noise; their induction statistic tracks the noise
   (+0.619 ± 0.228). The substrate comparison `product_fate` could make at the
-  end of the curve cannot be made at the start.
+  end of the curve cannot be made at the start. What can be said is that the
+  block is not one population: 46 of its 110 live curves begin below their
+  eventual rate and 45 begin above it (§6).
+- **Whether the buffer is what carries E → E\*.** §6. The 4OMe and in-scope
+  blocks give opposite substrate effects on the sign, and they differ in exactly
+  one structural way — `[buf]` falls with `[S]` at −0.96 in one and is constant
+  in the other. Read as a buffer effect it is general acid/base catalysis of the
+  activation, which is a real candidate and is unconfirmable here: the only
+  direct lever is eight curves in two runs whose slopes disagree in sign.
 
 **The three things that would finish it.**
 
@@ -412,6 +547,9 @@ whose concentration this archive varies.
    or off it. §4b gives it a gate it did not have: a computed ΔG° of perhydrate
    formation of **−6 to −10 kJ/mol** would corroborate the trap, and anything
    much more negative would contradict all three routes at once.
-3. The experiment that will not be run: **pre-incubate the catalyst with H₂O₂,
+3. Two experiments that will not be run. **Pre-incubate the catalyst with H₂O₂,
    then add substrate.** If the induction is catalyst activation it disappears;
-   if it is anything that waits for product it does not. One cuvette.
+   if it is anything that waits for product it does not. One cuvette. And
+   **step `[buf]` at fixed `[S]` on the catalysed 4OMe system at 25 °C**, where
+   the induction is thousands of seconds long rather than nearly over — the
+   archive's only buffer titration sits at 40 °C, where it is not.

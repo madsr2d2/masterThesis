@@ -234,6 +234,18 @@ def frame(scope=PRIMARY_SCOPE):
             # How many relaxation phases the curve earned, and the evidence.
             "phases": int(progress.phases),
             "two_phase_f": float(progress.f_statistic),
+            # WHICH WAY THE CURVE POINTS. The sign convention is B > 0 for a
+            # LAG -- the rate starts below its eventual value and rises -- and
+            # B < 0 for a burst. Both forms carry it and until 2026-09-02 this
+            # frame carried neither: the time constants were here, the peak
+            # rate was here, and nothing said whether the curve began slow or
+            # began fast, so no analysis in the package could ask. The in-scope
+            # block splits almost evenly between the two (46 lag-first against
+            # 45 burst-first of 110 live), which is the thing that could not
+            # be seen. See summary_kinetics.ProgressFit.kind.
+            "progress_kind": progress.kind,
+            "B_fast": progress.amplitudes[0],
+            "B_slow": progress.amplitudes[1],
             # THE RATE TO USE ON AN ARRHENIUS PLOT. The largest rate the fitted
             # model reaches: v_ss for a one-phase lag, the interior maximum for
             # a two-phase curve. It is what `vmax` measures off the raw

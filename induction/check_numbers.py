@@ -266,6 +266,51 @@ def main():
           all(-10.0 <= value <= -5.5 for value in energies),
           " ".join(f"{value:+.2f}" for value in energies))
 
+    print("\nsection 6: which way the induction points")
+    for label, name in (("4OMe catalysed", "4OMe catalysed"),
+                        ("the temperature series", "temperature series"),
+                        ("BnOH in scope", "BnOH in scope (135-151)"),
+                        ("4OMe enzyme-free", "4OMe enzyme-free")):
+        block = named[name]
+        block = block[block.live]
+        claim(f"{label}: curves and lag-first",
+              f"| {len(block)} | **{int(block.lag_first.sum())}** |")
+        counts = block.progress_kind.value_counts()
+        claim(f"{label}: the shapes",
+              ", ".join(f"{value} {key}" for key, value in counts.items()))
+    arms = induction.ladder_arms(named["BnOH in scope (135-151)"])
+    for label, block, axis in (("in scope, substrate arm",
+                                arms["substrate arm"], "s0"),
+                               ("in scope, peroxide arm",
+                                arms["peroxide arm"], "h2o2"),
+                               ("4OMe catalysed", named["4OMe catalysed"],
+                                "s0")):
+        alone = induction.sign_drivers(block, axis=axis, control=False)
+        controlled = induction.sign_drivers(block, axis=axis, control=True)
+        claim(f"{label}: alone",
+              f"{alone[axis]:+.3f} +/- {alone[axis + '_stderr']:.3f}")
+        claim(f"{label}: with signal-to-noise",
+              f"**{controlled[axis]:+.3f} +/- "
+              f"{controlled[axis + '_stderr']:.3f}**")
+    for label, name in (("4OMe catalysed", "4OMe catalysed"),
+                        ("BnOH in scope", "BnOH in scope (135-151)")):
+        got = induction.composition_collinearity(named[name])
+        claim(f"{label}: the [S]/[buf] collinearity", f"{got['median']:+.2f}")
+    check("the 4OMe blocks have no run with a constant buffer",
+          induction.composition_collinearity(
+              named["4OMe catalysed"])["constant_buffer"] == 0)
+    check("and every in-scope run has one",
+          induction.composition_collinearity(
+              named["BnOH in scope (135-151)"])["constant_buffer"] == 17)
+    lever = induction.buffer_lever(named["4OMe catalysed"])
+    for row in lever.itertuples():
+        claim(f"exp {row.experiment}: the buffer slope",
+              f"**{row.slope:+.3f} +/- {row.stderr:.3f}**")
+        claim(f"exp {row.experiment}: its range",
+              f"{row.buffer_low:g}\u2013{row.buffer_high:g} mM")
+    check("the two runs disagree in sign", (lever.slope > 0).any()
+          and (lever.slope < 0).any(), f"{lever.slope.round(3).tolist()}")
+
     print("\nsection 5: the activation parameters")
     for label, key in (("the induction", "induction"),
                        ("the turnover", "turnover")):
@@ -308,10 +353,10 @@ def main():
         for line in io.open(os.path.join(HERE, "build_figures.py"),
                             encoding="utf-8").read().splitlines()
         if "·" in line and '"' in line and line.strip().startswith('"')))
-    expected = list("ABCDEFGH")
-    check("eight figures, A to H", letters == expected,
+    expected = list("ABCDEFGHI")
+    check("nine figures, A to I", letters == expected,
           f"{''.join(letters)} against {''.join(expected)}")
-    claim("the document's own count of them", "eight figures, A\nto H")
+    claim("the document's own count of them", "nine figures, A\nto I")
 
     print("\nthe figures: no data point drawn outside its own frame")
     from svgplot import clipped_marks

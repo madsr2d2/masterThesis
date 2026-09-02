@@ -32,6 +32,7 @@ from induction import (DEPTH_FLOOR, INDUCTION_CLOCK_SLOPE, INDUCTION_FLOOR,
                        induction_drivers, induction_point,
                        joint_peroxide_order, order_ratio,
                        peroxide_geometric_mean, peroxide_saturation,
+                       composition_collinearity, ladder_arms, sign_drivers,
                        signal_control, substrate_lever, trap_constant)
 
 FAILURES = []
@@ -345,6 +346,98 @@ def _induction_table():
     return _CACHE["table"]
 
 
+def test_the_sign_comes_off_the_fit_and_not_off_the_depth():
+    """
+    `progress_kind` has to distinguish shapes `depth` cannot.
+
+    depth = 1 - start/peak is floored at zero, so a curve that is fastest in
+    its first window and one that starts just below its peak read the same. The
+    sign has to separate them, and it has to come from the fitted form rather
+    than from the readings' extremes.
+    """
+    print("\nwhich way the curve points")
+    from summary_kinetics import fit_progress
+    times = np.linspace(0.0, 8000.0, 400)
+    # With noise, because a NOISELESS single exponential is not a realistic
+    # input and does not behave like one: its residual falls to numerical dust,
+    # the F test always buys the second phase, and a pure lag comes back as
+    # "two lags" with the one relaxation split across both terms.
+    grain = np.random.default_rng(5).normal(0.0, 2e-4, len(times))
+    lag = 1e-5 * (times - 900.0 * (1.0 - np.exp(-times / 900.0))) + grain
+    burst = 1e-5 * (times + 900.0 * (1.0 - np.exp(-times / 900.0))) + grain
+    check("a lag curve is called one of the lag-first kinds",
+          fit_progress(times, lag).kind in induction.LAG_FIRST_KINDS,
+          fit_progress(times, lag).kind)
+    check("a burst curve is not",
+          fit_progress(times, burst).kind not in induction.LAG_FIRST_KINDS,
+          fit_progress(times, burst).kind)
+    check("the lag's fast amplitude is positive and the burst's negative",
+          fit_progress(times, lag).amplitudes[0] > 0
+          > fit_progress(times, burst).amplitudes[0],
+          f"{fit_progress(times, lag).amplitudes[0]:.4g} and "
+          f"{fit_progress(times, burst).amplitudes[0]:.4g}")
+    clean = 1e-5 * (times + 900.0 * (1.0 - np.exp(-times / 900.0)))
+    check("and induction_point cannot tell a burst from a straight line",
+          induction_point(FakeCurve(times, clean)).depth
+          == induction_point(FakeCurve(times, 1e-5 * times)).depth == 0.0)
+
+    table = _induction_table()
+    check("every live curve in the archive carries a sign",
+          bool(table[table.live].progress_kind.notna().all()))
+    check("and lag_first is exactly the kinds that begin below their rate",
+          set(table[table.lag_first].progress_kind.unique())
+          == set(induction.LAG_FIRST_KINDS)
+          - {"two lags"} | ({"two lags"} if
+                            (table.progress_kind == "two lags").any() else set()),
+          f"{sorted(table[table.lag_first].progress_kind.unique())}")
+
+
+def test_the_L_has_to_be_split_before_it_is_read():
+    """
+    Pooling the in-scope L reports a peroxide effect the peroxide arm denies.
+
+    This is the failure the split exists to prevent, so it is checked rather
+    than described: the pooled fit and the arm have to disagree, and the arm
+    has to be the one that holds [S] fixed.
+    """
+    print("\nthe two arms of the L")
+    table = _induction_table()
+    scoped = induction.induction_blocks(table)["BnOH in scope (135-151)"]
+    arms = ladder_arms(scoped)
+    check("the substrate arm holds [H2O2] fixed inside every run",
+          bool((arms["substrate arm"].groupby("experiment").h2o2.nunique()
+                == 1).all()))
+    check("the peroxide arm holds [S] fixed inside every run",
+          bool((arms["peroxide arm"].groupby("experiment").s0.nunique()
+                == 1).all()))
+    pooled = sign_drivers(scoped, axis="h2o2", control=True)
+    arm = sign_drivers(arms["peroxide arm"], axis="h2o2", control=True)
+    check("the pooled peroxide effect is larger than the arm's",
+          abs(pooled["h2o2"]) > abs(arm["h2o2"]),
+          f"pooled {pooled['h2o2']:+.3f} against arm {arm['h2o2']:+.3f}")
+    check("and inside the arm it is consistent with nothing",
+          abs(arm["h2o2"]) < 2 * arm["h2o2_stderr"],
+          f"{arm['h2o2']:+.3f} +- {arm['h2o2_stderr']:.3f}")
+
+
+def test_the_blocks_differ_in_their_buffer_collinearity():
+    """The caveat section 3 and section 6 both rest on, as a number."""
+    print("\nthe substrate/buffer collinearity")
+    table = _induction_table()
+    blocks = induction.induction_blocks(table)
+    four = composition_collinearity(blocks["4OMe catalysed"])
+    scoped = composition_collinearity(blocks["BnOH in scope (135-151)"])
+    check("[S] and [buf] move together in every 4OMe run",
+          four["median"] < -0.9 and four["constant_buffer"] == 0,
+          f"median {four['median']:+.2f}, {four['constant_buffer']} constant "
+          f"of {four['runs']}")
+    check("and in no in-scope run",
+          scoped["median"] == 0.0
+          and scoped["constant_buffer"] == scoped["runs"],
+          f"median {scoped['median']:+.2f}, {scoped['constant_buffer']} "
+          f"constant of {scoped['runs']}")
+
+
 def test_regressions():
     """The numbers induction/ANALYSIS.md quotes."""
     print("\nthe published numbers")
@@ -466,6 +559,35 @@ def test_regressions():
           abs(drift["pH"]) < drift["pH_stderr"],
           f"{drift['pH']:+.3f} +- {drift['pH_stderr']:.3f}")
 
+    for name, expected in (("4OMe catalysed", (147, 98)),
+                           ("temperature series", (24, 22)),
+                           ("BnOH in scope (135-151)", (110, 46)),
+                           ("4OMe enzyme-free", (49, 10))):
+        block = named[name]
+        block = block[block.live]
+        check(f"{name}: {expected[1]} of {expected[0]} curves begin below "
+              f"their eventual rate",
+              (len(block), int(block.lag_first.sum())) == expected,
+              f"{len(block)}, {int(block.lag_first.sum())}")
+    arms = ladder_arms(named["BnOH in scope (135-151)"])
+    substrate = sign_drivers(arms["substrate arm"], axis="s0", control=True)
+    check("in scope the sign tracks substrate at -0.112 +- 0.052",
+          abs(substrate["s0"] + 0.112) < 0.005
+          and abs(substrate["s0_stderr"] - 0.052) < 0.005,
+          f"{substrate['s0']:+.3f} +- {substrate['s0_stderr']:.3f}")
+    check("against a signal-to-noise lean of the opposite sign",
+          substrate["signal"] > 0,
+          f"{substrate['signal']:+.3f} +- {substrate['signal_stderr']:.3f}")
+    four = sign_drivers(named["4OMe catalysed"], axis="s0", control=True)
+    check("and the 4OMe block gives the opposite sign, +0.182 +- 0.073",
+          abs(four["s0"] - 0.182) < 0.005
+          and abs(four["s0_stderr"] - 0.073) < 0.005,
+          f"{four['s0']:+.3f} +- {four['s0_stderr']:.3f}")
+    buffer = induction.buffer_lever(named["4OMe catalysed"])
+    check("the two buffer runs disagree in sign, which is why nothing follows",
+          (buffer.slope > 0).any() and (buffer.slope < 0).any(),
+          f"{buffer.slope.round(3).tolist()}")
+
     lever = substrate_lever(named["4OMe catalysed"])
     check("the in-run substrate lever is 4.0x on 28 of 38 experiments",
           abs(lever["median_lever"] - 4.0) < 0.01
@@ -482,6 +604,9 @@ if __name__ == "__main__":
     test_the_trap_constant_inverts_its_own_order()
     test_the_floor_does_not_carry_the_answer()
     test_orders_refuse_an_axis_the_block_does_not_move()
+    test_the_sign_comes_off_the_fit_and_not_off_the_depth()
+    test_the_L_has_to_be_split_before_it_is_read()
+    test_the_blocks_differ_in_their_buffer_collinearity()
     test_regressions()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)

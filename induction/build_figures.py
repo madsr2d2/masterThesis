@@ -437,6 +437,71 @@ def figure_peroxide():
         "but both fall the same way.")
 
 
+# The three ways a curve can start, from `progress_kind`. Categorical and
+# unordered-ish, so a validated trio rather than a sequential ramp -- but the
+# two ends ARE opposites, so they take the two ends of the trio and the
+# ambiguous middle takes the muted one.
+SIGN_GROUPS = (("begins below its eventual rate", CATEGORY[0],
+                ("lag", "lag then fall", "two lags")),
+               ("mixed", "#9a9a97", ("mixed",)),
+               ("begins above it", CATEGORY[1],
+                ("burst", "burst then fall")))
+
+
+def figure_which_way():
+    blocks = _blocks()
+    names = (("4OMe catalysed", "4OMe catalysed"),
+             ("temperature series", "the temperature series"),
+             ("BnOH in scope (135-151)", "BnOH, exps 135–151"),
+             ("4OMe enzyme-free", "4OMe, no enzyme at all"))
+    rows = []
+    for key, label in names:
+        block = blocks[key]
+        block = block[block.live]
+        rows.append((label, len(block),
+                     [int(block.progress_kind.isin(kinds).sum())
+                      for _, _, kinds in SIGN_GROUPS]))
+    axes = Axes(680, 268, (0, 1.0), (-0.7, len(rows) - 0.3),
+                pad=(210, 26, 74, 34))
+    for index, (label, total, counts) in enumerate(rows):
+        y = len(rows) - 1 - index
+        left = 0.0
+        for count, (_, colour, _) in zip(counts, SIGN_GROUPS):
+            share = count / total
+            if share > 0:
+                axes.line([left, left + share], [y, y], colour, width=19)
+                if share > 0.09:
+                    axes.label(left + share / 2, y, str(count), "white",
+                               size=11, anchor="middle", weight="600", dy=4)
+            left += share
+        axes.note(192, axes._fy(y) + 4, f"{label}   n = {total}", INK, size=11,
+                  anchor="end")
+    # Anchored to the frame's own ends, so the long first label and the short
+    # middle one cannot run into each other.
+    for (label, colour, _), where, anchor in zip(
+            SIGN_GROUPS, (212, 440, 656), ("start", "middle", "end")):
+        axes.note(where, 240, label, colour, size=11, weight="600",
+                  anchor=anchor)
+    return fig(
+        axes.render("share of the block's live curves", "",
+                    "I · Which way the curves point, and it is not one "
+                    "population", yticks=False),
+        "From <code>progress_kind</code> — the sign of the fitted form's fast "
+        "phase, which the two-phase expression has carried since it was "
+        "written and which <code>scope.frame</code> did not until now. "
+        "<strong>The 4OMe blocks are not split</strong> (98 of 147, and 22 of "
+        "24 in the temperature series) and <strong>the enzyme-free block is "
+        "split the other way</strong> (10 of 49) — the same contrast section 2 "
+        "makes, seen through the shape rather than the depth. "
+        "<strong>The in-scope BnOH block is split almost evenly</strong>, 46 "
+        "against 45, which is why one induction time averaged over it has "
+        "never meant much. Within runs and with signal-to-noise controlled, "
+        "more substrate pushes it towards <em>burst</em> there "
+        "(−0.112 ± 0.052 per e-fold) and towards <em>lag</em> in the 4OMe "
+        "block (+0.182 ± 0.073) — where [buf] falls as [S] rises at −0.96, so "
+        "that one may be the buffer wearing substrate's clothes.")
+
+
 def build_index():
     table = _table()
     summary = induction.channel_summary(table)
@@ -553,7 +618,35 @@ corroborate the trap from a direction with no spectrophotometer in it.</p>
 <h2>5 · What the activation parameters say</h2>
 {figure_activation_gap()}
 
-<h2>6 · What this settles, and what it does not</h2>
+<h2>6 · Which way the induction points, and what moves it</h2>
+<p>Everything above measures how <em>long</em> the induction is on curves that
+have one. <code>depth</code> cannot see the curves that begin <em>fast</em>: it
+is <code>1 − start/peak</code> and cannot go below zero. Nothing needed
+refitting — the two-phase form has carried both signs since it was written, with
+<code>B &gt; 0</code> a lag and <code>B &lt; 0</code> a burst. What was missing
+is that <code>scope.frame</code> carried the time constants, the peak rate and
+no sign at all, so no analysis in the package could ask which way a curve
+pointed.</p>
+{figure_which_way()}
+<p><strong>What moves the sign, within runs, with signal-to-noise
+controlled:</strong> in scope, the substrate arm gives −0.112 ± 0.052 per
+e-fold and the peroxide arm −0.011 ± 0.069 — the pooled ten-against-fifty-six
+peroxide pattern is the L being read across both its arms at once. The 4OMe
+block gives <strong>+0.182 ± 0.073</strong>, the opposite sign. The two blocks
+differ in exactly one structural way: <code>[S]</code> and <code>[buf]</code>
+correlate at <strong>−0.96</strong> inside every 4OMe run and at
+<strong>0.00</strong> inside every in-scope run. Read as a buffer effect, more
+buffer means a shorter lag — which is <strong>general acid/base catalysis of
+E → E*</strong>, a real candidate for the step this whole folder is trying to
+name.</p>
+<p><strong>The one direct lever settles nothing.</strong> Exps 32 and 34 step
+<code>[buf]</code> 3.125 → 200 mM at fixed everything, which is the only such
+design in the archive. Eight curves in two runs, the step from 25 to 50 mM is
+also a step between experiments, and the two runs disagree in sign:
+<strong>+0.457 ± 0.097</strong> and <strong>−1.052 ± 0.469</strong>. The 28-run
+indirect signal points somewhere and the 2-run direct one cannot say where.</p>
+
+<h2>7 · What this settles, and what it does not</h2>
 <p><strong>Settled.</strong> The induction is a property of the catalysed
 reaction; it ends on a clock and not at a product threshold; its amplitude is a
 fraction of the eventual rate and does not scale with the substrate; its barrier
@@ -564,6 +657,13 @@ is a shape, not a mechanism. Everything that survives section 3 is unimolecular
 in what the cuvette holds — the ketone's gem-diol hydrate dehydrating, the
 perhydrate collapsing to the dioxirane, or a conformational change of the
 cyclodextrin — and absorbance at one wavelength cannot choose between them.</p>
+<p><strong>Not settled: whether the buffer is what carries E → E*.</strong>
+Section 6 — the candidate is real, the indirect signal is 28 runs wide, and the
+direct lever is two runs that disagree. The measurement that would settle it is
+one run with <code>[buf]</code> stepped at fixed <code>[S]</code> on the
+catalysed 4OMe system <em>at 25 °C</em>, where the induction is thousands of
+seconds long rather than nearly over; the archive's only buffer titration sits
+at 40 °C, where it is not.</p>
 <p><strong>Not settled: whether the peroxide is involved at all.</strong>
 Section 4a: three things point the same way and none is clean — the induction's
 peroxide order has the wrong sign for an adduct, the joint constraint the scheme

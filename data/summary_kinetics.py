@@ -578,6 +578,36 @@ class ProgressFit:
         return self.chosen.v_ss
 
     @property
+    def kind(self):
+        """
+        WHICH WAY THE CURVE POINTS, from whichever form it earned.
+
+        The one-phase form has two shapes (`lag`, `burst`) and the two-phase
+        form four (`lag then fall`, `burst then fall`, `two lags`, `mixed`),
+        and the sign convention is the same in both: B > 0 means the rate
+        starts BELOW its eventual value and rises.
+
+        This is computed on every curve in the archive and was, until
+        2026-09-02, thrown away -- `scope.frame` carried the time constants and
+        the peak rate and no sign at all, so nothing could ask whether a curve
+        began slow or began fast. It now carries `progress_kind`, `B_fast` and
+        `B_slow`, and `induction.sign_table` reads them.
+        """
+        if self.phases == 2:
+            return self.two.kind
+        one = self.one
+        if not np.isfinite(one.B):
+            return "unresolved"
+        return "lag" if one.B > 0 else "burst"
+
+    @property
+    def amplitudes(self):
+        """The chosen form's (B_fast, B_slow); B_slow is nan on one phase."""
+        if self.phases == 2:
+            return float(self.two.B1), float(self.two.B2)
+        return float(self.one.B), float("nan")
+
+    @property
     def peak_rate(self):
         """
         The largest rate the fitted model reaches, and when: (rate, time).
