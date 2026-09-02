@@ -238,6 +238,34 @@ def test_selectivity_and_plateau_scaling():
           abs(order["order"] - 0.6) < 1e-6, f"{order['order']}")
 
 
+def test_pinning_k_recovers_the_production_rate():
+    """
+    With k supplied, the sink model must return the v it was built from.
+
+    This is the whole basis of `production_frame`: the published rate is net
+    of the sink, and `v` is recovered by fitting the sink model with its rate
+    constant pinned. If the pinned fit could not recover a planted v there
+    would be nothing to correct with.
+    """
+    print("\npinned sink fit")
+    v, k = 5e-5, 1.5e-4
+    times, values = sink_curve(v=v, k=k, span=12000.0, points=400, seed=9)
+    pinned = fit_slowdown(times, values, "sink", decay=k)
+    check("v within 10%", abs(pinned.extra["rate"] - v) / v < 0.10,
+          f"{pinned.extra['rate']:.3e} against {v:.3e}")
+    check("k is the one supplied", abs(pinned.decay - k) < 1e-12,
+          f"{pinned.decay:.3e}")
+    # And the free fit is the thing pinning exists to avoid: on a run that has
+    # not turned over, (v, k) trade off freely along v/k = plateau.
+    short, values = sink_curve(v=v, k=k, span=1200.0, points=200, seed=9)
+    free = fit_slowdown(short, values, "sink")
+    check("the free fit on a short run is not to be trusted",
+          not (0.5 < free.extra["rate"] / v < 2.0)
+          or not (0.5 < free.decay / k < 2.0),
+          f"free v {free.extra['rate']:.3e}, k {free.decay:.3e} -- if this "
+          f"passes, pinning may no longer be necessary")
+
+
 def test_regressions():
     """The published numbers, so a refactor cannot move them quietly."""
     print("\npublished numbers")
@@ -259,6 +287,18 @@ def test_regressions():
     check("the two substrates differ by more than 4 sigma", gap > 4 * error,
           f"{gap:.3f} +/- {error:.3f}")
 
+    effect = slowdown.sink_effect_on_activation()
+    check("naming the fall does not move the activation energy",
+          abs(effect["activation_shift"]) < effect["activation_shift_stderr"],
+          f"{effect['activation_shift']:+.2f} +/- "
+          f"{effect['activation_shift_stderr']:.2f} kJ/mol")
+    check("the corrected route is the noisier one, so it is not the headline",
+          effect["corrected"]["rms"] > effect["published"]["rms"],
+          f"{effect['corrected']['rms']:.3f} against "
+          f"{effect['published']['rms']:.3f}")
+    check("the production rate is above the published one",
+          effect["lift"] > 1.0, f"{effect['lift']:.3f}")
+
 
 if __name__ == "__main__":
     test_shapes_are_the_solutions_they_claim()
@@ -267,6 +307,7 @@ if __name__ == "__main__":
     test_a_rising_curve_has_no_fall()
     test_the_driver_regression_tells_a_clock_from_a_product()
     test_selectivity_and_plateau_scaling()
+    test_pinning_k_recovers_the_production_rate()
     test_regressions()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)

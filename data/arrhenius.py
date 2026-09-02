@@ -446,6 +446,19 @@ FITTED_PARAMETERS = {
                 "this over-reads the activation energy by about 1.9 kJ/mol "
                 "(`truncation_sensitivity`)",
     },
+    "v_prod": {
+        "label": "production rate of the sink model",
+        "kelvin_max": None,
+        "constant": "turnover",
+        "note": "all six temperatures. The production rate of the SINK "
+                "MODEL, A' = v(1 - e^(-t/tau)) - kA, fitted with k pinned at "
+                "slowdown.sink_activation's value for the temperature -- so "
+                "it is v itself and not a rate read off a curve that is "
+                "already net of the loss. Requires a frame from "
+                "`slowdown.production_frame`. Noisier than v_peak, because "
+                "the sink shape is one the four coldest runs cannot test; "
+                "see `slowdown.sink_effect_on_activation` before quoting it",
+    },
     "v_ss": {
         "label": "asymptotic rate after the induction",
         "kelvin_max": BURST_TRUSTWORTHY_BELOW_C + 273.15,
@@ -480,7 +493,8 @@ def parameter_values(parameter, frame=None):
     return frame, turnover(frame, parameter)
 
 
-def activation_parameters(parameter="vmax", experiments=TEMPERATURE_SERIES):
+def activation_parameters(parameter="vmax", experiments=TEMPERATURE_SERIES,
+                          frame=None):
     """
     Arrhenius and Eyring parameters for one fitted quantity, pooled over rungs.
 
@@ -492,7 +506,11 @@ def activation_parameters(parameter="vmax", experiments=TEMPERATURE_SERIES):
     each with a standard error, plus the rms, the curve count and the note from
     FITTED_PARAMETERS saying where the number may be trusted.
     """
-    frame, constant = parameter_values(parameter, series_frame(experiments))
+    # `frame` lets a caller supply a column this module does not build: the
+    # sink-corrected rate comes from `slowdown.production_frame`, and having
+    # arrhenius import slowdown to fetch it would make the two circular.
+    frame = series_frame(experiments) if frame is None else frame
+    frame, constant = parameter_values(parameter, frame)
     keep = np.isfinite(constant) & (constant > 0)
     frame, constant = frame[keep], constant[keep]
     kelvin = frame.kelvin.to_numpy(dtype=float)
@@ -551,11 +569,21 @@ def activation_parameters(parameter="vmax", experiments=TEMPERATURE_SERIES):
     }
 
 
-def parameter_table(parameters=None, experiments=TEMPERATURE_SERIES):
-    """Activation parameters for every fitted quantity, one row each."""
+def parameter_table(parameters=None, experiments=TEMPERATURE_SERIES,
+                    frame=None):
+    """
+    Activation parameters for every fitted quantity, one row each.
+
+    Parameters whose column the frame does not carry are skipped rather than
+    raising: `v_prod` exists only when `slowdown.production_frame` built the
+    frame, and the default table must still work without it.
+    """
     parameters = parameters or list(FITTED_PARAMETERS)
-    return pd.DataFrame([activation_parameters(name, experiments)
-                         for name in parameters]).set_index("parameter")
+    available = series_frame(experiments) if frame is None else frame
+    rows = [activation_parameters(name, experiments, frame=frame)
+            for name in parameters
+            if name in available.columns or name == "inverse_tau"]
+    return pd.DataFrame(rows).set_index("parameter")
 
 
 # The catalysed buffer titration that lets the temperature series' substrate

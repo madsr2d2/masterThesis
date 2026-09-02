@@ -29,12 +29,19 @@ data/fits/*.json            saved fit results (a fit costs ~30 min; these do not
 data/validate_dataset.py    the gate: run this before trusting anything
 data/verify_*.py            five independent cross-checks (see below)
 data/read_rre.py            reads the instrument binaries the .txt exports came from
-data/test_*.py              five test suites, including fault injection
+data/test_*.py              test suites, including fault injection
 data/build_dossier.py       one HTML page per experiment, for review by eye
+
+data/arrhenius.py           activation parameters from the one temperature block
+data/slowdown.py            what makes a progress curve slow down, and on what
+
+background_reaction/        the uncatalysed BnOH reaction, and its buffer order
+temperature_series/         exps 14-19: the only route to activation parameters
+product_fate/               why the 4OMe curves peak and fall, and BnOH's do not
 
 MECHANISM.md                the 7-step mechanism, its reduction, and the evidence
 FITTING.md                  what has been fitted, and what the fits established
-COMPUTATIONAL.md            quantum-chemistry task register (C1 pending)
+COMPUTATIONAL.md            quantum-chemistry task register (C1, C5, C6 pending)
 DATA_VERIFICATION.md        dated log of every check and every ruling
 computational/hellowater/   ORCA smoke test, proves the toolchain runs
 ```

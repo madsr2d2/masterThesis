@@ -88,9 +88,15 @@ initial rate there is the induction rate.
 weighing recorded beside it — an independent source, the way
 `verify_instrument.py` is for concentrations.
 
-`data/slowdown.py` answers why those curves rise to a maximum rate and then
-fall: the catalysed 4OMe rate declines **linearly in the product it has made**,
-while the same chemistry with no enzyme declines on a clock instead. Use
-`deceleration_drivers` before asserting that anything in this archive slowed
-down "over time" — one progress curve cannot tell time from product, and the
-separation only exists across curves. `ANALYSIS.md` §6 has the argument.
+## What the product does
+
+`product_fate/` holds why every catalysed 4OMe curve rises to a maximum rate and
+then falls: the rate declines **linearly in the product it has made**, while the
+same chemistry with no enzyme declines on a clock instead. It is its own folder
+and not part of `temperature_series/` because the discrimination needs 84 curves
+across the whole 4OMe archive; the temperature series' 23 cannot make it.
+
+`data/slowdown.py` has the machinery. Use `deceleration_drivers` before
+asserting that anything in this archive slowed down "over time" — one progress
+curve cannot tell time from product, because inside a curve the product only
+grows with time, and the separation exists only across curves.

@@ -563,7 +563,7 @@ against the mechanism.
   factor. Worth watching closely in the fit.
 
   **Found, 2026-09-02, and it is the biggest thing in the 4OMe progress
-  curves.** `temperature_series/ANALYSIS.md` §6 shows the catalysed 4OMe-BnOH
+  curves.** `product_fate/ANALYSIS.md` shows the catalysed 4OMe-BnOH
   rate falls **linearly in the accumulated product**, which is `A′ = v − kA` —
   production minus first-order consumption of the aldehyde — on 24 of 29 curves
   against 0 for the hyperbolic law that reversible product inhibition would

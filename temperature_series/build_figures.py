@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import arrhenius
 import scope
 import slowdown
+import slowdown
 import verify_enzyme_stock
 from curve_metrics import (ACCELERATION_SIGMA, SEGMENT_RATIO_STEEP,
                            rolling_slope, segmented_fit)
@@ -592,225 +593,57 @@ def build_curves_page():
 
 
 # --- the presentation -----------------------------------------------------
-# --- section 6: what the slowdown is --------------------------------------
-_SLOWDOWN_CACHE = {}
-
-
-def _whole_frame():
-    """Every curve in the archive, built once. Section 6 needs all of it: the
-    contrast that carries the argument is between blocks, not inside one."""
-    if "frame" not in _SLOWDOWN_CACHE:
-        _SLOWDOWN_CACHE["frame"] = scope.frame(tuple(range(1, 152)))
-    return _SLOWDOWN_CACHE["frame"]
-
-
-def _slowdown_blocks():
-    if "blocks" not in _SLOWDOWN_CACHE:
-        _SLOWDOWN_CACHE["blocks"] = slowdown.substrate_blocks(_whole_frame())
-    return _SLOWDOWN_CACHE["blocks"]
-
-
-def _sink_curves():
-    """The catalysed 4OMe phosphate curves whose decline has a shape."""
-    if "sink" not in _SLOWDOWN_CACHE:
-        block = _slowdown_blocks()["4OMe catalysed, phosphate"]
-        table = slowdown.sink_table(sorted(block.experiment.unique()))
-        _SLOWDOWN_CACHE["sink"] = table[(table.points > 0)
-                                        & (table.rate_r2 > slowdown.SINK_CLEAN_R2)]
-    return _SLOWDOWN_CACHE["sink"]
-
-
-def figure_drivers():
-    names = {"temperature series": "temperature series",
-             "4OMe catalysed, phosphate": "4OMe catalysed, phosphate",
-             "4OMe enzyme-free": "4OMe, no enzyme at all",
-             "BnOH in scope (135-151)": "BnOH, exps 135-151",
-             "BnOH catalysed, all buffers": "BnOH catalysed, every buffer"}
-    blocks = _slowdown_blocks()
-    rows = [(short, slowdown.deceleration_drivers(blocks[name]))
-            for name, short in names.items()]
-    axes = Axes(680, 310, (-1.05, 0.62), (-0.8, len(rows) - 0.2),
-                pad=(232, 26, 46, 34))
-    axes.line([0, 0], [-0.8, len(rows) - 0.2], INK, width=1.2, dash="3 3")
-    for index, (name, row) in enumerate(rows):
-        y = len(rows) - 1 - index
-        for offset, key, colour in ((0.17, "span", CATEGORY[2]),
-                                    (-0.17, "product", CATEGORY[1])):
-            value, error = row[key], row[key + "_stderr"]
-            axes.line([value - error, value + error], [y + offset] * 2,
-                      colour, width=2.0)
-            axes.points([value], [y + offset], colour, radius=4.4)
-        axes.note(214, axes._fy(y) + 4, f"{name}   n = {row['points']}",
-                  INK, size=11, anchor="end")
-    axes.label(0.40, len(rows) - 1 + 0.17, "fell with run length", CATEGORY[2],
-               size=11, weight="600", anchor="middle", dy=-9)
-    axes.label(-0.58, len(rows) - 1 - 0.17, "fell with product made",
-               CATEGORY[1], size=11, weight="600", anchor="middle", dy=17)
+# --- section 4: what naming the fall does to the numbers -------------------
+def figure_sink_effect():
+    """Both Arrhenius lines on one plot, so "it does not move" is visible."""
+    frame = slowdown.production_frame()
+    effect = slowdown.sink_effect_on_activation()
+    enzyme = frame.e0.to_numpy(dtype=float) * frame.epsilon.to_numpy(dtype=float)
+    inverse = 1000.0 / frame.kelvin.to_numpy(dtype=float)
+    series = {"v_peak": (CATEGORY[0], "published, v_peak"),
+              "v_prod": (CATEGORY[1], "sink model, k pinned")}
+    values = {name: frame[name].to_numpy(dtype=float) / enzyme
+              for name in series}
+    low = min(np.nanmin(v) for v in values.values()) / 1.7
+    high = max(np.nanmax(v) for v in values.values()) * 1.7
+    axes = Axes(560, 285, (inverse.min() - 0.02, inverse.max() + 0.02),
+                (low, high), ylog=True, pad=(74, 26, 46, 30))
+    for name, (colour, label) in series.items():
+        axes.points(inverse, values[name], colour, radius=3.6, opacity=0.9)
+        fit = arrhenius.activation_parameters(name, frame=frame)
+        # One pooled slope, four intercepts: draw it at the median rung, which
+        # is the level every quoted intercept in this document belongs to.
+        middle = np.isclose(frame.s0, sorted(frame.s0.unique())[2])
+        centre = float(np.exp(np.log(values[name][middle]).mean()))
+        pivot = float(np.mean(inverse[middle]))
+        slope = -fit["activation_kJ"] * 1000.0 / arrhenius.GAS_CONSTANT / 1000.0
+        grid = np.array([inverse.min() - 0.01, inverse.max() + 0.01])
+        axes.line(grid, centre * np.exp(slope * (grid - pivot)), colour,
+                  width=2.2)
+        # The two lines very nearly coincide -- which IS the figure -- so
+        # they cannot be labelled on themselves. The upper right is empty
+        # because the line runs down to the right.
+        axes.note(524, 52 + 17 * list(series).index(name),
+                  f"{label}: {fit['activation_kJ']:.1f} kJ/mol", colour,
+                  size=11, weight="600", anchor="end")
     return fig(
-        axes.render("coefficient in log(late rate / early rate)", "",
-                    "M · What the slowdown tracks: the clock, or the product",
-                    yticks=False),
-        "Each curve's deceleration — <code>scope</code>'s own "
-        "<code>late_over_early</code> — regressed on how long the run lasted "
-        "and how much product it made, in mM. A clock loads on run length and "
-        "not on product; product control does the reverse. <strong>The "
-        "temperature series loads on product alone</strong> "
-        f"({rows[0][1]['product']:+.3f} ± {rows[0][1]['product_stderr']:.3f} "
-        f"against {rows[0][1]['span']:+.3f} ± {rows[0][1]['span_stderr']:.3f} "
-        "for run length), and so does the whole catalysed 4OMe phosphate set. "
-        "<strong>The same chemistry without the catalyst does the opposite</strong> "
-        "— it is a clock, and it is the reference channel every catalysed curve "
-        "is measured against, so it is subtracted out. The BnOH blocks show no "
-        "product-driven deceleration at all, at product concentrations up to "
-        "0.39 mM against this block's 0.21.")
-
-
-def figure_sink_lines():
-    frame = _slowdown_blocks()["4OMe catalysed, phosphate"]
-    table = _sink_curves()
-    axes = Axes(430, 265, (0, 0.88), (0, 6.6e-5), pad=(74, 26, 46, 30))
-    for index, curve in enumerate(scope.curves_of(16)):
-        colour = RUNGS[index]
-        times = np.asarray(curve.times, dtype=float)
-        values = np.asarray(curve.absorbance, dtype=float)
-        centres, slopes = rolling_slope(times, values, slowdown.SINK_WINDOW,
-                                        source_floor(curve.source))
-        product = np.interp(centres, times, values) - values[0]
-        top = int(np.argmax(slopes))
-        axes.points(product[top:], slopes[top:], colour, radius=2.6,
-                    stroke=None)
-        # table["sample"], never table.sample: the attribute is DataFrame's
-        # own sampling method, and comparing it to an int silently matches
-        # nothing -- which drew this figure's fitted lines for no curve at all.
-        row = table[(table.experiment == 16)
-                    & (table["sample"] == curve.sample)]
-        if not len(row):
-            continue
-        row = row.iloc[0]
-        grid = np.array([float(product[-1]), float(row.plateau)])
-        axes.line(grid, row.v0 - row.k_sink * grid, colour, width=FIT_WIDTH,
-                  dash="5 4")
-        axes.points([float(row.plateau)], [0.0], colour, radius=4.2)
-        axes.label(float(product[top]), float(slopes[top]),
-                   f"{curve.conditions.s0:.2f} mM", colour, size=10.5,
-                   anchor="end", weight="600", dx=-6, dy=4)
-    axes.note(96, 40, "dashed: where the line is heading", MUTED, size=10.5)
-
-    scatter = Axes(430, 265, (0.55, 1.005), (0.55, 1.005),
-                   pad=(60, 22, 46, 24))
-    scatter.line([0.55, 1.005], [0.55, 1.005], MUTED, width=1.2, dash="4 3")
-    scatter.points(table.reciprocal_r2, table.rate_r2, CATEGORY[0], radius=4.0)
-    scatter.note(320, 40, "rate linear in product wins", CATEGORY[0], size=11,
-                 anchor="end")
-    scatter.note(320, 55, "above the diagonal", MUTED, size=10.5, anchor="end")
-    wins = int((table.rate_r2 > table.reciprocal_r2
-                + slowdown.SLOWDOWN_MARGIN).sum())
-    losses = int((table.reciprocal_r2 > table.rate_r2
-                  + slowdown.SLOWDOWN_MARGIN).sum())
-    return fig(
-        "<div class='grid two'><div>" + axes.render(
-            "product already made, AU", "rate, AU/s",
-            "N · Rate falls in a straight line against product")
-        + "</div><div>" + scatter.render(
-            "R² of 1/rate against product", "R² of rate against product",
-            "O · …and not against its reciprocal")
-        + "</div></div>",
-        "<strong>N.</strong> Exp 16, the 40 °C run, after each cuvette's rate "
-        "maximum. Rate against accumulated product is a straight line, and the "
-        "line is <code>A′ = v − kA</code>: production, minus a first-order loss "
-        "of the thing being measured. Where each line meets the axis is the "
-        "level it is heading for. <strong>O.</strong> Reversible product "
-        f"inhibition would put 1/rate on the straight line instead. Over the "
-        f"{len(table)} catalysed 4OMe phosphate curves whose decline is deep "
-        f"enough to have a shape, <strong>{wins} favour the rate</strong> and "
-        f"<strong>{losses} the reciprocal</strong>; medians "
-        f"{table.rate_r2.median():.3f} against "
-        f"{table.reciprocal_r2.median():.3f}.")
-
-
-def figure_plateau_order():
-    table = _sink_curves()
-    order = slowdown.plateau_scaling(table)
-    measured = float(arrhenius.substrate_order().corrected.mean())
-    axes = Axes(560, 275, (1.2, 72), (0.12, 6.0), xlog=True, ylog=True,
-                pad=(70, 26, 46, 24))
-    axes.points(table.s0, table.plateau, CATEGORY[0], radius=4.2)
-    grid = np.array([1.4, 64.0])
-    centre = np.exp(np.log(table.plateau).mean())
-    middle = np.exp(np.log(table.s0).mean())
-    axes.line(grid, centre * (grid / middle) ** order["order"], CATEGORY[0],
-              width=2.2)
-    axes.line(grid, centre * (grid / middle) ** measured, CATEGORY[1],
-              width=2.0, dash="5 4")
-    axes.label(48, centre * (48 / middle) ** order["order"],
-               f"plateau: {order['order']:+.2f}", CATEGORY[0], size=11,
-               weight="600", anchor="end", dy=-9)
-    axes.label(48, centre * (48 / middle) ** measured,
-               f"the rate's own order: {measured:+.2f}", CATEGORY[1], size=11,
-               weight="600", anchor="end", dy=17)
-    return fig(
-        axes.render("[S] in the cuvette, mM", "plateau v/k, AU",
-                    "P · The level it is heading for carries the rate's substrate order"),
-        "If the signal is a species the oxidant makes from the substrate and "
-        "then destroys, its stationary level is <code>A∞ = v(S)/k</code> — so "
-        "the plateau has to carry whatever substrate order the <em>rate</em> "
-        f"has. That order was measured on the rates of this block, "
-        f"<strong>{measured:+.3f}</strong>, before any of this. The plateau's "
-        f"is <strong>{order['order']:+.3f} ± {order['stderr']:.3f}</strong> "
-        f"over {order['lever']:.0f}× in [S], with nothing fitted to make it "
-        "agree. Where the two lines meet the data gives "
-        "<strong>k<sub>A</sub>/k<sub>S</sub> ≈ "
-        f"{np.median([slowdown.selectivity(p, s, e) for p, s, e in zip(table.plateau, table.s0, table.epsilon)]):.0f}"
-        "</strong> — an upper bound, because the aldehyde in the cuvette is "
-        "the increment plus whatever the enzyme-free background made.")
-
-
-def _sharpest():
-    """The run where the arithmetic bites hardest, phrased for a caption."""
-    frame = _whole_frame()
-    live = frame[frame.live & (frame.experiment == 21)]
-    product = float((live.net / live.epsilon).max())
-    enzyme = float(live.e0.iloc[0])
-    loss = 1 - float(live.late_over_early.median())
-    return (f"exp 21 loses {loss:.0%} of its rate on {product * 1000:.0f} µM "
-            f"of product against {enzyme * 1000:.0f} µM of catalyst, and "
-            f"blocking that fraction would take {loss * enzyme * 1000:.0f} µM "
-            f"bound.")
-
-
-def figure_budget():
-    frame = _whole_frame()
-    budget = slowdown.product_budget(frame).loc["4OMe-BnOH"]
-    series = budget.reindex(scope.TEMPERATURE_SERIES)
-    axes = Axes(560, 265, (12, 43), (0, 0.30), pad=(68, 30, 46, 24))
-    axes.line(series.temperature, series.of_enzyme, CATEGORY[1], width=2.2)
-    axes.points(series.temperature, series.of_enzyme, CATEGORY[1], radius=4.6)
-    for temperature, row in series.iterrows():
-        axes.label(row.temperature, row.of_enzyme,
-                   f"{row.of_enzyme:.0%}", CATEGORY[1], size=10.5,
-                   anchor="middle", dy=-10)
-    # The line is what the WARMEST run's own rate loss would have to bind, so
-    # it is a fact about that run and not a round number chosen to sit near it.
-    needed = 1 - float(series.late_over_early.min())
-    axes.hline(needed, ACCENT, dash="5 4")
-    axes.note(axes._fx(12.6), axes._fy(needed) - 7,
-              f"a {needed:.0%} rate loss would need this much bound",
-              ACCENT, size=10.5)
-    return fig(
-        axes.render("temperature, °C",
-                    "product made, as a fraction of [enz]",
-                    "Q · Barely enough product to block the catalyst, and none to spare"),
-        "Blocking a fraction of the catalyst takes that fraction of [enz] "
-        "<em>bound</em>, whatever the binding constant — tightening the binding "
-        "moves an equilibrium, it does not create inhibitor. At the end of the "
-        "40 °C run the catalytic increment holds "
-        f"{series.product_mM.max() * 1000:.0f} µM of product against "
-        f"{series.e0.min() * 1000:.0f} µM of catalyst, and the rate is down "
-        f"{1 - series.late_over_early.min():.0%}. The two numbers are within a "
-        "factor of about one of each other, which is why this argument narrows "
-        "the field rather than closing it: the aldehyde in the cuvette is the "
-        "increment <em>plus</em> the background's, and the background is not "
-        "measured at these compositions. Sharper elsewhere — " + _sharpest())
+        axes.render("1000 / T, K⁻¹", "rate / (ε·[enz]), s⁻¹",
+                    "M · Naming the fall does not move the line"),
+        "Both estimators, all 24 curves, one pooled slope each. "
+        f"<code>v_prod</code> is the production rate of the sink model with k "
+        f"pinned at <code>slowdown.sink_activation</code>'s value; it sits "
+        f"<strong>{effect['lift'] - 1:.1%}</strong> above <code>v_peak</code> "
+        f"on the median curve, and between {effect['lift_low'] - 1:+.1%} and "
+        f"{effect['lift_high'] - 1:+.1%} across the six temperatures "
+        "<strong>with no order to it</strong>. So it shifts the level and not "
+        "the slope: E<sub>a</sub> moves by "
+        f"<strong>{effect['activation_shift']:+.2f} ± "
+        f"{effect['activation_shift_stderr']:.2f} kJ/mol</strong>. The "
+        f"corrected line is the noisier one — Arrhenius scatter "
+        f"{effect['corrected']['rms']:.3f} against "
+        f"{effect['published']['rms']:.3f} — which is why it is reported and "
+        "not applied. <a href='../product_fate/index.html'>product_fate</a> "
+        "has the derivation.")
 
 
 def build_index():
@@ -927,7 +760,18 @@ lower, so it is the faster of the two, and its ΔS‡ is near zero rather than �
 a much looser transition state. Its enthalpy, 92 ± 16, is not resolved apart from
 the turnover's 88 ± 1.5; the <em>entropies</em> are what distinguish them.</p>
 
-<h2>5 · Before comparing any of this to a calculation</h2>
+<h2>5 · Naming the fall, and what it does to the numbers</h2>
+<p><a href='../product_fate/index.html'>product_fate</a> identifies the fall of
+section 3a as <strong>the oxidant attacking the aldehyde it has just
+made</strong> — the rate declines linearly in the accumulated product,
+<code>A′ = v − kA</code>, on 24 of 29 well-determined curves against 0 for the
+hyperbolic law product inhibition would give. So every rate in the table above
+is already net of that loss, and none of them is the production rate.</p>
+{figure_sink_effect()}
+<p>The correction is reported and not applied, and the temperature series' own
+figures and parameters are unchanged by it.</p>
+
+<h2>6 · Before comparing any of this to a calculation</h2>
 <ul>
 <li><strong>Composite, not elementary.</strong> <code>vmax</code> and
 <code>v_ss</code> are whole-turnover rates through a seven-step mechanism, so ΔH‡
@@ -951,40 +795,22 @@ propagated with the covariance, not from the two standard errors, which would
 overstate it several-fold.</li>
 </ul>
 
-<h2>6 · What the slowdown is</h2>
-<p>Eleven of these 24 curves rise to a maximum rate and then fall, at
-<strong>0.3–1.1% conversion</strong> — far too little for the substrate to be
-running out. Section 3a described that fall with a second exponential and said
-the description had to stay a description. This section names it.</p>
-<p>Four candidates survive: the substrate runs out (<strong>excluded</strong>,
-by conversion), the catalyst dies (<strong>excluded</strong> for BnOH by a
-Selwyn test, and untestable here), something shared is consumed on its own
-schedule — a <em>clock</em> — or the fall is set by how much product has
-been made. A single progress curve cannot separate the last two, because within
-one curve the product only ever grows with time. Across curves they come apart:
-the archive holds 1470 s runs that reached 0.27 AU and 17934 s runs that reached
-0.045.</p>
-{figure_drivers()}
-<p>So it is the product. What the product <em>does</em> is the next question,
-and the two answers put a straight line through different transforms of the same
-two columns.</p>
-{figure_sink_lines()}
-<p>The rate is linear in the product, which is
-<code>A′ = v − kA</code>: the signal is being consumed as fast as it is
-made, and the curve is heading for a stationary level rather than for zero rate.
-That level is a prediction, and it can be checked against a number measured
-before any of this.</p>
-{figure_plateau_order()}
-{figure_budget()}
-<p><strong>What this settles.</strong> The fall is set by the product, it is a
-property of the catalysed pathway and not of the solution, and it is specific to
-this substrate — the BnOH blocks reach nearly twice the product concentration
-with no product-driven deceleration at all. <strong>What it does not
-settle</strong>: whether the aldehyde is <em>consumed</em> by the oxidant or
-merely <em>scavenges</em> it. Those are the same reaction seen from two ends and
-absorbance alone cannot separate them. Both are the electron-rich ring doing
-what an electron-rich ring does, and both are calculable — see
-<code>COMPUTATIONAL.md</code> tasks C5 and C6.</p>
+<h2>7 · What the slowdown is — and where it is written up</h2>
+<p>The fall of section 3a is not a property of this block, so its analysis is
+not on this page. It is <a href='../product_fate/index.html'><strong>product_fate</strong></a>,
+because the discrimination that settles it needs the whole 4OMe archive: these
+23 curves cannot separate “the rate fell with time” from “the rate fell with
+product” — inside one curve the product only ever grows with time — and the
+separation comes from 84 curves in which run length and product vary
+independently.</p>
+<p>In one paragraph: <strong>the catalysed 4OMe rate falls in proportion to the
+product it has made</strong>, and the same chemistry with no enzyme falls on a
+clock instead — which is the reference channel these runs are measured against,
+so its decay is subtracted out. <strong>The rate is linear in the product, not
+hyperbolic in it</strong>: production minus a first-order loss of the measured
+species, not inhibition of the catalyst. It does not happen to BnOH at product
+concentrations nearly twice as high. Section 5 above has the only consequence
+for this document, which is none that these six temperatures can resolve.</p>
 
 <h2>Reproducing</h2>
 <p><code>python data/verify_enzyme_stock.py --sequence</code> ·

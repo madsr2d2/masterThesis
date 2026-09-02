@@ -155,7 +155,7 @@ only if the spectrophotometer is not available.
 
 ### What it decides
 
-`temperature_series/ANALYSIS.md` §6 establishes that the catalysed 4OMe-BnOH
+`product_fate/ANALYSIS.md` establishes that the catalysed 4OMe-BnOH
 curves slow **in proportion to the product they have made** — −0.919 ± 0.161 on
 the comparison that holds every condition fixed — while the catalysed BnOH
 curves do not, at product concentrations nearly twice as high. The two
@@ -209,7 +209,7 @@ C4 first; C5 is then two more substituted analogues on the same protocol.
 
 ### What it decides
 
-The same §6 shows the 4OMe slowdown has the form `A′ = v − kA`: the rate falls
+`product_fate/ANALYSIS.md` §3 shows the 4OMe slowdown has the form `A′ = v − kA`: the rate falls
 **linearly** in the accumulated product, on 24 of 29 curves against 0 for the
 hyperbolic form that reversible product inhibition would give. That is
 production minus a first-order loss of the measured species — the oxidant
@@ -321,7 +321,7 @@ forgotten and most expensive to repeat.
 
 ### 2026-09-02 — C5 and C6 specced, not started
 
-Arose from the deep dive in `temperature_series/ANALYSIS.md` §6 into why the
+Arose from the deep dive in `product_fate/ANALYSIS.md` into why the
 4OMe progress curves rise to a maximum rate and then fall at 0.3–1.1%
 conversion. The archive settled more of it than expected: the fall tracks the
 product and not the clock, the same chemistry without the catalyst does the

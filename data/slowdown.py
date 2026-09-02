@@ -32,6 +32,17 @@ The three differ in one thing only, and it is the thing in question:
     inhibition  the RATE is divided by how much product has built up.
                 Never plateaus: A grows as sqrt(2 Ki v t) forever.
 
+A ROUTE THAT WAS TRIED AND WITHDRAWN. The obvious statistic is a landmark --
+when, and at what product, does the rate fall to three quarters of its peak --
+regressed against the peak rate: product control makes that time go as 1/v and
+a clock makes it flat. It does not work, and the reason is censoring. A curve
+whose rate never falls that far inside its run has no landmark, slow curves run
+out of time before fast ones do, and dropping them biases the slope towards the
+clock's prediction by an amount that cannot be estimated from the survivors.
+`decay_point` remains as a diagnostic; nothing in this module's conclusions
+rests on it. What replaced it is `deceleration_drivers`, which is defined for
+every curve and so cannot be censored at all.
+
 So the discriminating question is whether the curve approaches a horizontal
 asymptote, and the discriminating design is one that changes v while holding
 time fixed -- which is what the substrate ladder inside each run does (2.2x)
@@ -200,13 +211,21 @@ def _profile(times, values, shape, first_grid, second_grid):
             float(amplitude[best]), float(max(cost[best], 0.0)))
 
 
-def fit_slowdown(times, values, name, points=SLOWDOWN_GRID):
+def fit_slowdown(times, values, name, points=SLOWDOWN_GRID, decay=None):
     """
     Fit one of the three mechanistic forms to one curve.
 
     `name` is "clock", "sink" or "inhibition". Returns a SlowdownFit whose
     `sse` is directly comparable across the three: same data, same parameter
     count, same grid resolution.
+
+    `decay` PINS the second parameter instead of profiling it, which turns a
+    four-parameter fit into a three-parameter one and removes the degeneracy
+    that makes the free fit useless on short runs: with k free, a curve that
+    has not yet turned over is fitted equally well by any (v, k) pair holding
+    v/k at the plateau, and three of these 24 curves come back with k a
+    hundredfold out. Supplying k from `sink_activation` costs the fit nothing
+    it could have determined for itself.
     """
     times = np.asarray(times, dtype=float)
     values = np.asarray(values, dtype=float)
@@ -218,7 +237,9 @@ def fit_slowdown(times, values, name, points=SLOWDOWN_GRID):
 
     induction = np.logspace(np.log10(span * INDUCTION_FLOOR),
                             np.log10(span * INDUCTION_CAP), points)
-    if name == "inhibition":
+    if decay is not None:
+        second = np.array([float(decay)])
+    elif name == "inhibition":
         second = np.logspace(np.log10(INHIBITION_DEPTH[0] / span),
                              np.log10(INHIBITION_DEPTH[1] / span), points)
     else:
@@ -291,13 +312,6 @@ def verdict(residuals, margin=SLOWDOWN_MARGIN):
     return (best[1] if lead > margin else "tied"), float(lead)
 
 
-# The rate has to fall by a stated amount before "when did it fall" means
-# anything, and the amount has to be reachable inside a run. Half is the
-# natural landmark for `inhibition` -- the rate halves exactly when A = Ki --
-# and it is reached inside the run by most of the enzyme-free curves and by
-# none of the 15-30 C catalysed ones, which is itself part of the answer.
-DECAY_FRACTIONS = (0.9, 0.75, 0.5)
-
 # The rate is read as the slope over this fraction of the run, which is the
 # resolution at which these curves have a shape at all.
 DECAY_WINDOW = 0.05
@@ -310,17 +324,23 @@ PRODUCT_SLOPE = -1.0
 CLOCK_SLOPE = 0.0
 
 
-def decay_point(curve, fraction=0.5, samples=4000):
+def _windowed_rate(curve, samples=4000):
     """
-    Where the fitted rate falls to `fraction` of its maximum: (t, A, v, t_max).
+    The chosen fitted form's shape, sampled: (t, A(t), rate(t)).
 
     Read off `summary_kinetics.fit_progress`'s CHOSEN form, not off the
     readings: the readings' own slope is too noisy to locate a landmark on,
     and the chosen form is already the one the F test says the curve earned.
-    Evaluated only inside the observed span -- a landmark extrapolated past the
-    last reading is a property of the model, not of the experiment -- so a
-    curve whose rate never falls that far returns NaN and is counted as
-    censored rather than silently given the run's end.
+    Evaluated only inside the observed span -- anything past the last reading
+    is a property of the model, not of the experiment.
+
+    A WINDOWED slope, not the analytic derivative. The fitted form is free to
+    put a spike at t = 0 -- a two-phase fit with a short tau1 and B1 < 0 does,
+    and its instantaneous rate there can be ten times anything the readings
+    show -- and a landmark measured against that spike reports a "fall" on
+    curves that accelerate throughout. Averaging the fit over the same window
+    the block-slope tables use removes it, and costs nothing on a curve whose
+    fall is real and slow.
     """
     from summary_kinetics import fit_progress          # local: heavy import
     times = np.asarray(curve.times, dtype=float)
@@ -330,18 +350,23 @@ def decay_point(curve, fraction=0.5, samples=4000):
     grid = np.linspace(0.0, float(shifted[-1]), samples)
     predicted = fitted.predict(grid + times[0])
     if not np.all(np.isfinite(predicted)):
-        return (np.nan,) * 4
-    # A WINDOWED slope, not the analytic derivative. The fitted form is free
-    # to put a spike at t = 0 -- a two-phase fit with a short tau1 and B1 < 0
-    # does, and its instantaneous rate there can be ten times anything the
-    # readings show -- and a landmark measured against that spike reports a
-    # "fall" on curves that accelerate throughout. Averaging the fit over the
-    # same window the block-slope tables use removes it, and costs nothing on
-    # a curve whose fall is real and slow.
+        return None
     step = max(1, int(round(samples * DECAY_WINDOW)))
     rate = (predicted[step:] - predicted[:-step]) / (grid[step:] - grid[:-step])
-    grid = grid[:-step]
-    predicted = predicted[:-step]
+    return grid[:-step], predicted[:-step], rate
+
+
+def decay_point(curve, fraction=0.5, samples=4000):
+    """
+    Where the fitted rate falls to `fraction` of its maximum: (t, A, v, t_max).
+
+    A curve whose rate never falls that far returns NaN and is counted as
+    censored rather than silently given the run's end.
+    """
+    sampled = _windowed_rate(curve, samples=samples)
+    if sampled is None:
+        return (np.nan,) * 4
+    grid, predicted, rate = sampled
     top = int(np.argmax(rate))
     peak = float(rate[top])
     if not peak > 0:
@@ -360,80 +385,6 @@ def decay_point(curve, fraction=0.5, samples=4000):
             peak, float(grid[top]))
 
 
-def decay_table(experiments, fraction=0.5):
-    """
-    One row per curve: the fall landmark, with everything needed to test it.
-
-    Columns: experiment, sample, substrate, buffer, pH, temperature, s0, e0,
-    span_s, v_peak, t_peak_s, t_fall_s, a_fall, censored.
-    """
-    import pandas as pd
-    rows = []
-    for curve in scope.curves(tuple(experiments)):
-        t_fall, a_fall, peak, t_peak = decay_point(curve, fraction=fraction)
-        rows.append({
-            "experiment": curve.experiment, "sample": curve.sample,
-            "substrate": curve.substrate, "buffer": curve.buffer,
-            "pH": curve.pH, "temperature": curve.temperature,
-            "s0": curve.conditions.s0, "e0": curve.conditions.e0,
-            "h2o2": curve.conditions.h2o2, "buf": curve.buf,
-            "epsilon": curve.epsilon, "noise": curve.noise,
-            "span_s": float(curve.times[-1] - curve.times[0]),
-            "net": float(curve.absorbance[-1] - curve.absorbance[0]),
-            "v_peak": peak, "t_peak_s": t_peak,
-            "t_fall_s": t_fall, "a_fall": a_fall,
-            "censored": not np.isfinite(t_fall),
-        })
-    return pd.DataFrame(rows)
-
-
-def decay_scaling(table):
-    """
-    Regress log(time to fall) on log(peak rate), and say which law it matches.
-
-    This is the whole discrimination in one number. Both hypotheses predict a
-    straight line through these points and they predict DIFFERENT SLOPES:
-
-        product control   the rate falls at a fixed A, reached at t = A/v,
-                          so the slope is -1
-        a clock           the rate falls at a fixed t whatever v is,
-                          so the slope is 0
-
-    and nothing else in the design has to be held constant for that to be the
-    test, which is why it is worth more than any single matched pair. The
-    lever is the range of `v_peak` in the table; report it, because a slope
-    fitted over a factor of two says very little and one fitted over sixty says
-    a great deal.
-
-    Censored rows -- the rate never fell that far inside the run -- are
-    dropped, and their count is returned. They are not missing at random: a
-    slow curve runs out of time before a fast one does, which biases the slope
-    TOWARDS zero. So a slope near -1 survives the censoring; a slope near 0
-    does not establish a clock on its own.
-    """
-    live = table[~table.censored & (table.v_peak > 0) & (table.t_fall_s > 0)]
-    if len(live) < 3:
-        return {"points": len(live), "censored": int(table.censored.sum()),
-                "slope": np.nan, "stderr": np.nan, "lever": np.nan,
-                "intercept": np.nan, "r2": np.nan}
-    x = np.log(live.v_peak.to_numpy())
-    y = np.log(live.t_fall_s.to_numpy())
-    design = np.column_stack([np.ones(len(x)), x])
-    beta, *_ = np.linalg.lstsq(design, y, rcond=None)
-    resid = y - design @ beta
-    variance = float(resid @ resid) / max(1, len(x) - 2)
-    covariance = variance * np.linalg.pinv(design.T @ design)
-    spread = float(np.var(y))
-    return {
-        "points": int(len(live)), "censored": int(table.censored.sum()),
-        "slope": float(beta[1]), "stderr": float(np.sqrt(covariance[1, 1])),
-        "intercept": float(beta[0]),
-        "lever": float(np.exp(x.max() - x.min())),
-        "r2": float(1 - (variance * max(1, len(x) - 2)) / (spread * len(x)))
-        if spread > 0 else np.nan,
-    }
-
-
 # The rolling window the sink linearisation reads its rate from. Wider than
 # curve_metrics.LAG_WINDOW because the question here is the SLOPE of the rate
 # against product over the whole tail, not where an induction ends, and a
@@ -449,6 +400,12 @@ SINK_CLEAN_R2 = 0.95
 # The tail has to have fallen this far below the maximum before "the rate
 # declines with product" is a measurement rather than a slope through noise.
 SINK_DECLINE = 0.85
+# ...but only when the question is WHICH FORM. To read k off the line, a
+# shallow decline is enough as long as the line itself is good, and the R2
+# gate already asks that. The two thresholds answer different questions and
+# the 25 C run sits between them: it declines to 0.87-0.97, too little to
+# choose a functional form on and quite enough to fit a slope to.
+SINK_SLOPE_DECLINE = 0.98
 
 
 @dataclass(frozen=True)
@@ -502,7 +459,7 @@ def _line_r2(x, y):
             float(1 - float(resid @ resid) / spread) if spread > 0 else np.nan)
 
 
-def sink_fit(curve, fraction=SINK_WINDOW):
+def sink_fit(curve, fraction=SINK_WINDOW, decline=SINK_DECLINE):
     """
     Regress the rolling rate on the accumulated product, after the maximum.
 
@@ -524,8 +481,8 @@ def sink_fit(curve, fraction=SINK_WINDOW):
     rate, made = slopes[top:], product[top:]
     if len(rate) < SINK_MINIMUM_POINTS or not np.all(rate > 0):
         return blank
-    decline = float(rate[-1] / rate[0])
-    if decline > SINK_DECLINE:
+    fallen = float(rate[-1] / rate[0])
+    if fallen > decline:
         return blank
     slope, intercept, rate_r2 = _line_r2(made, rate)
     inverse_slope, inverse_intercept, reciprocal_r2 = _line_r2(made, 1.0 / rate)
@@ -536,15 +493,15 @@ def sink_fit(curve, fraction=SINK_WINDOW):
         ki=(float(inverse_intercept / inverse_slope)
             if inverse_slope != 0 else np.nan),
         rate_r2=rate_r2, reciprocal_r2=reciprocal_r2,
-        decline=decline, points=int(len(rate)))
+        decline=fallen, points=int(len(rate)))
 
 
-def sink_table(experiments, fraction=SINK_WINDOW):
+def sink_table(experiments, fraction=SINK_WINDOW, decline=SINK_DECLINE):
     """One row per curve that declines far enough to be read this way."""
     import pandas as pd
     rows = []
     for curve in scope.curves(tuple(experiments)):
-        fitted = sink_fit(curve, fraction=fraction)
+        fitted = sink_fit(curve, fraction=fraction, decline=decline)
         rows.append({
             "experiment": curve.experiment, "sample": curve.sample,
             "substrate": curve.substrate, "buffer": curve.buffer,
@@ -812,6 +769,192 @@ def report(frame=None):
               f"   {row.of_enzyme:6.1%} of it   late/early "
               f"{row.late_over_early:.2f}")
 
+    print("\n5. WHAT IT DOES TO THE ACTIVATION PARAMETERS")
+    effect = sink_effect_on_activation()
+    print(f"   the sink's own Ea  {effect['sink_activation_kJ']:.1f} +/- "
+          f"{effect['sink_stderr_kJ']:.1f} kJ/mol, on "
+          + ", ".join(f"{t - 273.15:.0f}" for t in effect["sink_temperatures"])
+          + " C")
+    print(f"   {'estimator':22s} {'Ea kJ/mol':>16s} {'dS J/mol/K':>16s} "
+          f"{'rms':>7s}")
+    for label, key in (("v_peak, published", "published"),
+                       ("v_prod, k pinned", "corrected")):
+        row = effect[key]
+        print(f"   {label:22s} {row['activation_kJ']:8.2f} +/- "
+              f"{row['activation_stderr']:.2f} {row['entropy_J']:9.1f} +/- "
+              f"{row['entropy_stderr']:.1f} {row['rms']:7.3f}")
+    print(f"   the production rate sits {effect['lift'] - 1:+.1%} above "
+          f"v_peak on the median curve,")
+    print(f"   between {effect['lift_low'] - 1:+.1%} and "
+          f"{effect['lift_high'] - 1:+.1%} across the six temperatures, with "
+          f"no order to it,")
+    print(f"   so Ea moves by {effect['activation_shift']:+.2f} +/- "
+          f"{effect['activation_shift_stderr']:.2f} kJ/mol -- nothing.")
+
+
+# The sink's rate constant is read off the line in `sink_fit`, so a curve
+# qualifies when that LINE is good, not when the decline is deep. 0.85 is
+# looser than SINK_CLEAN_R2 because this needs the coldest runs it can get and
+# they decline least; anything looser lets a slope through noise in.
+SINK_ARRHENIUS_R2 = 0.85
+SINK_ARRHENIUS_TEMPERATURES = 3
+
+
+def sink_constants(experiments, floor=SINK_ARRHENIUS_R2,
+                   decline=SINK_SLOPE_DECLINE):
+    """
+    Per-curve sink rate constant k, for curves where the line is trustworthy.
+
+    Returns a DataFrame with temperature, kelvin, k and the line's R². Curves
+    whose rate never turns over -- every 15 and 20 °C cuvette here -- have no
+    post-maximum tail to regress and are absent, which is the honest outcome
+    and the reason `sink_activation` has to extrapolate to reach them.
+    """
+    table = sink_table(experiments, decline=decline)
+    live = table[(table.points > 0) & (table.k_sink > 0)
+                 & (table.rate_r2 > floor)].copy()
+    live["kelvin"] = live.temperature + 273.15
+    return live
+
+
+def sink_activation(experiments, floor=SINK_ARRHENIUS_R2):
+    """
+    An Arrhenius fit to the sink's own rate constant, and a predictor for k(T).
+
+    Fitted on the per-temperature MEDIAN of k rather than on every curve,
+    because the four cuvettes of a run share a cell, a day and a peroxide
+    aliquot and are not four independent draws -- the same argument
+    `pooled_arrhenius` makes about the four rungs.
+
+    Returns the `arrhenius.arrhenius_fit` dict with an extra `predict`
+    callable, or None if fewer than three temperatures survive. Three is the
+    minimum a line can be fitted to and it is exactly what this block gives:
+    treat the activation energy as an order of magnitude and the predictor as
+    an interpolation, which is all `production_frame` asks of it.
+    """
+    from arrhenius import arrhenius_fit                # local: heavy import
+    live = sink_constants(experiments, floor=floor)
+    if live.empty:
+        return None
+    grouped = live.groupby("kelvin").k_sink.median()
+    if len(grouped) < SINK_ARRHENIUS_TEMPERATURES:
+        return None
+    fit = arrhenius_fit(grouped.index.to_numpy(dtype=float),
+                        grouped.to_numpy(dtype=float))
+    if fit is None:
+        return None
+    slope, intercept = fit["slope"], fit["intercept"]
+    fit["predict"] = lambda kelvin: np.exp(intercept + slope / np.asarray(
+        kelvin, dtype=float))
+    fit["temperatures"] = [float(k) for k in grouped.index]
+    fit["curves"] = int(len(live))
+    return fit
+
+
+def production_frame(experiments=None, floor=SINK_ARRHENIUS_R2):
+    """
+    The temperature series with the sink taken back out of the rate.
+
+    WHY THE PUBLISHED RATE IS TOO LOW. If the signal obeys `A' = v - kA` then
+    every rate the instrument reports is already net of the loss, and the
+    production rate `v` -- the quantity an activation energy is wanted for --
+    is larger than anything read off the curve.
+
+    HOW IT IS RECOVERED, and why not the obvious way. The obvious way is to
+    add `k.A` back at the moment the rate peaks. It does not work: on the four
+    coldest runs the fitted rate peaks at the END of the run rather than
+    inside it, so that recipe silently swaps `v_peak` -- which is an
+    asymptote, and truncation-free by construction (see ANALYSIS.md 3a) -- for
+    a value read at the last reading, which reintroduces exactly the cold-end
+    truncation `v_peak` exists to avoid. It moved the activation energy by
+    +2.4 kJ/mol of pure bookkeeping.
+
+    What is done instead is to fit the sink model itself,
+
+        A' = v (1 - exp(-t/tau)) - k A
+
+    with **k pinned** at `sink_activation`'s value for that temperature. `v`
+    is then a parameter of the model rather than a reconstruction, and pinning
+    k removes the degeneracy that makes the free four-parameter fit useless
+    here: a curve that has not turned over is fitted equally well by any
+    (v, k) holding v/k at the plateau, and three of these 24 come back with k
+    a hundredfold out.
+
+    Adds `sink_k`, `sink_tau`, `sink_plateau` and `v_prod`.
+    """
+    from arrhenius import series_frame, TEMPERATURE_SERIES   # local
+    experiments = TEMPERATURE_SERIES if experiments is None else experiments
+    frame = series_frame(experiments)
+    fit = sink_activation(experiments, floor=floor)
+    if fit is None:
+        raise ValueError("no sink Arrhenius: fewer than "
+                         f"{SINK_ARRHENIUS_TEMPERATURES} temperatures give a "
+                         "readable rate-against-product line")
+    frame = frame.copy()
+    frame["sink_k"] = fit["predict"](frame.kelvin.to_numpy(dtype=float))
+    rates, taus, plateaus = [], [], []
+    for curve, (_, row) in zip(scope.curves(tuple(experiments)),
+                               frame.iterrows()):
+        fitted = fit_slowdown(np.asarray(curve.times, dtype=float),
+                              np.asarray(curve.absorbance, dtype=float),
+                              "sink", decay=float(row.sink_k))
+        rates.append(fitted.extra.get("rate", np.nan))
+        taus.append(fitted.induction)
+        plateaus.append(fitted.extra.get("plateau", np.nan))
+    frame["v_prod"] = rates
+    frame["sink_tau"] = taus
+    frame["sink_plateau"] = plateaus
+    frame.attrs["sink_activation_kJ"] = fit["activation_kJ"]
+    frame.attrs["sink_stderr_kJ"] = fit["stderr_kJ"]
+    frame.attrs["sink_temperatures"] = fit["temperatures"]
+    frame.attrs["sink_curves"] = fit["curves"]
+    return frame
+
+
+def sink_effect_on_activation(experiments=None, floor=SINK_ARRHENIUS_R2):
+    """
+    Does naming the fall change the activation parameters? Answer: no.
+
+    Returns a dict comparing `v_peak` -- the published estimator, the maximum
+    of a DESCRIPTIVE fit and therefore net of the sink -- with `v_prod`, the
+    production rate of the sink model itself. The two differ by a factor that
+    is systematically greater than one and only weakly ordered in temperature,
+    and **a factor that does not order in temperature cancels out of a slope**.
+    So the correction lands on the LEVEL: it raises every rate a few per cent,
+    which moves the Eyring entropy and the absolute free energy a little and
+    the enthalpy not at all.
+
+    Reported rather than applied. `v_prod` is the more nearly correct
+    quantity and the noisier one -- the sink model imposes a shape the four
+    coldest runs cannot test, and its Arrhenius scatter is twice `v_peak`'s --
+    so quoting it as the headline would trade a bias smaller than the error
+    for a variance larger than it.
+    """
+    from arrhenius import activation_parameters, GAS_CONSTANT   # local
+    frame = production_frame(experiments, floor=floor)
+    published = activation_parameters("v_peak", frame=frame)
+    corrected = activation_parameters("v_prod", frame=frame)
+    ratio = (frame.v_prod / frame.v_peak).to_numpy(dtype=float)
+    ratio = ratio[np.isfinite(ratio) & (ratio > 0)]
+    by_temperature = (frame.v_prod / frame.v_peak).groupby(
+        frame.temperature).median()
+    lift = float(np.median(ratio))
+    return {
+        "published": published, "corrected": corrected,
+        "lift": lift,
+        "lift_low": float(np.min(by_temperature)),
+        "lift_high": float(np.max(by_temperature)),
+        "by_temperature": by_temperature,
+        "activation_shift": float(corrected["activation_kJ"]
+                                  - published["activation_kJ"]),
+        "activation_shift_stderr": float(np.hypot(
+            corrected["activation_stderr"], published["activation_stderr"])),
+        "entropy_from_lift": float(GAS_CONSTANT * np.log(lift)),
+        "sink_activation_kJ": frame.attrs["sink_activation_kJ"],
+        "sink_stderr_kJ": frame.attrs["sink_stderr_kJ"],
+        "sink_temperatures": frame.attrs["sink_temperatures"],
+    }
+
 
 def main():
     report()
@@ -819,3 +962,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
