@@ -22,7 +22,7 @@ import scope
 import verify_enzyme_stock
 from curve_metrics import ACCELERATION_SIGMA, SEGMENT_RATIO_STEEP, segmented_fit
 from fit_dataset import source_floor
-from summary_kinetics import fit_burst_bounded
+from summary_kinetics import fit_burst_bounded, fit_progress
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc, page, PAGE_CSS
 
 # ORDERED VARIABLES GET SEQUENTIAL RAMPS, not categorical hues. Substrate rung
@@ -180,6 +180,51 @@ def figure_shape():
         "block sits in the last third of the run, so <code>vmax</code> is not a "
         "maximum but wherever the measurement stopped. That is the whole reason "
         "<code>v_ss</code> is carried beside it.")
+
+
+def figure_selection():
+    frame = _frame()
+    left = Axes(430, 250, (12, 43), (0, 3.3), pad=(58, 24, 46, 22))
+    left.hline(1.0, MUTED, dash="3 3", width=1.1)
+    for label, column, colour in (("one phase", "v0_burst_resid", CATEGORY[1]),
+                                  ("after selection", "progress_resid",
+                                   CATEGORY[0])):
+        median = frame.groupby("temperature")[column].median()
+        left.line(median.index, median.values, colour, width=2.2)
+        left.points(median.index, median.values, colour, radius=4.4)
+        left.label(43, float(median.iloc[-1]), label, colour, size=11,
+                   anchor="end", weight="600", dy=-9)
+    left.note(62, 26, "1x noise = the form fits", MUTED)
+
+    right = Axes(430, 250, (12, 43), (0, 4.4), pad=(58, 24, 46, 22))
+    counts = frame.groupby("temperature").phases.apply(lambda s: (s == 2).sum())
+    for temperature, count in counts.items():
+        colour = CATEGORY[0] if count else MUTED
+        px = right._fx(temperature)
+        right.parts.append(
+            f"<rect x='{px - 9:.1f}' y='{right._fy(count):.1f}' width='18' "
+            f"height='{right._fy(0) - right._fy(count):.1f}' fill='{colour}' "
+            f"fill-opacity='0.85' rx='3'/>")
+        right.label(temperature, count, f"{count} of 4", INK, size=10.5,
+                    anchor="middle", dy=-8)
+    return fig(
+        "<div class='grid two'><div>" + left.render(
+            "temperature, °C", "residual, in units of the curve's own noise",
+            "J · The second phase is taken only where the first form fails")
+        + "</div><div>" + right.render(
+            "temperature, °C", "cuvettes selecting two phases",
+            "K · …which is 11 of 24, and never at 15, 20 or 30 °C")
+        + "</div></div>",
+        "The forms are exactly nested — B₂ = 0 is the one-phase form — so the "
+        "choice is an F test on two extra parameters "
+        "(<code>summary_kinetics.fit_progress</code>). At 25, 35 and 40 °C the "
+        "one-phase form sits at 1.5–3.0× noise and the second phase brings it "
+        "to about 1.1×; at 15, 20 and 30 °C it is already at noise and nothing "
+        "is selected. <strong>Selection is on F alone, deliberately not on τ₂ "
+        "being resolved</strong> — τ₂ is pinned on only 2 of the 11, and "
+        "requiring it rejected the clearest two-phase curve in the block "
+        "(F = 791). Whether a phase exists and whether its time constant is "
+        "determined are different questions.")
 
 
 def figure_tau():
@@ -457,11 +502,13 @@ def build_curves_page():
                         (min(values.min(), 0) * 1.1 - 1e-4,
                          max(values.max(), 1e-4) * 1.12),
                         pad=(56, 12, 34, 20))
-            burst = fit_burst_bounded(times, values,
-                                      noise_floor=source_floor(curve.source))
-            smooth = np.linspace(0, times[-1], 200)
-            fitted = (burst.c + burst.v_ss * smooth
-                      - burst.B * (1.0 - np.exp(-smooth / burst.tau)))
+            # WHICHEVER FORM THE CURVE EARNED. Drawing the one-phase fit on a
+            # two-phase curve is how the shape stayed invisible for as long as
+            # it did -- the panel showed a fit that could not bend the way the
+            # readings do, and it read as scatter.
+            progress = fit_progress(times, values)
+            smooth = np.linspace(0, times[-1], 300)
+            fitted = progress.predict(smooth)
             # DATA FIRST, FIT ON TOP, AND THE FIT MUST BE NARROWER THAN THE
             # MARKS. Three passes to get this right, so the constraint is
             # written down rather than re-derived:
@@ -492,7 +539,7 @@ def build_curves_page():
                     f"L{axes._fx(where):.2f},{axes.height - axes.bottom}' "
                     f"stroke='{MUTED}' stroke-width='1.1' "
                     f"stroke-dasharray='3 3' fill='none'/>")
-            kind = record.v0_burst_kind
+            kind = progress.chosen.kind
             panels.append(
                 "<div class='fig panel'>"
                 f"<div class='ph'>{temperature:.0f} °C · [S] = {s0:.3f} mM"
@@ -501,11 +548,14 @@ def build_curves_page():
                 f"{int(record.points)} readings over {record.duration_s / 60:.0f} min"
                 f" · {record.source}</div>"
                 + axes.render("time, s", "ΔA at 300 nm")
-                + f"<div class='pf'>burst form: <strong>{esc(kind)}</strong>"
-                + (f", τ = {record.tau:.0f} s" if record.tau_resolved
-                   else ", τ unresolved")
-                + f" · break at {where:.0f} s, slope ×{ratio:.2f}"
-                + f" · accel z {record.accel_z:+.1f}</div></div>")
+                + f"<div class='pf'><strong>{int(record.phases)} phase"
+                + ("s" if record.phases == 2 else "")
+                + f"</strong> · {esc(kind)} · F = {record.two_phase_f:.0f}"
+                + f" · fit {record.progress_resid:.2f}x noise"
+                + (f" · τ₁ = {record.tau_fast:.0f} s" if record.phases == 2
+                   else (f" · τ = {record.tau:.0f} s" if record.tau_resolved
+                         else " · τ unresolved"))
+                + f" · break at {where:.0f} s, slope ×{ratio:.2f}</div></div>")
     body = ("<p class='lede'>All 24 curves of the temperature series, in "
             "temperature order. The orange line is the burst/lag form fitted by "
             "<code>summary_kinetics.fit_burst_bounded</code>; the dashed "
@@ -527,7 +577,7 @@ def build_curves_page():
 # --- the presentation -----------------------------------------------------
 def build_index():
     table = arrhenius.parameter_table()
-    vmax = table.loc["vmax"]
+    vmax = table.loc["v_peak"]
     hero = (
         "<div class='hero'>"
         f"<div><div class='k'>ΔH‡</div><div class='v'>{vmax.enthalpy_kJ:.1f}"
@@ -543,15 +593,18 @@ def build_index():
         "</div>")
 
     rows = []
-    labels = {"vmax": ("<code>vmax</code>", "steepest observed rate",
-                       "all six temperatures"),
+    labels = {"v_peak": ("<code>v_peak</code>",
+                         "peak rate of the fitted model",
+                         "all six temperatures"),
+              "vmax": ("<code>vmax</code>", "steepest observed rate",
+                       "all six, truncated cold"),
               "v_ss": ("<code>v_ss</code>", "asymptote after the induction",
                        "15–30 °C"),
               "inverse_tau": ("<code>1/τ</code>", "induction rate constant",
                               "15–30 °C")}
     for name, row in table.iterrows():
         symbol, what, span = labels[name]
-        highlight = " class='hl'" if name == "vmax" else ""
+        highlight = " class='hl'" if name == "v_peak" else ""
         rows.append(
             f"<tr{highlight}><td>{symbol} — {what}</td><td>{span}</td>"
             f"<td>{row.activation_kJ:.1f} ± {row.activation_stderr:.1f}</td>"
@@ -613,6 +666,10 @@ constant in its own right:</p>
 experiment from outside this block.</p>
 {figure_buffer()}
 {figure_substrate_order()}
+
+<h2>3a \u00b7 The fitting form: one relaxation, or two</h2>
+<p>The burst/lag form's rate is <em>monotone</em>, so it cannot hold a rate that rises to a maximum and then falls \u2014 and 14 of these 24 curves do exactly that. A second relaxation term gives it that freedom, and the two forms are exactly nested.</p>
+{figure_selection()}
 
 <h2>4 · The activation parameters</h2>
 {figure_arrhenius()}

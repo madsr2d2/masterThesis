@@ -35,7 +35,7 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
 from fit_dataset import (PRIMARY_SCOPE, PRIMARY_SCOPE_BLOCK, build_curves,
                          in_scope, source_floor)
 from solution_chemistry import dominant_buffer_pair
-from summary_kinetics import fit_burst_bounded
+from summary_kinetics import fit_burst_bounded, fit_progress
 
 # A run's own cuvettes have to move an axis by at least this much before that
 # axis counts as measured inside the run rather than across experiments.
@@ -132,6 +132,16 @@ def frame(scope=PRIMARY_SCOPE):
         #                       B = 0 with tau at the floor of its grid --
         #                       a straight line wearing a four-parameter form
         #                       -- and sit at 7-8x noise.
+        # The nested pair: one relaxation onto a steady rate, or two. The
+        # one-phase form's rate is MONOTONE, so it cannot hold a curve whose
+        # rate rises to a maximum and then falls -- 14 of the temperature
+        # series' 24 do exactly that. `fit_progress` fits both and returns
+        # whichever the curve earns on an F test. See summary_kinetics.
+        # No `floor` argument: fit_progress's `floor` is the TAU GRID start as a
+        # fraction of the run, not a noise floor. Passing the source floor here
+        # set the grid to [span, 2*span] and made every curve look two-phase.
+        progress = fit_progress(times, values)
+        peak_fitted, peak_fitted_time = progress.peak_rate
         burst = fit_burst_bounded(times, values, noise_floor=floor)
         burst_pred = (burst.c + burst.v_ss * times
                       - burst.B * (1.0 - np.exp(-times / burst.tau)))
@@ -215,6 +225,30 @@ def frame(scope=PRIMARY_SCOPE):
             "v0_burst_bounded": bool(burst.bounded),
             "v0_burst_kind": burst.kind,
             "v0_burst_resid": burst_resid,
+            # How many relaxation phases the curve earned, and the evidence.
+            "phases": int(progress.phases),
+            "two_phase_f": float(progress.f_statistic),
+            # THE RATE TO USE ON AN ARRHENIUS PLOT. The largest rate the fitted
+            # model reaches: v_ss for a one-phase lag, the interior maximum for
+            # a two-phase curve. It is what `vmax` measures off the raw
+            # readings with the truncation taken out -- the block statistic can
+            # only find a maximum inside the window, and at 15 and 20 C the
+            # window ends before the rate levels off.
+            #
+            # Do NOT use the two-phase form's `v_ss` instead: it is the
+            # t -> infinity asymptote, unconstrained once a decay is in the
+            # fit, and it comes out NEGATIVE on two of the 35 C curves.
+            "v_peak": float(peak_fitted),
+            "v_peak_time": float(peak_fitted_time),
+            "tau_fast": float(progress.two.tau1 if progress.phases == 2
+                              else burst.tau),
+            "tau_slow": float(progress.two.tau2 if progress.phases == 2
+                              else np.nan),
+            "tau_slow_resolved": bool(progress.phases == 2
+                                      and progress.two.resolved),
+            "progress_resid": model_residual(
+                values, progress.predict(times),
+                6 if progress.phases == 2 else 4, noise),
             # The burst form's ASYMPTOTIC rate, after the lag is over. On a lag
             # curve this is the quantity `vmax` is trying to measure and
             # cannot when the run ends before the rate levels off -- which is

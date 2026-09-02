@@ -22,7 +22,9 @@ import pandas as pd
 
 from fit_dataset import build_curves, group_curves
 from summary_kinetics import (ABSORPTION_FLOOR, BURST_TAU_CAP, DEAD_CURVE_SNR,
-                              DESIGN_AXES, INITIAL_WINDOW, fit_burst, line_fit,
+                              DESIGN_AXES, INITIAL_WINDOW, fit_burst,
+                              fit_progress, fit_two_phase, line_fit,
+                              _two_phase_design,
                               OUTLIER_FACTOR, REPLICATE_RSD, absorbed_axes,
                               buffer_concentrations, experiment_outliers,
                               initial_rate, line_slope, profile_km, regress,
@@ -548,6 +550,73 @@ def test_real_block():
           rows[-1]["rms_over_noise"] > rows[0]["rms_over_noise"])
 
 
+def test_two_phase_and_selection():
+    """
+    The two-phase form recovers a rise-then-fall, and is refused when it is not one.
+
+    The forms are exactly nested -- B2 = 0 is the one-phase form -- so the
+    selection is an F test and the thing that must hold is BOTH directions: the
+    second phase is taken when it is there and refused when it is not. A
+    selector that only ever accepts is not a selector.
+    """
+    print("\ntwo-phase form and nested selection")
+    times = np.arange(0, 130) * 50.0
+    v_ss, B1, tau1, B2, tau2 = 2e-5, 6e-3, 300.0, -1.2e-2, 4000.0
+    generator = np.random.default_rng(0)
+
+    truth = (0.001 + v_ss * times - B1 * (1 - np.exp(-times / tau1))
+             - B2 * (1 - np.exp(-times / tau2)))
+    fitted = fit_progress(times, truth + generator.normal(0, 2e-4, len(times)))
+    check("a rise-then-fall curve selects two phases", fitted.phases == 2,
+          f"phases {fitted.phases}, F {fitted.f_statistic:.1f}")
+    check("and recovers the steady rate", abs(fitted.two.v_ss - v_ss) < 0.1 * v_ss,
+          f"{fitted.two.v_ss:.3e} against {v_ss:.3e}")
+    check("and the fast time constant", abs(fitted.two.tau1 - tau1) < 0.3 * tau1,
+          f"{fitted.two.tau1:.0f} against {tau1:.0f}")
+    check("and names the shape", fitted.two.kind == "lag then fall",
+          fitted.two.kind)
+    peak, when = fitted.peak_rate
+    check("the peak is interior and above the steady rate",
+          peak > v_ss and 0 < when < times[-1], f"{peak:.3e} at {when:.0f} s")
+
+    lag = 0.001 + v_ss * times - B1 * (1 - np.exp(-times / tau1))
+    refused = fit_progress(times, lag + generator.normal(0, 2e-4, len(times)))
+    check("a pure lag is refused the second phase", refused.phases == 1,
+          f"phases {refused.phases}, F {refused.f_statistic:.1f}")
+    check("and its peak rate is the one-phase asymptote",
+          abs(refused.peak_rate[0] - refused.one.v_ss) < 1e-12)
+
+    straight = 0.001 + v_ss * times
+    line = fit_progress(times, straight + generator.normal(0, 2e-4, len(times)))
+    check("a straight line is refused too", line.phases == 1,
+          f"phases {line.phases}, F {line.f_statistic:.1f}")
+
+    # The nesting itself: at B2 = 0 the two-phase form IS the one-phase form,
+    # so it can never fit worse. A negative F would mean the grid search had
+    # missed its own special case.
+    for values in (truth, lag, straight):
+        noisy = values + generator.normal(0, 2e-4, len(times))
+        both = fit_progress(times, noisy)
+        check("the two-phase fit never does worse than the one-phase",
+              both.two.sse <= both.one.sse * 1.0001,
+              f"{both.two.sse:.3e} against {both.one.sse:.3e}")
+
+    # The fast route -- precomputed normal equations rather than an n-row
+    # least squares per node -- must give the same answer. Checked on a NOISY
+    # curve: normal equations square the condition number, so on a noiseless
+    # one the residual is pure rounding (about 1e-8 here) and the comparison
+    # measures floating point rather than the algebra.
+    noisy = truth + generator.normal(0, 2e-4, len(times))
+    exact = fit_two_phase(times, noisy)
+    design = _two_phase_design(times - times[0], exact.tau1, exact.tau2)
+    beta, *_ = np.linalg.lstsq(design, noisy, rcond=None)
+    residual = noisy - design @ beta
+    check("the precomputed normal equations match a direct least squares",
+          abs(exact.sse - float(residual @ residual))
+          <= 1e-8 * abs(exact.sse),
+          f"{exact.sse:.9e} against {float(residual @ residual):.9e}")
+
+
 if __name__ == "__main__":
     test_line_slope()
     test_line_intercept_and_floor()
@@ -561,5 +630,6 @@ if __name__ == "__main__":
     test_absorption_diagnostic()
     test_outliers()
     test_real_block()
+    test_two_phase_and_selection()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

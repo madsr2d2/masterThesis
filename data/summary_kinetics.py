@@ -336,6 +336,316 @@ def fit_burst(times, values, cap=BURST_TAU_CAP, floor=BURST_TAU_FLOOR,
     )
 
 
+# --- the two-phase form, and choosing between it and the one above ---------
+#
+# WHY A SECOND TERM. `fit_burst` has ONE exponential, so its rate
+# v_ss - (B/tau) exp(-t/tau) is MONOTONE: it approaches v_ss from below (lag,
+# B > 0) or from above (burst, B < 0) and never turns. Fourteen of the
+# temperature series' 24 curves have a rate that rises to a maximum and then
+# falls -- exp 16's upper rungs peak at 1666-2303 s and end about 30% down --
+# and no value of B represents that. Forced through the one-phase form those
+# curves sit at up to 3.8x their noise.
+#
+# WHAT THE SECOND TERM IS NOT. Its time constant must NOT be read as a decay
+# rate constant or given an activation energy. The process behind the fall is
+# unidentified: substrate depletion is excluded (0.5-1.1% conversion), catalyst
+# inactivation is excluded by the Selwyn test on exps 59/60
+# (`scope.selwyn_test` -- inactivation needs the ratio below 1 and it is 1.10
+# to 2.20), and a single product threshold is unsupported. See MECHANISM.md.
+# The term is DESCRIPTIVE: it keeps the shape from corrupting v_ss, and that is
+# all it is for.
+TWO_PHASE_GRID_POINTS = 48     # per axis; the pair is profiled on tau1 < tau2
+# The second phase costs two parameters, so it has to earn them. This is the
+# F threshold on (RSS1 - RSS2)/2 over RSS2/(n - 6). F(2, ~125) at alpha = 0.001
+# is about 7.3; 12.0 is deliberately well above it because progress-curve
+# residuals are serially correlated -- consecutive readings share whatever the
+# model is missing -- and a nominal F over-rejects the simpler model when they
+# are. Treat it as "clearly better", not as a p-value.
+TWO_PHASE_F = 12.0
+
+
+@dataclass
+class TwoPhaseFit:
+    """
+    One curve as a fast transient onto a steady rate, then a slow drift off it.
+
+        A = c + v_ss.t - B1(1 - exp(-t/tau1)) - B2(1 - exp(-t/tau2))
+
+    Sign convention follows BurstFit: B > 0 is a LAG (the rate starts low and
+    rises), B < 0 a burst. The shape this exists for is B1 > 0 > B2 with
+    tau1 < tau2 -- switch on, then fall away -- and `kind` names what was
+    actually found rather than assuming it.
+
+    `resolved` says whether TAU2 IS QUOTABLE -- whether its 95% profile
+    interval stays inside the grid. It does NOT say whether the second phase is
+    real, and the two must not be confused: at 40 C and 5.549 mM the slow phase
+    is unmistakable (F = 791, residual 3.81x noise down to 1.05x) while tau2 is
+    entirely unlocated, because the run is 6517 s and any tau2 from 2545 s to
+    the grid cap fits equally well. Using resolution to decide model FORM is
+    the mistake `model_residual` was written to prevent -- `bounded` asks
+    whether a parameter is pinned, the residual asks whether the form fits, and
+    exp 65 is where they came apart.
+
+    `v_ss_stderr` is the companion warning. As tau2 grows past the run the
+    second term flattens into a straight line and becomes degenerate with
+    v_ss.t, so v_ss stops being an asymptotic rate and starts absorbing the
+    drift. A large stderr here says exactly that.
+    """
+    c: float
+    v_ss: float
+    B1: float
+    tau1: float
+    B2: float
+    tau2: float
+    sse: float
+    rms: float
+    v_ss_stderr: float
+    tau2_interval: tuple
+    resolved: bool
+    points: int
+
+    @property
+    def kind(self):
+        if not (np.isfinite(self.B1) and np.isfinite(self.B2)):
+            return "unresolved"
+        if self.B1 > 0 and self.B2 < 0:
+            return "lag then fall"
+        if self.B1 < 0 and self.B2 < 0:
+            return "burst then fall"
+        if self.B1 > 0 and self.B2 > 0:
+            return "two lags"
+        return "mixed"
+
+    @property
+    def peak_rate(self):
+        """The maximum of the fitted rate, and when it occurs: (rate, time)."""
+        if not np.isfinite(self.tau1) or not np.isfinite(self.tau2):
+            return np.nan, np.nan
+        grid = np.linspace(0.0, self.tau2 * 6.0, 2000)
+        rate = (self.v_ss - (self.B1 / self.tau1) * np.exp(-grid / self.tau1)
+                - (self.B2 / self.tau2) * np.exp(-grid / self.tau2))
+        best = int(np.argmax(rate))
+        return float(rate[best]), float(grid[best])
+
+    def predict(self, times):
+        times = np.asarray(times, dtype=float)
+        if not (np.isfinite(self.tau1) and np.isfinite(self.tau2)):
+            return np.full(len(times), np.nan)
+        return (self.c + self.v_ss * times
+                - self.B1 * (1 - np.exp(-times / self.tau1))
+                - self.B2 * (1 - np.exp(-times / self.tau2)))
+
+
+def _two_phase_design(times, tau1, tau2):
+    return np.column_stack([np.ones(len(times)), times,
+                            -(1 - np.exp(-times / tau1)),
+                            -(1 - np.exp(-times / tau2))])
+
+
+def fit_two_phase(times, values, cap=BURST_TAU_CAP, floor=BURST_TAU_FLOOR,
+                  points=TWO_PHASE_GRID_POINTS):
+    """
+    Fit the two-phase form, profiling (tau1, tau2) on a log grid, tau1 < tau2.
+
+    Given both time constants the model is LINEAR in c, v_ss, B1 and B2, so
+    every node is one least-squares solve and the search has no local minima to
+    fall into -- the same reason `fit_burst` profiles tau rather than handing
+    all four parameters to an optimiser. The grid is coarser per axis than the
+    one-phase one (48 against 240) because it is two-dimensional; that costs
+    resolution on the time constants and none on v_ss, which is what the form
+    exists to protect.
+    """
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    times = times - times[0]
+    span = times[-1]
+    blank = TwoPhaseFit(*([np.nan] * 9 + [(np.nan, np.nan), False, len(times)]))
+    # Six parameters need more than six points, and the profile needs slack.
+    if span <= 0 or len(times) < BURST_MINIMUM_POINTS + 2:
+        return blank
+
+    grid = np.logspace(np.log10(span * floor), np.log10(span * cap), points)
+    # The design's columns are [1, t, -E_i, -E_j] and only the last two depend
+    # on the grid, so every inner product the normal equations need can be
+    # computed ONCE and indexed. That turns each node from an n-row least
+    # squares into a 4x4 solve: about 400x faster, which is what makes this
+    # affordable on all 402 curves rather than on one block.
+    basis = -(1.0 - np.exp(-np.outer(1.0 / grid, times)))     # (points, n)
+    ones = np.ones(len(times))
+    fixed = np.column_stack([ones, times])                    # (n, 2)
+    ff = fixed.T @ fixed                                      # (2, 2)
+    fb = fixed.T @ basis.T                                    # (2, points)
+    bb = basis @ basis.T                                      # (points, points)
+    fy = fixed.T @ values                                     # (2,)
+    by = basis @ values                                       # (points,)
+    total = float(values @ values)
+
+    best_cost, best = np.inf, None
+    profile = np.full(len(grid), np.inf)
+    for second in range(1, len(grid)):
+        # All `first < second` at once: a stack of 4x4 systems, solved in one
+        # call. The loop over `second` stays because the stack is what makes
+        # each step cheap, not the Python.
+        first = np.arange(second)
+        normal = np.empty((second, 4, 4))
+        normal[:, :2, :2] = ff
+        normal[:, :2, 2] = fb[:, first].T
+        normal[:, :2, 3] = fb[:, second]
+        normal[:, 2, :2] = fb[:, first].T
+        normal[:, 3, :2] = fb[:, second]
+        normal[:, 2, 2] = bb[first, first]
+        normal[:, 3, 3] = bb[second, second]
+        normal[:, 2, 3] = normal[:, 3, 2] = bb[first, second]
+        target = np.empty((second, 4))
+        target[:, :2] = fy
+        target[:, 2] = by[first]
+        target[:, 3] = by[second]
+        with np.errstate(all="ignore"):
+            try:
+                # target[..., None] because numpy reads a (M, 4) right-hand
+                # side against a (M, 4, 4) stack as a single matrix, not as M
+                # vectors.
+                beta = np.linalg.solve(normal, target[..., None])[..., 0]
+            except np.linalg.LinAlgError:
+                # One singular node in the stack fails the whole batch, so fall
+                # back to the least-squares route for this `second` only.
+                beta = np.stack([np.linalg.lstsq(n, t, rcond=None)[0]
+                                 for n, t in zip(normal, target)])
+        # SSE = y.y - 2 b.X'y + b'X'X b, from the same precomputed pieces.
+        cost = (total - 2 * np.einsum("ij,ij->i", beta, target)
+                + np.einsum("ij,ijk,ik->i", beta, normal, beta))
+        cost = np.where(np.isfinite(cost), cost, np.inf)
+        pick = int(np.argmin(cost))
+        if cost[pick] < profile[second]:
+            profile[second] = float(cost[pick])
+        if cost[pick] < best_cost:
+            best_cost = float(cost[pick])
+            best = (int(first[pick]), second, beta[pick].copy())
+    if best is None or not np.isfinite(best_cost):
+        return blank
+    # Floating point can drive a residual sum of squares slightly negative when
+    # the fit is near-perfect; it is a cost, so clamp rather than propagate.
+    best_cost = max(best_cost, 0.0)
+
+    first, second, beta = best
+    degrees = max(1, len(times) - 6)
+    inside = grid[1:][profile[1:] <= best_cost * (1 + CHI2_95 / degrees)]
+    low, high = ((float(inside.min()), float(inside.max())) if len(inside)
+                 else (np.nan, np.nan))
+    resolved = bool(np.isfinite(low) and low > grid[1] * 1.05
+                    and high < grid[-1] * 0.95)
+    c, v_ss, B1, B2 = (float(v) for v in beta)
+    # v_ss's own standard error, from the linear solve at the chosen pair. It
+    # is conditional on (tau1, tau2) and so understates the true uncertainty,
+    # but it catches the failure that matters: a tau2 long enough that its term
+    # is a straight line, which makes v_ss and B2/tau2 trade off freely.
+    design = _two_phase_design(times, grid[first], grid[second])
+    variance = best_cost / max(1, len(times) - 4)
+    covariance = variance * np.linalg.pinv(design.T @ design)
+    return TwoPhaseFit(
+        c=c, v_ss=v_ss, B1=B1, tau1=float(grid[first]),
+        B2=B2, tau2=float(grid[second]),
+        sse=best_cost, rms=float(np.sqrt(best_cost / len(times))),
+        v_ss_stderr=float(np.sqrt(max(covariance[1, 1], 0.0))),
+        tau2_interval=(low, high), resolved=resolved, points=len(times))
+
+
+@dataclass
+class ProgressFit:
+    """Whichever form the curve earned, and the evidence for the choice."""
+    phases: int
+    one: BurstFit
+    two: TwoPhaseFit
+    f_statistic: float
+    reason: str
+
+    @property
+    def chosen(self):
+        return self.two if self.phases == 2 else self.one
+
+    @property
+    def v_ss(self):
+        """
+        The t -> infinity asymptote of whichever form was chosen.
+
+        DO NOT PUT THIS ON AN ARRHENIUS PLOT when two phases were selected. It
+        is an extrapolation far outside the data, and with a decay in the fit
+        it is not constrained by anything: on the temperature series it comes
+        out NEGATIVE on two of the 35 C curves and gives an Arrhenius scatter
+        of 0.19 to 1.18 in ln units, against 0.08 for the peak rate. Use
+        `peak_rate`.
+        """
+        return self.chosen.v_ss
+
+    @property
+    def peak_rate(self):
+        """
+        The largest rate the fitted model reaches, and when: (rate, time).
+
+        THE OBSERVABLE TO USE, and it is defined the same way on both forms:
+        the maximum of the fitted dA/dt. What that means differs by shape and
+        the difference is the point --
+
+          one phase, lag    the rate rises monotonically to v_ss, so the
+                            supremum IS v_ss, reached as t -> infinity
+          one phase, burst  the rate falls from v0, so the maximum is v0 at 0
+          two phases        an interior maximum, which is what the second term
+                            exists to locate
+
+        This is what `curve_metrics.peak_rate` measures off the raw readings,
+        with the truncation removed: the block statistic can only find a
+        maximum inside the window, and at 15 and 20 C the window ends before
+        the rate levels off. The fit knows the shape and does not have to stop
+        where the readings do.
+        """
+        if self.phases == 2:
+            return self.two.peak_rate
+        one = self.one
+        if not np.isfinite(one.tau) or not np.isfinite(one.B):
+            return np.nan, np.nan
+        if one.B > 0:                      # lag: rises to v_ss
+            return float(one.v_ss), float("inf")
+        return float(one.v_ss - one.B / one.tau), 0.0   # burst: highest at t=0
+
+    def predict(self, times):
+        return self.chosen.predict(times)
+
+
+def fit_progress(times, values, threshold=TWO_PHASE_F, **kwargs):
+    """
+    Fit both forms and return the one the curve earns, with the reason.
+
+    NESTED SELECTION, and the nesting is exact: B2 = 0 turns the two-phase form
+    into the one-phase form, so the comparison is a plain F test on two extra
+    parameters, and F > `threshold` is the whole rule.
+
+    IT IS DELIBERATELY NOT GATED ON TAU2 BEING RESOLVED. The first version of
+    this function required both, and it rejected the clearest two-phase curves
+    in the archive -- 40 C at 5.549 mM, F = 791, residual falling from 3.81x
+    noise to 1.05x -- because tau2 is 7562 s in a 6517 s run and anything above
+    2545 s fits as well. Whether a phase EXISTS and whether its time constant
+    is PINNED are different questions, and answering the first with the second
+    is the error `model_residual` exists to prevent. `TwoPhaseFit.resolved`
+    still reports the second question, and tau2 should not be quoted where it
+    is False.
+
+    Returns a ProgressFit. Read `phases`, then `chosen`.
+    """
+    one = fit_burst(times, values, **kwargs)
+    two = fit_two_phase(times, values, **kwargs)
+    count = len(np.asarray(times))
+    if not np.isfinite(one.sse) or not np.isfinite(two.sse):
+        return ProgressFit(1, one, two, np.nan, "a form did not fit")
+    degrees = max(1, count - 6)
+    gain = one.sse - two.sse
+    statistic = (float((gain / 2.0) / (two.sse / degrees))
+                 if two.sse > 0 else np.nan)
+    if not np.isfinite(statistic) or statistic <= threshold:
+        return ProgressFit(1, one, two, statistic,
+                           "the second phase does not pay for its parameters")
+    return ProgressFit(2, one, two, statistic, "the second phase is earned")
+
+
 # How wide the v0 profile interval may be, as a fraction of v0, before the
 # initial rate counts as unbounded. 0.30 is where the enzyme-free BnOH curves
 # separate: the curves inside it agree with their own line fit to 1.02-2.14x,

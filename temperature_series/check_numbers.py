@@ -283,11 +283,12 @@ def main():
 
     print("\nthe activation parameters")
     table = arrhenius.parameter_table()
-    labels = {"vmax": "`vmax`, steepest observed rate",
+    labels = {"v_peak": "`v_peak`, peak rate of the fitted model",
+              "vmax": "`vmax`, steepest observed rate",
               "v_ss": "`v_ss`, asymptote after the induction",
               "inverse_tau": "`1/tau`, induction rate constant"}
     for name, row in table.iterrows():
-        mark = "**" if name == "vmax" else ""
+        mark = "**" if name == "v_peak" else ""
         claim(f"parameter row, {name}",
               f"| {labels[name]} | {row.activation_kJ:.1f} +/- "
               f"{row.activation_stderr:.1f} | {mark}{row.enthalpy_kJ:.1f} +/- "
@@ -296,23 +297,62 @@ def main():
               f"{row.gibbs_stderr:.1f}{mark} | {int(row.n)}, "
               f"{int(row.temperatures)} T |")
     kcal = 4.184
-    vmax_row = table.loc["vmax"]
+    vmax_row = table.loc["v_peak"]
     claim("the kcal restatement",
           f"ΔH‡ **{vmax_row.enthalpy_kJ / kcal:.1f}**, ΔS‡ "
-          f"**{vmax_row.entropy_J / kcal:.1f} cal/mol/K**, ΔG‡(298) "
+          f"**{vmax_row.entropy_J / kcal:.1f} cal/mol/K**, ΔG‡(298)\n"
           f"**{vmax_row.gibbs_kJ / kcal:.1f}**")
+    claim("the three routes",
+          f"`v_peak` gives **{table.loc['v_peak', 'enthalpy_kJ']:.1f} +/- "
+          f"{table.loc['v_peak', 'enthalpy_stderr']:.1f}** on\nall six "
+          f"temperatures; `v_ss` gives **{table.loc['v_ss', 'enthalpy_kJ']:.1f}"
+          f" +/- {table.loc['v_ss', 'enthalpy_stderr']:.1f}**")
+    claim("the rung agreement cost",
+          f"reduced chi2 {arrhenius.rungs_agree('vmax')['reduced_chi2']:.2f} "
+          f"against **{arrhenius.rungs_agree('v_peak')['reduced_chi2']:.2f}** "
+          f"for `v_peak`")
     # The composition DS is quoted at. A DS with none attached is not a number.
     claim("the composition the entropy is quoted at",
           f"[S] = {vmax_row.at_s0:.3f} mM and [buf] = {vmax_row.at_buf:.0f} mM**")
     # The two estimators agreeing is the load-bearing check of section 4.
-    check("vmax and v_ss agree within their errors",
-          abs(table.loc["vmax", "enthalpy_kJ"] - table.loc["v_ss", "enthalpy_kJ"])
-          < 2 * table.loc["v_ss", "enthalpy_stderr"],
-          f"{table.loc['vmax', 'enthalpy_kJ']:.1f} vs "
-          f"{table.loc['v_ss', 'enthalpy_kJ']:.1f}")
+    print("\nthe fitting form: one relaxation or two")
+    # The nesting is exact -- B2 = 0 is the one-phase form -- so the count and
+    # the residual improvement are the evidence for the extra parameters.
+    frame_sel = arrhenius.series_frame()
+    selected = int((frame_sel.phases == 2).sum())
+    claim("how many earned the second phase",
+          f"**Selected on {selected} of {len(frame_sel)}**")
+    for temperature in sorted(frame_sel.temperature.unique()):
+        run = frame_sel[frame_sel.temperature == temperature]
+        two = int((run.phases == 2).sum())
+        mark = "**" if two else ""
+        claim(f"selection row, {temperature:.0f} C",
+              f"| {temperature:.0f} °C | {mark}{two} of {len(run)}{mark} | "
+              f"{run.v0_burst_resid.median():.2f}x | "
+              f"{mark}{run.progress_resid.median():.2f}x{mark} |")
+    # Nothing may be selected where the one-phase form already sits at noise.
+    quiet = frame_sel[frame_sel.v0_burst_resid < 1.2]
+    check("nothing is selected where one phase already fits",
+          int((quiet.phases == 2).sum()) <= 1,
+          f"{int((quiet.phases == 2).sum())} of {len(quiet)} quiet curves")
+    # tau2 is quoted nowhere, and this is why.
+    resolved = int(frame_sel[frame_sel.phases == 2].tau_slow_resolved.sum())
+    claim("tau2 is not quoted",
+          f"resolved on only {resolved} of the {selected} two-phase curves")
+
+    # THE load-bearing check: three routes with unrelated weaknesses.
+    for other in ("vmax", "v_ss"):
+        check(f"v_peak and {other} agree within their errors",
+              abs(table.loc["v_peak", "enthalpy_kJ"]
+                  - table.loc[other, "enthalpy_kJ"])
+              < 2 * max(table.loc[other, "enthalpy_stderr"],
+                        table.loc["v_peak", "enthalpy_stderr"]),
+              f"{table.loc['v_peak', 'enthalpy_kJ']:.1f} vs "
+              f"{table.loc[other, 'enthalpy_kJ']:.1f}")
     claim("they come out at",
-          f"They come out at {table.loc['vmax', 'enthalpy_kJ']:.1f} and\n"
-          f"{table.loc['v_ss', 'enthalpy_kJ']:.1f} kJ/mol")
+          f"They come out at {table.loc['vmax', 'enthalpy_kJ']:.1f}, "
+          f"{table.loc['v_ss', 'enthalpy_kJ']:.1f} and\n"
+          f"{table.loc['v_peak', 'enthalpy_kJ']:.1f} kJ/mol")
     # The induction is a DIFFERENT process, and the entropy is what says so.
     gap = table.loc["vmax", "gibbs_kJ"] - table.loc["inverse_tau", "gibbs_kJ"]
     claim("the induction's gap", f"**{gap:.0f} kJ/mol lower**")

@@ -8,6 +8,104 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-02 — A two-phase fitting form with nested selection, and a new rate observable
+
+The burst/lag form's rate is `v_ss − (B/τ)e^(−t/τ)` — **monotone**, so it
+approaches `v_ss` from one side and never turns, and it cannot represent a rate
+that rises to a maximum and then falls. Fourteen of the temperature series' 24
+curves do exactly that.
+
+### The form
+
+    A = c + v_ss·t − B₁(1 − e^(−t/τ₁)) − B₂(1 − e^(−t/τ₂))
+
+`summary_kinetics.fit_two_phase`. **B₂ = 0 recovers the one-phase form exactly**,
+so the two are properly nested and `fit_progress` chooses between them with an F
+test on two extra parameters. `TWO_PHASE_F = 12.0`, well above the nominal
+F(2, ~125) = 7.3 at α = 0.001, because progress-curve residuals are serially
+correlated and a nominal F over-rejects the simpler model when they are.
+
+Given both time constants the model is linear in the other four, so the pair is
+profiled on a log grid rather than handed to an optimiser — the same reason
+`fit_burst` profiles τ, and it removes local minima. The grid solve is assembled
+from precomputed inner products (each node a 4×4 solve, batched over τ₁), which
+is **8.4 ms per curve** against 67 ms for the naive route and identical to a
+direct least squares to 13 decimals.
+
+### The mistake I made building it, which is the exp-65 mistake again
+
+The first version required **both** F > threshold **and** τ₂ resolved. It
+rejected the clearest two-phase curve in the block — 40 °C at 5.549 mM,
+**F = 791**, residual falling from **3.81× noise to 1.05×** — because τ₂ is
+7562 s in a 6517 s run and anything above 2545 s fits as well.
+
+**Whether a phase exists and whether its time constant is pinned are different
+questions**, and answering the first with the second is precisely what
+`model_residual` was written to prevent. Selection is now on F alone.
+`TwoPhaseFit.resolved` still reports the second question, and **τ₂ is resolved on
+only 2 of the 11 two-phase curves, so τ₂ is quoted nowhere** — which is the
+second, independent reason it gets no activation energy, on top of the mechanism
+being unidentified.
+
+### What it selects
+
+**11 of 24**, and exactly where the one-phase form was failing. Medians over
+each run's four cuvettes:
+
+| T | two-phase | one-phase | after selection |
+|---|---|---|---|
+| 15 °C | 0 of 4 | 1.03× noise | 1.03× |
+| 20 °C | 0 of 4 | 0.98× | 0.98× |
+| 25 °C | **4 of 4** | 1.99× | **1.15×** |
+| 30 °C | 0 of 4 | 1.09× | 1.09× |
+| 35 °C | **4 of 4** | 1.49× | **1.13×** |
+| 40 °C | **3 of 4** | 2.97× | **1.04×** |
+
+Nothing is selected where the one-phase form already sits at noise.
+
+### And it changed which rate goes on the Arrhenius plot
+
+**Not `v_ss`.** In the two-phase form that is the t → ∞ asymptote, extrapolated
+far outside the data and unconstrained once a decay is in the fit: it comes out
+**negative** on two of the 35 °C curves and gives an Arrhenius scatter of
+0.19–1.18 in ln units. `ProgressFit.v_ss`'s docstring says so.
+
+**`v_peak`**, the maximum of the *fitted* rate, is the observable, and it is
+defined identically on both forms: `v_ss` on a one-phase lag, where the rate
+rises monotonically to it; the interior maximum on a two-phase curve. It is what
+`vmax` measures off the readings with the truncation removed, because the fit
+knows the shape and need not stop where the readings do.
+
+### The result: three routes now agree
+
+| | E<sub>a</sub> | ΔH‡ | ΔS‡ J/mol/K | ΔG‡(298) | curves |
+|---|---|---|---|---|---|
+| **`v_peak`** | **88.8 ± 1.8** | **86.3 ± 1.8** | **−57.7 ± 5.9** | **103.5 ± 0.1** | 24, 6 T |
+| `vmax` | 90.1 ± 1.5 | 87.6 ± 1.5 | −53.5 ± 5.0 | 103.6 ± 0.1 | 24, 6 T |
+| `v_ss` | 89.0 ± 2.6 | 86.6 ± 2.6 | −56.5 ± 9.0 | 103.4 ± 0.1 | 16, 4 T |
+
+kJ/mol. **ΔH‡ ≈ 86**: `v_peak` 86.3 on all six temperatures, `v_ss` 86.6 on the
+four where the one-phase form is sound, and `vmax` 87.6 minus its measured
+truncation bias of 1.7, i.e. 85.9. **The two-phase form reaches the corrected
+answer without substituting estimators between temperature ranges**, which is
+what it was built for.
+
+**What it costs:** `v_peak` has the wider error (± 1.8 against ± 1.5) and its
+four rungs agree less well — reduced χ² **3.99** against **1.64** — because a
+model-based peak inherits the fit's scatter and the τ grid is coarse. Quote
+`v_peak`; note that `vmax` agrees once its known bias is removed.
+
+**Changed:** `summary_kinetics.TwoPhaseFit`, `fit_two_phase`, `ProgressFit`,
+`fit_progress`, `TWO_PHASE_GRID_POINTS`, `TWO_PHASE_F`; `scope.frame` gained
+`phases`, `two_phase_f`, `v_peak`, `v_peak_time`, `tau_fast`, `tau_slow`,
+`tau_slow_resolved`, `progress_resid`; `arrhenius.FITTED_PARAMETERS` gained
+`v_peak` as the headline; `test_summary_kinetics.test_two_phase_and_selection`
+covers recovery, refusal in both directions, the nesting inequality and the fast
+route; ANALYSIS.md §3a and a new figure pair J/K; the progress panels now draw
+whichever form the curve earned. Folder checks 79 → 92.
+
+---
+
 ## 2026-09-02 — The decay is not catalyst inactivation, and the catalyst order may not be 1
 
 **The question**, from the user: the burst/lag form has one exponential and a

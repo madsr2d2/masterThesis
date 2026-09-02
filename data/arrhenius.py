@@ -424,6 +424,19 @@ def rungs_agree(parameter="v_ss", experiments=TEMPERATURE_SERIES):
 # why. Declared rather than chosen at the call site, because the whole lesson of
 # this block is that no single estimator measures one quantity across 15-40 C.
 FITTED_PARAMETERS = {
+    "v_peak": {
+        "label": "peak rate of the fitted model",
+        "kelvin_max": None,
+        "constant": "turnover",
+        "note": "all six temperatures, and the one observable here that means "
+                "the same thing at every one of them. `vmax` reads a maximum "
+                "off the readings and so cannot find one outside the window; "
+                "the one-phase v_ss is the asymptote of a rate that on 11 of "
+                "24 curves does not have one. This is the maximum of the "
+                "FITTED rate under whichever form the curve earned "
+                "(`summary_kinetics.fit_progress`), which is v_ss on a "
+                "one-phase lag and an interior peak on a two-phase curve",
+    },
     "vmax": {
         "label": "steepest observed rate",
         "kelvin_max": None,

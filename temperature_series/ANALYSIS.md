@@ -298,6 +298,72 @@ all 24 points — rather than by averaging the four fits, because those four sha
 the same six runs, the same six days and the same six cells, so their errors are
 correlated and averaging would shrink the error by a factor that is not there.
 
+## 3a. The fitting form: one relaxation, or two
+
+The burst/lag form is `A = c + v_ss·t − B(1 − e^(−t/τ))`, so its rate is
+`v_ss − (B/τ)e^(−t/τ)` — **monotone**. It approaches `v_ss` from below (lag,
+B > 0) or from above (burst, B < 0) and never turns. **It cannot represent a
+rate that rises to a maximum and then falls**, and 14 of these 24 curves do
+exactly that: exp 16's upper rungs peak at 1666–2303 s and end about 30% below
+their peak.
+
+`summary_kinetics.fit_two_phase` adds a second relaxation:
+
+    A = c + v_ss·t − B₁(1 − e^(−t/τ₁)) − B₂(1 − e^(−t/τ₂))
+
+**B₂ = 0 recovers the one-phase form exactly**, so the two are properly nested
+and the choice is a plain F test on two extra parameters
+(`summary_kinetics.fit_progress`). Given both time constants the model is linear
+in the other four, so the pair is profiled on a log grid rather than handed to
+an optimiser — the same reason `fit_burst` profiles τ, and it removes local
+minima from the search.
+
+**Selection is on F alone, and deliberately not on τ₂ being resolved.** The
+first version required both and rejected the clearest two-phase curves in the
+block — 40 °C at 5.549 mM, F = 791, residual falling from 3.81× noise to
+1.05× — because τ₂ is 7562 s in a 6517 s run and anything above 2545 s fits as
+well. Whether a phase **exists** and whether its time constant is **pinned** are
+different questions; answering the first with the second is the error exp 65
+taught. `TwoPhaseFit.resolved` still reports the second, and τ₂ is resolved on
+only 2 of the 11 two-phase curves, so **τ₂ is not quoted anywhere**.
+
+**Selected on 11 of 24**, and on exactly the curves the one-phase form was
+failing:
+
+Residuals below are medians over the run's four cuvettes, in units of each
+curve's own noise.
+
+| T | two-phase | one-phase | after selection |
+|---|---|---|---|
+| 15 °C | 0 of 4 | 1.03× | 1.03× |
+| 20 °C | 0 of 4 | 0.98× | 0.98× |
+| 25 °C | **4 of 4** | 1.99× | **1.15×** |
+| 30 °C | 0 of 4 | 1.09× | 1.09× |
+| 35 °C | **4 of 4** | 1.49× | **1.13×** |
+| 40 °C | **3 of 4** | 2.97× | **1.04×** |
+
+Nothing is selected where the one-phase form already sits at noise. Every
+selected fit is `lag then fall` bar one.
+
+**The second phase is descriptive and must stay that way.** Its time constant is
+not given an activation energy, for two independent reasons: the process behind
+the fall is unidentified (§6 — substrate depletion excluded at 0.5–1.1%
+conversion, catalyst inactivation excluded by the Selwyn test, a product
+threshold unsupported), and τ₂ is not resolved on 9 of the 11 curves anyway.
+
+### And it changes which rate to put on an Arrhenius plot
+
+Not `v_ss`. In the two-phase form that is the t → ∞ asymptote, extrapolated far
+outside the data and unconstrained once a decay is in the fit: it comes out
+**negative** on two of the 35 °C curves and gives an Arrhenius scatter of
+0.19–1.18 in ln units against 0.08 for the alternative.
+
+**`v_peak`** — the maximum of the *fitted* rate — is the observable. It is
+defined the same way on both forms: `v_ss` on a one-phase lag, where the rate
+rises monotonically to it; the interior maximum on a two-phase curve. It is what
+`vmax` measures off the raw readings **with the truncation removed**, because
+the fit knows the shape and does not have to stop where the readings do.
+
 ## 4. Activation parameters
 
 `arrhenius.parameter_table()`. Three fitted quantities, each pooled over the
@@ -305,19 +371,34 @@ four rungs with a free intercept each, Eyring fitted on the same design.
 
 | parameter | E<sub>a</sub> kJ/mol | ΔH‡ kJ/mol | ΔS‡ J/mol/K | ΔG‡(298) kJ/mol | curves |
 |---|---|---|---|---|---|
-| `vmax`, steepest observed rate | 90.1 ± 1.5 | **87.6 ± 1.5** | **−53.5 ± 5.0** | **103.6 ± 0.1** | 24, 6 T |
+| `v_peak`, peak rate of the fitted model | 88.8 ± 1.8 | **86.3 ± 1.8** | **−57.7 ± 5.9** | **103.5 ± 0.1** | 24, 6 T |
+| `vmax`, steepest observed rate | 90.1 ± 1.5 | 87.6 ± 1.5 | −53.5 ± 5.0 | 103.6 ± 0.1 | 24, 6 T |
 | `v_ss`, asymptote after the induction | 89.0 ± 2.6 | 86.6 ± 2.6 | −56.5 ± 9.0 | 103.4 ± 0.1 | 16, 4 T |
 | `1/τ`, induction rate constant | 95.0 ± 15.7 | 92.6 ± 15.7 | +3.7 ± 53.2 | 91.5 ± 0.6 | 16, 4 T |
 
-In kcal/mol: ΔH‡ **20.9**, ΔS‡ **−12.8 cal/mol/K**, ΔG‡(298) **24.8** for
-`vmax`; 22.1 and 21.9 for the induction.
+In kcal/mol for `v_peak`: ΔH‡ **20.6**, ΔS‡ **−13.8 cal/mol/K**, ΔG‡(298)
+**24.7**.
 
-**The two rate estimators agree**, which is the check that matters. `vmax` uses
-all six temperatures and is truncated at the cold end; `v_ss` uses only the four
-where the burst form is sound and is not truncated. They come out at 87.6 and
-86.6 kJ/mol — and the truncation correction of §2 predicted `vmax` would read
-about 1.7 high, i.e. 85.9. Two estimators with different failure modes landing
-within their errors is the best internal evidence this block offers.
+**Three routes now agree on ΔH‡ ≈ 86 kJ/mol.** `v_peak` gives **86.3 ± 1.8** on
+all six temperatures; `v_ss` gives **86.6 ± 2.6** on the four where the
+one-phase form is sound; and `vmax` gives 87.6 ± 1.5, which §2 measured as
+running about 1.7 high from truncation — i.e. **85.9** corrected. The two-phase
+form reaches the same answer *without* the estimator substitution, which is what
+it was built for.
+
+`vmax` keeps the tighter error and the better-agreeing rungs (reduced χ² 1.64
+against **3.99** for `v_peak`), because a model-based peak inherits the fit's
+scatter and the τ grid is coarse. So: **quote `v_peak`, and note that `vmax`
+agrees once its known bias is removed.**
+
+**The load-bearing check is that estimators with different failure modes
+agree.** `vmax` uses all six temperatures and is truncated at the cold end;
+`v_ss` uses only the four where the one-phase form is sound and is not
+truncated; `v_peak` uses all six and is not truncated because it is read off a
+fitted shape rather than off the readings. They come out at 87.6, 86.6 and
+86.3 kJ/mol, and the truncation correction predicted `vmax` would read 1.7 high.
+Three routes with unrelated weaknesses landing within their errors is the best
+internal evidence this block offers.
 
 **ΔS‡ ≈ −55 J/mol/K is strongly negative** — a well-ordered transition state, as
 an associative step should be. Note what it is quoted *at*: an intercept is a
