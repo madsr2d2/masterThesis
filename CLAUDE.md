@@ -104,6 +104,20 @@ five standards, and the folder with the most numbers ran the weakest one.
 - Add an assertion with `doc.claim` / `doc.check`; never write a private
   comparison in a folder. `test_doc_check` fails if a folder defines one.
 
+`figure_kit.py` is the same idea for the drawing: `svgplot` has the primitives,
+`figure_kit` the palettes, `fig`, `styled` and `write_pages`. The copies had
+drifted here too -- `induction/` carried a different six-step `TEMPERATURES`
+ramp from `temperature_series/`, and never drew with it, and
+`background_reaction/` was the one folder whose figures did NOT sit on the fixed
+light `SURFACE` its palette was validated against.
+
+- **Ordered variables get sequential ramps** (`RUNGS`, `TEMPERATURES`,
+  `PH_RAMP`); only genuinely categorical sets get `CATEGORY`, which is the
+  validated trio. Never declare a colour in a folder.
+- **`write_pages` reports clipped marks at build time**, which two of the five
+  folders did and three did not. A mark outside the axis limits vanishes
+  silently and the figure still looks finished, so the build has to say so.
+
 ## The temperature series
 
 `temperature_series/` holds the archive's only temperature block (exps 14-19,

@@ -20,13 +20,14 @@ sys.path.insert(0, os.path.dirname(HERE))
 import arrhenius
 import scope
 import slowdown
-import slowdown
 import verify_enzyme_stock
 from curve_metrics import (ACCELERATION_SIGMA, SEGMENT_RATIO_STEEP,
                            rolling_slope, segmented_fit)
 from fit_dataset import source_floor
 from summary_kinetics import fit_burst_bounded, fit_progress
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc, page, PAGE_CSS
+from figure_kit import (CATEGORY, FIT_WIDTH, RUNGS, SURFACE, TEMPERATURES,
+                        fig, styled, write_pages)
 
 # ORDERED VARIABLES GET SEQUENTIAL RAMPS, not categorical hues. Substrate rung
 # and temperature are both ordinal, so a light-to-dark single hue carries the
@@ -48,23 +49,8 @@ SURFACE = "#fbfbfa"
 # fit never covers a reading whole. See build_curves_page.
 FIT_WIDTH = 1.5
 
-EXTRA_CSS = """
-.fig{background:#fbfbfa;border-color:#e4e4e2}
-.fig .cap{color:#5a5a5a}
-.pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;
-background:var(--rule);color:var(--muted);margin-left:7px;vertical-align:2px}
-.hero{display:flex;flex-wrap:wrap;gap:26px;margin:14px 0 4px}
-.hero div{min-width:140px}
-.hero .v{font-size:25px;font-weight:650;letter-spacing:-0.02em}
-.hero .k{font-size:11.5px;color:var(--muted);text-transform:uppercase;
-letter-spacing:0.06em}
-.hero .u{font-size:12px;color:var(--muted)}
-"""
 
 
-def fig(svg, caption, extra=""):
-    return (f"<div class='fig'>{svg}"
-            f"<div class='cap'>{caption}</div>{extra}</div>")
 
 
 def legend(entries):
@@ -588,8 +574,7 @@ def build_curves_page():
             "40 °C, which is the same thing τ and the breakpoint ratio report "
             "as numbers.</p>"
             "<div class='grid three'>" + "".join(panels) + "</div>")
-    return page("Temperature series — all 24 progress curves", body).replace(
-        "</style>", EXTRA_CSS + "</style>")
+    return styled("Temperature series — all 24 progress curves", body)
 
 
 # --- the presentation -----------------------------------------------------
@@ -875,19 +860,13 @@ calls those checks use.</p>
 <a href='../product_fate/index.html'>product_fate</a>. Curves:
 <a href='progress_curves.html'>all 24 progress curves</a>.</p>
 """
-    return page("Temperature series — activation parameters", body,
-                "Exps 14–19 · 4OMe-BnOH · pH 7.00 · 15–40 °C").replace(
-        "</style>", EXTRA_CSS + "</style>")
+    return styled("Temperature series — activation parameters", body,
+                  "Exps 14–19 · 4OMe-BnOH · pH 7.00 · 15–40 °C")
 
 
 def main():
-    for name, content in (("index.html", build_index()),
-                          ("progress_curves.html", build_curves_page())):
-        path = os.path.join(HERE, name)
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write(content)
-        print(f"wrote {path}  ({len(content) / 1024:.0f} kB)")
-    return 0
+    return write_pages(HERE, {"index.html": build_index(),
+                              "progress_curves.html": build_curves_page()})
 
 
 if __name__ == "__main__":

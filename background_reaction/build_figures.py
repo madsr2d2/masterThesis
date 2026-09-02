@@ -36,6 +36,7 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, OUTLIER_SIGMA,
 from fit_dataset import source_floor
 from summary_kinetics import BURST_V0_HALFWIDTH, fit_burst_bounded
 from svgplot import ACCENT, GRID, INK, MUTED, PALETTE, Axes, esc, page
+from figure_kit import (fig, styled, write_pages)
 
 # The estimator the headline numbers are quoted on, and the two reported
 # beside it. v0_quad answers the "the 20% window is arbitrary" objection: it is
@@ -523,8 +524,6 @@ def _table(headers, rows, highlight=()):
             f"<tbody>{''.join(body)}</tbody></table></div>")
 
 
-def _fig(svg, caption):
-    return f"<div class='fig'>{svg}<div class='cap'>{caption}</div></div>"
 
 
 def build_index():
@@ -563,13 +562,13 @@ enzyme-free rate belongs to the buffer rather than to the substrate.</p>
 in any block. The five that once did — exps 32, 34–37 — were ruled <em>catalysed</em> on
 2026-08-31 on their reference-channel layout. What the archive has instead is two BnOH
 designs that disagree, and the disagreement is what carries the buffer order.</p>
-{_fig(figure_separation(), "<b>A.</b> Every cuvette, divided by its own run's geometric "
+{fig(figure_separation(), "<b>A.</b> Every cuvette, divided by its own run's geometric "
       "mean in both axes — which is exactly what a per-experiment offset does on a log "
       "scale, so the common within-run slope is what you see. Blue: the runs that hold "
       f"[buf] at {held}. Orange: the runs where [buf] falls as [sub] rises. The same "
       "reaction reads a positive substrate order in one design and a negative one in the "
       "other. Hover a point for its buffer concentration.")}
-{_fig(figure_coupling(), "<b>B.</b> Why. Substrate was pipetted in and buffer volume shrank "
+{fig(figure_coupling(), "<b>B.</b> Why. Substrate was pipetted in and buffer volume shrank "
       "to compensate, so the two move together with g = dlog[buf]/dlog[sub] fitted within "
       "runs. Faded points are cuvettes with no live signal, which the fits exclude.")}
 <p>If the rate goes as [S]<sup>a</sup>[buf]<sup>d</sup> and within the titrations
@@ -579,7 +578,7 @@ so pH, [H<sub>2</sub>O<sub>2</sub>], cell and day are absorbed on both sides and
 asks one regression to separate [buf] from [sub].</p>
 
 <h2>The answer: first order in buffer</h2>
-{_fig(figure_buffer_order(), "<b>C.</b> The recovered buffer order under four different "
+{fig(figure_buffer_order(), "<b>C.</b> The recovered buffer order under four different "
       "rate estimators, against an independent block. Green dashed line: first order.")}
 {_table(["rate estimator", "a · [buf] fixed", "a′ · [buf] falling",
          "order in [buf] · BnOH", "cross-check · 4OMe-BnOH 40 °C"], rows,
@@ -604,17 +603,17 @@ and buffer, and the pooled fit is a dead heat — R²
 block slope does not. The gap is {abs(pooled['v0_quad']['r2'] - pooled['vmax']['r2']):.3f}
 and points the other way; the argument is withdrawn.</p>
 <div class='grid two'>
-{_fig(figure_rate_law('v0_quad'), "Headline estimator — no window anywhere.")}
-{_fig(figure_rate_law('vmax'), "The estimator the in-scope block was measured with.")}
+{fig(figure_rate_law('v0_quad'), "Headline estimator — no window anywhere.")}
+{fig(figure_rate_law('vmax'), "The estimator the in-scope block was measured with.")}
 </div>
 
 <h2>What the background is not</h2>
-{_fig(figure_curvature(), "The curves bend, and it is not substrate being consumed: "
+{fig(figure_curvature(), "The curves bend, and it is not substrate being consumed: "
       f"conversion runs {free.conversion.min() * 100:.2f}\u2013"
       f"{free.conversion.max() * 100:.2f}%, yet "
       f"{int((free.curvature_t.abs() > 3).sum())} of {len(free)} show curvature beyond "
       "|t| = 3. Something else decays during these runs — peroxide, or the cell.")}
-{_fig(figure_acceleration(), "Both sets compared here are entirely .rre, so this is not "
+{fig(figure_acceleration(), "Both sets compared here are entirely .rre, so this is not "
       "the variance-floor artefact of DATA_VERIFICATION.md 2026-09-01. The enzyme-free "
       "curves do not accelerate; several actively decelerate.")}
 
@@ -635,7 +634,8 @@ forbids. That remains FITTING.md's F7.</p>
 <p style='margin-top:34px'><a href='progress_curves.html'>→ every progress curve, with all
 three fits drawn</a></p>
 """
-    return page("The background reaction: BnOH + H₂O₂ without catalyst", body)
+    return styled("The background reaction: BnOH + H₂O₂ without catalyst",
+                  body)
 
 
 def build_curves_page():
@@ -716,18 +716,12 @@ not the burst form, carries the headline numbers.</p>
 <h2>The curves</h2>
 <div class='grid three'>{''.join(panels)}</div>
 """
-    return page("Progress curves and their fits", body)
+    return styled("Progress curves and their fits", body)
 
 
 def main():
-    pages = {"index.html": build_index(),
-             "progress_curves.html": build_curves_page()}
-    for name, content in pages.items():
-        path = os.path.join(HERE, name)
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write(content)
-        print(f"wrote {path}  ({len(content) / 1024:.0f} kB)")
-    return 0
+    return write_pages(HERE, {"index.html": build_index(),
+                              "progress_curves.html": build_curves_page()})
 
 
 if __name__ == "__main__":

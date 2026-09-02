@@ -23,29 +23,13 @@ import slowdown
 from curve_metrics import rolling_slope
 from fit_dataset import source_floor
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc, page, PAGE_CSS
+from figure_kit import (CATEGORY, FIT_WIDTH, RUNGS, fig, styled, write_pages)
 
 # ORDERED VARIABLES GET SEQUENTIAL RAMPS. Substrate rung is ordinal; the two
 # channels (with and without enzyme) and the two straight-line laws are not.
-RUNGS = ["#6295c3", "#3d729f", "#1e5079", "#0c2f4d"]
-CATEGORY = ["#2f6fb0", "#c0522a", "#8a5aa8"]
-SURFACE = "#fbfbfa"
-FIT_WIDTH = 1.5
-
-EXTRA_CSS = """
-.fig{background:#fbfbfa;border-color:#e4e4e2}
-.fig .cap{color:#5a5a5a}
-.hero{display:flex;flex-wrap:wrap;gap:26px;margin:14px 0 4px}
-.hero div{min-width:150px}
-.hero .v{font-size:25px;font-weight:650;letter-spacing:-0.02em}
-.hero .k{font-size:11.5px;color:var(--muted);text-transform:uppercase;
-letter-spacing:0.06em}
-.hero .u{font-size:12px;color:var(--muted)}
-"""
 
 
-def fig(svg, caption, extra=""):
-    return (f"<div class='fig'>{svg}"
-            f"<div class='cap'>{caption}</div>{extra}</div>")
+
 _SLOWDOWN_CACHE = {}
 
 
@@ -473,18 +457,12 @@ rules product effects out of it and leaves the rest.</p>
 in <code>ANALYSIS.md</code> from the modules and fails if the prose and the code
 disagree.</p>
 """
-    return page("What the 4OMe product does", body,
-                "The oxidant attacks the aldehyde it just made").replace(
-        "</style>", EXTRA_CSS + "</style>")
+    return styled("What the 4OMe product does", body,
+                  "The oxidant attacks the aldehyde it just made")
 
 
 def main():
-    path = os.path.join(HERE, "index.html")
-    content = build_index()
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write(content)
-    print(f"wrote {path}  ({len(content) / 1024:.0f} kB)")
-    return 0
+    return write_pages(HERE, {"index.html": build_index()})
 
 
 if __name__ == "__main__":
