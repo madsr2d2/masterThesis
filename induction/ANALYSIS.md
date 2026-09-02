@@ -534,6 +534,41 @@ where the induction is thousands of seconds long instead of nearly over. It
 belongs beside the pre-incubation experiment in §6 as something the archive
 should have and does not.
 
+### And on this axis §4b's constraint is met
+
+§4b's `+1` is not a fact about hydrogen peroxide. It is a fact about any species
+X held in excess that draws the catalyst into its active form: `1/τ = k_f[X] +
+k_r` and `[E*]/E₀ = K[X]/(1 + K[X])` give `d ln v/d ln[X] − d ln τ/d ln[X] = 1`
+for every K and every `[X]`, with nothing left to fit. Put the buffer in that
+role — as a general base, or through a peroxo adduct of the buffer itself, the
+algebra does not distinguish them — and the constraint transfers unchanged.
+`joint_buffer_order` asks it as one regression on the same eight curves, so the
+covariance between the two orders is the fit's own:
+
+| window | order(*v*/t<sub>ind</sub>) | from the required +1 | signal control |
+|---|---|---|---|
+| 300 s | **+0.989 ± 0.159** | 0.1σ | −0.145 ± 0.266 passes |
+| 450 s | **+1.094 ± 0.150** | 0.6σ | −0.275 ± 0.268 passes |
+| 600 s | +1.379 ± 0.180 | 2.1σ | −0.660 ± 0.230 **fails** |
+| 900 s | +1.339 ± 0.207 | 1.6σ | −0.643 ± 0.225 **fails** |
+| 1200 s | +1.232 ± 0.236 | 1.0σ | −0.565 ± 0.224 **fails** |
+
+**The buffer axis meets the constraint that the peroxide axis misses** at 2.6σ
+and 3.7σ (§4b). The windows that fail their own signal control are exactly the
+windows that overshoot, and they overshoot in the direction the artefact
+predicts — more buffer, more signal, an earlier landmark, a larger gap — so the
+two windows that pass are the ones to read.
+
+It is still eight curves, and a constraint being met is weaker evidence than one
+being violated: `+1` is where a *rate* order of about +0.66 and an *induction*
+order of about −0.43 happen to land, and neither was chosen. What it does say is
+that if any species in this archive is in pre-equilibrium with the catalyst
+before it turns over, the buffer behaves like that species and H₂O₂ does not.
+[`../buffer/`](../buffer/ANALYSIS.md) §6 takes it from here, including the
+scheme in which the buffer's role is to carry the peroxide rather than to be a
+base — which this archive cannot separate from general base catalysis, because
+**0 of its 88 runs step `[buf]` and `[H₂O₂]` at once**.
+
 ## 7. What this settles, and what it does not
 
 **Settled.**

@@ -189,13 +189,128 @@ def catalytic_coefficient(experiments=WIDE_RANGE, drop=(),
                                   + (low_error / low) ** 2
                                   - 2 * covariance[0, 1] / (top * low))
              if top and low else np.nan)
+    # The run LEVELS come back too. The design is `v/[S]^n = a_run/[S]^n +
+    # b.[buf]`, so `a_run` is in raw rate units and is the run's rate
+    # extrapolated to no buffer -- which is what `free_route_order` reads the
+    # pH dependence of the buffer-INDEPENDENT route from.
+    levels = {int(run): float(beta[2 + index])
+              for index, run in enumerate(runs)}
     return {"curves": int(len(response)), "runs": len(runs),
             "low_pH": float(frame.pH[~high].max()) if (~high).any() else np.nan,
             "high_pH": float(frame.pH[high].min()) if high.any() else np.nan,
             "low": low, "low_stderr": low_error,
             "high": top, "high_stderr": top_error,
             "ratio": float(ratio), "ratio_stderr": float(error),
+            "levels": levels,
             "normalised": substrate_order != 0.0}
+
+
+# The pair of titrations that sit at the SAME substrate, so the level of one
+# can be divided by the level of the other with nothing to normalise away:
+# exp 32 at pH 7.00 and exp 35 at pH 7.50, both at 8.251 mM 4OMe-BnOH, both
+# over 50-200 mM buffer. Exp 35's own SLOPE is unusable (R^2 0.176) and is
+# dropped from `catalytic_coefficient`; its LEVEL is essentially the run's mean
+# rate and survives a non-monotone slope, which is why the two uses differ.
+MATCHED_LEVEL_PAIR = (32, 35)
+
+
+def free_route_order(pair=MATCHED_LEVEL_PAIR, frame=None,
+                     substrate_order=SUBSTRATE_ORDER):
+    """
+    How steeply does the buffer-INDEPENDENT route rise with pH?
+
+    Section 2 of the folder's analysis says the buffer's ORDER collapses above
+    the pKa not because the buffer term shrinks but because the rest of the
+    rate grows, and attributes that growth to `[HOO-]`. That attribution is a
+    quantitative claim and this checks it: `[HOO-]` is first order in `[OH-]`
+    anywhere far below H2O2's own pKa, so the buffer-free level should rise by
+    exactly `10^dpH` and no more.
+
+    It rises by more. What that leaves is a route with a SECOND hydroxide in
+    it, and the mechanistic reading is in the analysis: making a dioxirane out
+    of plain H2O2 has to expel hydroxide from the Criegee adduct, and a step
+    that poor is why the same chemistry elsewhere uses peroxymonosulfate or a
+    peracid instead -- a peroxide that already carries a leaving group.
+
+    Read on `MATCHED_LEVEL_PAIR` first, where the two runs sit at the same
+    substrate and the ratio needs no normalisation at all, and then on every
+    run through `catalytic_coefficient`'s levels, which do.
+    """
+    frame = scope.frame(TITRATIONS) if frame is None else frame
+    rows = {}
+    for experiment in pair:
+        block = frame[(frame.experiment == experiment) & frame.live]
+        if not len(block):
+            return {}
+        rows[experiment] = {
+            "pH": float(block.pH.iloc[0]), "s0": float(block.s0.iloc[0]),
+            "hoo": float(block.hoo.median()),
+        }
+    low, high = pair
+    fit = catalytic_coefficient(experiments=TITRATIONS, frame=frame,
+                                substrate_order=substrate_order)
+    levels = fit["levels"]
+    delta_pH = rows[high]["pH"] - rows[low]["pH"]
+    level_ratio = levels[high] / levels[low] if levels.get(low) else np.nan
+    hoo_ratio = rows[high]["hoo"] / rows[low]["hoo"]
+    return {"low": low, "high": high,
+            "low_pH": rows[low]["pH"], "high_pH": rows[high]["pH"],
+            "delta_pH": float(delta_pH),
+            "matched_s0": bool(np.isclose(rows[low]["s0"], rows[high]["s0"])),
+            "s0": rows[low]["s0"],
+            "level_low": levels.get(low, np.nan),
+            "level_high": levels.get(high, np.nan),
+            "level_ratio": float(level_ratio),
+            "hoo_ratio": float(hoo_ratio),
+            "hoo_order": float(np.log10(hoo_ratio) / delta_pH),
+            "apparent_order": float(np.log10(level_ratio) / delta_pH)
+            if level_ratio > 0 else np.nan,
+            "levels": levels}
+
+
+def peroxide_crossing(experiments=None, frame=None):
+    """
+    Does any run in this archive move `[buf]` and `[H2O2]` at once? None does.
+
+    This is the design fact that decides how far the buffer question can be
+    taken, and it is worth a function because the answer is not obvious from
+    any table already here. A buffer acting as a general base is a term in
+    `[buf]` alone. A buffer acting through a PEROXO ADDUCT OF ITSELF -- the
+    catalyst oxidised by a buffer perhydrate rather than by H2O2 -- puts the
+    two concentrations in the same term, because the adduct's concentration is
+    set by the product `[buf][H2O2]`. The two schemes differ by an INTERACTION
+    and by nothing else at a single pH, so separating them needs a run, or a
+    pair of runs, that crosses the two ladders.
+
+    Returns every run that steps `[buf]`, with the number of distinct `[H2O2]`
+    it holds while doing so, and the same for the runs that step `[H2O2]`.
+    """
+    frame = scope.frame(tuple(experiments) if experiments
+                        else tuple(range(1, 152))) if frame is None else frame
+    live = frame[frame.live]
+    grouped = live.groupby("experiment")
+    rows = []
+    for experiment, block in grouped:
+        rows.append({"experiment": int(experiment),
+                     "buffer_levels": int(block.buf.nunique()),
+                     "peroxide_levels": int(block.h2o2.nunique())})
+    import pandas as pd
+    table = pd.DataFrame(rows)
+    steps_buffer = table[table.buffer_levels > 1]
+    steps_peroxide = table[table.peroxide_levels > 1]
+    both = table[(table.buffer_levels > 1) & (table.peroxide_levels > 1)]
+    # Across runs rather than within one: do the blocks that move the buffer
+    # sit at more than one peroxide between them?
+    buffer_runs = live[live.experiment.isin(steps_buffer.experiment)]
+    titration_peroxides = sorted(
+        float(value) for value in
+        live[live.experiment.isin(TITRATIONS)].h2o2.unique())
+    return {"runs": int(len(table)),
+            "steps_buffer": int(len(steps_buffer)),
+            "steps_peroxide": int(len(steps_peroxide)),
+            "steps_both": int(len(both)),
+            "buffer_run_peroxides": int(buffer_runs.h2o2.nunique()),
+            "titration_peroxides": titration_peroxides}
 
 
 def separable(coefficient, prediction, sigma=2.0):
@@ -333,6 +448,28 @@ def report():
               f"slope {got.get('slope', float('nan')):+.3f}".replace("+nan", "  --")
               + ", "
               f"{got['constant_buffer']} with [buf] constant")
+
+    print("\n4a. IS THE BUFFER A BASE, OR IS IT CARRYING THE PEROXIDE")
+    crossing = peroxide_crossing(frame=frame)
+    print(f"   of {crossing['runs']} runs, {crossing['steps_buffer']} step "
+          f"[buf] and {crossing['steps_peroxide']} step [H2O2];")
+    print(f"   {crossing['steps_both']} step both, and the five titrations sit "
+          f"at {crossing['titration_peroxides']} mM.")
+    print("   A buffer perhydrate puts [buf] and [H2O2] in ONE term, so the two")
+    print("   schemes differ by an interaction the archive never varies.")
+    free = free_route_order(frame=scope.frame(TITRATIONS))
+    print(f"   what the buffer-free level does instead, exps "
+          f"{free['low']} -> {free['high']} at matched [S] = {free['s0']} mM:")
+    print(f"   level {free['level_low']:.3g} -> {free['level_high']:.3g} over "
+          f"dpH {free['delta_pH']:.2f}   = {free['level_ratio']:.2f}x")
+    print(f"   [HOO-]                                        "
+          f"= {free['hoo_ratio']:.2f}x   (order {free['hoo_order']:+.2f} "
+          f"in [OH-], as it must be)")
+    print(f"   so the level's apparent order in pH is "
+          f"{free['apparent_order']:+.2f}, not {free['hoo_order']:+.2f}: the "
+          f"buffer-free route")
+    print(f"   carries {free['level_ratio'] / free['hoo_ratio']:.2f}x more "
+          f"than one hydroperoxide accounts for.")
 
     print("\n5. BUFFER IDENTITY AGAINST pH")
     identity = identity_overlap(frame)

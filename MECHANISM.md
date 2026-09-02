@@ -843,6 +843,33 @@ curves, so the in-scope substrate order carries none of this. It also does not
 change what the catalysed curves *are* — the reference channel omits only the
 enzyme, so the background is already subtracted at matched buffer.
 
+**Noted 2026-09-02 — the same argument has never been made for phosphate, and
+this section is the reason it should be.** Two of the four buffers above are
+already granted a peroxo species that is the effective oxidant: borate forms
+peroxoborate, and bicarbonate forms peroxymonocarbonate, "itself a peroxyacid-
+type species with a *carbonate* leaving group — arguably a closer analogue to
+the PBA case than Oxone is". Phosphate is treated in the same list as a general
+acid/base only. But the leaving group is exactly what step 6 is short of:
+closing a dioxirane out of a Criegee adduct made from plain H₂O₂ means expelling
+hydroxide, which is why this chemistry is normally run on peroxymonosulfate or a
+peracid. A **phosphate perhydrate** — `H₂O₂ + P ⇌ P–OOH`, then `P–OO⁻`
+delivering the oxygen and leaving as phosphate — would play the peracid's part
+in step 6 with the buffer in place of the product, and it would do it at 50–200
+mM instead of at whatever the aldehyde has reached.
+
+The kinetic consequence is a term in `[buf][H₂O₂]` where a general base gives a
+term in `[buf]` alone, and the archive cannot see the difference: **0 of its 88
+runs step both**, and all five buffer titrations sit at 82.5 mM peroxide. What
+it does have is `induction/` §6's parameter-free pre-equilibrium constraint,
+which the **buffer axis meets** (+1.094 ± 0.150 against a required +1) and the
+**peroxide axis misses** (2.6σ and 3.7σ). `buffer/` §6 has the argument, and
+`COMPUTATIONAL.md` **C9** the calculation — whose gate is that orthophosphate's
+perhydrate equilibrium must come out unfavourable, since peroxomonophosphate is
+made from P₂O₅ and not from phosphate in water. Pyrophosphate, which has a
+leaving group where orthophosphate has none, is the sharp prediction: it should
+be much the better catalyst at matched pH and matched peroxide, and `buffer/` §5
+is why the archive cannot check.
+
 ## What the data says without a model
 
 Everything below is measured, not fitted. It comes from `data/scope.py` and

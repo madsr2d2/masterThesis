@@ -187,6 +187,73 @@ def figure_species():
         "of a much larger rate, so its coefficient is 44–127% uncertain there.")
 
 
+def figure_joint():
+    """
+    The pre-equilibrium constraint on both axes, with the control that gates it.
+
+    Two panels' worth of information in one frame: the required +1 as a rule,
+    each measurement as a point with its error bar, and the windows whose
+    signal control FAILS drawn hollow, because those are the ones that must not
+    be read.
+    """
+    table = induction.induction_table(induction.WHOLE_ARCHIVE)
+    rows = []
+    for width in induction.BUFFER_WINDOW_SWEEP:
+        ladder = induction.buffer_lever(table, width=width)
+        joint = induction.joint_buffer_order(ladder)
+        control = induction.signal_control(ladder)
+        rows.append((f"[buf], {width:.0f} s window", joint,
+                     abs(control["signal_slope"])
+                     < 2 * control["signal_stderr"]))
+    blocks = induction.induction_blocks(table)
+    for label, block in (
+            ("[H₂O₂], exps 127-131",
+             table[table.experiment.isin(induction.PEROXIDE_LEVER)]),
+            ("[H₂O₂], exps 135-151",
+             blocks["BnOH in scope (135-151)"])):
+        joint = induction.joint_peroxide_order(block)
+        control = induction.signal_control(block)
+        rows.append((label, joint, abs(control["signal_slope"])
+                     < 2 * control["signal_stderr"]))
+    axes = Axes(620, 330, (-0.1, 2.0), (-1.05, len(rows) - 0.3),
+                pad=(190, 26, 46, 34))
+    axes.line([1.0, 1.0], [-1.05, len(rows) - 0.3], ACCENT, width=2.0,
+              dash="5 4")
+    # Below the last row, not above the first: above the first it sat on the
+    # figure title.
+    axes.label(1.0, -0.62, "required +1", ACCENT, size=11,
+               anchor="middle", weight="600", dy=4)
+    for index, (label, joint, passes) in enumerate(rows):
+        y = len(rows) - 1 - index
+        colour = PH_RAMP[1] if label.startswith("[buf]") else CATEGORY[1]
+        low = joint["slope"] - joint["stderr"]
+        high = joint["slope"] + joint["stderr"]
+        axes.line([low, high], [y, y], colour, width=2.6)
+        # A hollow mark for a window whose signal control fails: fill it with
+        # the page's own surface and ring it in the series colour.
+        axes.points([joint["slope"]], [y], colour if passes else SURFACE,
+                    radius=5.0, stroke=colour, stroke_width=1.8)
+        axes.label(-0.14, y, label, INK if passes else MUTED, size=11,
+                   anchor="end", dy=4, weight="600" if passes else "400")
+        axes.label(high, y, f"{joint['slope']:+.2f}"
+                   + ("" if passes else "  (S/N fails)"),
+                   INK if passes else MUTED, size=10.5, anchor="start",
+                   dx=8, dy=4)
+    return fig(
+        axes.render("d ln v/d ln[X] − d ln τ/d ln[X]", "",
+                    "E · The pre-equilibrium constraint, both axes",
+                    yticks=False),
+        "If the catalyst is drawn into its active form by a species held in "
+        "excess, that species' order on the rate and on the induction time "
+        "must differ by <strong>exactly +1</strong> — for every binding "
+        "constant and every concentration, so it is a prediction with nothing "
+        "to fit. The buffer axis meets it. The peroxide axis falls short on "
+        "both blocks that carry a peroxide ladder, and both of those also fail "
+        "the signal-to-noise control (hollow), as do the buffer's longest "
+        "windows — which overshoot in exactly the direction that artefact "
+        "predicts. Read only the filled points.")
+
+
 def figure_confound():
     frame = _frame()
     blocks = induction.induction_blocks(frame)
@@ -235,9 +302,13 @@ def build_index():
     verdict = buffer_role.separable(measured, prediction)
     identity = buffer_role.identity_overlap(_frame())
     widest = buffer_role.overlap_width(identity)
-    induction_order = induction.buffer_order(
-        induction.buffer_lever(induction.induction_table(
-            induction.WHOLE_ARCHIVE)))
+    table_full = induction.induction_table(induction.WHOLE_ARCHIVE)
+    ladder = induction.buffer_lever(table_full)
+    induction_order = induction.buffer_order(ladder)
+    joint = induction.joint_buffer_order(ladder)
+    crossing = buffer_role.peroxide_crossing(frame=_frame())
+    free = buffer_role.free_route_order(
+        frame=scope.frame(buffer_role.TITRATIONS))
 
     hero = f"""
 <div class='hero'>
@@ -318,7 +389,31 @@ cell is <strong>{widest['width']:.2f} units</strong> —
 mM against {esc(str(widest['peroxide'][1]))} mM. A range overlap is not a
 matched pair, and the check is on the values.</p>
 
-<h2>6 · What this settles, and what it does not</h2>
+<h2>6 · Is the buffer a base, or is it carrying the peroxide?</h2>
+{figure_joint()}
+<p>A buffer acting as a general base is a term in <code>[buf]</code>. A buffer
+that first takes up the peroxide itself — <code>H₂O₂ + P ⇌ P–OOH</code>, then
+<code>P–OO⁻</code> delivering oxygen to the ketone the way a peracid or
+peroxymonosulfate does — is a term in <code>[buf][H₂O₂]</code>. At one pH the
+two schemes differ by that <strong>interaction and by nothing else</strong>, and
+this archive never varies it: of {crossing['runs']} runs,
+{crossing['steps_buffer']} step <code>[buf]</code> and
+{crossing['steps_peroxide']} step <code>[H₂O₂]</code>, and
+<strong>{crossing['steps_both']} step both</strong>. All five titrations sit at
+82.5 mM peroxide.</p>
+<p>What the archive does say points the same way twice. The
+<strong>pre-equilibrium constraint</strong> above is met on the buffer axis
+({joint['slope']:+.3f} ± {joint['stderr']:.3f} against a required +1) and missed
+on the peroxide axis — so the species drawn into equilibrium with the catalyst
+behaves like the buffer and not like H₂O₂. And the buffer-<em>free</em> route
+rises with pH faster than one hydroperoxide can explain:
+<strong>{free['level_ratio']:.2f}×</strong> over {free['delta_pH']:.2f} pH units
+at matched substrate, where [HOO⁻] gives only
+<strong>{free['hoo_ratio']:.2f}×</strong>. Both are eight-curve and two-run
+results across different days, and the archive's own between-day step is 1.80× —
+these are pointers, not measurements.</p>
+
+<h2>7 · What this settles, and what it does not</h2>
 <p><strong>Settled.</strong> Every buffer order in this project is an order in
 total buffer. The catalysed turnover's dependence saturates — about first order
 below 25 mM, half order above 50 — and disappears above the pKa because the

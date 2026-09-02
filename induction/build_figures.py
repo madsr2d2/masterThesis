@@ -509,6 +509,7 @@ def build_index():
                                           rate="v_peak")
     gap = induction.activation_contrast()
     contrast = induction.channel_contrast(table)
+    joint = induction.joint_buffer_order(induction.buffer_lever(table))
 
     hero = f"""
 <div class='hero'>
@@ -660,6 +661,20 @@ exp 32 −0.728 ± 0.316. <strong>The two runs agree, and in the direction gener
 base catalysis predicts.</strong> Across windows of 300 to 1200 s the pooled
 slope runs −0.33 to −0.72 and never changes sign. It is eight curves at one
 temperature: a direction, not a buffer order.</p>
+<p><strong>And on this axis section 4b's constraint is met.</strong> That
+<code>+1</code> is not a fact about hydrogen peroxide — it holds for any species
+held in excess that draws the catalyst into its active form, so it transfers to
+the buffer axis unchanged. Measured as one regression on the same eight curves:
+<strong>{joint['slope']:+.3f} ± {joint['stderr']:.3f}</strong>, which is
+{joint['sigma']:.1f}σ from the required +1, where the peroxide axis falls 2.6σ
+and 3.7σ short. Only the windows whose signal control passes are readable — 300
+and 450 s, giving +0.99 and +1.09; the 600–1200 s windows fail it and overshoot
++1 in exactly the direction that artefact predicts.
+<a href='../buffer/index.html'>buffer/</a> §6 takes it from here, including the
+scheme in which the buffer's job is to carry the peroxide rather than to be a
+base — which this archive cannot separate from general base catalysis, because
+<strong>0 of its 88 runs step <code>[buf]</code> and <code>[H₂O₂]</code> at
+once</strong>.</p>
 <p>It also costs section 3 something. With that buffer order taken out, the
 induction's substrate order moves from −0.121 ± 0.148 to
 <strong>−0.235 ± 0.158</strong> against the −0.471 a product threshold needs —

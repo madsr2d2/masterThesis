@@ -1134,8 +1134,12 @@ def buffer_lever(table, experiments=BUFFER_LEVER, width=BUFFER_WINDOW,
                      "depth": found.depth,
                      "span_s": float(curve.times[-1] - curve.times[0])})
     ladder = pd.DataFrame(rows)
+    # `live`, `net` and `noise` come along so that `signal_control` runs on
+    # THIS ladder unchanged -- the landmark here is the seconds-window one, and
+    # a control read off the fractional-window `t_ind` would not be its control.
     joined = ladder.merge(table[["experiment", "sample", "phases",
-                                 "two_phase_f", "v_peak", "progress_kind"]],
+                                 "two_phase_f", "v_peak", "progress_kind",
+                                 "live", "net", "noise"]],
                           on=["experiment", "sample"])
     return joined
 
@@ -1176,6 +1180,59 @@ def buffer_order(ladder, response="t_ind", floor=INDUCTION_FLOOR):
         out[f"slope_{int(run)}"] = float(coefficients[0])
         out[f"stderr_{int(run)}"] = float(np.sqrt(max(error[0, 0], 0.0)))
     return out
+
+
+def joint_buffer_order(ladder, floor=INDUCTION_FLOOR):
+    """
+    The same pre-equilibrium constraint as `joint_peroxide_order`, on `[buf]`.
+
+    THE ALGEBRA DOES NOT CARE WHICH SPECIES IT IS. Section 4b's `+1` is not a
+    fact about hydrogen peroxide; it is a fact about any scheme in which the
+    catalyst is drawn into its active form by a species held in excess. Write
+    that species X, at a concentration the run controls:
+
+        E + X <-> E*        1/tau = k_f [X] + k_r,   [E*]/E0 = K[X]/(1 + K[X])
+
+    so d ln v/d ln[X] = 1/(1 + K[X]) and d ln tau/d ln[X] = -K[X]/(1 + K[X]),
+    and the DIFFERENCE is 1 for every K and every [X]. Put the buffer in that
+    role -- as a general base, or through a peroxo adduct of the buffer itself,
+    the algebra is identical -- and the constraint transfers unchanged.
+
+    This is worth doing because the peroxide axis FAILS it (2.6 and 3.7 sigma)
+    on blocks that also fail `signal_control`, and the buffer axis is the only
+    other lever in the archive that moves a candidate activator. It is eight
+    curves, so it is a weak test; it is a weak test of a parameter-free
+    prediction, which is not the same as no test.
+
+    Read on the same footing `buffer_lever` establishes: `t_ind` from a
+    landmark whose window is in SECONDS, because exps 32 and 34 differ in
+    length, and one free level per run, because the rate falls 1.80x across the
+    join. One regression rather than two differenced by hand, so the covariance
+    between the two orders is the fit's own.
+    """
+    live = ladder[np.isfinite(ladder.t_ind) & (ladder.v_peak > 0)
+                  & (ladder.buf > 0)]
+    if len(live) < 4 or live.buf.nunique() < 2:
+        return {"points": int(len(live))}
+    response = (np.log(live.v_peak.to_numpy(dtype=float))
+                - np.log(np.maximum(live.t_ind.to_numpy(dtype=float), floor)))
+    columns = [np.log(live.buf.to_numpy(dtype=float))]
+    runs = sorted(live.experiment.unique())
+    columns += [(live.experiment.to_numpy() == run).astype(float)
+                for run in runs]
+    design = np.column_stack(columns)
+    beta, *_ = np.linalg.lstsq(design, response, rcond=None)
+    resid = response - design @ beta
+    rank = int(np.linalg.matrix_rank(design))
+    variance = float(resid @ resid) / max(1, len(live) - rank)
+    covariance = variance * np.linalg.pinv(design.T @ design)
+    slope = float(beta[0])
+    stderr = float(np.sqrt(max(covariance[0, 0], 0.0)))
+    return {"points": int(len(live)), "runs": len(runs),
+            "slope": slope, "stderr": stderr,
+            "required": PERHYDRATE_ORDER_GAP,
+            "sigma": float(abs(PERHYDRATE_ORDER_GAP - slope) / stderr)
+            if stderr else np.nan}
 
 
 def buffer_join_step(ladder):
@@ -1414,6 +1471,22 @@ def report(table=None):
     print("   " + "  ".join(
         f"{width:.0f}s {buffer_order(buffer_lever(table, width=width))['slope']:+.3f}"
         for width in BUFFER_WINDOW_SWEEP))
+    print("   4b's constraint again, on the buffer axis instead: the same +1,")
+    print("   because the algebra is about a pre-equilibrium and not about H2O2.")
+    print("   Each window with the signal control that decides whether to read it:")
+    for width in BUFFER_WINDOW_SWEEP:
+        rungs = buffer_lever(table, width=width)
+        joint = joint_buffer_order(rungs)
+        control = signal_control(rungs)
+        verdict = ("passes" if abs(control["signal_slope"])
+                   < 2 * control["signal_stderr"] else "FAILS")
+        print(f"   {width:5.0f}s  order(v/t_ind) {joint['slope']:+.3f} +- "
+              f"{joint['stderr']:.3f}  {joint['sigma']:.1f} sigma from +1   "
+              f"S/N {control['signal_slope']:+.3f} +- "
+              f"{control['signal_stderr']:.3f} {verdict}")
+    print("   The windows that fail the control are the windows that overshoot,")
+    print("   which is the direction the artefact predicts: more buffer, more")
+    print("   signal, an earlier landmark, an inflated gap.")
     order = buffer_order(buffer_lever(table))
     fixed = substrate_order_corrected(named["4OMe catalysed"], order["slope"],
                                       order["stderr"])

@@ -134,6 +134,13 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   either -- `peroxide_saturation` rejects a = 1 at F = 32 on the in-scope
   ladder. Do not assume "first order in H2O2": that is the *unsaturated* limit
   of the scheme, not a consequence of it.
+- **That `+1` is not about H2O2.** It holds for ANY species held in excess that
+  draws the catalyst into its active form, so it transfers to any axis the
+  archive moves. On the BUFFER axis it is MET -- `joint_buffer_order` gives
+  +1.094 +/- 0.150 at the 450 s window -- which is the strongest thing this
+  archive says about what E -> E* runs on. Read only the windows whose
+  `signal_control` passes: 300 s and 450 s do, 600-1200 s do not, and the ones
+  that fail overshoot +1 in exactly the direction the artefact predicts.
 - **`scope.frame` carries the SIGN of the early curve** -- `progress_kind`,
   `B_fast`, `B_slow`, from the form the curve earned. `depth` is floored at
   zero and cannot see a curve that begins fast; the in-scope block splits
@@ -145,6 +152,21 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   excludes nothing: +1.06 +/- 0.77 against 1.76 for general base and 0.52 for
   general acid. There are FIVE buffer titrations (exps 32, 34, 35, 36, 37), not
   the two that were being used.
+- **And the archive cannot say whether the buffer acts on the catalyst or on
+  the peroxide.** A general base is a term in `[buf]`; a buffer perhydrate
+  delivering the oxygen is a term in `[buf][H2O2]`. They differ by that
+  interaction and by nothing else at one pH, and `peroxide_crossing` is the
+  answer: of 88 runs, 53 step `[buf]`, 20 step `[H2O2]`, and **0 step both**.
+  The species test does not separate them either -- nucleophilic attack by the
+  dianion has general base's pH signature -- so the perhydrate scheme is a
+  FOURTH survivor of `buffer/` 3, not a resolution of it. `buffer/` 6 and
+  `COMPUTATIONAL.md` C9.
+- **Do not attribute the pH rise of the buffer-free route to [HOO-] alone.**
+  `free_route_order` divides one by the other on the one matched-substrate pair
+  the archive has: the level rises 7.90x over 0.50 pH units where [HOO-] gives
+  3.23x, an apparent order of +1.79 rather than +1.02. It is two runs on two
+  days against a measured between-day step of 1.80x, so it is a pointer -- but
+  the earlier text asserted the two agreed, and they do not.
 - **`[S]` and `[buf]` move together in every 4OMe run**, at -0.96 in logs,
   because substrate volume displaced buffer volume. A substrate order measured
   there is an order in the pair, and `induction.composition_collinearity` is

@@ -46,6 +46,7 @@ see the note on vibronic intensity below.
 | [C6](#c6--the-oxidant-attacks-the-product-fifty-times-faster-than-the-substrate) | ArCH₂OH vs ArCHO oxidation barriers, Ph and 4-MeO-C₆H₄ | **PENDING** | what the 4OMe progress curves' slowdown is, and why BnOH's curves do not show it |
 | [C7](#c7--what-the-catalyst-is-doing-during-the-induction-period) | hydration equilibrium and dehydration barrier of the active-site ketone in water | **PENDING** | what the induction period is — the one step in the cycle with a measured barrier and no assignment |
 | [C8](#c8--is-the-perhydrate-on-the-activation-path-or-off-it) | free-energy profile K + H₂O₂ ⇌ KP → KD, and the KP resting fraction | **PENDING** | whether the peroxide adduct is the catalyst waking up or the state it has to leave |
+| [C9](#c9--is-the-buffer-carrying-the-peroxide) | ΔG° of phosphate perhydrate formation, and the same for pyrophosphate | **PENDING** | whether the buffer's kinetic role can be to deliver the oxygen rather than to be a base |
 
 ---
 
@@ -434,6 +435,78 @@ and both branches of this question are moot.
 
 ---
 
+## C9 — is the buffer carrying the peroxide?
+
+### What it decides
+
+`buffer/` §6 puts a scheme beside general base catalysis that the archive cannot
+tell apart from it:
+
+    H₂O₂ + P     ⇌  P–OOH                 the buffer perhydrate
+    P–OOH        ⇌  P–OO⁻ + H⁺
+    K + P–OO⁻    ⇌  K(O⁻)–OO–P            the Criegee adduct at the ketone
+    K(O⁻)–OO–P   →  KD + P–O⁻             the dioxirane, and the buffer back
+
+It is the same shape as `MECHANISM.md`'s autocatalytic step with the buffer
+where the peracid stands, and it has a reason that is not kinetic: closing a
+dioxirane from a Criegee adduct made of plain H₂O₂ means expelling **hydroxide**,
+and that is why the same chemistry elsewhere runs on peroxymonosulfate or a
+peracid instead. A buffer perhydrate would supply the leaving group the reaction
+needs, at the only concentration in the flask large enough to matter.
+
+**The kinetics cannot decide it.** A general base is a term in `[buf]`; a buffer
+perhydrate is a term in `[buf][H₂O₂]`. At one pH they differ by that interaction
+and by nothing else, and **0 of the archive's 88 runs step both** — all five
+titrations sit at 82.5 mM peroxide. The two-pH species test does not separate
+them either: nucleophilic attack by the phosphate dianion carries the same pH
+signature as general base catalysis by the phosphate dianion, so this scheme is
+a fourth survivor of `buffer/` §3 rather than a resolution of it.
+
+So the discrimination has to come from a calculation or from a new experiment,
+and the calculation is small.
+
+### What to compute
+
+Aqueous ΔG°, one level and one solvation model, for:
+
+1. `H₂O₂ + HPO₄²⁻ ⇌ HOO–PO₃²⁻ + H₂O` — the perhydrate equilibrium itself.
+2. The same for **pyrophosphate**, `H₂O₂ + HP₂O₇³⁻ ⇌ HOO–PO₃²⁻ + HPO₄²⁻`.
+   Perhydrolysis needs an electrophilic phosphorus: orthophosphate has none and
+   pyrophosphate has a leaving group, so the two should differ by a great deal.
+3. pKₐ of the peroxo proton in `HOO–PO₃²⁻`, which decides how much of the
+   perhydrate is the reactive anion at pH 6.5–7.5.
+4. ΔG‡ for `K + HOO–PO₃²⁻ → KD + HPO₄²⁻`, against C8's item (2) — the same
+   closure driven by H₂O₂ alone, where hydroxide is the leaving group. The
+   comparison is the whole argument: if the phosphate route is not far lower,
+   the scheme has no reason to exist.
+
+### The gate
+
+Item (1) has a known answer in sign and roughly in size: **peroxomonophosphate
+hydrolyses**, it is made from P₂O₅ or POCl₃ with H₂O₂ and not from phosphate in
+water, so ΔG° must come out **positive**. A method that returns a favourable
+perhydrate for orthophosphate has failed its gate and items (2)–(4) are not to
+be read.
+
+A positive ΔG° does **not** kill the scheme — catalysis through a reactive minor
+species is ordinary chemistry, and that is exactly what a small equilibrium
+fraction with a large rate constant looks like. What would kill it is a ΔG° so
+positive that no accessible fraction exists at 200 mM buffer: at +30 kJ/mol the
+perhydrate is 6 × 10⁻⁶ of the buffer, and item (4) would then have to beat the
+direct route by that factor to compensate.
+
+### The experiment that would replace it
+
+Add the peroxide axis to the pH 6.5 titration `buffer/` §3 already asks for: a
+**buffer × peroxide block at one pH**, four rungs each. The interaction term is
+the question, and no run in this archive has one. The same block would test the
+prediction that **pyrophosphate ≫ phosphate** as a buffer catalyst at matched pH
+and matched peroxide, which `buffer/` §5 shows the archive cannot ask because
+each buffer was used at its own pH range and the two candidate cells share no
+peroxide value.
+
+---
+
 ## Backlog
 
 Not yet specced. Each is grounded in an open question in `MECHANISM.md`.
@@ -488,6 +561,27 @@ step in the mechanism with no external support of any kind.
 Newest first. Record the ORCA version, the input files, the wall time and the
 outcome — including failed and abandoned runs, which are the ones most easily
 forgotten and most expensive to repeat.
+
+### 2026-09-02 — C9 specced, not started
+
+`buffer/` §6. The buffer question had been asked as "which species" and never as
+"acting on what": a general base acts on the catalyst, a buffer perhydrate acts
+by carrying the peroxide to it. The two differ by a `[buf] × [H₂O₂]` interaction
+and **0 of 88 runs vary both**, so the archive cannot separate them and neither
+can the two-pH species test.
+
+Two kinetic results point the same way without settling it. The pre-equilibrium
+constraint that `induction/` §4b imposes on H₂O₂ — `d ln v/d ln[X] − d ln τ/d
+ln[X] = 1`, exact for every K and every `[X]` — is **met on the buffer axis**
+(+1.094 ± 0.150 at the window that passes its signal control) and **missed on
+the peroxide axis** (2.6σ and 3.7σ short, on blocks that fail theirs). And the
+buffer-free route rises with pH 2.45× faster than [HOO⁻] alone accounts for
+(7.90× against 3.23× over 0.50 pH units at matched substrate), which is the
+signature of a second base-dependent step. Both are eight-curve, two-run results
+against a measured between-day step of 1.80× — pointers, not measurements.
+
+C9 is the calculation, and its gate is that orthophosphate's perhydrate
+equilibrium must come out unfavourable, which is known independently.
 
 ### 2026-09-02 — C7 and C8 specced, not started
 

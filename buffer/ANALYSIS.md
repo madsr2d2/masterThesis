@@ -18,15 +18,15 @@ cannot.
     python buffer/build_figures.py
     python buffer/check_numbers.py
 
-**Figures**: [`index.html`](index.html) is the presentation — four figures, A to
-D, one per claim below.
+**Figures**: [`index.html`](index.html) is the presentation — five figures, A to
+E, one per claim below.
 
 Related: [`../background_reaction/`](../background_reaction/ANALYSIS.md) §5–6b
 owns the uncatalysed buffer order and is not restated here;
 [`../temperature_series/`](../temperature_series/ANALYSIS.md) §3 the catalysed
 one; [`../induction/`](../induction/ANALYSIS.md) §6 the induction's; and
 `COMPUTATIONAL.md` C7, whose model already carries a phosphate dianion because
-of what is below.
+of what is below, and C9, which is §6's calculation.
 
 ## 1. A titration at one pH cannot name the species
 
@@ -77,9 +77,10 @@ standard errors from it — but the largest of them is **a third** of the
 +0.371 ± 0.018 measured over the same 50–200 mM range at pH 7.00.
 Not because the buffer term shrank: its *coefficient* is 1.86 × 10⁻⁷ at pH 7.00
 and 3.19–3.23 × 10⁻⁷ at pH 7.53. **The buffer-independent route grew instead**,
-from an intercept of 3.29 × 10⁻⁵ to 2.73–4.91 × 10⁻⁴ — roughly eightfold, which
-is what raising the pH half a unit does through [HOO⁻]. The buffer is carrying
-the same absolute rate and a much smaller share of a much bigger number.
+from an intercept of 3.29 × 10⁻⁵ to 2.73–4.91 × 10⁻⁴ — roughly eightfold. That
+was attributed to [HOO⁻] when this section was written, and it is more than
+[HOO⁻] can carry: §6 divides one by the other. The buffer is carrying the same
+absolute rate and a much smaller share of a much bigger number.
 
 ## 3. Which species — and the archive cannot say
 
@@ -168,7 +169,112 @@ is not a matched pair, and the check is on the values.
 evidence for buffer catalysis is real and confounded, and boric is unusable for
 rates at all (`scope.BORIC_RATE_UNUSABLE`).
 
-## 6. What this settles, and what it does not
+## 6. Is the buffer a base, or is it carrying the peroxide?
+
+§3 asks which *species* of buffer does the work and cannot answer. There is a
+prior question it does not ask at all: whether the buffer acts on the catalyst
+directly, or whether it acts by picking up the peroxide first.
+
+    H₂O₂ + P     ⇌  P–OOH                 the buffer perhydrate
+    P–OOH        ⇌  P–OO⁻ + H⁺
+    K + P–OO⁻    ⇌  K(O⁻)–OO–P            the Criegee adduct at the ketone
+    K(O⁻)–OO–P   →  KD + P–O⁻             the dioxirane, and the buffer back
+
+This is the same shape as `MECHANISM.md`'s autocatalytic step with the buffer
+where the peracid stands, and it has a reason to be taken seriously that is not
+kinetic: **making a dioxirane out of plain H₂O₂ means expelling hydroxide from
+the Criegee adduct**, and hydroxide is a very poor leaving group. That is
+exactly why the same chemistry elsewhere is run on peroxymonosulfate or on a
+peracid — a peroxide that arrives carrying a leaving group already. At 50–200
+mM the buffer is the only species present in bulk that could supply one.
+
+### The archive cannot separate it from general base catalysis
+
+A buffer acting as a general base is a term in `[buf]`. A buffer acting through
+its own perhydrate is a term in `[buf][H₂O₂]`, because the active species'
+concentration is set by that product. **At a single pH the two schemes differ by
+that interaction and by nothing else** — and this archive never varies it:
+
+| | runs |
+|---|---|
+| runs in the archive | 88 |
+| runs that step `[buf]` | 53 |
+| runs that step `[H₂O₂]` | 20 |
+| **runs that step both** | **0** |
+
+All five titrations sit at exactly **82.5 mM** peroxide. Nor does §3's species
+test help: nucleophilic attack by the phosphate dianion has the same pH
+signature as general base catalysis *by* the phosphate dianion, so the
+perhydrate scheme is a **fourth survivor** of §3 rather than a resolution of it.
+
+### What the archive does say points the same way, twice
+
+**One.** `induction/` §4b's constraint is not a fact about hydrogen peroxide. If
+the catalyst is drawn into its active form by any species X held in excess,
+
+    E + X ⇌ E*    1/τ = k_f[X] + k_r,    [E*]/E₀ = K[X]/(1 + K[X])
+
+so `d ln v/d ln[X] − d ln τ/d ln[X] = 1` for **every** K and every `[X]`. It is
+a prediction with nothing left to fit, and it transfers to the buffer axis
+unchanged. `induction.joint_buffer_order` measures it on the eight curves of
+exps 32 and 34:
+
+| axis | joint order | from the required +1 | signal control |
+|---|---|---|---|
+| `[buf]`, 300 s window | **+0.989 ± 0.159** | 0.1σ | −0.145 ± 0.266 passes |
+| `[buf]`, 450 s window | **+1.094 ± 0.150** | 0.6σ | −0.275 ± 0.268 passes |
+| `[buf]`, 600 s window | +1.379 ± 0.180 | 2.1σ | −0.660 ± 0.230 **fails** |
+| `[buf]`, 900 s window | +1.339 ± 0.207 | 1.6σ | −0.643 ± 0.225 **fails** |
+| `[buf]`, 1200 s window | +1.232 ± 0.236 | 1.0σ | −0.565 ± 0.224 **fails** |
+| `[H₂O₂]`, exps 127–131 | +0.502 ± 0.194 | 2.6σ | fails |
+| `[H₂O₂]`, exps 135–151 | +0.304 ± 0.188 | 3.7σ | fails |
+
+**The buffer axis meets the constraint the peroxide axis misses.** The windows
+that fail their own signal control are the windows that overshoot, and they
+overshoot in the direction the artefact predicts — more buffer, more signal, an
+earlier landmark, an inflated gap — so the two windows that pass are the ones to
+read, and they give +0.99 and +1.09.
+
+**Two.** The buffer-*free* route rises with pH faster than one hydroperoxide can
+explain. Exps 32 and 35 sit at the same substrate (8.251 mM) over the same
+buffer range, so their levels divide with nothing to normalise:
+
+| | pH 7.00 → 7.50 |
+|---|---|
+| buffer-free level | 2.65 × 10⁻⁵ → 2.09 × 10⁻⁴, **7.90×** |
+| [HOO⁻] over the same ΔpH | **3.23×** (order +1.02 in [OH⁻], as it must be) |
+| apparent order of the level in pH | **+1.79**, not +1.02 |
+
+**2.45× more than one hydroperoxide accounts for** — the signature of a second
+base-dependent step, which is what a scheme that has to deprotonate a
+peroxo species *and* a Criegee adduct would show.
+
+### What is wrong with reading either of those too hard
+
+Both are eight-curve, two-run results, and the two runs in each pair are
+different days. The archive's own measured between-day step is **1.80×**
+(`induction.buffer_join_step`), which is of the same order as the 2.45× excess.
+These are pointers. The one thing they are not is silent: the constraint in
+route one is parameter-free, and it is met on one axis and missed on the other.
+
+### The experiment, and it is a small change to the one §3 already asks for
+
+Add the peroxide axis to the pH 6.5 titration: a **buffer × peroxide block at
+one pH**, four rungs each. The interaction term is the whole question, and no
+run in this archive has one. The same design would also test the sharpest
+prediction the scheme makes about buffer identity — perhydrolysis needs an
+electrophilic phosphorus, orthophosphate has none and **pyrophosphate has a
+leaving group**, so the scheme predicts pyrophosphate ≫ phosphate as a buffer
+catalyst at matched pH and matched peroxide. §5 is why that comparison cannot be
+made from what exists.
+
+`COMPUTATIONAL.md` **C9** is the calculation: ΔG° of `H₂O₂ + HPO₄²⁻ ⇌
+HOO–PO₃²⁻ + H₂O`. Peroxomonophosphate hydrolyses readily, so that equilibrium
+is expected to lie well to the left; the scheme survives a small equilibrium
+fraction, since catalysis through a reactive minor species is ordinary, but it
+does not survive one that cannot be reached at 200 mM buffer.
+
+## 7. What this settles, and what it does not
 
 **Settled.**
 
@@ -177,7 +283,9 @@ rates at all (`scope.BORIC_RATE_UNUSABLE`).
 - The catalysed turnover's buffer dependence **saturates**: about first order
   below 25 mM, about half order above 50, at pH 7.00.
 - It **disappears above the pKa**, not because the buffer term shrinks but
-  because the [HOO⁻] route grows eightfold past it.
+  because the buffer-free route grows eightfold past it — which is **2.45×
+  more than [HOO⁻] alone accounts for**, so that route has a second
+  base-dependent step in it.
 - `[S]` and `[buf]` are collinear at **−0.96** in every 4OMe run and at
   **0.00** in every in-scope run, which is why the two blocks disagree about the
   substrate and why two published orders needed correcting.
@@ -191,6 +299,10 @@ rates at all (`scope.BORIC_RATE_UNUSABLE`).
 - **Whether the buffer is what carries E → E\*.** `induction/` §6 has the
   direction — more buffer, shorter induction, −0.433 ± 0.201 — and it is eight
   curves at 40 °C, where the induction is nearly over.
+- **Whether the buffer acts on the catalyst or on the peroxide.** §6: the two
+  differ by a `[buf] × [H₂O₂]` interaction, and **0 of 88 runs** vary both.
+  What the archive does have is a parameter-free constraint that the buffer
+  axis meets (+1.094 ± 0.150 against +1) and the peroxide axis misses.
 
 **The two measurements that would settle both** are one run and a calculation.
 A buffer titration at **pH 6.5 and 25 °C on the catalysed 4OMe system**: the low

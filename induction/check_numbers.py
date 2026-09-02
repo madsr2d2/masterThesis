@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "data"))
 sys.path.insert(0, os.path.dirname(HERE))
 
 import arrhenius
+import buffer_role
 import induction
 import scope
 
@@ -342,6 +343,27 @@ def main():
           f"runs {max(swept):.2f} to {min(swept):.2f}")
     check("and no window changes its sign", all(v < 0 for v in swept),
           " ".join(f"{v:+.3f}" for v in swept))
+
+    for width in induction.BUFFER_WINDOW_SWEEP:
+        rungs = induction.buffer_lever(table, width=width)
+        joint = induction.joint_buffer_order(rungs)
+        control = induction.signal_control(rungs)
+        passes = abs(control["signal_slope"]) < 2 * control["signal_stderr"]
+        bold = "**" if passes else ""
+        claim(f"the joint buffer order at {width:.0f} s",
+              f"| {width:.0f} s | {bold}{joint['slope']:+.3f} +/- "
+              f"{joint['stderr']:.3f}{bold} | {joint['sigma']:.1f}sigma | "
+              f"{control['signal_slope']:+.3f} +/- "
+              f"{control['signal_stderr']:.3f} "
+              f"{'passes' if passes else '**fails**'} |")
+    check("the windows that fail the control are the windows that overshoot",
+          all(induction.joint_buffer_order(
+              induction.buffer_lever(table, width=width))["slope"] > 1.2
+              for width in (600.0, 900.0, 1200.0)))
+    crossing = buffer_role.peroxide_crossing()
+    claim("the crossing the archive does not have",
+          f"**{crossing['steps_both']} of its {crossing['runs']} runs step "
+          f"[buf] and [H2O2] at once**")
 
     order = induction.buffer_order(ladder)
     fixed = induction.substrate_order_corrected(

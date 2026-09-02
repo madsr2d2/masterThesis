@@ -171,6 +171,55 @@ def main():
     check("and the two cells share no peroxide value",
           not widest["shares_peroxide"], f"{widest['peroxide']}")
 
+    print("\nsection 6: a base, or a carrier for the peroxide")
+    crossing = buffer_role.peroxide_crossing(frame=frame)
+    for label, key in (("runs in the archive", "runs"),
+                       ("runs that step `[buf]`", "steps_buffer"),
+                       ("runs that step `[H2O2]`", "steps_peroxide")):
+        claim(f"the design: {label}", f"| {crossing[key]} |")
+    claim("and none does both", f"| **{crossing['steps_both']}** |")
+    check("no run crosses the two ladders", crossing["steps_both"] == 0)
+    claim("the titrations' one peroxide",
+          f"exactly **{crossing['titration_peroxides'][0]:g} mM** peroxide")
+
+    ladder = induction.buffer_lever(induction.induction_table(
+        induction.WHOLE_ARCHIVE))
+    for width in induction.BUFFER_WINDOW_SWEEP:
+        rungs = induction.buffer_lever(induction.induction_table(
+            induction.WHOLE_ARCHIVE), width=width)
+        joint = induction.joint_buffer_order(rungs)
+        control = induction.signal_control(rungs)
+        passes = abs(control["signal_slope"]) < 2 * control["signal_stderr"]
+        bold = "**" if passes else ""
+        claim(f"the joint order at {width:.0f} s",
+              f"| {bold}{joint['slope']:+.3f} +/- {joint['stderr']:.3f}{bold} "
+              f"| {joint['sigma']:.1f}sigma | "
+              f"{control['signal_slope']:+.3f} +/- "
+              f"{control['signal_stderr']:.3f} "
+              f"{'passes' if passes else '**fails**'} |")
+    check("the two windows that pass the control straddle +1",
+          all(abs(induction.joint_buffer_order(induction.buffer_lever(
+              induction.induction_table(induction.WHOLE_ARCHIVE),
+              width=width))["slope"] - 1.0) < 0.15 for width in (300.0, 450.0)))
+
+    free = buffer_role.free_route_order(
+        frame=scope.frame(buffer_role.TITRATIONS))
+    claim("the buffer-free level's rise",
+          f"2.65 x 10-5 -> 2.09 x 10-4, **{free['level_ratio']:.2f}x**")
+    claim("what [HOO-] gives instead",
+          f"**{free['hoo_ratio']:.2f}x** (order {free['hoo_order']:+.2f} "
+          f"in [OH-]")
+    claim("the level's apparent order",
+          f"**{free['apparent_order']:+.2f}**, not "
+          f"{free['hoo_order']:+.2f}")
+    excess = free["level_ratio"] / free["hoo_ratio"]
+    claim("the excess", f"**{excess:.2f}x more than one hydroperoxide")
+    check("the two runs are matched in substrate", free["matched_s0"])
+
+    step = induction.buffer_join_step(ladder)
+    claim("the between-day step it has to be read against",
+          f"is **{step['step']:.2f}x**")
+
     print("\nthe induction's buffer order, quoted back from induction/")
     order = induction.buffer_order(
         induction.buffer_lever(induction.induction_table(
@@ -186,9 +235,9 @@ def main():
         r'"([A-Z]) \u00b7 ',
         io.open(os.path.join(HERE, "build_figures.py"),
                 encoding="utf-8").read())))
-    check("four figures, A to D", letters == list("ABCD"),
+    check("five figures, A to E", letters == list("ABCDE"),
           f"{''.join(letters)}")
-    claim("the document's own count of them", "four figures, A to\nD")
+    claim("the document's own count of them", "five figures, A to\nE")
 
     print("\nthe figures: no data point drawn outside its own frame")
     from svgplot import clipped_marks

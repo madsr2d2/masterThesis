@@ -30,7 +30,8 @@ from test_slowdown import FakeCurve
 from induction import (DEPTH_FLOOR, INDUCTION_CLOCK_SLOPE, INDUCTION_FLOOR,
                        INDUCTION_PRODUCT_SLOPE, PERHYDRATE_ORDER_GAP,
                        induction_drivers, induction_point,
-                       joint_peroxide_order, order_ratio,
+                       joint_buffer_order, joint_peroxide_order,
+                       order_ratio,
                        peroxide_geometric_mean, peroxide_saturation,
                        composition_collinearity, ladder_arms, sign_drivers,
                        signal_control, substrate_lever, trap_constant)
@@ -257,6 +258,69 @@ def test_the_joint_order_reads_back_the_scheme_it_is_built_from():
           f"{trapped['slope']:+.3f} +- {trapped['stderr']:.3f}")
     check("and the shortfall is reported in standard errors",
           trapped["sigma"] > 3, f"{trapped['sigma']:.1f}")
+
+
+def _planted_buffer_ladder(constant, rule="pre-equilibrium",
+                           levels=((3.125, 6.25, 12.5, 25.0),
+                                   (50.0, 100.0, 150.0, 200.0)),
+                           runs=(34, 32), day=(1.0, 0.55)):
+    """
+    Two runs on one buffer ladder, built from the scheme the joint test asserts.
+
+    `pre-equilibrium` puts the buffer in the activating equilibrium, so
+    `v ~ K b/(1 + K b)` and `1/tau ~ 1 + K b` and the joint order is +1 by
+    construction. `spectator` leaves the induction alone and keeps the same
+    rate, so the joint order collapses to the rate's own order -- the negative
+    control, without which a regression stuck at +1 would pass.
+
+    The two runs get DIFFERENT levels, a 1.8-fold day step in the rate, because
+    that is what the archive's pair does and what the free level per run is for.
+    """
+    rows = []
+    for experiment, rungs, scale in zip(runs, levels, day):
+        for index, buffer_mM in enumerate(rungs):
+            bound = constant * buffer_mM / (1.0 + constant * buffer_mM)
+            rate = scale * 1e-4 * bound
+            if rule == "pre-equilibrium":
+                tau = 400.0 / (1.0 + constant * buffer_mM)
+            else:
+                tau = 400.0
+            rows.append({"experiment": experiment, "sample": index + 1,
+                         "buf": buffer_mM, "t_ind": tau, "v_peak": rate,
+                         "live": True, "net": 0.5, "noise": 1e-4})
+    return pd.DataFrame(rows)
+
+
+def test_the_joint_buffer_order_reads_back_its_own_scheme():
+    """
+    +1 when the buffer is in the activating equilibrium, and not otherwise.
+
+    The archive's answer here is that the constraint is SATISFIED -- which is
+    the opposite of the peroxide axis and so the more dangerous way round: a
+    regression that returned +1 on anything would confirm the conclusion for
+    the wrong reason. Hence the spectator control.
+    """
+    print("\nthe joint buffer order")
+    for constant in (0.004, 0.02, 0.1):
+        got = joint_buffer_order(_planted_buffer_ladder(constant))
+        check(f"a buffer pre-equilibrium at K = {constant} /mM gives "
+              f"{PERHYDRATE_ORDER_GAP:+.0f}",
+              abs(got["slope"] - PERHYDRATE_ORDER_GAP) < 0.02,
+              f"{got['slope']:+.3f}")
+    spectator = joint_buffer_order(
+        _planted_buffer_ladder(0.02, rule="spectator"))
+    check("a buffer that does not touch the induction falls short of +1",
+          spectator["slope"] < PERHYDRATE_ORDER_GAP - 0.1,
+          f"{spectator['slope']:+.3f}")
+    check("and the shortfall is what the rate order alone would give",
+          spectator["slope"] > 0.0, f"{spectator['slope']:+.3f}")
+    # The day step is what the free level per run absorbs. Double it and the
+    # answer must not move; pool the runs instead and it does.
+    stepped = joint_buffer_order(
+        _planted_buffer_ladder(0.02, day=(1.0, 0.2)))
+    check("a larger between-run step does not move it, because of the levels",
+          abs(stepped["slope"] - PERHYDRATE_ORDER_GAP) < 0.02,
+          f"{stepped['slope']:+.3f}")
 
 
 def test_the_saturation_fit_recovers_a_planted_constant():
@@ -513,6 +577,28 @@ def test_regressions():
         check(f"{name} fails the same control at {expected:+.3f}",
               abs(got["signal_slope"] - expected) < 0.005,
               f"{got['signal_slope']:+.3f}")
+
+    ladder = induction.buffer_lever(table)
+    joint = joint_buffer_order(ladder)
+    check("the buffer axis MEETS the joint constraint: +1.094 +- 0.150",
+          abs(joint["slope"] - 1.094) < 0.005
+          and abs(joint["stderr"] - 0.150) < 0.005,
+          f"{joint['slope']:+.3f} +- {joint['stderr']:.3f}")
+    check("which is where the peroxide axis fails, so the two differ",
+          joint["sigma"] < 1.0, f"{joint['sigma']:.1f} sigma")
+    buffer_signal = signal_control(ladder)
+    check("and the ladder passes its own signal control at -0.275 +- 0.268",
+          abs(buffer_signal["signal_slope"] + 0.275) < 0.005
+          and abs(buffer_signal["signal_stderr"] - 0.268) < 0.005,
+          f"{buffer_signal['signal_slope']:+.3f} +- "
+          f"{buffer_signal['signal_stderr']:.3f}")
+    wide = signal_control(induction.buffer_lever(table, width=900.0))
+    check("a 900 s window does not: the control fails and the joint order "
+          "overshoots",
+          wide["signal_slope"] < -0.5
+          and joint_buffer_order(
+              induction.buffer_lever(table, width=900.0))["slope"] > 1.2,
+          f"{wide['signal_slope']:+.3f}")
 
     lever = induction.peroxide_lever(table)
     check("the peroxide block's induction order is the wrong sign for an adduct",

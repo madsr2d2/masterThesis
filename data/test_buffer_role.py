@@ -20,7 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import buffer_role
 import scope
 import solution_chemistry
-from buffer_role import (catalytic_coefficient, identity_overlap,
+from buffer_role import (catalytic_coefficient, free_route_order,
+                         identity_overlap, peroxide_crossing,
                          overlap_width, separable, species_prediction,
                          titration_table)
 
@@ -179,6 +180,51 @@ def test_the_titration_table_and_the_maps():
           "a range test would have called this a match")
 
 
+def test_the_free_route_is_read_against_hydroperoxide_not_beside_it():
+    """
+    The pH order of the buffer-free level, and the yardstick it is read against.
+
+    `free_route_order` exists because section 2 attributed the level's rise to
+    `[HOO-]` without dividing one by the other. The yardstick has to be right
+    before the comparison means anything: far below H2O2's own pKa the
+    hydroperoxide fraction is first order in `[OH-]` exactly, so `hoo_order`
+    must come back at +1 whatever the ionic strength does.
+    """
+    print("\nthe buffer-free route")
+    got = free_route_order()
+    check("the pair is matched in substrate, so the ratio needs no scaling",
+          got["matched_s0"], f"{got['s0']} mM in both")
+    check("[HOO-] is first order in [OH-], which is the yardstick",
+          abs(got["hoo_order"] - 1.0) < 0.02, f"{got['hoo_order']:+.3f}")
+    check("and the level rises faster than that",
+          got["apparent_order"] > got["hoo_order"] + 0.5,
+          f"{got['apparent_order']:+.3f} against {got['hoo_order']:+.3f}")
+    check("the excess is a factor, not a rounding: 7.9x against 3.2x",
+          abs(got["level_ratio"] / got["hoo_ratio"] - 2.45) < 0.1,
+          f"{got['level_ratio']:.2f} / {got['hoo_ratio']:.2f}")
+
+
+def test_no_run_crosses_the_buffer_with_the_peroxide():
+    """
+    The design fact that decides what the buffer question can be taken to.
+
+    A buffer acting as a general base is a term in `[buf]`. A buffer acting
+    through a peroxo adduct of ITSELF is a term in `[buf][H2O2]`. At one pH the
+    two differ by an interaction and by nothing else, so the separation needs a
+    run that moves both -- and there is not one in 88.
+    """
+    print("\nthe crossing that is not there")
+    got = peroxide_crossing()
+    check("53 runs step the buffer and 20 step the peroxide",
+          got["steps_buffer"] == 53 and got["steps_peroxide"] == 20,
+          f"{got['steps_buffer']}, {got['steps_peroxide']}")
+    check("and none of the 88 does both",
+          got["steps_both"] == 0, f"{got['steps_both']}")
+    check("the five titrations sit at one peroxide, 82.5 mM",
+          got["titration_peroxides"] == [82.5],
+          f"{got['titration_peroxides']}")
+
+
 def test_regressions():
     """The numbers buffer/ANALYSIS.md quotes."""
     print("\nthe published numbers")
@@ -220,6 +266,8 @@ if __name__ == "__main__":
     test_the_species_test_can_read_a_planted_answer()
     test_the_archive_excludes_nothing()
     test_the_titration_table_and_the_maps()
+    test_the_free_route_is_read_against_hydroperoxide_not_beside_it()
+    test_no_run_crosses_the_buffer_with_the_peroxide()
     test_regressions()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)
