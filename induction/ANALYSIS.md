@@ -474,7 +474,10 @@ the two blocks can disagree about the substrate without either being wrong:
 > same as **more buffer → burst**
 
 Read as a buffer effect, that is what **general acid/base catalysis of E → E\***
-predicts: more buffer base, faster activation, and the lag over before the run
+predicts — and [`buffer/`](../buffer/ANALYSIS.md) is where that hypothesis is
+taken apart. It survives, along with general acid and "spectator": the archive's
+two-pH species test measures +1.06 ± 0.77 against 1.76 and 0.52, and excludes
+nothing: more buffer base, faster activation, and the lag over before the run
 is properly under way. It is the mechanism the temperature series' own numbers
 already hint at from a different direction — the catalysed buffer order of the
 *rate* is +0.400 ± 0.028 at 50–200 mM and +0.803 ± 0.173 below 25, so the buffer

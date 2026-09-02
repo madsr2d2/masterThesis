@@ -311,7 +311,9 @@ entirely.
 | 3.125–25 mM | 34 | +0.803 ± 0.173 | 0.915 |
 
 **The buffer dependence saturates** — about first order at low buffer, about
-half order above 50 mM. The temperature series sits at 50–80 mM, so +0.40 is
+half order above 50 mM. ([`buffer/`](../buffer/ANALYSIS.md) has three more
+titrations at two higher pH values, where the dependence collapses to a third of
+this, and the species test that cannot name the catalyst.) The temperature series sits at 50–80 mM, so +0.40 is
 the value that applies to it. (`v_ss` cannot be used here: three of exp 34's
 four curves have an unresolved τ and return a negative `v_ss`, giving a
 meaningless −0.18 ± 0.34.)

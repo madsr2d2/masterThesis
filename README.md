@@ -35,11 +35,13 @@ data/build_dossier.py       one HTML page per experiment, for review by eye
 data/arrhenius.py           activation parameters from the one temperature block
 data/slowdown.py            what makes a progress curve slow down, and on what
 data/induction.py           what the catalysed curves do before they start
+data/buffer_role.py         what the buffer does: reagent, confound, candidate
 
 background_reaction/        the uncatalysed BnOH reaction, and its buffer order
 temperature_series/         exps 14-19: the only route to activation parameters
 product_fate/               why the 4OMe curves peak and fall, and BnOH's do not
 induction/                  what the induction period is, and what it is not
+buffer/                     the buffer as reagent, confound and candidate
 
 MECHANISM.md                the 7-step mechanism, its reduction, and the evidence
 FITTING.md                  what has been fitted, and what the fits established

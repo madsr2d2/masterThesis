@@ -73,6 +73,7 @@ python data/test_fit_kinetics.py          # selection, scope, parameter recovery
 python data/test_validator.py             # fault injection
 python data/test_slowdown.py              # the slowdown models and their regressions
 python data/test_induction.py             # the induction landmark and its controls
+python data/test_buffer_role.py           # the species test, planted both ways
 ```
 
 Units: concentrations mM, time s.
@@ -138,6 +139,12 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   zero and cannot see a curve that begins fast; the in-scope block splits
   almost evenly (46 lag-first against 45 burst-first of 110 live), so an
   induction time averaged over it means little.
+- **Every buffer order in this project is an order in TOTAL buffer.** At one
+  pH the acid, the base and the total are proportional, so a titration cannot
+  name the species. `buffer/` has the two-pH test the archive does hold and it
+  excludes nothing: +1.06 +/- 0.77 against 1.76 for general base and 0.52 for
+  general acid. There are FIVE buffer titrations (exps 32, 34, 35, 36, 37), not
+  the two that were being used.
 - **`[S]` and `[buf]` move together in every 4OMe run**, at -0.96 in logs,
   because substrate volume displaced buffer volume. A substrate order measured
   there is an order in the pair, and `induction.composition_collinearity` is
