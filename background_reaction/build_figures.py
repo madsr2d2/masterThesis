@@ -504,7 +504,7 @@ def figure_rate_law(parameter=HEADLINE):
 
 
 # --- pages -----------------------------------------------------------------
-def _table(headers, rows, highlight=()):
+def _html_table(headers, rows, highlight=()):
     head = "".join(f"<th>{esc(h)}</th>" for h in headers)
     body = []
     for index, row in enumerate(rows):
@@ -571,7 +571,7 @@ asks one regression to separate [buf] from [sub].</p>
 <h2>The answer: first order in buffer</h2>
 {fig(figure_buffer_order(), "<b>C.</b> The recovered buffer order under four different "
       "rate estimators, against an independent block. Green dashed line: first order.")}
-{_table(["rate estimator", "a · [buf] fixed", "a′ · [buf] falling",
+{_html_table(["rate estimator", "a · [buf] fixed", "a′ · [buf] falling",
          "order in [buf] · BnOH", "cross-check · 4OMe-BnOH 40 °C"], rows,
         highlight=(0,))}
 <p class='warn'>All four estimators agree, including the two that choose no window

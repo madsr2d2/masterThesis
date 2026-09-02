@@ -7,6 +7,7 @@ about a value without `check_numbers.py` saying so.
 
     python temperature_series/build_figures.py
 """
+import functools
 import os
 import sys
 
@@ -60,7 +61,14 @@ def legend(entries):
     return f"<div class='key'>{items}</div>"
 
 
-def _frame():
+@functools.cache
+def _series():
+    """
+    The temperature series' frame, built once.
+
+    It was rebuilt on every call until 2026-09-02 -- twelve times a build at
+    0.86 s each, because `arrhenius.series_frame` has no cache of its own.
+    """
     return arrhenius.series_frame()
 
 
@@ -130,7 +138,7 @@ def figure_enzyme_test():
 
 # --- section 2: the shape -------------------------------------------------
 def figure_shape():
-    frame = _frame()
+    frame = _series()
     rungs = sorted(frame.s0.unique())
     left = Axes(430, 250, (12, 43), (0, 2.6), pad=(58, 60, 46, 22))
     left.hline(1.0, INK, dash="3 3", width=1.1)
@@ -173,7 +181,7 @@ def figure_shape():
 
 
 def figure_selection():
-    frame = _frame()
+    frame = _series()
     left = Axes(430, 250, (12, 43), (0, 3.3), pad=(58, 24, 46, 22))
     left.hline(1.0, MUTED, dash="3 3", width=1.1)
     for label, column, colour in (("one phase", "v0_burst_resid", CATEGORY[1]),
@@ -218,7 +226,7 @@ def figure_selection():
 
 
 def figure_tau():
-    frame = _frame()
+    frame = _series()
     warm = frame[frame.tau_resolved & (frame.temperature <= 32)]
     axes = Axes(560, 270, (3.25, 3.52), (9e-5, 2.2e-3), ylog=True,
                 pad=(70, 20, 46, 22))
@@ -253,7 +261,7 @@ def figure_tau():
 
 
 def figure_truncation():
-    frame = _frame()
+    frame = _series()
     ratio = frame.groupby("temperature").apply(
         lambda g: float((g.v_ss / g.vmax).median()), include_groups=False)
     axes = Axes(560, 240, (12, 43), (0, 1.35), pad=(64, 20, 46, 22))
@@ -316,7 +324,7 @@ def figure_buffer():
 
 def figure_substrate_order():
     orders = arrhenius.substrate_order()
-    frame = _frame()
+    frame = _series()
     left = Axes(430, 250, (1.4, 8.4), (44, 86), pad=(58, 24, 46, 22))
     ladder = frame.groupby("s0").buf.median().sort_index()
     left.line(ladder.index, ladder.values, ACCENT, width=2.2)
@@ -357,7 +365,7 @@ def figure_substrate_order():
 
 # --- sections 4-5: the parameters -----------------------------------------
 def figure_arrhenius():
-    frame = _frame()
+    frame = _series()
     rungs = sorted(frame.s0.unique())
     axes = Axes(560, 330, (3.16, 3.52), (4e-6, 3.2e-4), ylog=True,
                 pad=(72, 96, 46, 22))
@@ -433,7 +441,7 @@ def figure_rung_energies():
 def figure_eyring():
     axes = Axes(560, 320, (3.16, 3.50), (2e-9, 1.3e-7), ylog=True,
                 pad=(76, 74, 46, 22))
-    frame = _frame()
+    frame = _series()
     rungs = sorted(frame.s0.unique())
     for index, s0 in enumerate(rungs):
         rung = frame[np.isclose(frame.s0, s0)].sort_values("kelvin")
@@ -473,7 +481,7 @@ def figure_eyring():
 
 # --- the progress curves --------------------------------------------------
 def build_curves_page():
-    frame = _frame()
+    frame = _series()
     rungs = sorted(frame.s0.unique())
     temperatures = sorted(frame.temperature.unique())
     curves = {(c.temperature, round(float(c.conditions.s0), 3)): c
@@ -622,7 +630,7 @@ def build_index():
     asymptote, induction = table.loc["v_ss"], table.loc["inverse_tau"]
     truncation = arrhenius.truncation_sensitivity()
     order = float(arrhenius.substrate_order().corrected.mean())
-    frame = _frame()
+    frame = _series()
     two_phase = int((frame.phases == 2).sum())
     hero = (
         "<div class='hero'>"

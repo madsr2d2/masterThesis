@@ -104,6 +104,16 @@ five standards, and the folder with the most numbers ran the weakest one.
 - Add an assertion with `doc.claim` / `doc.check`; never write a private
   comparison in a folder. `test_doc_check` fails if a folder defines one.
 
+**The duplicate guard covers all of it.** `test_curve_metrics.
+test_no_duplicate_definitions` globbed `data/*.py` alone until 2026-09-02, and
+the drift simply moved to where it could not see -- five copies of the document
+contract, five palettes, and `_table` meaning a memoised frame in two folders
+and an HTML renderer in a third. It now covers `data/`, the repository root and
+every folder's `build_figures.py` and `check_numbers.py`: 55 modules. When it
+fires, DELETE one copy and import the other. Rename only when the two are
+genuinely different things that shared a name, and then the new name has to say
+which one it is.
+
 `figure_kit.py` is the same idea for the drawing: `svgplot` has the primitives,
 `figure_kit` the palettes, `fig`, `styled` and `write_pages`. The copies had
 drifted here too -- `induction/` carried a different six-step `TEMPERATURES`

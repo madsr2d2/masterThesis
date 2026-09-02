@@ -7,6 +7,7 @@ a value without `check_numbers.py` saying so.
 
     python product_fate/build_figures.py
 """
+import functools
 import os
 import sys
 
@@ -31,21 +32,17 @@ from figure_kit import (CATEGORY, FIT_WIDTH, RUNGS, breakpoints, fig, panel,
 
 
 
-_SLOWDOWN_CACHE = {}
-
-
+@functools.cache
 def _whole_frame():
     """Every curve in the archive, built once. Section 6 needs all of it: the
     contrast that carries the argument is between blocks, not inside one."""
-    if "frame" not in _SLOWDOWN_CACHE:
-        _SLOWDOWN_CACHE["frame"] = scope.frame(tuple(range(1, 152)))
-    return _SLOWDOWN_CACHE["frame"]
+    return scope.frame(tuple(range(1, 152)))
 
 
+@functools.cache
 def _slowdown_blocks():
-    if "blocks" not in _SLOWDOWN_CACHE:
-        _SLOWDOWN_CACHE["blocks"] = slowdown.substrate_blocks(_whole_frame())
-    return _SLOWDOWN_CACHE["blocks"]
+    """The archive cut the way this question needs it, built once."""
+    return slowdown.substrate_blocks(_whole_frame())
 
 
 def _sink_curves():

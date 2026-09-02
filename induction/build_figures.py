@@ -7,6 +7,7 @@ a value without `check_numbers.py` saying so.
 
     python induction/build_figures.py
 """
+import functools
 import os
 import sys
 
@@ -31,20 +32,16 @@ from figure_kit import (CATEGORY, RUNGS, breakpoints, fig, panel,
 
 
 
-_CACHE = {}
-
-
-def _table():
+@functools.cache
+def _landmarks():
     """Every curve in the archive with its landmark, built once."""
-    if "table" not in _CACHE:
-        _CACHE["table"] = induction.induction_table(induction.WHOLE_ARCHIVE)
-    return _CACHE["table"]
+    return induction.induction_table(induction.WHOLE_ARCHIVE)
 
 
+@functools.cache
 def _blocks():
-    if "blocks" not in _CACHE:
-        _CACHE["blocks"] = induction.induction_blocks(_table())
-    return _CACHE["blocks"]
+    """The named cuts of that table, built once."""
+    return induction.induction_blocks(_landmarks())
 
 
 def _rate_track(curve, window=LAG_WINDOW):
@@ -105,7 +102,7 @@ def figure_two_channels():
 
 
 def figure_channel_depth():
-    table = _table()
+    table = _landmarks()
     four = table[table.substrate == "4OMe-BnOH"]
     axes = Axes(560, 300, (12, 43), (-0.04, 1.32), pad=(66, 26, 46, 32))
     for offset, (differential, colour, label) in enumerate(
@@ -231,9 +228,9 @@ def figure_orders():
         "zero, and zero is the answer being defended.")
 
 
-def figure_arrhenius():
+def figure_induction_arrhenius():
     frame = arrhenius.series_frame()
-    table = _table()
+    table = _landmarks()
     resolved = frame[frame.tau_resolved & (frame.tau > 0)
                      & (frame.kelvin <= arrhenius.BURST_TRUSTWORTHY_BELOW_C
                         + 273.15)]
@@ -324,7 +321,7 @@ def figure_activation_gap():
 
 def figure_signal_control():
     blocks = _blocks()
-    table = _table()
+    table = _landmarks()
     rows = [("4OMe catalysed", induction.signal_control(blocks["4OMe catalysed"])),
             ("BnOH, exps 135–151",
              induction.signal_control(blocks["BnOH in scope (135-151)"])),
@@ -365,7 +362,7 @@ def figure_signal_control():
 
 
 def figure_peroxide():
-    table = _table()
+    table = _landmarks()
     ladder = induction.peroxide_ladder(_blocks()["BnOH in scope (135-151)"])
     fitted = induction.peroxide_saturation(_blocks()["BnOH in scope (135-151)"])
     # Each run sits at its own level, which is what the per-experiment offsets
@@ -500,7 +497,7 @@ def build_curves_page():
     carry landmarks read through different windows, and the folder's
     between-run comparisons all use something else.
     """
-    table = _table()
+    table = _landmarks()
     blocks = induction.induction_blocks(table)
     sections = (("catalysed", blocks["4OMe catalysed"], CATEGORY[1]),
                 ("enzyme-free", blocks["4OMe enzyme-free"], CATEGORY[0]))
@@ -578,7 +575,7 @@ def build_curves_page():
 
 
 def build_index():
-    table = _table()
+    table = _landmarks()
     summary = induction.channel_summary(table)
     drivers = induction.induction_drivers(_blocks()["4OMe catalysed"],
                                           rate="v_peak")
@@ -656,7 +653,7 @@ intuition that would assign them the other way round — a rise that waits for
 product, a fall that runs down a clock — is wrong at both ends.</p>
 
 <h2>4 · Not the schedule, not the instrument, not physical</h2>
-{figure_arrhenius()}
+{figure_induction_arrhenius()}
 <div class='tbl'><table>
 <tr><th>window</th><th>induction at 15 °C</th><th>at 40 °C</th>
 <th>E<sub>a</sub> of 1/t<sub>ind</sub>, kJ/mol</th></tr>

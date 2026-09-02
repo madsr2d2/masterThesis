@@ -41,11 +41,34 @@ def check(name, condition, detail=""):
 
 
 # Names every module is allowed to define for itself: per-module entry points
-# and test harness helpers, not shared measurements.
+# and test harness helpers, not shared measurements. `build_index` and
+# `build_curves_page` are the analysis folders' two page entry points -- one of
+# each per folder, called only by that folder's `main`, so they can no more
+# drift into each other than `main` can.
 PERMITTED_DUPLICATES = {
     "main", "build", "analyse", "report", "check", "close",
-    "test_regressions",
+    "test_regressions", "build_index", "build_curves_page",
 }
+
+REPOSITORY = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _guarded_files():
+    """
+    Every module the duplicate rule covers: `data/`, the root, and the folders.
+
+    IT COVERED `data/` ALONE UNTIL 2026-09-02, and the drift moved to where it
+    could not see. Five copies of the document-comparison contract lived in the
+    five `check_numbers.py` and no two were the same; the palettes and the
+    figure wrapper were declared five times in the `build_figures.py`; and
+    `_table` meant a memoised data frame in two folders and an HTML renderer in
+    a third. None of it was visible to a guard globbing one directory.
+    """
+    return sorted(
+        glob.glob(os.path.join(REPOSITORY, "data", "*.py"))
+        + glob.glob(os.path.join(REPOSITORY, "*.py"))
+        + glob.glob(os.path.join(REPOSITORY, "*", "build_figures.py"))
+        + glob.glob(os.path.join(REPOSITORY, "*", "check_numbers.py")))
 
 
 def _defined_names(path):
@@ -56,30 +79,73 @@ def _defined_names(path):
                                  ast.ClassDef))}
 
 
-def test_no_duplicate_definitions():
-    """
-    No name may be defined at top level in two modules.
-
-    A shared measurement belongs in curve_metrics and is imported. If this
-    fails, do not rename one of the copies -- delete one and import the other,
-    or the two will drift apart exactly as they did before.
-    """
-    print("\nno duplicate definitions")
-    seen = {}
-    duplicates = {}
-    for path in sorted(glob.glob(os.path.join(os.path.dirname(__file__) or ".",
-                                              "*.py"))):
-        module = os.path.basename(path)[:-3]
+def _duplicate_names(files, root=None):
+    """The names defined at top level in more than one of `files`."""
+    root = root or REPOSITORY
+    seen, duplicates = {}, {}
+    for path in files:
+        module = os.path.relpath(path, root)[:-3]
         for name, line in _defined_names(path).items():
             if name in PERMITTED_DUPLICATES:
                 continue
             if name in seen:
-                duplicates.setdefault(name, [seen[name]]).append(f"{module}:{line}")
+                duplicates.setdefault(name, [seen[name]]).append(
+                    f"{module}:{line}")
             else:
                 seen[name] = f"{module}:{line}"
-    check("no shared name is defined in two modules",
+    return duplicates
+
+
+def test_the_duplicate_guard_catches_a_planted_duplicate():
+    """
+    Fault injection, because a guard that has never failed is not a guard.
+
+    This one was widened on 2026-09-02 from `data/` to the whole repository,
+    and a widened glob that silently matched nothing would pass exactly as
+    loudly as one that works.
+    """
+    print("\nthe duplicate guard, planted")
+    import tempfile
+    with tempfile.TemporaryDirectory() as root:
+        first = os.path.join(root, "one.py")
+        second = os.path.join(root, "two.py")
+        open(first, "w").write("def lag_time():\n    return 1\n"
+                                  "def main():\n    return 0\n")
+        open(second, "w").write("def lag_time():\n    return 2\n"
+                                   "def main():\n    return 0\n")
+        found = _duplicate_names([first, second], root=root)
+        check("a name defined in two modules is caught",
+              "lag_time" in found, f"{found}")
+        check("and the report names both places",
+              len(found.get("lag_time", [])) == 2, f"{found}")
+        check("a permitted name is not caught", "main" not in found)
+        check("one module alone is not a duplicate",
+              not _duplicate_names([first], root=root))
+
+
+def test_no_duplicate_definitions():
+    """
+    No name may be defined at top level in two modules, anywhere in the repo.
+
+    A shared measurement belongs in `curve_metrics` and is imported; a shared
+    drawing belongs in `figure_kit`, a shared document check in `doc_check`. If
+    this fails, do not rename one of the copies -- delete one and import the
+    other, or the two will drift apart exactly as they did before. Renaming is
+    right only when the two are genuinely different things that happened to
+    share a name, and then the new name has to say which one it is.
+    """
+    print("\nno duplicate definitions")
+    files = _guarded_files()
+    duplicates = _duplicate_names(files)
+    check(f"no shared name is defined in two of the {len(files)} modules",
           not duplicates,
           "; ".join(f"{n} in {', '.join(w)}" for n, w in sorted(duplicates.items())))
+    # The guard is worth nothing if it stopped covering something. These are
+    # the three trees it exists for, and each has to be in the list.
+    covered = {os.path.relpath(p, REPOSITORY) for p in files}
+    for required in ("data/curve_metrics.py", "figure_kit.py", "doc_check.py",
+                     "buffer/build_figures.py", "buffer/check_numbers.py"):
+        check(f"the guard covers {required}", required in covered)
 
 
 def test_lag_statistic():
@@ -539,6 +605,7 @@ def test_two_breakpoints():
 
 if __name__ == "__main__":
     test_no_duplicate_definitions()
+    test_the_duplicate_guard_catches_a_planted_duplicate()
     test_lag_statistic()
     test_noise_and_rate()
     test_acceleration()

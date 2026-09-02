@@ -7,6 +7,7 @@ about a value without `check_numbers.py` saying so.
 
     python buffer/build_figures.py
 """
+import functools
 import os
 import sys
 
@@ -28,23 +29,20 @@ from figure_kit import (CATEGORY, PH_RAMP, SURFACE, breakpoints, fig, panel,
 
 
 
-_CACHE = {}
+@functools.cache
+def _titrations():
+    """The five titrations' own table, built once."""
+    return buffer_role.titration_table()
 
 
-def _table():
-    if "table" not in _CACHE:
-        _CACHE["table"] = buffer_role.titration_table()
-    return _CACHE["table"]
-
-
-def _frame():
-    if "frame" not in _CACHE:
-        _CACHE["frame"] = scope.frame(tuple(range(1, 152)))
-    return _CACHE["frame"]
+@functools.cache
+def _archive():
+    """Every curve in the archive, built once: the confound map needs all of it."""
+    return scope.frame(tuple(range(1, 152)))
 
 
 def figure_titrations():
-    table = _table()
+    table = _titrations()
     frame = scope.frame(buffer_role.TITRATIONS)
     frame = frame[frame.live & (frame.v_peak > 0)]
     axes = Axes(560, 300, (2.5, 260.0), (8e-6, 9e-4), xlog=True, ylog=True,
@@ -86,7 +84,7 @@ def figure_titrations():
 
 
 def figure_split():
-    table = _table()
+    table = _titrations()
     axes = Axes(560, 280, (-0.6, 4.6), (1e-5, 3e-3), ylog=True,
                 pad=(76, 26, 58, 34))
     for index, row in enumerate(table.sort_values(["pH", "buffer_low"])
@@ -239,7 +237,7 @@ def figure_joint():
 
 
 def figure_confound():
-    frame = _frame()
+    frame = _archive()
     blocks = induction.induction_blocks(frame)
     names = (("4OMe catalysed", "4OMe catalysed"),
              ("4OMe enzyme-free", "4OMe, no enzyme"),
@@ -354,17 +352,17 @@ def build_curves_page():
 
 
 def build_index():
-    table = _table()
+    table = _titrations()
     prediction = buffer_role.species_prediction(7.00, 7.53)
     measured = buffer_role.catalytic_coefficient(drop=(35,))
     verdict = buffer_role.separable(measured, prediction)
-    identity = buffer_role.identity_overlap(_frame())
+    identity = buffer_role.identity_overlap(_archive())
     widest = buffer_role.overlap_width(identity)
     table_full = induction.induction_table(induction.WHOLE_ARCHIVE)
     ladder = induction.buffer_lever(table_full)
     induction_order = induction.buffer_order(ladder)
     joint = induction.joint_buffer_order(ladder)
-    crossing = buffer_role.peroxide_crossing(frame=_frame())
+    crossing = buffer_role.peroxide_crossing(frame=_archive())
     free = buffer_role.free_route_order(
         frame=scope.frame(buffer_role.TITRATIONS))
 
