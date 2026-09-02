@@ -454,7 +454,7 @@ cuvettes, which all sit at the run's top peroxide.
 **Signal-to-noise leans burst, and the substrate result runs against it.** The
 share of lag-first curves rises from 0.29 to 0.50 across the in-scope
 signal-to-noise quartiles: a curve with little signal gives the two-phase fit
-little to choose between the shapes. That is the same objection figure G raises
+little to choose between the shapes. That is the same objection figure F raises
 against the induction *time*, and here it works in the analysis's favour — more
 substrate means more signal, so the confound pushes towards *lag*, and the
 measured substrate effect is towards **burst** anyway.

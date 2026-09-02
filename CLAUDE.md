@@ -74,9 +74,35 @@ python data/test_validator.py             # fault injection
 python data/test_slowdown.py              # the slowdown models and their regressions
 python data/test_induction.py             # the induction landmark and its controls
 python data/test_buffer_role.py           # the species test, planted both ways
+python test_doc_check.py                  # the contract every check_numbers runs on
 ```
 
+And each analysis folder's own `check_numbers.py`, which re-derives every number
+in its `ANALYSIS.md` from the modules. About a minute each.
+
 Units: concentrations mM, time s.
+
+## One contract for the folder documents
+
+`doc_check.py` is the comparison behind every `check_numbers.py`. There were
+five copies of it until 2026-09-02 and no two were the same -- 7 substitutions
+in `background_reaction`, 17 in `induction` -- so five documents were held to
+five standards, and the folder with the most numbers ran the weakest one.
+
+- **Typography folds; emphasis does not.** A hyphen against U+2212, `tau`
+  against `τ`, `10-5` against `10⁻⁵`, backticks, a rewrapped line: all noise.
+  But `**` survives, because in these documents bold marks the number a section
+  argues for. Three folders stripped it while their claims BUILT it
+  (`bold = "**" if ...`), so the emphasis was asserted and then discarded --
+  live-looking assertions that could not fail. Build the markers and mean them.
+  The contract is one-directional: a claim that carries `**` requires the
+  document to carry it, a claim that omits it matches either way.
+- **Read figure letters off the RENDERED page**, never off the builder source.
+  `Checker.figures` does. Reading the source cannot see a letter used twice or
+  out of order, which is how `induction/index.html` came to draw A B C D E G H
+  F I and no check noticed.
+- Add an assertion with `doc.claim` / `doc.check`; never write a private
+  comparison in a folder. `test_doc_check` fails if a folder defines one.
 
 ## The temperature series
 

@@ -324,7 +324,7 @@ def figure_activation_gap():
               size=11.5, weight="600", anchor="middle")
     return fig(
         axes.render("", "kJ/mol at 298 K",
-                    "F · The induction is the faster step, as it has to be",
+                    "H · The induction is the faster step, as it has to be",
                     xticks=False),
         "Both columns are <code>arrhenius.activation_parameters</code>. "
         "<strong>The free-energy gap is the solid number</strong>: "
@@ -367,7 +367,7 @@ def figure_signal_control():
                         "spectrophotometer", MUTED, size=10.5, anchor="middle")
     return fig(
         axes.render("d log(induction time) / d log(signal-to-noise)", "",
-                    "G · The control that decides which blocks may be used",
+                    "F · The control that decides which blocks may be used",
                     yticks=False),
         "The landmark is the first crossing of half the <em>largest</em> "
         "rolling slope, so on a curve with no signal the largest rolling slope "
@@ -417,7 +417,7 @@ def figure_peroxide():
               ("BnOH", _blocks()["BnOH in scope (135-151)"]))}
     return fig(
         axes.render("[H₂O₂], mM", "rate / the run's own level",
-                    "H · The rate is not first order in peroxide"),
+                    "G · The rate is not first order in peroxide"),
         "The peroxide arm of each in-scope run, over a 67-fold range. "
         f"<strong>Strict first order is rejected at F = "
         f"{fitted['first_order_f']:.0f}</strong>; the free power law is "
@@ -433,7 +433,7 @@ def figure_peroxide():
         f"{joint['4OMe']['slope']:+.3f} ± {joint['4OMe']['stderr']:.3f} on the "
         f"4OMe block ({joint['4OMe']['sigma']:.1f}σ short) and "
         f"{joint['BnOH']['slope']:+.3f} ± {joint['BnOH']['stderr']:.3f} here "
-        f"({joint['BnOH']['sigma']:.1f}σ short). Neither is clean — figure G — "
+        f"({joint['BnOH']['sigma']:.1f}σ short). Neither is clean — figure F — "
         "but both fall the same way.")
 
 
@@ -708,7 +708,7 @@ Section 4a: three things point the same way and none is clean — the induction'
 peroxide order has the wrong sign for an adduct, the joint constraint the scheme
 puts on both orders at once falls short by 2.6σ and 3.7σ, and the rate is not
 first order in peroxide either. Both induction orders come from blocks that fail
-figure G, so their agreement is also what one shared artefact looks like.</p>
+figure F, so their agreement is also what one shared artefact looks like.</p>
 <p><strong>What would finish it.</strong> <code>COMPUTATIONAL.md</code>
 <strong>C7</strong> — the hydration equilibrium and dehydration barrier of the
 chemzyme's ketone against the barrier for adding H₂O₂ to it — and
