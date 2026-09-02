@@ -506,6 +506,32 @@ def main():
           f"on {int(counts.get('sink', 0))} of {len(clean)} well-determined "
           f"curves against {int(counts.get('inhibition', 0))}")
 
+    print("\nthe figures: lettered once each, in order")
+    # J and K were each used TWICE from the day figure_selection was added --
+    # once in section 3a and once in section 4 -- and nothing noticed, because
+    # a letter is not a number and no check looked at one.
+    import re
+    page = io.open(os.path.join(HERE, "index.html"), encoding="utf-8").read()
+    letters = re.findall(r">([A-Z]) \u00b7 ", page)
+    expected = [chr(ord("A") + index) for index in range(len(letters))]
+    check("every figure letter is used exactly once, A onwards",
+          letters == expected,
+          f"{''.join(letters)} against {''.join(expected)}")
+    claim("the document's own count of them",
+          f"{len(letters)} figures" if len(letters) != 15 else
+          "fifteen figures, A to " + letters[-1])
+
+    print("\nthe fitting form, section 3a")
+    series = arrhenius.series_frame()
+    two_phase = int((series.phases == 2).sum())
+    claim("how many curves the burst form cannot hold",
+          f"{two_phase} of these {len(series)} curves do exactly that")
+    check("the model-free screen agrees with the F test on that count",
+          int(series.break_pattern.isin(("rise then fall", "falling")).sum())
+          == two_phase,
+          f"{int(series.break_pattern.isin(('rise then fall', 'falling')).sum())}"
+          f" against {two_phase}")
+
     print("\nthe figures: the fit never covers the data it is fitting")
     # Three passes were needed to get this right -- fit under the data, then
     # fit over it on a white halo wider than a mark, then this -- so the

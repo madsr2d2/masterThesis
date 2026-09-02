@@ -17,7 +17,7 @@ and the only kinetic quantity that can be compared against the ORCA barriers in
     python temperature_series/build_figures.py
     python temperature_series/check_numbers.py
 
-**Figures**: `index.html` is the presentation — twelve figures, A to L, one per
+**Figures**: `index.html` is the presentation — fifteen figures, A to O, one per
 claim in this document. `progress_curves.html` carries all 24 curves with the
 burst/lag fit and the breakpoint drawn on each. Both are rebuilt by
 `build_figures.py`, which computes nothing: every number in a figure comes from
@@ -341,9 +341,11 @@ correlated and averaging would shrink the error by a factor that is not there.
 The burst/lag form is `A = c + v_ss·t − B(1 − e^(−t/τ))`, so its rate is
 `v_ss − (B/τ)e^(−t/τ)` — **monotone**. It approaches `v_ss` from below (lag,
 B > 0) or from above (burst, B < 0) and never turns. **It cannot represent a
-rate that rises to a maximum and then falls**, and 14 of these 24 curves do
+rate that rises to a maximum and then falls**, and 11 of these 24 curves do
 exactly that: exp 16's upper rungs peak at 1666–2303 s and end about 30% below
-their peak.
+their peak. (That count was 14 until 2026-09-02, when it was checked against
+the code for the first time and found to match nothing the modules compute —
+neither the F test's selection nor the model-free screen, which agree on 11.)
 
 `summary_kinetics.fit_two_phase` adds a second relaxation:
 

@@ -212,6 +212,20 @@ def main():
     check("the corrected route is the noisier one",
           effect["corrected"]["rms"] > effect["published"]["rms"])
 
+    print("\nthe figures: lettered once each, in order")
+    # The sibling folder had J and K twice for as long as it had a section 3a,
+    # because a letter is not a number and no check looked at one.
+    import re
+    page = io.open(os.path.join(HERE, "index.html"), encoding="utf-8").read()
+    letters = re.findall(r">([A-Z]) \u00b7 ", page)
+    expected = [chr(ord("A") + index) for index in range(len(letters))]
+    check("every figure letter is used exactly once, A onwards",
+          letters == expected,
+          f"{''.join(letters)} against {''.join(expected)}")
+    claim("the document's own count of them",
+          "six figures, A to " + letters[-1] if len(letters) == 6
+          else f"{len(letters)} figures")
+
     print("\nthe figures: no data point drawn outside its own frame")
     from svgplot import clipped_marks
     path = os.path.join(HERE, "index.html")

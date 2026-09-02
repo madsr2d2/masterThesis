@@ -402,7 +402,7 @@ def figure_arrhenius():
               weight="650")
     return fig(
         axes.render("1000 / T, K⁻¹", "vmax ÷ [enz], AU s⁻¹ mM⁻¹",
-                    "J · Arrhenius: four rungs, six temperatures, one slope"),
+                    "L · Arrhenius: four rungs, six temperatures, one slope"),
         "The four rungs are four <em>independent</em> fits — the same substrate "
         "ladder recurs in all six runs — and they are offset because their "
         "composition differs, not because their slopes do. Individually they "
@@ -433,7 +433,7 @@ def figure_rung_energies():
               weight="600")
     return fig(
         axes.render("[S] of the rung, mM", "activation energy, kJ/mol",
-                    "K · The rung spread is scatter, not composition"),
+                    "O · The rung spread is scatter, not composition"),
         "The 8.5 kJ/mol spread across four fits that ought to agree looked like "
         "a composition dependence until the standard errors were computed — "
         "each rung is ±2.6–3.0, and every one overlaps the pooled band. The "
@@ -473,7 +473,7 @@ def figure_eyring():
               size=11.5, weight="600")
     return fig(
         axes.render("1000 / T, K⁻¹", "k / T,  K⁻¹ s⁻¹   (k = vmax ÷ ε ÷ [enz])",
-                    "L · Eyring: the slope is ΔH‡, the intercept is ΔS‡"),
+                    "M · Eyring: the slope is ΔH‡, the intercept is ΔS‡"),
         "The rate is turned into an actual rate constant in s⁻¹ by dividing by "
         "the sheet's own extinction coefficient and by [enz] — a slope survives "
         "any constant factor but an intercept does not, so <strong>ΔH‡ needs "
@@ -628,7 +628,7 @@ def figure_sink_effect():
                   size=11, weight="600", anchor="end")
     return fig(
         axes.render("1000 / T, K⁻¹", "rate / (ε·[enz]), s⁻¹",
-                    "M · Naming the fall does not move the line"),
+                    "N · Naming the fall does not move the line"),
         "Both estimators, all 24 curves, one pooled slope each. "
         f"<code>v_prod</code> is the production rate of the sink model with k "
         f"pinned at <code>slowdown.sink_activation</code>'s value; it sits "
@@ -646,21 +646,43 @@ def figure_sink_effect():
         "has the derivation.")
 
 
+# 1 kcal = 4.184 kJ, and the page quotes both because the barriers in
+# COMPUTATIONAL.md will come back in kcal/mol.
+KCAL = 4.184
+
+
 def build_index():
+    """
+    The page. NOTHING NUMERIC IS TYPED INTO THE PROSE.
+
+    Every figure in this folder already derives its numbers from the modules;
+    the running text did not, and it drifted -- it quoted `vmax`'s enthalpy,
+    entropy and free energy under a heading that had made `v_peak` the
+    headline, called a three-estimator agreement a two-estimator one, and gave
+    the truncation inflation as 1.9 where `truncation_sensitivity` says 1.69.
+    Every such number is now an f-string over the same call the document
+    checks, so the page cannot disagree with `ANALYSIS.md` without
+    `check_numbers.py` failing on both.
+    """
     table = arrhenius.parameter_table()
-    vmax = table.loc["v_peak"]
+    peak, steepest = table.loc["v_peak"], table.loc["vmax"]
+    asymptote, induction = table.loc["v_ss"], table.loc["inverse_tau"]
+    truncation = arrhenius.truncation_sensitivity()
+    order = float(arrhenius.substrate_order().corrected.mean())
+    frame = _frame()
+    two_phase = int((frame.phases == 2).sum())
     hero = (
         "<div class='hero'>"
-        f"<div><div class='k'>ΔH‡</div><div class='v'>{vmax.enthalpy_kJ:.1f}"
-        f"</div><div class='u'>± {vmax.enthalpy_stderr:.1f} kJ/mol</div></div>"
-        f"<div><div class='k'>ΔS‡</div><div class='v'>{vmax.entropy_J:.0f}"
-        f"</div><div class='u'>± {vmax.entropy_stderr:.0f} J/mol/K</div></div>"
+        f"<div><div class='k'>ΔH‡</div><div class='v'>{peak.enthalpy_kJ:.1f}"
+        f"</div><div class='u'>± {peak.enthalpy_stderr:.1f} kJ/mol</div></div>"
+        f"<div><div class='k'>ΔS‡</div><div class='v'>{peak.entropy_J:.0f}"
+        f"</div><div class='u'>± {peak.entropy_stderr:.0f} J/mol/K</div></div>"
         f"<div><div class='k'>ΔG‡ at 25 °C</div><div class='v'>"
-        f"{vmax.gibbs_kJ:.1f}</div><div class='u'>± {vmax.gibbs_stderr:.1f} "
-        f"kJ/mol  ({vmax.gibbs_kJ / 4.184:.1f} kcal/mol)</div></div>"
+        f"{peak.gibbs_kJ:.1f}</div><div class='u'>± {peak.gibbs_stderr:.1f} "
+        f"kJ/mol  ({peak.gibbs_kJ / KCAL:.1f} kcal/mol)</div></div>"
         f"<div><div class='k'>E<sub>a</sub></div><div class='v'>"
-        f"{vmax.activation_kJ:.1f}</div><div class='u'>± "
-        f"{vmax.activation_stderr:.1f} kJ/mol</div></div>"
+        f"{peak.activation_kJ:.1f}</div><div class='u'>± "
+        f"{peak.activation_stderr:.1f} kJ/mol</div></div>"
         "</div>")
 
     rows = []
@@ -699,8 +721,8 @@ quantity <code>COMPUTATIONAL.md</code>'s barriers can be compared against.</p>
 
 {hero}
 <p class='warn'>These are the parameters of the <strong>catalytic increment</strong>
-of a whole turnover, not of an elementary step. Read section 5 before putting
-any of them beside a calculated barrier.</p>
+of a whole turnover, not of an elementary step. Read section 4's last part
+before putting any of them beside a calculated barrier.</p>
 
 <h2>1 · Is the enzyme mismatch real?</h2>
 <p>Two of the six runs record [enz] 11.7% below the other four — 0.240683 against
@@ -739,28 +761,45 @@ experiment from outside this block.</p>
 {figure_substrate_order()}
 
 <h2>3a \u00b7 The fitting form: one relaxation, or two</h2>
-<p>The burst/lag form's rate is <em>monotone</em>, so it cannot hold a rate that rises to a maximum and then falls \u2014 and 14 of these 24 curves do exactly that. A second relaxation term gives it that freedom, and the two forms are exactly nested.</p>
+<p>The burst/lag form's rate is <em>monotone</em>, so it cannot hold a rate that
+rises to a maximum and then falls — and {two_phase} of these {len(frame)} curves
+do exactly that. A second relaxation term gives it that freedom, and the two
+forms are exactly nested.</p>
 {figure_selection()}
 
 <h2>4 · The activation parameters</h2>
 {figure_arrhenius()}
-{figure_rung_energies()}
 {figure_eyring()}
 {parameters}
-<p>In kcal/mol for <code>vmax</code>: ΔH‡ <strong>21.0</strong>, ΔS‡
-<strong>−12.7 cal/mol/K</strong>, ΔG‡(298) <strong>24.8</strong>.</p>
-<p><strong>The load-bearing check is that the two rate estimators agree.</strong>
-<code>vmax</code> uses all six temperatures and is truncated at the cold end;
-<code>v_ss</code> uses only the four where the burst form is sound and is not
-truncated. They give 87.7 and 86.4 kJ/mol — and the truncation correction in
-figure F predicted <code>vmax</code> would read about 1.9 high, i.e. 85.8. Two
-estimators with different failure modes, landing inside their errors.</p>
-<p><strong>The induction is a different process.</strong> Its ΔG‡ is 12 kJ/mol
-lower, so it is the faster of the two, and its ΔS‡ is near zero rather than −55 —
-a much looser transition state. Its enthalpy, 92 ± 16, is not resolved apart from
-the turnover's 88 ± 1.5; the <em>entropies</em> are what distinguish them.</p>
+<p>In kcal/mol for <code>v_peak</code>: ΔH‡
+<strong>{peak.enthalpy_kJ / KCAL:.1f}</strong>, ΔS‡
+<strong>{peak.entropy_J / KCAL:+.1f} cal/mol/K</strong>, ΔG‡(298)
+<strong>{peak.gibbs_kJ / KCAL:.1f}</strong>.</p>
+<p><strong>Three routes now agree on ΔH‡.</strong> <code>v_peak</code> gives
+<strong>{peak.enthalpy_kJ:.1f} ± {peak.enthalpy_stderr:.1f}</strong> on all six
+temperatures; <code>v_ss</code> gives
+{asymptote.enthalpy_kJ:.1f} ± {asymptote.enthalpy_stderr:.1f} on the four where
+the one-phase form is sound and is not truncated; and <code>vmax</code> gives
+{steepest.enthalpy_kJ:.1f}, which figure F measures as running
+{truncation['inflation_kJ']:.1f} high from truncation — i.e.
+{steepest.enthalpy_kJ - truncation['inflation_kJ']:.1f} corrected. Three
+estimators with unrelated failure modes, landing inside their errors, and the
+two-phase form reaches the answer <em>without</em> the estimator
+substitution.</p>
+<p><code>vmax</code> keeps the tighter error, ±{steepest.activation_stderr:.1f}
+against ±{peak.activation_stderr:.1f}, because a model-based peak inherits the
+fit's scatter and the τ grid is coarse. So: <strong>quote
+<code>v_peak</code></strong>, and note that <code>vmax</code> agrees once its
+known bias is removed.</p>
+<p><strong>The induction is a different process.</strong> Its ΔG‡ is
+{peak.gibbs_kJ - induction.gibbs_kJ:.0f} kJ/mol lower, so it is the faster of
+the two, and its ΔS‡ is {induction.entropy_J:+.0f} rather than
+{peak.entropy_J:.0f} — a much looser transition state. Its enthalpy,
+{induction.enthalpy_kJ:.0f} ± {induction.enthalpy_stderr:.0f}, is not resolved
+apart from the turnover's {peak.enthalpy_kJ:.0f} ±
+{peak.enthalpy_stderr:.1f}; the <em>entropies</em> are what distinguish them.</p>
 
-<h2>5 · Naming the fall, and what it does to the numbers</h2>
+<h3>The fall has a name now, and it does not move these numbers</h3>
 <p><a href='../product_fate/index.html'>product_fate</a> identifies the fall of
 section 3a as <strong>the oxidant attacking the aldehyde it has just
 made</strong> — the rate declines linearly in the accumulated product,
@@ -771,31 +810,42 @@ is already net of that loss, and none of them is the production rate.</p>
 <p>The correction is reported and not applied, and the temperature series' own
 figures and parameters are unchanged by it.</p>
 
-<h2>6 · Before comparing any of this to a calculation</h2>
+<h3>Before comparing any of this to a calculation</h3>
 <ul>
-<li><strong>Composite, not elementary.</strong> <code>vmax</code> and
-<code>v_ss</code> are whole-turnover rates through a seven-step mechanism, so ΔH‡
-is the barrier of whatever step is rate-limiting at this composition plus any
-pre-equilibria in front of it. Compare against the <strong>highest</strong>
-computed step, never a sum.</li>
+<li><strong>Composite, not elementary.</strong> Every estimator here is a
+whole-turnover rate through a seven-step mechanism, so ΔH‡ is the barrier of
+whatever step is rate-limiting at this composition plus any pre-equilibria in
+front of it. Compare against the <strong>highest</strong> computed step, never
+a sum.</li>
 <li><strong>ΔS‡ assumes a pseudo-first-order rate constant</strong>,
-<code>v/(ε·[enz])</code> in s⁻¹. The substrate order is +0.58, not 0, so the
-reaction is not saturated and that constant carries a substrate dependence.
-<strong>ΔH‡ does not depend on this; ΔS‡ and the absolute ΔG‡ do.</strong></li>
+<code>v/(ε·[enz])</code> in s⁻¹. The substrate order is {order:+.2f}, not 0, so
+the reaction is not saturated and that constant carries a substrate dependence.
+<strong>ΔH‡ does not depend on this; ΔS‡ and the absolute ΔG‡ do.</strong> Note
+what the intercept is quoted <em>at</em>: the median rung, [S] =
+{peak.at_s0:.3f} mM and [buf] = {peak.at_buf:.0f} mM.</li>
 <li><strong>First order in enzyme is assumed and untestable here</strong> — [enz]
-takes two values in this block, 11.7% apart.</li>
+takes two values in this block, 11.7% apart. The archive's one test of it, a
+Selwyn test on exps 59 and 60, returns an order of <strong>+0.34</strong>; it
+would leave ΔH‡ untouched and move ΔS‡ and ΔG‡. This block's own normalisation
+prefers the opposite.</li>
 <li><strong>These are the catalytic increment's parameters.</strong> The runs are
 <code>with_E</code>, so the reference channel omits only the enzyme and the
 background is already subtracted. The uncatalysed background's own temperature
 dependence is measured nowhere in the archive.</li>
-<li><strong>ΔG‡ is far better determined than ΔH‡ or ΔS‡</strong> — ±0.1 against
-±1.5 and ±4.9 — because both come from one line and their errors are strongly
-anti-correlated; at 25 °C, inside the measured range, they cancel. It is
-propagated with the covariance, not from the two standard errors, which would
-overstate it several-fold.</li>
+<li><strong>ΔG‡ is far better determined than ΔH‡ or ΔS‡</strong> —
+±{peak.gibbs_stderr:.1f} against ±{peak.enthalpy_stderr:.1f} and
+±{peak.entropy_stderr:.1f} — because both come from one line and their errors
+are strongly anti-correlated; at 25 °C, inside the measured range, they cancel.
+It is propagated with the covariance, not from the two standard errors, which
+would overstate it several-fold.</li>
 </ul>
 
-<h2>7 · What the slowdown is — and where it is written up</h2>
+<h2>5 · Activation energy per rung</h2>
+<p>Kept because the agreement between the four is the evidence that pooling them
+is allowed at all.</p>
+{figure_rung_energies()}
+
+<h2>6 · What the slowdown is — and where it is written up</h2>
 <p>The fall of section 3a is not a property of this block, so its analysis is
 not on this page. It is <a href='../product_fate/index.html'><strong>product_fate</strong></a>,
 because the discrimination that settles it needs the whole 4OMe archive: these
