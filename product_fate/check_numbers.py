@@ -170,6 +170,46 @@ def main():
     claim("the window itself",
           f"{window[0]}-{window[1]:.3f} mM")
 
+    print("\nthe matched-absorbance control")
+    # The objection the design invites: epsilon is 6.1x bigger for the 4OMe
+    # aldehyde, so at equal product concentration a 4OMe run sits at six times
+    # the absorbance, and detector compression would bend those curves first.
+    window = (0.015, 0.475)
+    matched = {}
+    for label, name in (("4OMe", "4OMe catalysed, phosphate"),
+                        ("BnOH", "BnOH catalysed, all buffers")):
+        block_frame = named[name]
+        inside = block_frame[(block_frame.net >= window[0])
+                             & (block_frame.net <= window[1])]
+        matched[label] = slowdown.deceleration_drivers(inside)
+        claim(f"{label} inside the shared absorbance window",
+              f"{matched[label]['product']:+.3f} +/- "
+              f"{matched[label]['product_stderr']:.3f}")
+    claim("the absorbance window itself",
+          f"{window[0]}-{window[1]} AU")
+    gap = matched["BnOH"]["product"] - matched["4OMe"]["product"]
+    error = np.hypot(matched["BnOH"]["product_stderr"],
+                     matched["4OMe"]["product_stderr"])
+    claim("the gap it leaves", f"a gap of {gap:.2f} +/- {error:.2f}")
+    claim("and how many sigma", f"**{gap / error:.1f}sigma**")
+    free = named["4OMe enzyme-free"]
+    free = free[free.live]
+    catalysed = named["4OMe catalysed, phosphate"]
+    catalysed = catalysed[catalysed.live]
+    claim("the absorbances the enzyme-free curves cover",
+          f"{free.net.min():.3f}-{free.net.max():.3f} AU")
+    claim("against the catalysed set's",
+          f"{catalysed.net.min():.3f}-{catalysed.net.max():.3f}")
+    row = slowdown.deceleration_drivers(free)
+    claim("and the enzyme-free product coefficient",
+          f"**{row['product']:+.3f} +/- {row['product_stderr']:.3f}**")
+    for label, value in (("4OMe", 7.53), ("BnOH", 1.23)):
+        used = sorted(named["4OMe catalysed, phosphate"].epsilon.unique()) \
+            if label == "4OMe" else \
+            sorted(named["BnOH catalysed, all buffers"].epsilon.unique())
+        check(f"{label}'s epsilon is the one the prose names",
+              len(used) == 1 and abs(used[0] - value) < 1e-9, f"{used}")
+
     print("\nthe weak bound on the BnOH side")
     bnoh = slowdown.sink_table(scope.PRIMARY_SCOPE)
     good = bnoh[(bnoh.points > 0) & (bnoh.rate_r2 > slowdown.SINK_CLEAN_R2)]

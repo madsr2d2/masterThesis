@@ -72,6 +72,24 @@ so restrict both to the window they share, 0.004–0.077 mM: the catalysed set
 still gives **−0.560 ± 0.090** on 58 curves and the enzyme-free set
 **+0.100 ± 0.092** on 37.
 
+**It is not the photometer either.** This is the objection the design invites and
+it took a while to see: ε is **7.53** for the 4OMe aldehyde against **1.23** for
+benzaldehyde, so at the same product *concentration* a 4OMe run sits at six times
+the *absorbance*. Detector compression at high absorbance would bend a curve over
+exactly as a sink does — `dA/dt` falling as `A` rises — and would do it to the
+4OMe runs first. Two controls kill it.
+
+- **Compare the substrates at matched absorbance, not matched concentration.**
+  Over the window they share, 0.015–0.475 AU, the catalysed 4OMe curves give
+  **−0.621 ± 0.099** on product and the catalysed BnOH curves **+0.386 ± 0.136**
+  — a gap of 1.01 ± 0.17, **6.0σ**. The photometer does not know which alcohol
+  is in the cuvette.
+- **The enzyme-free 4OMe curves cover the same absorbances.** They run
+  0.012–0.581 AU, against the catalysed set's 0.012–1.252, and their product
+  coefficient is **+0.025 ± 0.048**. Same instrument, same wavelength, same
+  substrate, same absorbance range, no product dependence. Compression cannot
+  be selective for the presence of enzyme.
+
 The pH-and-temperature row matters because `net` is bigger where the reaction is
 faster, and the reaction is faster at high pH. Putting pH in the model moves the
 product coefficient the *wrong* way for that objection, and pH's own coefficient

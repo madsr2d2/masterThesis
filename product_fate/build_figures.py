@@ -378,6 +378,18 @@ against {series['span']:+.3f} ± {series['span_stderr']:.3f} for run length).
 <strong>The same chemistry with no enzyme in the cuvette does the opposite.</strong>
 That block is not a curiosity: it is the reference channel every catalysed
 curve here is measured against, and its decay is subtracted out per cuvette.</p>
+<p><strong>It is not the photometer either.</strong> ε is 7.53 for the 4OMe
+aldehyde against 1.23 for benzaldehyde, so at the same product <em>concentration</em>
+a 4OMe run sits at six times the <em>absorbance</em> — and detector compression
+would bend those curves over exactly as a sink does. Two controls: over the
+absorbance window the two substrates share, 0.015–0.475 AU, the catalysed 4OMe
+curves still give <strong>−0.621 ± 0.099</strong> against BnOH's
+<strong>+0.386 ± 0.136</strong>, a 6.0σ gap the photometer cannot produce
+because it does not know which alcohol is in the cuvette; and the enzyme-free
+4OMe curves cover 0.012–0.581 AU with a product coefficient of
+<strong>+0.025 ± 0.048</strong>, so compression would have to be selective for
+the presence of enzyme.</p>
+
 <p class='warn'><code>net</code> is the integral of the rate, so a curve that
 decelerates <em>less</em> makes <em>more</em> product at the same starting rate.
 That bias pushes the product coefficient towards zero. Every negative
