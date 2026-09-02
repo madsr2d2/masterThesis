@@ -369,6 +369,42 @@ would be a resting state the catalyst has to leave**, not the activation itself.
 More peroxide would then mean more catalyst parked as KP and a *longer* wait
 before enough dioxirane exists to turn over.
 
+### The gate, added 2026-09-02
+
+`induction/ANALYSIS.md` §4b sharpened this into something a calculation can be
+scored against. The scheme constrains **both** peroxide orders at once — taking
+log-log slopes in h,
+
+    d ln v / d ln h = 1/(1 + Kh)     and     d ln τ / d ln h = −Kh/(1 + Kh)
+
+so their difference is **1 identically, for every K and every h**. Measured as
+one regression on `log(v/t_ind)`, it is +0.502 ± 0.194 on exps 127–131 (2.6σ
+short) and +0.304 ± 0.188 on exps 135–151 (3.7σ short), and it stays short at
+every log floor from 1 s to 300 s. Separately, **the rate is not first order in
+peroxide either**: on the 63-curve in-scope ladder over 2.45–163 mM the free
+power is a = 0.654 and a = 1 is rejected at **F = 32**.
+
+Inverting the trap form `d ln τ/d ln h = +Kh/(1 + Kh)` for K, and reading the
+same constant off the rates through the saturating fit:
+
+| route | K | ΔG° |
+|---|---|---|
+| 4OMe induction order, at 40.8 mM | 11 M⁻¹ | **−5.85 kJ/mol** |
+| BnOH induction order, at 28.3 mM | 29 M⁻¹ | **−8.31 kJ/mol** |
+| BnOH rates, profiled | 29 M⁻¹ (13–54) | −8.36 (−6.43 to −9.90) |
+
+**So C8 now has a number to hit: ΔG° of perhydrate formation between −6 and
+−10 kJ/mol**, i.e. K = 11–54 M⁻¹ and 50–80% of catalyst as KP at the archive's
+working 82.5 mM. A result in that window corroborates the trap from a direction
+with no spectrophotometer in it. A strongly negative ΔG° — a perhydrate that
+dominates at millimolar peroxide — contradicts all three routes at once, and
+then the positive induction order is signal-to-noise after all and step 4 keeps
+its place.
+
+Treat the three-route agreement as a target and not as support: two of the three
+come from blocks whose induction statistic tracks its own signal-to-noise, so
+their agreement is also what a single shared artefact would produce.
+
 ### What to compute
 
 The free-energy profile along `K + H₂O₂ ⇌ KP` and onward, at one level and one
@@ -381,7 +417,7 @@ solvation model:
    makes KP a **dead end** because the acylating agent is the peracid and not
    the peroxide.
 
-### The discriminating comparison
+### The other discriminating comparison
 
 Compare (2) with (3). If (3) is much the lower, KP is off the path, the
 catalyst's activation waits for the first PBA, and step 4 is a trap — which
@@ -470,6 +506,15 @@ candidate cannot be done on these data at all.
 No calculation run yet. C7 has three gates and all three are measured; C8's
 discriminating comparison is internal to the calculation and needs C7's resting
 fraction to be worth running.
+
+*Amended the same day.* C8 gained an external gate after the peroxide question
+was pushed further: the adduct scheme fixes the difference of the two peroxide
+orders at exactly 1 whatever K is, and both blocks that can test it fall short
+by 2.6σ and 3.7σ. Inverting the shortfall as a trap gives ΔG° of perhydrate
+formation between −6 and −10 kJ/mol from three routes, which is now what C8 is
+scored against. `data/induction.py` carries the machinery
+(`joint_peroxide_order`, `peroxide_saturation`, `trap_constant`) and
+`test_induction` plants both schemes and checks the test can tell them apart.
 
 ### 2026-09-02 — C5 and C6 specced, not started
 

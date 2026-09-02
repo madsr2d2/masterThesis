@@ -28,9 +28,11 @@ from curve_metrics import lag_time
 # of a fixture drift the way two copies of a measurement do.
 from test_slowdown import FakeCurve
 from induction import (DEPTH_FLOOR, INDUCTION_CLOCK_SLOPE, INDUCTION_FLOOR,
-                       INDUCTION_PRODUCT_SLOPE, induction_drivers,
-                       induction_point, order_ratio, signal_control,
-                       substrate_lever)
+                       INDUCTION_PRODUCT_SLOPE, PERHYDRATE_ORDER_GAP,
+                       induction_drivers, induction_point,
+                       joint_peroxide_order, order_ratio,
+                       peroxide_geometric_mean, peroxide_saturation,
+                       signal_control, substrate_lever, trap_constant)
 
 FAILURES = []
 
@@ -179,6 +181,121 @@ def test_induction_drivers_tell_a_clock_from_a_product():
           abs(ratio["ratio"] - INDUCTION_PRODUCT_SLOPE)
           < 3 * ratio["ratio_stderr"],
           f"{ratio['ratio']:+.2f} +- {ratio['ratio_stderr']:.2f}")
+
+
+def _peroxide_frame(constant, rule, levels=(2.5, 10.0, 40.0, 160.0),
+                    runs=4, seed=3, baseline=4000.0):
+    """
+    Curves built from a known `K + H2O2 <=> KP`, one peroxide ladder per run.
+
+    `rule` says what the induction is. "adduct": the relaxation is the approach
+    to that equilibrium, 1/tau = k_f h + k_r, and the rate follows [KP]. "trap":
+    the activation is unimolecular from FREE catalyst, 1/tau = k_act/(1 + K h),
+    while the rate still follows [KP] -- which is the reading section 4a says
+    the archive's sign would imply.
+    """
+    generator = np.random.default_rng(seed)
+    rows = []
+    for run in range(runs):
+        level = float(np.exp(generator.normal(0.0, 0.3)))
+        for index, peroxide in enumerate(levels):
+            saturation = constant * peroxide / (1.0 + constant * peroxide)
+            rate = (3e-6 * level * saturation
+                    * float(np.exp(generator.normal(0.0, 0.05))))
+            if rule == "adduct":
+                # k_r = 1/baseline, k_f = K.k_r, so 1/tau = (1 + K h)/baseline.
+                # `baseline` is large enough that no time lands on
+                # INDUCTION_FLOOR, which would break the identity below.
+                time = baseline / (1.0 + constant * peroxide)
+            else:
+                time = baseline * (1.0 + constant * peroxide)
+            noise = float(np.exp(generator.normal(0.0, 0.05)))
+            rows.append({"experiment": 200 + run, "sample": index + 1,
+                         "live": True, "t_ind": time * noise,
+                         "peak_rate": rate, "v_peak": rate, "vmax": rate,
+                         "s0": 8.0, "h2o2": peroxide, "duration_s": 9000.0,
+                         "depth": 0.5, "net": 0.05, "noise": 1e-5})
+    return pd.DataFrame(rows)
+
+
+def test_the_joint_order_reads_back_the_scheme_it_is_built_from():
+    """
+    The whole point of the joint test: +1 for an adduct, and not +1 otherwise.
+
+    A test that only checked the adduct case would pass on a regression that
+    always returned +1, which is exactly the failure mode worth guarding --
+    the archive's answer is that the constraint is VIOLATED, so the machinery
+    has to be able to see it satisfied too.
+    """
+    print("\nthe joint peroxide order")
+    for constant in (0.005, 0.03, 0.2):
+        adduct = joint_peroxide_order(_peroxide_frame(constant, "adduct"))
+        check(f"an adduct with K = {constant} /mM gives the required "
+              f"{PERHYDRATE_ORDER_GAP:+.0f}",
+              abs(adduct["slope"] - PERHYDRATE_ORDER_GAP)
+              < 3 * adduct["stderr"] + 0.02,
+              f"{adduct['slope']:+.3f} +- {adduct['stderr']:.3f}")
+    # The identity is EXACT and carries no curvature: log(v/tau) is
+    # log K + log h - log(k_r) whatever K is, so a global log-log slope over a
+    # wide ladder has to return +1 and not an average of local slopes.
+    exact = joint_peroxide_order(_peroxide_frame(0.2, "adduct", runs=12))
+    check("and the identity carries no curvature, so a wide ladder is fine",
+          abs(exact["slope"] - PERHYDRATE_ORDER_GAP) < 0.03,
+          f"{exact['slope']:+.3f} over a 64-fold ladder")
+    # But the floor breaks it, and in the direction of this module's own
+    # conclusion, so the bias has to be visible rather than assumed away.
+    floored = joint_peroxide_order(
+        _peroxide_frame(0.2, "adduct", runs=12, baseline=1200.0))
+    check("an induction driven below the floor biases the joint order DOWN",
+          floored["slope"] < exact["slope"] - 0.05,
+          f"{floored['slope']:+.3f} against {exact['slope']:+.3f}")
+
+    trapped = joint_peroxide_order(_peroxide_frame(0.03, "trap"))
+    check("a trap does not, and falls short rather than over",
+          trapped["slope"] < PERHYDRATE_ORDER_GAP - 3 * trapped["stderr"],
+          f"{trapped['slope']:+.3f} +- {trapped['stderr']:.3f}")
+    check("and the shortfall is reported in standard errors",
+          trapped["sigma"] > 3, f"{trapped['sigma']:.1f}")
+
+
+def test_the_saturation_fit_recovers_a_planted_constant():
+    """K profiled on the scheme's own form, with the exponent held at 1."""
+    print("\nthe peroxide saturation fit")
+    for constant in (0.01, 0.05):
+        table = _peroxide_frame(constant, "adduct", runs=8)
+        got = peroxide_saturation(table, parameter="v_peak")
+        check(f"K = {constant} /mM is inside the profile interval",
+              got["constant_low"] <= constant <= got["constant_high"],
+              f"{got['constant_low']:.4f}-{got['constant_high']:.4f}, "
+              f"best {got['constant']:.4f}")
+    # A rate that really is first order must not be called saturating.
+    straight = _peroxide_frame(1e-6, "adduct", runs=8)
+    got = peroxide_saturation(straight, parameter="v_peak")
+    check("a genuinely first-order rate reads back as first order",
+          abs(got["order"] - 1.0) < 0.1, f"a = {got['order']:.3f}")
+    check("and is not rejected as one",
+          got["first_order_f"] < 4.0, f"F = {got['first_order_f']:.2f}")
+
+
+def test_the_trap_constant_inverts_its_own_order():
+    """trap_constant is the algebraic inverse of the order it is given."""
+    print("\nthe trap constant")
+    for constant, peroxide in ((0.01, 40.0), (0.05, 25.0), (0.2, 10.0)):
+        order = constant * peroxide / (1.0 + constant * peroxide)
+        got = trap_constant(order, 0.05, peroxide)
+        check(f"K = {constant} /mM recovered from its own order "
+              f"{order:.3f} at {peroxide:.0f} mM",
+              abs(got["constant"] - constant) < 1e-9,
+              f"{got['constant']:.6f}")
+    check("an order at or above 1 has no finite K",
+          not np.isfinite(trap_constant(1.0, 0.1, 40.0)["constant"]))
+    check("and neither does one at or below 0",
+          not np.isfinite(trap_constant(-0.2, 0.1, 40.0)["constant"]))
+    # 29 /M is 0.029 /mM, and -RT ln(29) is -8.3 kJ/mol at 298 K.
+    got = trap_constant(0.029 * 28.3 / (1.0 + 0.029 * 28.3), 0.05, 28.3)
+    check("the free energy is quoted from a MOLAR constant",
+          abs(got["free_energy_kJ"] + 8.3) < 0.1,
+          f"{got['free_energy_kJ']:+.2f} kJ/mol from {got['molar']:.0f} /M")
 
 
 def test_the_floor_does_not_carry_the_answer():
@@ -360,6 +477,9 @@ if __name__ == "__main__":
     test_the_landmark_measures_what_it_claims()
     test_it_agrees_with_the_gated_statistic()
     test_induction_drivers_tell_a_clock_from_a_product()
+    test_the_joint_order_reads_back_the_scheme_it_is_built_from()
+    test_the_saturation_fit_recovers_a_planted_constant()
+    test_the_trap_constant_inverts_its_own_order()
     test_the_floor_does_not_carry_the_answer()
     test_orders_refuse_an_axis_the_block_does_not_move()
     test_regressions()

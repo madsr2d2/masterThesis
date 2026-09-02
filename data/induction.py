@@ -615,6 +615,234 @@ def peroxide_lever(table, experiments=PEROXIDE_LEVER):
             **signal_control(block)}
 
 
+# ---------------------------------------------------------------------------
+# What a peroxide adduct would require of the two orders at once.
+#
+# For `K + H2O2 <=> KP` with h = [H2O2] in 100-6000x excess over the catalyst,
+# so that the forward leg is pseudo-first-order:
+#
+#     approach       1/tau = k_f h + k_r
+#     destination    [KP]/E0 = K h / (1 + K h),      K = k_f / k_r
+#
+# and therefore, writing the log-log slopes in h,
+#
+#     d ln v   / d ln h = 1 / (1 + K h)        +1 unsaturated, 0 saturated
+#     d ln tau / d ln h = -K h / (1 + K h)      0 unsaturated, -1 saturated
+#
+# THE TWO ARE LOCKED. Their difference is 1 identically, for every K and every
+# h, so "is the rate first order in peroxide" and "does peroxide shorten the
+# induction" are one question asked twice. That is what makes it testable
+# without knowing where on the saturation curve the design sits, and it is
+# tested here as ONE regression on log(v / t_ind), which also disposes of the
+# correlation between two coefficients fitted to the same 15 curves.
+#
+# The other half of the scheme is worth stating separately: `1/tau` is
+# monotonically increasing in h whatever the constants are, so a POSITIVE order
+# on the induction time is not a statement about the regime -- it falsifies the
+# scheme outright. `peroxide_lever` measures that order; this measures the
+# constraint it violates.
+PERHYDRATE_ORDER_GAP = 1.0
+
+# Where a trap puts the same slope instead. If H2O2 parks the catalyst in a
+# state that is NOT on the activation path, only the free fraction
+# 1/(1 + K h) can activate, so 1/tau_obs = k_act/(1 + K h) and
+#
+#     d ln tau / d ln h = +K h / (1 + K h),   which lies in (0, +1)
+#
+# -- positive, bounded, and consistent with everything section 3 establishes,
+# because k_act carries no concentration at all.
+TRAP_ORDER_RANGE = (0.0, 1.0)
+
+# The profile grid for the association constant, in 1/mM, and the F cutoff
+# that turns a profile into a 95% interval. F(1, dof, 0.95) is 4.08 at dof 40
+# and 3.94 at dof 200; 3.99 is the middle of the range this module fits in and
+# the interval is not sensitive to the choice at three digits.
+SATURATION_SPAN = (-4.0, 0.5)
+SATURATION_GRID = 600
+PROFILE_F = 3.99
+
+
+def joint_peroxide_order(table, floor=INDUCTION_FLOOR):
+    """
+    Regress log(rate / induction time) on log[H2O2]: the scheme requires +1.
+
+    One regression rather than two, because the two coefficients it replaces
+    are fitted to the same curves on the same design and their errors are
+    correlated; differencing them by hand would quote an error that is not
+    theirs. A `log[S]` term joins the fit wherever the block moves the
+    substrate as well, since both sides of the response carry a substrate
+    order and the peroxide ladder is an L rather than a grid.
+
+    Returns the coefficient, its error, and how many standard errors it sits
+    from the +1 the adduct scheme demands.
+
+    THE FLOOR MOVES THIS ONE, and which way depends on where the short
+    inductions sit. `test_induction` plants an adduct fast enough to be clipped
+    and shows the bias is downward there -- towards this module's own reading --
+    so the sweep is printed by `report` rather than left to be assumed away. In
+    this archive the short inductions are at LOW peroxide, so the clipping
+    pushes the coefficient the other way, up towards +1, and the module's 60 s
+    floor is the conservative end of the range rather than the flattering one.
+    """
+    live = table[table.live & np.isfinite(table.t_ind)
+                 & (table.v_peak > 0) & (table.h2o2 > 0)].copy()
+    if len(live) < 8 or live.h2o2.nunique() < 2:
+        return {"points": int(len(live))}
+    response = (np.log(live.v_peak.to_numpy(dtype=float))
+                - np.log(np.maximum(live.t_ind.to_numpy(dtype=float), floor)))
+    columns = [np.log(live.h2o2.to_numpy(dtype=float))]
+    if live.s0.nunique() > 1:
+        columns.append(np.log(live.s0.to_numpy(dtype=float)))
+    for experiment in sorted(live.experiment.unique()):
+        columns.append((live.experiment == experiment).to_numpy(float))
+    design = np.column_stack(columns)
+    beta, *_ = np.linalg.lstsq(design, response, rcond=None)
+    resid = response - design @ beta
+    rank = int(np.linalg.matrix_rank(design))
+    variance = float(resid @ resid) / max(1, len(live) - rank)
+    covariance = variance * np.linalg.pinv(design.T @ design)
+    slope = float(beta[0])
+    stderr = float(np.sqrt(max(covariance[0, 0], 0.0)))
+    return {"points": int(len(live)),
+            "experiments": int(live.experiment.nunique()),
+            "slope": slope, "stderr": stderr,
+            "required": PERHYDRATE_ORDER_GAP,
+            "sigma": float(abs(PERHYDRATE_ORDER_GAP - slope) / stderr)
+            if stderr else np.nan}
+
+
+def peroxide_ladder(table):
+    """
+    The cuvettes that move [H2O2] with everything else held, one row each.
+
+    In exps 135-151 the seven cuvettes are an L: four step the substrate at the
+    top peroxide, four step the peroxide at the top substrate. Only the second
+    arm is a peroxide ladder, and taking the whole run instead puts the
+    substrate ladder into a fit that has no term for it.
+    """
+    live = table[table.live & (table.vmax > 0) & (table.h2o2 > 0)]
+    if not len(live):
+        return live
+    top = live.groupby("experiment").s0.transform("max")
+    arm = live[np.isclose(live.s0, top)]
+    counts = arm.groupby("experiment").h2o2.transform("nunique")
+    return arm[counts >= 2]
+
+
+def peroxide_saturation(table, parameter="vmax", grid=SATURATION_GRID,
+                        span=SATURATION_SPAN, cutoff=PROFILE_F):
+    """
+    Is the rate first order in peroxide, and can one binding equilibrium do it?
+
+    Two fits on the ladder, each with one free level per run so that pH, buffer,
+    enzyme, cell and day are absorbed:
+
+        free power      v ~ h^a                       `a` says what the order is
+        the scheme      v ~ K h / (1 + K h)           exponent FIXED at 1, K
+                                                      profiled on a log grid
+
+    The exponent is fixed at 1 on purpose. Leaving it free lets the saturating
+    form buy a fit with an exponent above 1 and a large K, which is a curve
+    through the points and not the hypothesis: `v` is proportional to [KP], and
+    [KP] is that expression with no exponent on it.
+
+    Returns the free exponent with its error, the F statistic against a strict
+    first order, and the profiled K with a 95% interval and the perhydrate
+    fraction it implies at the archive's working 82.5 mM.
+    """
+    ladder = peroxide_ladder(table)
+    if len(ladder) < 10:
+        return {"points": int(len(ladder))}
+    h = ladder.h2o2.to_numpy(dtype=float)
+    y = np.log(ladder[parameter].to_numpy(dtype=float))
+    dummies = np.column_stack([(ladder.experiment.to_numpy() == e).astype(float)
+                               for e in sorted(ladder.experiment.unique())])
+    degrees = max(1, len(y) - dummies.shape[1] - 1)
+
+    def _levelled(offset):
+        """Best SSE once each run is free to sit where it likes."""
+        beta, *_ = np.linalg.lstsq(dummies, y - offset, rcond=None)
+        resid = y - offset - dummies @ beta
+        return float(resid @ resid)
+
+    powers = np.linspace(0.0, 1.6, grid)
+    power_sse = np.array([_levelled(a * np.log(h)) for a in powers])
+    best = int(np.argmin(power_sse))
+    # The profile interval on the exponent, read the same way as K's below.
+    inside = powers[power_sse <= power_sse[best] * (1.0 + cutoff / degrees)]
+    first_order = _levelled(np.log(h))
+
+    constants = np.concatenate([[0.0], np.logspace(*span, grid)])
+    scheme_sse = np.array([_levelled(np.log(k * h / (1.0 + k * h)))
+                           if k > 0 else _levelled(np.log(h))
+                           for k in constants])
+    top = int(np.argmin(scheme_sse))
+    allowed = constants[scheme_sse
+                        <= scheme_sse[top] * (1.0 + cutoff / degrees)]
+    working = 82.5
+    return {
+        "points": int(len(ladder)),
+        "experiments": int(ladder.experiment.nunique()),
+        "peroxide_low": float(h.min()), "peroxide_high": float(h.max()),
+        "order": float(powers[best]),
+        "order_low": float(inside.min()), "order_high": float(inside.max()),
+        "first_order_f": float((first_order - power_sse[best])
+                               / (power_sse[best] / degrees)),
+        "first_order_sse": float(first_order),
+        "power_sse": float(power_sse[best]),
+        "scheme_sse": float(scheme_sse[top]),
+        "constant": float(constants[top]),
+        "constant_low": float(allowed.min()),
+        "constant_high": float(allowed.max()),
+        "bound_fraction": (float(constants[top] * working
+                                 / (1.0 + constants[top] * working))),
+        "bound_low": float(allowed.min() * working
+                           / (1.0 + allowed.min() * working)),
+        "bound_high": float(allowed.max() * working
+                            / (1.0 + allowed.max() * working)),
+        "working_mM": working,
+    }
+
+
+def trap_constant(order, stderr, peroxide):
+    """
+    Invert `d ln tau / d ln h = K h / (1 + K h)` for K, and turn it into a ΔG°.
+
+    Only meaningful for an order inside `TRAP_ORDER_RANGE`; an order at or above
+    1 has no finite K and one at or below 0 has no trap. The error is the delta
+    method, dK/d(order) = 1 / (h (1 - order)^2), which blows up as the order
+    approaches 1 -- correctly, because there the data stop constraining K.
+
+    `peroxide` is the geometric-mean [H2O2] of the design the order was measured
+    on: the order is a LOCAL log-log slope and K is only recoverable at the
+    concentration it was measured at.
+
+    ΔG° is quoted per mole with the association constant in M^-1, which is a
+    thousand times the mM^-1 this package works in.
+    """
+    low, high = TRAP_ORDER_RANGE
+    if not low < order < high or peroxide <= 0:
+        return {"constant": np.nan, "stderr": np.nan,
+                "free_energy_kJ": np.nan, "peroxide_mM": float(peroxide)}
+    constant = order / (peroxide * (1.0 - order))
+    error = stderr / (peroxide * (1.0 - order) ** 2)
+    molar = constant * 1000.0
+    return {"constant": float(constant), "stderr": float(error),
+            "molar": float(molar),
+            "free_energy_kJ": float(-arrhenius.GAS_CONSTANT
+                                    * arrhenius.REFERENCE_KELVIN
+                                    * np.log(molar) / 1000.0),
+            "bound_fraction": float(constant * peroxide
+                                    / (1.0 + constant * peroxide)),
+            "peroxide_mM": float(peroxide)}
+
+
+def peroxide_geometric_mean(table):
+    """The [H2O2] a local order measured on this block belongs to."""
+    live = table[table.live & (table.h2o2 > 0)]
+    return float(np.exp(np.log(live.h2o2.to_numpy(dtype=float)).mean()))
+
+
 def signal_control(table, floor=INDUCTION_FLOOR):
     """
     Regress the induction time on the curve's signal-to-noise, same design.
@@ -766,6 +994,55 @@ def report(table=None):
         got = signal_control(named[name])
         print(f"   {name:26s} {got['signal_slope']:+.3f} "
               f"+- {got['signal_stderr']:.3f}   n={got['signal_points']}")
+
+    print("\n4b. WHAT AN ADDUCT WITH H2O2 WOULD REQUIRE OF BOTH ORDERS AT ONCE")
+    print("   d ln v/d ln h - d ln tau/d ln h = 1 identically, for every K and")
+    print("   every h, so the two questions are one. Measured as one fit:")
+    peroxide_blocks = (("4OMe peroxide, exps 127-131",
+                        table[table.experiment.isin(PEROXIDE_LEVER)]),
+                       ("BnOH in scope, exps 135-151",
+                        named["BnOH in scope (135-151)"]))
+    for label, block in peroxide_blocks:
+        joint = joint_peroxide_order(block)
+        if "slope" not in joint:
+            continue
+        print(f"   {label:30s} order(v/t_ind) {joint['slope']:+.3f} +- "
+              f"{joint['stderr']:.3f}   n={joint['points']:3d}   "
+              f"{joint['sigma']:.1f} sigma from the required "
+              f"{joint['required']:+.0f}")
+    print("   and at the other floors, because a floor moves this one:")
+    for label, block in peroxide_blocks:
+        swept = [joint_peroxide_order(block, floor=floor)
+                 for floor in FLOOR_SWEEP]
+        print(f"   {label:30s} "
+              + "  ".join(f"{floor:.0f}s {fit['slope']:+.3f}"
+                          for floor, fit in zip(FLOOR_SWEEP, swept)))
+    saturation = peroxide_saturation(named["BnOH in scope (135-151)"])
+    print(f"   and the rate's own order, on the {saturation['points']}-curve "
+          f"ladder over {saturation['peroxide_low']:.2f}-"
+          f"{saturation['peroxide_high']:.0f} mM:")
+    print(f"   free power law      a = {saturation['order']:.3f} "
+          f"({saturation['order_low']:.3f} to {saturation['order_high']:.3f})")
+    print(f"   strict first order  rejected, F = "
+          f"{saturation['first_order_f']:.1f}")
+    print(f"   the scheme's own form fits "
+          f"{'worse' if saturation['scheme_sse'] > saturation['power_sse'] else 'better'}"
+          f" than a free power ({saturation['scheme_sse']:.2f} against "
+          f"{saturation['power_sse']:.2f}), so the fractional order is not one")
+    print("   binding equilibrium saturating.")
+    print("   IF the positive order is real it is a TRAP, not the activation:")
+    for label, block in peroxide_blocks:
+        got = scope.orders("t_ind", frame=block, floor=INDUCTION_FLOOR)
+        trap = trap_constant(got["order_h2o2"], got["stderr_h2o2"],
+                             peroxide_geometric_mean(block))
+        print(f"   {label:30s} K = {trap['constant']:.4f} +- "
+              f"{trap['stderr']:.4f} /mM = {trap['molar']:.0f} /M   "
+              f"dG = {trap['free_energy_kJ']:+.2f} kJ/mol")
+    print(f"   {'the same K from the rates':30s} K = "
+          f"{saturation['constant']:.4f} /mM "
+          f"({saturation['constant_low']:.4f}-{saturation['constant_high']:.4f})"
+          f"   {saturation['bound_fraction']:.0%} bound at "
+          f"{saturation['working_mM']:.1f} mM")
 
     print("\n5. THE ACTIVATION PARAMETERS")
     gap = activation_contrast()

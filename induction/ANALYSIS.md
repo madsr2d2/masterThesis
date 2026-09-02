@@ -26,8 +26,8 @@ enough runs to have an error bar worth quoting.
     python induction/build_figures.py
     python induction/check_numbers.py
 
-**Figures**: [`index.html`](index.html) is the presentation — seven figures, A
-to G, one per claim below. It is rebuilt by `build_figures.py`, which computes
+**Figures**: [`index.html`](index.html) is the presentation — eight figures, A
+to H, one per claim below. It is rebuilt by `build_figures.py`, which computes
 nothing.
 
 Related: [`../temperature_series/`](../temperature_series/ANALYSIS.md) for the
@@ -212,10 +212,17 @@ report negatives rather than results.
 ### 4a. The peroxide question is open, and the archive cannot close it
 
 If what the induction times is the catalyst binding the oxidant —
-`K + H₂O₂ ⇌ KP`, `MECHANISM.md` step 4 — then the relaxation rate is
-`1/τ = k_f[H₂O₂] + k_r`, the induction **time** has an order in `[H₂O₂]` between
-0 and −1, and it cannot have any other sign. That is a clean falsifiable
-prediction and this archive cannot test it.
+`K + H₂O₂ ⇌ KP`, `MECHANISM.md` step 4 — then with `h = [H₂O₂]` in 100–6000×
+excess over the catalyst the forward leg is pseudo-first-order and
+
+    approach       1/τ = k_f·h + k_r
+    destination    [KP]/E₀ = Kh/(1 + Kh),     K = k_f/k_r
+
+**`1/τ` increases with `h` whatever the constants are.** There is no K and no
+concentration at which more peroxide makes the approach slower, so a *positive*
+order on the induction time is not a statement about being in the wrong regime —
+it falsifies the scheme outright. That is what makes this worth measuring even
+on a bad block.
 
 Every 4OMe run in the archive sits at 82.5 mM H₂O₂ **except exps 127–131**,
 which step 3.879 against 195.882 mM at five pH values, two cuvettes per level,
@@ -229,9 +236,102 @@ evidence.**
 The same objection sinks the BnOH comparison. Exps 135–151 move `[H₂O₂]`
 thirty-fold inside every run, which is the design this question wants, and the
 induction time there carries an order of +0.447 ± 0.155 in it — but so does
-signal-to-noise, at +0.619 ± 0.228. **This archive holds no clean peroxide
-lever on an induction period.** One pre-incubation run would settle it and there
-will not be one, so it goes to `COMPUTATIONAL.md` instead.
+signal-to-noise, at +0.619 ± 0.228. **This archive holds no clean peroxide lever
+on an induction period.** One pre-incubation run would settle it and there will
+not be one, so it goes to `COMPUTATIONAL.md` instead.
+
+### 4b. The same scheme constrains both orders at once, and they violate it
+
+The two rows of the table above are not independent. Taking log-log slopes,
+
+    d ln v   / d ln h  =  1/(1 + Kh)        +1 unsaturated, → 0 saturated
+    d ln τ   / d ln h  = −Kh/(1 + Kh)        0 unsaturated, → −1 saturated
+
+so their **difference is 1 identically, for every K and every h**. "Is the rate
+first order in peroxide" and "does peroxide shorten the induction" are one
+question asked twice, and the constraint can be tested without knowing where on
+the saturation curve the design sits. It is tested as *one* regression on
+`log(v/t_ind)`, which also disposes of the correlation between two coefficients
+fitted to the same curves.
+
+| block | order of `v / t_ind` in [H₂O₂] | curves | from the required +1 |
+|---|---|---|---|
+| 4OMe peroxide, exps 127–131 | **+0.502 ± 0.194** | 15 | 2.6σ |
+| BnOH in scope, exps 135–151 | **+0.304 ± 0.188** | 110 | 3.7σ |
+
+Both blocks fall short, in the same direction, by about the same amount.
+
+*The floor moves this one.* A curve whose induction is shorter than one reading
+is placed at `INDUCTION_FLOOR`, and `test_induction` plants an adduct fast
+enough to be clipped and shows the bias is then **downward**, towards this
+section's own reading. In this archive it runs the other way — the short
+inductions are at *low* peroxide, so clipping pushes the coefficient **up**
+towards +1 — and the sweep says so:
+
+| floor | 1 s | 30 s | 60 s | 120 s | 300 s |
+|---|---|---|---|---|---|
+| 4OMe peroxide | +0.328 | +0.473 | **+0.502** | +0.542 | +0.600 |
+| BnOH in scope | −0.038 | +0.246 | **+0.304** | +0.404 | +0.566 |
+
+The deviation from +1 is 1.9–3.7σ at every floor and never changes sign. The
+module's 60 s floor is the conservative end of that range, not the flattering
+one.
+
+### And the rate is not first order in peroxide either
+
+Which is worth stating separately, because "first order in H₂O₂" is the natural
+expectation and it is the *unsaturated* limit of the scheme above, not a
+general consequence of it. The clean design is the in-scope ladder — **63
+curves in 17 runs over 2.45–163 mM**, one free level per run:
+
+| | |
+|---|---|
+| free power law | a = **0.654** (0.534 to 0.775) |
+| strict first order, a = 1 | **rejected, F = 32.0** |
+| the scheme's own form, `v ∝ Kh/(1+Kh)` with the exponent held at 1 | fits **worse** than a free power, 11.36 against 10.48 |
+
+So the order is fractional, and it is fractional *all the way across* a 67-fold
+range rather than falling from 1 towards 0 the way one binding equilibrium
+saturating would make it. That is the signature of several H₂O₂-dependent steps
+in a chain — which is what the mechanism has, since peroxide is also the
+stoichiometric oxidant and HOO⁻ is the nucleophile in steps 1–2.
+
+### What the positive sign would mean, if it survives
+
+Make the perhydrate a **trap** rather than the activation:
+
+    K + H₂O₂ ⇌ KP      fast, OFF the activation path
+    K → K*             slow, unimolecular — this is the induction
+
+Only free catalyst can activate, so `1/τ = k_act/(1 + Kh)` and
+
+    d ln τ / d ln h = +Kh/(1 + Kh),   which lies in (0, +1)
+
+positive and bounded by 1, which is where both measurements sit. It keeps
+everything §3 establishes — `k_act` carries no concentration, so no substrate
+order, unimolecular, a clock, an amplitude that is a fraction — and the rate
+keeps its own peroxide order from the oxidant being consumed downstream, which
+is a different place in the scheme entirely. **It inverts step 4**: the
+perhydrate becomes the resting state the catalyst has to leave.
+
+Inverting the observed orders for K, and reading the same constant off the
+rates through the saturating fit:
+
+| route | K | as a molar constant | ΔG° |
+|---|---|---|---|
+| 4OMe induction order, at 40.8 mM | 0.0106 ± 0.0046 /mM | 11 /M | **−5.85 kJ/mol** |
+| BnOH induction order, at 28.3 mM | 0.0286 ± 0.0180 /mM | 29 /M | **−8.31 kJ/mol** |
+| BnOH rates, profiled | 0.0291 /mM (0.0134–0.0543) | 29 /M (13–54) | −8.36 (−6.43 to −9.90) |
+
+Three routes within a factor of three, on two substrates and two blocks. **That
+agreement is not evidence and should not be read as any.** Two of the three come
+from blocks whose landmark tracks its own signal-to-noise, so their agreement is
+also exactly what one shared artefact looks like; the third comes from a form
+that fits worse than a free power law. What the range is good for is a target:
+**a computed ΔG° of perhydrate formation near −6 to −10 kJ/mol would corroborate
+the trap from a direction with no spectrophotometer in it**, and a strongly
+negative one — a perhydrate that dominates at millimolar peroxide — would
+contradict all three at once. That is `COMPUTATIONAL.md` C8's gate.
 
 ## 5. What the activation parameters say
 
@@ -286,11 +386,16 @@ whose concentration this archive varies.
   the cuvette holds: the ketone's gem-diol **hydrate** dehydrating to the free
   ketone, the perhydrate collapsing to the dioxirane, or a conformational change
   of the cyclodextrin. Absorbance at one wavelength cannot choose between them.
-- **Whether the peroxide is involved at all.** §4a: the only lever is confounded
-  with signal-to-noise. The observed sign is the *wrong* one for the adduct
-  being the step timed, which would make the perhydrate a resting state the
-  catalyst has to leave rather than the activation itself — an inversion worth
-  taking seriously and not worth asserting on 15 curves.
+- **Whether the peroxide is involved at all.** §4a–4b. Three things point the
+  same way and none of them is clean: the induction's peroxide order has the
+  wrong *sign* for an adduct, the joint constraint the scheme puts on both
+  orders at once falls short by 2.6σ and 3.7σ in the two blocks that can test
+  it, and the rate is not first order in peroxide either (a = 0.654, first
+  order rejected at F = 32). But both induction orders come from blocks whose
+  landmark tracks its own signal-to-noise, so their agreement is also what one
+  shared artefact looks like. What the sign would mean if real is an inversion
+  of step 4 — the perhydrate as a resting state rather than the activation —
+  and C8 now has a number to test it with.
 - **Whether the same thing happens with BnOH.** Exps 135–151 have the peroxide
   design and not the signal-to-noise; their induction statistic tracks the noise
   (+0.619 ± 0.228). The substrate comparison `product_fate` could make at the
@@ -304,7 +409,9 @@ whose concentration this archive varies.
    induction has a name.
 2. `COMPUTATIONAL.md` **C8** — the free-energy profile from the perhydrate to
    the dioxirane, to say whether the peroxide adduct is on the activation path
-   or off it.
+   or off it. §4b gives it a gate it did not have: a computed ΔG° of perhydrate
+   formation of **−6 to −10 kJ/mol** would corroborate the trap, and anything
+   much more negative would contradict all three routes at once.
 3. The experiment that will not be run: **pre-incubate the catalyst with H₂O₂,
    then add substrate.** If the induction is catalyst activation it disappears;
    if it is anything that waits for product it does not. One cuvette.

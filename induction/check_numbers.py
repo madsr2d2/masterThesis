@@ -202,6 +202,70 @@ def main():
     claim("BnOH's induction order in peroxide",
           f"{scoped['order_h2o2']:+.3f} +/- {scoped['stderr_h2o2']:.3f}")
 
+    print("\nsection 4b: the constraint the two orders violate together")
+    peroxide_blocks = (("4OMe peroxide, exps 127-131",
+                        table[table.experiment.isin(induction.PEROXIDE_LEVER)]),
+                       ("BnOH in scope, exps 135-151",
+                        named["BnOH in scope (135-151)"]))
+    for label, block in peroxide_blocks:
+        joint = induction.joint_peroxide_order(block)
+        claim(f"{label}: the joint order",
+              f"**{joint['slope']:+.3f} +/- {joint['stderr']:.3f}** | "
+              f"{joint['points']} | {joint['sigma']:.1f}sigma")
+        swept = [induction.joint_peroxide_order(block, floor=floor)["slope"]
+                 for floor in induction.FLOOR_SWEEP]
+        claim(f"{label}: the floor sweep",
+              " | ".join(f"{value:+.3f}" for value in swept)
+              .replace(f"{swept[2]:+.3f}", f"**{swept[2]:+.3f}**"))
+    check("the required gap is 1", induction.PERHYDRATE_ORDER_GAP == 1.0)
+    check("and the deviation never changes sign at any floor",
+          all(induction.joint_peroxide_order(block, floor=floor)["slope"] < 1.0
+              for _, block in peroxide_blocks
+              for floor in induction.FLOOR_SWEEP))
+
+    saturation = induction.peroxide_saturation(named["BnOH in scope (135-151)"])
+    claim("the ladder's size and range",
+          f"**{saturation['points']}\ncurves in {saturation['experiments']} "
+          f"runs over {saturation['peroxide_low']:.2f}-"
+          f"{saturation['peroxide_high']:.0f} mM**")
+    claim("the free power law",
+          f"a = **{saturation['order']:.3f}** ({saturation['order_low']:.3f} "
+          f"to {saturation['order_high']:.3f})")
+    claim("first order is rejected",
+          f"**rejected, F = {saturation['first_order_f']:.1f}**")
+    claim("the scheme's own form fits worse",
+          f"{saturation['scheme_sse']:.2f} against {saturation['power_sse']:.2f}")
+    check("and it does fit worse", saturation["scheme_sse"] > saturation["power_sse"],
+          f"{saturation['scheme_sse']:.2f} vs {saturation['power_sse']:.2f}")
+
+    print("\nthe trap constants, which are C8's gate")
+    energies = []
+    for label, block in peroxide_blocks:
+        got = scope.orders("t_ind", frame=block,
+                           floor=induction.INDUCTION_FLOOR)
+        trap = induction.trap_constant(got["order_h2o2"], got["stderr_h2o2"],
+                                       induction.peroxide_geometric_mean(block))
+        energies.append(trap["free_energy_kJ"])
+        claim(f"{label}: K and its error",
+              f"{trap['constant']:.4f} +/- {trap['stderr']:.4f} /mM")
+        claim(f"{label}: as a molar constant", f"{trap['molar']:.0f} /M")
+        claim(f"{label}: the free energy",
+              f"**{trap['free_energy_kJ']:.2f} kJ/mol**")
+        claim(f"{label}: the peroxide it belongs to",
+              f"at {trap['peroxide_mM']:.1f} mM")
+    import numpy as np
+    molar = saturation["constant"] * 1000.0
+    energy = (-arrhenius.GAS_CONSTANT * arrhenius.REFERENCE_KELVIN
+              * np.log(molar) / 1000.0)
+    claim("the rates route's K",
+          f"{saturation['constant']:.4f} /mM ({saturation['constant_low']:.4f}-"
+          f"{saturation['constant_high']:.4f})")
+    claim("and its free energy", f"{energy:.2f} (")
+    energies.append(energy)
+    check("all three land between -6 and -10 kJ/mol, which is the gate quoted",
+          all(-10.0 <= value <= -5.5 for value in energies),
+          " ".join(f"{value:+.2f}" for value in energies))
+
     print("\nsection 5: the activation parameters")
     for label, key in (("the induction", "induction"),
                        ("the turnover", "turnover")):
@@ -244,10 +308,10 @@ def main():
         for line in io.open(os.path.join(HERE, "build_figures.py"),
                             encoding="utf-8").read().splitlines()
         if "·" in line and '"' in line and line.strip().startswith('"')))
-    expected = list("ABCDEFG")
-    check("seven figures, A to G", letters == expected,
+    expected = list("ABCDEFGH")
+    check("eight figures, A to H", letters == expected,
           f"{''.join(letters)} against {''.join(expected)}")
-    claim("the document's own count of them", "seven figures, A\nto G")
+    claim("the document's own count of them", "eight figures, A\nto H")
 
     print("\nthe figures: no data point drawn outside its own frame")
     from svgplot import clipped_marks

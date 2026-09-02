@@ -118,6 +118,14 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   +0.437 ± 0.181 and on pH at −0.004 ± 0.123. Every concentration order is
   measured with one offset per experiment, and the temperature dependence comes
   from `arrhenius`'s fitted `inverse_tau`, which is not windowed.
+- **A peroxide adduct constrains both orders at once.** `K + H2O2` in
+  pre-equilibrium fixes `d ln v/d ln h - d ln tau/d ln h = 1` identically, for
+  every K and every h, so the two questions are one and
+  `joint_peroxide_order` asks it as one regression. Both blocks that can test
+  it fall short (2.6σ and 3.7σ), and the rate is not first order in peroxide
+  either -- `peroxide_saturation` rejects a = 1 at F = 32 on the in-scope
+  ladder. Do not assume "first order in H2O2": that is the *unsaturated* limit
+  of the scheme, not a consequence of it.
 - **Run `signal_control` before believing any induction result.** The landmark
   is the first crossing of half the largest rolling slope, so on a curve with no
   signal it measures the spectrophotometer. The catalysed 4OMe block passes

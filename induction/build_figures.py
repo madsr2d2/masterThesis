@@ -382,6 +382,61 @@ def figure_signal_control():
         "and goes to <code>COMPUTATIONAL.md</code>.")
 
 
+def figure_peroxide():
+    table = _table()
+    ladder = induction.peroxide_ladder(_blocks()["BnOH in scope (135-151)"])
+    fitted = induction.peroxide_saturation(_blocks()["BnOH in scope (135-151)"])
+    # Each run sits at its own level, which is what the per-experiment offsets
+    # in the fit absorb; dividing every run by its own geometric mean puts them
+    # on one panel without changing a single slope.
+    scaled = ladder.copy()
+    centre = scaled.groupby("experiment").vmax.transform(
+        lambda column: float(np.exp(np.log(column).mean())))
+    scaled["relative"] = scaled.vmax / centre
+    axes = Axes(560, 300, (2.0, 200.0), (0.06, 9.0), xlog=True, ylog=True,
+                pad=(66, 26, 46, 32))
+    axes.points(scaled.h2o2.to_numpy(), scaled.relative.to_numpy(),
+                CATEGORY[0], radius=3.4, opacity=0.8)
+    grid = np.array([2.2, 190.0])
+    middle = float(np.exp(np.log(scaled.h2o2.to_numpy()).mean()))
+    # The two laws cross in the middle of the cloud, so their labels go in the
+    # bottom-right corner, which is the one region a rising ladder leaves empty.
+    for offset, (exponent, colour, label, dash) in enumerate((
+            (fitted["order"], CATEGORY[0],
+             f"a = {fitted['order']:.3f}, what the ladder says", "6 4"),
+            (1.0, CATEGORY[1], "a = 1, a single unsaturated adduct", "2 4"))):
+        axes.line(grid, (grid / middle) ** exponent, colour, width=2.0,
+                  dash=dash)
+        axes.note(520, 206 + 18 * offset, label, colour, size=11,
+                  anchor="end", weight="600")
+    axes.note(84, 44, f"{fitted['points']} cuvettes in "
+                      f"{fitted['experiments']} runs, each divided by its own "
+                      f"level", MUTED, size=10.5)
+    joint = {name: induction.joint_peroxide_order(block) for name, block in
+             (("4OMe", table[table.experiment.isin(induction.PEROXIDE_LEVER)]),
+              ("BnOH", _blocks()["BnOH in scope (135-151)"]))}
+    return fig(
+        axes.render("[H₂O₂], mM", "rate / the run's own level",
+                    "H · The rate is not first order in peroxide"),
+        "The peroxide arm of each in-scope run, over a 67-fold range. "
+        f"<strong>Strict first order is rejected at F = "
+        f"{fitted['first_order_f']:.0f}</strong>; the free power law is "
+        f"a = {fitted['order']:.3f}. It matters because first order is the "
+        "<em>unsaturated</em> limit of <code>K + H₂O₂ ⇌ KP</code>, not a "
+        "general consequence of it — and the order stays fractional all the "
+        "way across rather than falling from 1 towards 0 the way one binding "
+        "equilibrium saturating would make it (forcing that form on these "
+        f"points fits worse, {fitted['scheme_sse']:.2f} against "
+        f"{fitted['power_sse']:.2f}). The same scheme fixes the difference of "
+        "the two orders at exactly 1 whatever K is; measured as one regression "
+        f"on <code>log(v/t_ind)</code> it is "
+        f"{joint['4OMe']['slope']:+.3f} ± {joint['4OMe']['stderr']:.3f} on the "
+        f"4OMe block ({joint['4OMe']['sigma']:.1f}σ short) and "
+        f"{joint['BnOH']['slope']:+.3f} ± {joint['BnOH']['stderr']:.3f} here "
+        f"({joint['BnOH']['sigma']:.1f}σ short). Neither is clean — figure G — "
+        "but both fall the same way.")
+
+
 def build_index():
     table = _table()
     summary = induction.channel_summary(table)
@@ -475,6 +530,26 @@ unsafe between runs, where it is not. <strong>Every concentration order on this
 page is measured within experiments.</strong></p>
 {figure_signal_control()}
 
+<h2>4a · What an adduct with H₂O₂ would require, and does not get</h2>
+<p>With <code>h = [H₂O₂]</code> in 100–6000× excess, <code>K + H₂O₂ ⇌ KP</code>
+gives <code>1/τ = k_f·h + k_r</code> and <code>[KP]/E₀ = Kh/(1+Kh)</code>.
+<strong><code>1/τ</code> increases with h whatever the constants are</strong> —
+no K and no concentration make the approach slower — so a <em>positive</em>
+order on the induction time is not a statement about the regime, it falsifies
+the scheme. The only 4OMe block that moves [H₂O₂] gives
+<strong>+0.302 ± 0.092</strong>.</p>
+<p>The two orders are also locked: their difference is
+<strong>1 identically</strong>, for every K and every h, so the constraint can
+be tested without knowing where on the saturation curve the design sits.</p>
+{figure_peroxide()}
+<p>If the sign survives, the perhydrate is a <strong>trap</strong> rather than
+the activation — <code>1/τ = k_act/(1+Kh)</code>, which is positive, bounded by
+1, and keeps everything section 3 establishes. Inverting the orders gives K =
+11 /M and 29 /M on the two blocks, and the saturating fit to the rates gives
+29 /M (13–54): <strong>ΔG° between −6 and −10 kJ/mol</strong>. Three routes
+within a factor of three — which is <em>not</em> evidence, since two of them
+share a confound, but is a target. A computed ΔG° in that range would
+corroborate the trap from a direction with no spectrophotometer in it.</p>
 <h2>5 · What the activation parameters say</h2>
 {figure_activation_gap()}
 
@@ -489,14 +564,12 @@ is a shape, not a mechanism. Everything that survives section 3 is unimolecular
 in what the cuvette holds — the ketone's gem-diol hydrate dehydrating, the
 perhydrate collapsing to the dioxirane, or a conformational change of the
 cyclodextrin — and absorbance at one wavelength cannot choose between them.</p>
-<p><strong>Not settled: whether the peroxide is involved at all.</strong> If the
-induction were the catalyst binding H₂O₂ the induction <em>time</em> would have
-an order in [H₂O₂] between 0 and −1 and could have no other sign. The only 4OMe
-block that moves [H₂O₂] gives <strong>+0.302 ± 0.092</strong> — the wrong sign —
-but its landmark tracks signal-to-noise at +0.702 ± 0.241, so the two cannot be
-separated on 15 curves. The observed sign would make the perhydrate a resting
-state the catalyst has to leave rather than the activation itself. That is worth
-taking seriously and not worth asserting.</p>
+<p><strong>Not settled: whether the peroxide is involved at all.</strong>
+Section 4a: three things point the same way and none is clean — the induction's
+peroxide order has the wrong sign for an adduct, the joint constraint the scheme
+puts on both orders at once falls short by 2.6σ and 3.7σ, and the rate is not
+first order in peroxide either. Both induction orders come from blocks that fail
+figure G, so their agreement is also what one shared artefact looks like.</p>
 <p><strong>What would finish it.</strong> <code>COMPUTATIONAL.md</code>
 <strong>C7</strong> — the hydration equilibrium and dehydration barrier of the
 chemzyme's ketone against the barrier for adding H₂O₂ to it — and
