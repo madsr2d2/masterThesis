@@ -192,7 +192,7 @@ def figure_joint():
             ("[H₂O₂], exps 127-131",
              table[table.experiment.isin(induction.PEROXIDE_LEVER)]),
             ("[H₂O₂], exps 135-151",
-             blocks["BnOH in scope (135-151)"])):
+             blocks["BnOH two-axis (135-151)"])):
         joint = induction.joint_peroxide_order(block)
         control = induction.signal_control(block)
         rows.append((label, joint, abs(control["signal_slope"])
@@ -242,7 +242,7 @@ def figure_confound():
     names = (("4OMe catalysed", "4OMe catalysed"),
              ("4OMe enzyme-free", "4OMe, no enzyme"),
              ("temperature series", "the temperature series"),
-             ("BnOH in scope (135-151)", "BnOH, exps 135–151"))
+             ("BnOH two-axis (135-151)", "BnOH, exps 135–151"))
     rows = [(label, induction.composition_collinearity(blocks[key]))
             for key, label in names]
     axes = Axes(660, 240, (-1.05, 0.25), (-0.7, len(rows) - 0.3),
@@ -273,7 +273,7 @@ def figure_confound():
         "from excluding product control to not excluding it). "
         "<strong>Exps 135–151 are the one block where <code>[S]</code> moves "
         "alone</strong> — <code>[buf]</code> is constant across all seven "
-        "cuvettes of all seventeen runs — and that is the block the in-scope "
+        "cuvettes of all seventeen runs — and that is the block the mechanism "
         "fitting is scoped to.")
 
 
@@ -475,7 +475,7 @@ total buffer. The catalysed turnover's dependence saturates — about first orde
 below 25 mM, half order above 50 — and disappears above the pKa because the
 [HOO⁻] route grows past it, not because the buffer term shrinks.
 <code>[S]</code> and <code>[buf]</code> are collinear at −0.96 in every 4OMe run
-and at 0.00 in every in-scope run. Identity is confounded with pH everywhere.</p>
+and at 0.00 in every two-axis run. Identity is confounded with pH everywhere.</p>
 <p><strong>Not settled: acid, base or spectator</strong>
 ({measured['ratio']:+.2f} ± {measured['ratio_stderr']:.2f} against
 {prediction['general_base']:.2f}, {prediction['general_acid']:.2f} and 1.00), and

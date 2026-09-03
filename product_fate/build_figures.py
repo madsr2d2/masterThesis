@@ -45,21 +45,20 @@ def _slowdown_blocks():
     return slowdown.substrate_blocks(_whole_frame())
 
 
+@functools.cache
 def _sink_curves():
     """The catalysed 4OMe phosphate curves whose decline has a shape."""
-    if "sink" not in _SLOWDOWN_CACHE:
-        block = _slowdown_blocks()["4OMe catalysed, phosphate"]
-        table = slowdown.sink_table(sorted(block.experiment.unique()))
-        _SLOWDOWN_CACHE["sink"] = table[(table.points > 0)
-                                        & (table.rate_r2 > slowdown.SINK_CLEAN_R2)]
-    return _SLOWDOWN_CACHE["sink"]
+    block = _slowdown_blocks()["4OMe catalysed, phosphate"]
+    table = slowdown.sink_table(sorted(block.experiment.unique()))
+    return table[(table.points > 0)
+                 & (table.rate_r2 > slowdown.SINK_CLEAN_R2)]
 
 
 def figure_drivers():
     names = {"temperature series": "temperature series",
              "4OMe catalysed, phosphate": "4OMe catalysed, phosphate",
              "4OMe enzyme-free": "4OMe, no enzyme at all",
-             "BnOH in scope (135-151)": "BnOH, exps 135-151",
+             "BnOH two-axis (135-151)": "BnOH, exps 135-151",
              "BnOH catalysed, all buffers": "BnOH catalysed, every buffer"}
     blocks = _slowdown_blocks()
     rows = [(short, slowdown.deceleration_drivers(blocks[name]))

@@ -324,7 +324,7 @@ def figure_signal_control():
     table = _landmarks()
     rows = [("4OMe catalysed", induction.signal_control(blocks["4OMe catalysed"])),
             ("BnOH, exps 135–151",
-             induction.signal_control(blocks["BnOH in scope (135-151)"])),
+             induction.signal_control(blocks["BnOH two-axis (135-151)"])),
             ("4OMe peroxide, exps 127–131",
              induction.signal_control(
                  table[table.experiment.isin(induction.PEROXIDE_LEVER)]))]
@@ -363,8 +363,8 @@ def figure_signal_control():
 
 def figure_peroxide():
     table = _landmarks()
-    ladder = induction.peroxide_ladder(_blocks()["BnOH in scope (135-151)"])
-    fitted = induction.peroxide_saturation(_blocks()["BnOH in scope (135-151)"])
+    ladder = induction.peroxide_ladder(_blocks()["BnOH two-axis (135-151)"])
+    fitted = induction.peroxide_saturation(_blocks()["BnOH two-axis (135-151)"])
     # Each run sits at its own level, which is what the per-experiment offsets
     # in the fit absorb; dividing every run by its own geometric mean puts them
     # on one panel without changing a single slope.
@@ -393,11 +393,11 @@ def figure_peroxide():
                       f"level", MUTED, size=10.5)
     joint = {name: induction.joint_peroxide_order(block) for name, block in
              (("4OMe", table[table.experiment.isin(induction.PEROXIDE_LEVER)]),
-              ("BnOH", _blocks()["BnOH in scope (135-151)"]))}
+              ("BnOH", _blocks()["BnOH two-axis (135-151)"]))}
     return fig(
         axes.render("[H₂O₂], mM", "rate / the run's own level",
                     "G · The rate is not first order in peroxide"),
-        "The peroxide arm of each in-scope run, over a 67-fold range. "
+        "The peroxide arm of each two-axis run, over a 67-fold range. "
         f"<strong>Strict first order is rejected at F = "
         f"{fitted['first_order_f']:.0f}</strong>; the free power law is "
         f"a = {fitted['order']:.3f}. It matters because first order is the "
@@ -431,7 +431,7 @@ def figure_which_way():
     blocks = _blocks()
     names = (("4OMe catalysed", "4OMe catalysed"),
              ("temperature series", "the temperature series"),
-             ("BnOH in scope (135-151)", "BnOH, exps 135–151"),
+             ("BnOH two-axis (135-151)", "BnOH, exps 135–151"),
              ("4OMe enzyme-free", "4OMe, no enzyme at all"))
     rows = []
     for key, label in names:
@@ -472,7 +472,7 @@ def figure_which_way():
         "24 in the temperature series) and <strong>the enzyme-free block is "
         "split the other way</strong> (10 of 49) — the same contrast section 2 "
         "makes, seen through the shape rather than the depth. "
-        "<strong>The in-scope BnOH block is split almost evenly</strong>, 46 "
+        "<strong>The two-axis BnOH block is split almost evenly</strong>, 46 "
         "against 45, which is why one induction time averaged over it has "
         "never meant much. Within runs and with signal-to-noise controlled, "
         "more substrate pushes it towards <em>burst</em> there "
@@ -702,13 +702,13 @@ no sign at all, so no analysis in the package could ask which way a curve
 pointed.</p>
 {figure_which_way()}
 <p><strong>What moves the sign, within runs, with signal-to-noise
-controlled:</strong> in scope, the substrate arm gives −0.112 ± 0.052 per
+controlled:</strong> in the block, the substrate arm gives −0.112 ± 0.052 per
 e-fold and the peroxide arm −0.011 ± 0.069 — the pooled ten-against-fifty-six
 peroxide pattern is the L being read across both its arms at once. The 4OMe
 block gives <strong>+0.182 ± 0.073</strong>, the opposite sign. The two blocks
 differ in exactly one structural way: <code>[S]</code> and <code>[buf]</code>
 correlate at <strong>−0.96</strong> inside every 4OMe run and at
-<strong>0.00</strong> inside every in-scope run. Read as a buffer effect, more
+<strong>0.00</strong> inside every two-axis run. Read as a buffer effect, more
 buffer means a shorter lag — which is <strong>general acid/base catalysis of
 E → E*</strong>, a real candidate for the step this whole folder is trying to
 name.</p>

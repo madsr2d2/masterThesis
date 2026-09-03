@@ -23,12 +23,19 @@ fit** — together with a reasonably precise account of which layer is at fault.
 - Units throughout: concentrations mM, time s. Hence `k_can` mM⁻² s⁻¹, `k3`,
   `k0` and `k6` mM⁻¹ s⁻¹, `k5'` mM⁻² s⁻¹, `r` dimensionless.
 
-## Scope — exps 135–151
+## The two-axis block — exps 135–151
 
-**Decided 2026-08-31.** The fitting effort is scoped to **exps 135–151**: 119
-curves, BnOH / 25 °C / pyrophosphate, one block. Enforced by
-`fit_dataset.PRIMARY_SCOPE` and re-derived from the designs by
-`test_fit_kinetics.test_scope`, not by a list in prose.
+**Decided 2026-08-31; renamed 2026-09-03.** The fitting effort uses **exps
+135–151**: 119 curves, BnOH / 25 °C / pyrophosphate, one group. Enforced by
+`fit_dataset.TWO_AXIS_BLOCK` and re-derived from the designs by
+`test_fit_kinetics.test_two_axis_block`, not by a list in prose.
+
+It was called `TWO_AXIS_BLOCK`, and the project was declared scoped to it. That
+name is gone: the analysis has since spread across the whole archive and the
+block is one among several, distinguished by its design rather than by
+precedence. See `CLAUDE.md`, "There is no privileged block". **Nothing about
+the block itself changed** — the same 17 experiments, the same 119 curves, the
+same test.
 
 ### Why these
 
@@ -60,8 +67,8 @@ early-window slope, on curves with real signal:
 
 | | n | accelerating (> 1.5×) | median ratio |
 |---|---|---|---|
-| in scope, pH ≥ 9.0 | 39 | **44 %** | **1.30** |
-| in scope, pH < 9.0 | 57 | 12 % | 0.49 |
+| two-axis, pH ≥ 9.0 | 39 | **44 %** | **1.30** |
+| two-axis, pH < 9.0 | 57 | 12 % | 0.49 |
 | catalysed, rest of archive | 195 | 17 % | 0.89 |
 | **enzyme-free, anywhere** | 71 | **1 %** | 0.57 |
 
@@ -230,7 +237,7 @@ anyone reading the raw exports will hit it.
 | `data/fits/*.json` | saved results — a fit costs ~30 min, the plots seconds |
 
 ```bash
-python data/fit_kinetics.py --list                    # blocks in scope (exps 135-151)
+python data/fit_kinetics.py --list                    # the two-axis block (exps 135-151)
 python data/fit_kinetics.py --buffer Pyrophosphate    # fit the scope
 
 # the historical fits, which predate the scope and are not inside it

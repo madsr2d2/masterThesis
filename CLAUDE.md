@@ -4,20 +4,46 @@ Master's thesis pipeline: oxidation of benzyl alcohol and 4-methoxybenzyl
 alcohol by H<sub>2</sub>O<sub>2</sub>, catalysed by a cyclodextrin–ketone
 "chemzyme". `README.md` has the layout; this file has the rules.
 
-## The scope
+## There is no privileged block
 
-Fitting and analysis are scoped to **exps 135-151** (119 curves, BnOH / 25 °C /
-pyrophosphate), defined by `fit_dataset.PRIMARY_SCOPE` and checked by
-`test_fit_kinetics.test_scope`. The scope is **not** the hand-sorted
-`data/Mads/good data BnOH/` folder, which also holds an excluded run, a run
-from a different cell, and a sheet with no instrument data.
+**Each question names the block it needs, and every block is defined in
+`data/scope.py`** — never as a list of experiment numbers in an analysis
+script. `TEMPERATURE_SERIES`, `FREE_BNOH_ALL`, `FREE_BNOH_PHOSPHATE`,
+`BUFFER_FIXED`, `buffer_role.TITRATIONS`, `slowdown.substrate_blocks`,
+`induction.induction_blocks` are the vocabulary; add to it rather than
+selecting inline.
 
-For any analysis of the in-scope data, invoke the **`analyse-scope`** skill.
+This changed on 2026-09-03. Until then `fit_dataset.TWO_AXIS_BLOCK` named exps
+135-151 and the whole project was declared scoped to it — and that had stopped
+being true. Four of the five analysis folders work outside it; the temperature
+series is the **sole** route to activation parameters; the deceleration needed
+84 curves the block does not hold; the buffer question needed five titrations,
+none of them in it. Meanwhile the block called "primary" had no folder of its
+own and the only saved mechanism fit is on phosphate runs sharing no experiment
+with it. A name asserting a priority the work contradicts is a hazard, not a
+label.
+
+**Exps 135-151 are now `fit_dataset.TWO_AXIS_BLOCK`**, named for the design
+that selects them and checked by `test_fit_kinetics.test_two_axis_block`: the
+archive's only runs that move BOTH concentration axes inside a single run —
+seven cuvettes each, `[S]` over ≥ 39.9x, `[H2O2]` over ≥ 6.8x, spanning three
+pH units and three decades of [HOO⁻]. **Do not call it a chemistry cell.** It
+is not "BnOH catalysed" (the archive holds 175 such curves across three
+buffers) and not "BnOH catalysed pyrophosphate at 25 °C" either — exps 75 and
+76 are exactly that and are not in it. The test's last check is that no run
+outside the block carries the design; if one ever does, it fails and forces a
+decision.
+
+The block is **not** the hand-sorted `data/Mads/good data BnOH/` folder, which
+also holds an excluded run, a run from a different cell, and a sheet with no
+instrument data.
+
+For any analysis of the kinetics data, invoke the **`analyse-kinetics`** skill.
 
 ## Do not re-derive measurements
 
-Curve measurements live in `data/curve_metrics.py`; in-scope selection and
-derived columns live in `data/scope.py`. Import them.
+Curve measurements live in `data/curve_metrics.py`; block selection and derived
+columns live in `data/scope.py`. Import them.
 
 Six functions were once defined in two modules each and four had diverged. The
 lag statistic's copies disagreed on 96 of 402 curves — one would have reported
@@ -35,7 +61,7 @@ the `.txt` export's.
 This is not only about the noise column. `line_fit` floors the variance behind
 every standard error in the package, and `acceleration` divides by two of them,
 so a floor left at the export's quantisation on `.rre` data suppresses the
-z-score it is measured by — that is how the in-scope acceleration count read
+z-score it is measured by — that is how the two-axis block's acceleration count read
 48/110 until 2026-09-01 when the instrument's own readings say 51/110.
 
 If you need a quantity that does not exist, add it to `scope.py` or
@@ -124,6 +150,11 @@ light `SURFACE` its palette was validated against.
 - **Ordered variables get sequential ramps** (`RUNGS`, `TEMPERATURES`,
   `PH_RAMP`); only genuinely categorical sets get `CATEGORY`, which is the
   validated trio. Never declare a colour in a folder.
+- **Check a build's exit status.** `write_pages` returns non-zero on a clipped
+  mark and the process exits non-zero on a crash. On 2026-09-03 a builder was
+  broken for a commit because it was rebuilt with its output piped away, and
+  the "page is byte-identical" check then passed for the wrong reason: the
+  crash meant the file was never written at all.
 - **`write_pages` reports clipped marks at build time**, which two of the five
   folders did and three did not. A mark outside the axis limits vanishes
   silently and the figure still looks finished, so the build has to say so.
@@ -194,7 +225,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   every K and every h, so the two questions are one and
   `joint_peroxide_order` asks it as one regression. Both blocks that can test
   it fall short (2.6σ and 3.7σ), and the rate is not first order in peroxide
-  either -- `peroxide_saturation` rejects a = 1 at F = 32 on the in-scope
+  either -- `peroxide_saturation` rejects a = 1 at F = 32 on the two-axis
   ladder. Do not assume "first order in H2O2": that is the *unsaturated* limit
   of the scheme, not a consequence of it.
 - **That `+1` is not about H2O2.** It holds for ANY species held in excess that
@@ -206,7 +237,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   that fail overshoot +1 in exactly the direction the artefact predicts.
 - **`scope.frame` carries the SIGN of the early curve** -- `progress_kind`,
   `B_fast`, `B_slow`, from the form the curve earned. `depth` is floored at
-  zero and cannot see a curve that begins fast; the in-scope block splits
+  zero and cannot see a curve that begins fast; the two-axis block splits
   almost evenly (46 lag-first against 45 burst-first of 110 live), so an
   induction time averaged over it means little.
 - **Every buffer order in this project is an order in TOTAL buffer.** At one

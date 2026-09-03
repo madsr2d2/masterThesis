@@ -395,7 +395,7 @@ def test_orders_refuse_an_axis_the_block_does_not_move():
     check("and the peroxide order still is",
           np.isfinite(got["order_h2o2"]), f"{got['order_h2o2']}")
     whole = scope.orders("vmax")
-    check("the in-scope orders are untouched by the guard",
+    check("the two-axis orders are untouched by the guard",
           abs(whole["order_h2o2"] - 0.7936) < 5e-4
           and abs(whole["order_s0"] - 0.0906) < 5e-4,
           f"{whole['order_s0']:.4f}, {whole['order_h2o2']:.4f}")
@@ -458,7 +458,7 @@ def test_the_sign_comes_off_the_fit_and_not_off_the_depth():
 
 def test_the_L_has_to_be_split_before_it_is_read():
     """
-    Pooling the in-scope L reports a peroxide effect the peroxide arm denies.
+    Pooling the two-axis L reports a peroxide effect the peroxide arm denies.
 
     This is the failure the split exists to prevent, so it is checked rather
     than described: the pooled fit and the arm have to disagree, and the arm
@@ -466,7 +466,7 @@ def test_the_L_has_to_be_split_before_it_is_read():
     """
     print("\nthe two arms of the L")
     table = _induction_table()
-    scoped = induction.induction_blocks(table)["BnOH in scope (135-151)"]
+    scoped = induction.induction_blocks(table)["BnOH two-axis (135-151)"]
     arms = ladder_arms(scoped)
     check("the substrate arm holds [H2O2] fixed inside every run",
           bool((arms["substrate arm"].groupby("experiment").h2o2.nunique()
@@ -490,12 +490,12 @@ def test_the_blocks_differ_in_their_buffer_collinearity():
     table = _induction_table()
     blocks = induction.induction_blocks(table)
     four = composition_collinearity(blocks["4OMe catalysed"])
-    scoped = composition_collinearity(blocks["BnOH in scope (135-151)"])
+    scoped = composition_collinearity(blocks["BnOH two-axis (135-151)"])
     check("[S] and [buf] move together in every 4OMe run",
           four["median"] < -0.9 and four["constant_buffer"] == 0,
           f"median {four['median']:+.2f}, {four['constant_buffer']} constant "
           f"of {four['runs']}")
-    check("and in no in-scope run",
+    check("and in no two-axis run",
           scoped["median"] == 0.0
           and scoped["constant_buffer"] == scoped["runs"],
           f"median {scoped['median']:+.2f}, {scoped['constant_buffer']} "
@@ -572,7 +572,7 @@ def test_regressions():
           abs(signal["signal_slope"] - 0.003) < 0.005
           and abs(signal["signal_stderr"] - 0.149) < 0.005,
           f"{signal['signal_slope']:+.3f} +- {signal['signal_stderr']:.3f}")
-    for name, expected in (("BnOH in scope (135-151)", 0.619),):
+    for name, expected in (("BnOH two-axis (135-151)", 0.619),):
         got = signal_control(named[name])
         check(f"{name} fails the same control at {expected:+.3f}",
               abs(got["signal_slope"] - expected) < 0.005,
@@ -647,7 +647,7 @@ def test_regressions():
 
     for name, expected in (("4OMe catalysed", (147, 98)),
                            ("temperature series", (24, 22)),
-                           ("BnOH in scope (135-151)", (110, 46)),
+                           ("BnOH two-axis (135-151)", (110, 46)),
                            ("4OMe enzyme-free", (49, 10))):
         block = named[name]
         block = block[block.live]
@@ -655,9 +655,9 @@ def test_regressions():
               f"their eventual rate",
               (len(block), int(block.lag_first.sum())) == expected,
               f"{len(block)}, {int(block.lag_first.sum())}")
-    arms = ladder_arms(named["BnOH in scope (135-151)"])
+    arms = ladder_arms(named["BnOH two-axis (135-151)"])
     substrate = sign_drivers(arms["substrate arm"], axis="s0", control=True)
-    check("in scope the sign tracks substrate at -0.112 +- 0.052",
+    check("two-axis: the sign tracks substrate at -0.112 +- 0.052",
           abs(substrate["s0"] + 0.112) < 0.005
           and abs(substrate["s0_stderr"] - 0.052) < 0.005,
           f"{substrate['s0']:+.3f} +- {substrate['s0_stderr']:.3f}")

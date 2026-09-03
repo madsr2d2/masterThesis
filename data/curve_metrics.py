@@ -110,10 +110,10 @@ def line_fit(times, values, floor=QUANTISATION_SIGMA):
     binds and lets the measured scatter speak.
 
     Until 2026-09-01 this floor was hardcoded at QUANTISATION_SIGMA for every
-    curve, which is 1096x RRE_SIGMA. It bound on 52 of the 110 live in-scope
+    curve, which is 1096x RRE_SIGMA. It bound on 52 of the 110 live two-axis
     curves and inflated their slope errors by a median 1.4x, and since
     `acceleration` divides by exactly these errors it was suppressing the
-    z-scores it is measured by: the in-scope acceleration count read 48/110
+    z-scores it is measured by: the two-axis acceleration count read 48/110
     where the instrument's own readings say 51/110.
     """
     times = np.asarray(times, dtype=float)
@@ -164,7 +164,7 @@ def acceleration(times, values, fraction=INITIAL_WINDOW,
     was at the start.
 
     THIS IS THE STATISTIC TO USE ON SMALL-AMPLITUDE CURVES, and most of the
-    in-scope block is small-amplitude -- exp 139 changes by 0.005-0.065 AU
+    two-axis block is small-amplitude -- exp 139 changes by 0.005-0.065 AU
     against 0.0006 AU of noise. `peak_position` asks where a point-wise
     gradient is largest, and on curves like those the gradient's own noise is
     a median 28% of the largest gradient in the curve, so its argmax is partly
@@ -687,7 +687,7 @@ def lag_time(times, values, fraction=LAG_WINDOW, level=LAG_LEVEL,
 
     Reported in seconds, never as a fraction of the run. `vmax_where` is a
     fraction, and fractions are not comparable across runs of 51 and 480
-    minutes: among the accelerating in-scope curves the fraction correlates
+    minutes: among the accelerating two-axis curves the fraction correlates
     +0.84 with run length, so it measures the schedule as much as the
     chemistry.
     """

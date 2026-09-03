@@ -220,7 +220,7 @@ def test_acceleration():
     A lag phase starts flat, and a flat start makes the first point-wise
     gradient a coin flip about zero -- which trips peak_position's
     `slope[0] <= 0` guard and scores the curve as having no lag at all. On the
-    in-scope block that guard silences 31 of 96 live curves, including all six
+    two-axis block that guard silences 31 of 96 live curves, including all six
     live curves of exp 142, whose lag is visible by eye. `acceleration` fits
     slopes over blocks instead, so it survives a flat start.
     """
@@ -260,7 +260,7 @@ def test_floor_belongs_to_the_source():
     standard error in the package, and the acceleration z-score that divides
     by two of them, was floored at the .txt export's 0.001 AU rounding even on
     .rre curves read a thousand times finer. It bound on 52 of the 110 live
-    in-scope curves and cost 3 of them their acceleration verdict (48/110 read
+    two-axis curves and cost 3 of them their acceleration verdict (48/110 read
     where the instrument says 51/110).
 
     These checks fail if the floor is ever hardcoded again.

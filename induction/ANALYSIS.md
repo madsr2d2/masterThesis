@@ -287,7 +287,7 @@ fitted to the same curves.
 | block | order of `v / t_ind` in [H₂O₂] | curves | from the required +1 |
 |---|---|---|---|
 | 4OMe peroxide, exps 127–131 | **+0.502 ± 0.194** | 15 | 2.6σ |
-| BnOH in scope, exps 135–151 | **+0.304 ± 0.188** | 110 | 3.7σ |
+| BnOH two-axis, exps 135–151 | **+0.304 ± 0.188** | 110 | 3.7σ |
 
 Both blocks fall short, in the same direction, by about the same amount.
 
@@ -301,7 +301,7 @@ towards +1 — and the sweep says so:
 | floor | 1 s | 30 s | 60 s | 120 s | 300 s |
 |---|---|---|---|---|---|
 | 4OMe peroxide | +0.328 | +0.473 | **+0.502** | +0.542 | +0.600 |
-| BnOH in scope | −0.038 | +0.246 | **+0.304** | +0.404 | +0.566 |
+| BnOH two-axis | −0.038 | +0.246 | **+0.304** | +0.404 | +0.566 |
 
 The deviation from +1 is 1.9–3.7σ at every floor and never changes sign. The
 module's 60 s floor is the conservative end of that range, not the flattering
@@ -311,7 +311,7 @@ one.
 
 Which is worth stating separately, because "first order in H₂O₂" is the natural
 expectation and it is the *unsaturated* limit of the scheme above, not a
-general consequence of it. The clean design is the in-scope ladder — **63
+general consequence of it. The clean design is the two-axis ladder — **63
 curves in 17 runs over 2.45–163 mM**, one free level per run:
 
 | | |
@@ -413,10 +413,10 @@ pointed. It now carries `progress_kind`, `B_fast` and `B_slow`.
 |---|---|---|---|
 | **4OMe catalysed** | 147 | **98** | 50 lag then fall, 46 lag, 21 burst, 20 mixed, 8 burst then fall, 2 two lags |
 | the temperature series | 24 | **22** | 12 lag, 10 lag then fall, 1 mixed, 1 burst |
-| **BnOH in scope (135–151)** | 110 | **46** | 34 burst, 26 lag then fall, 20 lag, 19 mixed, 11 burst then fall |
+| **BnOH two-axis (135–151)** | 110 | **46** | 34 burst, 26 lag then fall, 20 lag, 19 mixed, 11 burst then fall |
 | 4OMe enzyme-free | 49 | **10** | 28 burst, 11 burst then fall, 6 lag then fall, 4 lag |
 
-**So yes, the in-scope curves have an induction — on 46 of 110 of them.** The
+**So yes, the two-axis curves have an induction — on 46 of 110 of them.** The
 block is not one population: it splits almost evenly between curves that begin
 below their eventual rate and curves that begin above it, which is why a single
 induction time averaged over it has never meant much. The 4OMe blocks are not
@@ -442,8 +442,8 @@ it as a change in probability per e-fold, and no more than that.
 
 | | axis | alone | with signal-to-noise |
 |---|---|---|---|
-| in scope, **substrate arm** | [S] | −0.054 ± 0.042 | **−0.112 ± 0.052** |
-| in scope, **peroxide arm** | [H₂O₂] | +0.082 ± 0.046 | **−0.011 ± 0.069** |
+| two-axis, **substrate arm** | [S] | −0.054 ± 0.042 | **−0.112 ± 0.052** |
+| two-axis, **peroxide arm** | [H₂O₂] | +0.082 ± 0.046 | **−0.011 ± 0.069** |
 | **4OMe catalysed** | [S] | +0.252 ± 0.059 | **+0.182 ± 0.073** |
 
 Three things follow.
@@ -455,7 +455,7 @@ the peroxide arm, where `[S]` is held at the run's top, that effect is gone
 cuvettes, which all sit at the run's top peroxide.
 
 **Signal-to-noise leans burst, and the substrate result runs against it.** The
-share of lag-first curves rises from 0.29 to 0.50 across the in-scope
+share of lag-first curves rises from 0.29 to 0.50 across the two-axis
 signal-to-noise quartiles: a curve with little signal gives the two-phase fit
 little to choose between the shapes. That is the same objection figure F raises
 against the induction *time*, and here it works in the analysis's favour — more
@@ -468,11 +468,11 @@ measured substrate effect is towards **burst** anyway.
 ### The buffer is the candidate, and the one direct lever agrees
 
 `[S]` and `[buf]` correlate at **−0.96** inside every 4OMe run and at **0.00**
-inside every in-scope run — `[buf]` is constant across all seven cuvettes of all
+inside every two-axis run — `[buf]` is constant across all seven cuvettes of all
 seventeen. So in the 4OMe block "more substrate" also means "less buffer", and
 the two blocks can disagree about the substrate without either being wrong:
 
-> in scope, buffer fixed: **more substrate → burst**
+> two-axis, buffer fixed: **more substrate → burst**
 > 4OMe, buffer falling with substrate: **more substrate → lag**, which is the
 > same as **more buffer → burst**
 
@@ -615,7 +615,7 @@ base — which this archive cannot separate from general base catalysis, because
   eventual rate and 45 begin above it (§6).
 - **Whether the buffer is what carries E → E\*.** §6, and this is the most
   promising open lead in the folder. Three things point the same way: the 4OMe
-  and in-scope blocks give *opposite* substrate effects on the sign and differ
+  and two-axis blocks give *opposite* substrate effects on the sign and differ
   in exactly one structural way (`[buf]` falls with `[S]` at −0.96 in one and is
   constant in the other); the one direct buffer ladder gives
   **−0.433 ± 0.201** on the induction time, more buffer meaning a shorter

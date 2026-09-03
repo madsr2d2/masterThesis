@@ -16,7 +16,7 @@ the code disagree.
 
 ## 1. Why this was needed
 
-The in-scope curves were recorded *against* the background, so the background has
+The two-axis block's curves were recorded *against* the background, so the background has
 to be understood before they can be read. The first obstacle was that many
 enzyme-free runs varied buffer concentration at the same time as substrate, which
 confounds the two.
@@ -587,10 +587,10 @@ not the variance-floor artefact of `DATA_VERIFICATION.md` 2026-09-01:
 | set | accelerating, > 3σ |
 |---|---|
 | enzyme-free BnOH, `[buf]` fixed | **1 of 12** |
-| in-scope catalysed increments | **50 of 110 live** |
+| two-axis catalysed increments | **50 of 110 live** |
 
 Exps 67, 69 and 70 actively *decelerate* (median `accel_z` −1.67, −5.15, −2.26).
-**The autocatalytic signature in the in-scope block is not inherited from the
+**The autocatalytic signature in the two-axis block is not inherited from the
 background.**
 
 **Its deceleration is not substrate depletion.** Conversion runs 0.05–6.98%, yet
@@ -612,10 +612,10 @@ loses seven eighths of its rate. All three are now checked.)*
 
 ## 8. What it means for exps 135–151
 
-1. **The confound does not reach them.** `[buf]` = 75.013 mM in all 119 in-scope curves across all 17 runs — zero variation — so no buffer effect can enter their substrate order. The correction derived here is needed for exps 3 and 6, not for the scope.
+1. **The confound does not reach them.** `[buf]` = 75.013 mM in all 119 two-axis curves across all 17 runs — zero variation — so no buffer effect can enter their substrate order. The correction derived here is needed for exps 3 and 6, not for that block.
 2. **The background is already subtracted**, per cuvette, at matched conditions, because the catalysed reference omits only the enzyme.
 3. **The amplitude is still missing.** There are 0 enzyme-free curves in the 127-curve BnOH pyrophosphate cell, so the absolute size of what was subtracted cannot be recovered without importing it from another buffer, which `MECHANISM.md` forbids. This remains `FITTING.md` F7: *the missing experiment is an enzyme-free control in pyrophosphate.*
-4. **For scale**, on `vmax` within runs, the recorded increment is *flatter* in substrate than the background it was measured against: +0.091 ± 0.052 over all 110 live in−scope curves (+0.004 ± 0.046 on the 11 strong runs) against +0.343 ± 0.071 for the background. Relevant to `FITTING.md` F1, which is not restated here.
+4. **For scale**, on `vmax` within runs, the recorded increment is *flatter* in substrate than the background it was measured against: +0.091 ± 0.052 over all 110 live two-axis curves (+0.004 ± 0.046 on the 11 strong runs) against +0.343 ± 0.071 for the background. Relevant to `FITTING.md` F1, which is not restated here.
 
 ## 8a. Suspect readings are flagged, never removed
 

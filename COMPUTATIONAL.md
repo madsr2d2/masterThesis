@@ -382,7 +382,7 @@ so their difference is **1 identically, for every K and every h**. Measured as
 one regression on `log(v/t_ind)`, it is +0.502 ± 0.194 on exps 127–131 (2.6σ
 short) and +0.304 ± 0.188 on exps 135–151 (3.7σ short), and it stays short at
 every log floor from 1 s to 300 s. Separately, **the rate is not first order in
-peroxide either**: on the 63-curve in-scope ladder over 2.45–163 mM the free
+peroxide either**: on the 63-curve two-axis ladder over 2.45–163 mM the free
 power is a = 0.654 and a = 1 is rejected at **F = 32**.
 
 Inverting the trap form `d ln τ/d ln h = +Kh/(1 + Kh)` for K, and reading the

@@ -133,12 +133,12 @@ def main():
     doc.claim("background acceleration",
               f"| **{int((live_fixed.accel_z > ACCELERATION_SIGMA).sum())} of "
               f"{len(live_fixed)}** |")
-    doc.claim("in-scope acceleration",
+    doc.claim("two-axis acceleration",
           f"| **{int((live_inscope.accel_z > ACCELERATION_SIGMA).sum())} of "
               f"{len(live_inscope)} live** |")
     buffers = sorted(inscope.buf.round(3).unique())
-    doc.claim("in-scope buffer constant",
-              f"`[buf]` = {buffers[0]:.3f} mM in all {len(inscope)} in-scope curves")
+    doc.claim("two-axis buffer constant",
+              f"`[buf]` = {buffers[0]:.3f} mM in all {len(inscope)} two-axis curves")
     everything = scope.frame(scope.FREE_BNOH_ALL)
     curved = int((everything.curvature_t.abs() > 3).sum())
     doc.claim("curvature count", f"{curved}\nof {len(everything)} curves show "
@@ -161,12 +161,12 @@ def main():
         doc.claim(f"{estimator} dropped-accelerating",
                   f"| {dropped['order_buf']:+.2f} ± {dropped['stderr_buf']:.2f} |")
 
-    print("\nthe in-scope substrate order")
-    orders = scope.orders("vmax", scope.PRIMARY_SCOPE, within=True)
+    print("\nthe two-axis substrate order")
+    orders = scope.orders("vmax", scope.TWO_AXIS_BLOCK, within=True)
     strong = scope.orders("vmax", scope.strong_runs(), within=True)
-    doc.claim("in-scope order", f"{orders['order_s0']:+.3f} ± "
+    doc.claim("two-axis order", f"{orders['order_s0']:+.3f} ± "
                                 f"{orders['stderr_s0']:.3f} over all "
-                                f"{orders['n']} live in-scope curves")
+                                f"{orders['n']} live two-axis curves")
     doc.claim("strong-run order", f"({strong['order_s0']:+.3f} ± "
                                   f"{strong['stderr_s0']:.3f} on the "
                                   f"{len(scope.strong_runs())} strong runs)")
@@ -544,7 +544,7 @@ def main():
                                             parameter=name)
               for name in ("v0_quad", "vmax")}
     held = sorted(scope.frame(scope.BUFFER_FIXED).buf.unique())
-    in_scope = scope.frame(scope.PRIMARY_SCOPE)
+    in_scope = scope.frame(scope.TWO_AXIS_BLOCK)
     doc.claim("the buffer the fixed design holds", f"[buf] at {held[0]:g} mM",
               document=INDEX_PAGE)
     doc.claim("the pooled R2 on v0_quad",
@@ -553,7 +553,7 @@ def main():
     doc.claim("the pooled R2 on vmax",
               f"{pooled['vmax']['r2']:.3f} on <code>vmax</code>",
               document=INDEX_PAGE)
-    doc.claim("the in-scope buffer",
+    doc.claim("the two-axis buffer",
               f"{in_scope.buf.iloc[0]:.3f} mM in all {len(in_scope)}",
               document=INDEX_PAGE)
     doc.claim("the pyrophosphate cell on the page", f"{len(cell)}-curve BnOH",

@@ -17,7 +17,7 @@ import sys
 import numpy as np
 
 from curve_metrics import ABSORBANCE_QUANTUM, QUANTISATION_SIGMA
-from fit_dataset import DROP_FIRST_READING, PRIMARY_SCOPE, build_curves
+from fit_dataset import DROP_FIRST_READING, TWO_AXIS_BLOCK, build_curves
 from read_rre import (ARCHIVE_DIR, RRE_SIGMA, covered,
                       experiment_number, read_all)
 
@@ -41,15 +41,15 @@ def _unfloored_noise(values):
 
 def test_agreement():
     """
-    Every in-scope curve must reproduce from the .rre to the export's rounding.
+    Every curve of the two-axis block must reproduce from the .rre to the export's rounding.
 
     This is the check the substitution rests on. If it fails, do NOT widen the
     tolerance: the block offset or the sample mapping has moved, and a curve
     silently assigned to the wrong cuvette is worse than no upgrade at all.
     """
     print("\nthe binary agrees with the export")
-    curves = [c for c in build_curves()[0] if c.experiment in PRIMARY_SCOPE]
-    check("119 in-scope curves", len(curves) == 119, f"got {len(curves)}")
+    curves = [c for c in build_curves()[0] if c.experiment in TWO_AXIS_BLOCK]
+    check("119 two-axis curves", len(curves) == 119, f"got {len(curves)}")
 
     instrument = read_all()
     worst, compared = 0.0, 0
@@ -81,8 +81,8 @@ def test_source_selection():
     from_rre = sum(1 for c in curves if c.source == "rre")
     check("all 402 fittable curves read from the instrument file",
           from_rre == len(curves), f"got {from_rre} of {len(curves)}")
-    check("every in-scope curve reads from the instrument file",
-          all(c.source == "rre" for c in curves if c.experiment in PRIMARY_SCOPE))
+    check("every two-axis curve reads from the instrument file",
+          all(c.source == "rre" for c in curves if c.experiment in TWO_AXIS_BLOCK))
     # THIS BLOCK USED TO ASSERT THE BUG. Until 2026-09-02 it read "28 cuvettes
     # have no block in their run's binary" and explained that exp 6 holds
     # Sample001, 002 and 004 and no 003. The block was there all along: the
@@ -119,10 +119,10 @@ def test_resolution():
           f"{RRE_SIGMA:.2e} vs {QUANTISATION_SIGMA:.2e}")
 
     # The export's rounding, not the instrument, is what zeroes the scatter on
-    # most in-scope curves. Pinned because it is the whole reason for the swap.
-    scoped = [c for c in build_curves()[0] if c.experiment in PRIMARY_SCOPE]
+    # most two-axis curves. Pinned because it is the whole reason for the swap.
+    scoped = [c for c in build_curves()[0] if c.experiment in TWO_AXIS_BLOCK]
     real = np.array([_unfloored_noise(c.absorbance) for c in scoped])
-    check("no in-scope curve reads zero noise any more",
+    check("no two-axis curve reads zero noise any more",
           (real > 0).all(), f"{int((real == 0).sum())} still do")
     check("and their real noise sits below the export's floor",
           np.median(real) < QUANTISATION_SIGMA,
@@ -130,8 +130,8 @@ def test_resolution():
 
     instrument = read_all()
     check("read_all covers the whole scope",
-          set(PRIMARY_SCOPE) <= set(instrument),
-          f"missing {sorted(set(PRIMARY_SCOPE) - set(instrument))}")
+          set(TWO_AXIS_BLOCK) <= set(instrument),
+          f"missing {sorted(set(TWO_AXIS_BLOCK) - set(instrument))}")
     check("experiment_number parses rate<n>.rre",
           experiment_number("data/Mads/rate139.rre") == 139
           and experiment_number("rate033.rre") == 33
@@ -203,9 +203,9 @@ def test_both_naming_conventions_are_read():
           f"noises {[f'{c.noise:.2e}' for c in exp3]}")
 
     # The .rre may only ever ADD resolution. A curve that had one must not
-    # lose it, and the in-scope block must be untouched by this change.
-    in_scope = [c for c in curves if c.experiment in PRIMARY_SCOPE]
-    check("the in-scope block is still entirely .rre",
+    # lose it, and the two-axis block must be untouched by this change.
+    in_scope = [c for c in curves if c.experiment in TWO_AXIS_BLOCK]
+    check("the two-axis block is still entirely .rre",
           len(in_scope) == 119 and all(c.source == "rre" for c in in_scope),
           f"{len(in_scope)} curves")
 

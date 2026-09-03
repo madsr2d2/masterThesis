@@ -128,7 +128,7 @@ In every 4OMe run substrate volume displaced buffer volume:
 | 4OMe catalysed | 28 | **−0.96** | −0.264 |
 | 4OMe enzyme-free | 12 | −0.97 | −0.193 |
 | the temperature series | 6 | −0.96 | −0.325 |
-| **BnOH in scope (135–151)** | 17 | **0.00** | — (17 runs with `[buf]` constant) |
+| **BnOH two-axis (135–151)** | 17 | **0.00** | — (17 runs with `[buf]` constant) |
 
 Two orders have already had to be corrected for it, and the corrections went in
 opposite directions in their consequences:
@@ -141,7 +141,7 @@ opposite directions in their consequences:
   moved that route from excluding product control to not excluding it.
 
 Exps 135–151 are the one block where `[S]` moves alone, and it is the block the
-in-scope fitting is scoped to — which was chosen for its peroxide ladder and
+mechanism fitting uses — which was chosen for its peroxide ladder and
 turns out to have been the right choice for this reason too.
 
 ## 5. Buffer identity cannot be separated from pH
@@ -289,7 +289,7 @@ does not survive one that cannot be reached at 200 mM buffer.
   more than [HOO⁻] alone accounts for**, so that route has a second
   base-dependent step in it.
 - `[S]` and `[buf]` are collinear at **−0.96** in every 4OMe run and at
-  **0.00** in every in-scope run, which is why the two blocks disagree about the
+  **0.00** in every two-axis run, which is why the two blocks disagree about the
   substrate and why two published orders needed correcting.
 - Buffer **identity** is confounded with pH everywhere, and the one 2-unit pH
   overlap has no shared peroxide.

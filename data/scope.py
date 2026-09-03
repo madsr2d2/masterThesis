@@ -1,7 +1,7 @@
 """
-The one way to get at the in-scope experiments.
+The one way to get at a block of experiments.
 
-Fitting is scoped to exps 135-151 (see fit_dataset.PRIMARY_SCOPE and
+Fitting is scoped to exps 135-151 (see fit_dataset.TWO_AXIS_BLOCK and
 FITTING.md). This module is the front door to them: it loads the curves, hangs
 every derived per-curve quantity off them in one frame, and answers the
 questions that keep getting asked about the block's design.
@@ -33,8 +33,8 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            quadratic_rate, segmented_fit, segment_selection,
                            SEGMENT_RATIO_STEEP,
                            whole_slope)
-from fit_dataset import (PRIMARY_SCOPE, PRIMARY_SCOPE_BLOCK, build_curves,
-                         in_scope, source_floor)
+from fit_dataset import (TWO_AXIS_BLOCK, TWO_AXIS_GROUP, build_curves,
+                         in_block, source_floor)
 from solution_chemistry import dominant_buffer_pair
 from summary_kinetics import fit_burst_bounded, fit_progress
 
@@ -44,7 +44,7 @@ LADDER_MINIMUM = 2.0
 
 # Net change below this multiple of a curve's own noise is not a measurement of
 # anything. Exps 150 and 151 are mostly flat by this rule. That does NOT make
-# them a background: every run in PRIMARY_SCOPE carries enzyme, and their
+# them a background: every run in TWO_AXIS_BLOCK carries enzyme, and their
 # cuvettes carry no concentration information either (concentration_agreement
 # 0.61 and 0.005). The block has no enzyme-free control -- see
 # DATA_VERIFICATION.md, 2026-08-31.
@@ -57,16 +57,16 @@ def curves_of(experiment):
     return list(curves((int(experiment),)))
 
 
-def curves(scope=PRIMARY_SCOPE):
-    """The in-scope Curve objects, in (experiment, sample) order."""
+def curves(scope=TWO_AXIS_BLOCK):
+    """The block's Curve objects, in (experiment, sample) order."""
     all_curves, _ = build_curves()
-    return sorted(in_scope(all_curves, scope),
+    return sorted(in_block(all_curves, scope),
                   key=lambda c: (c.experiment, c.sample))
 
 
-def frame(scope=PRIMARY_SCOPE):
+def frame(scope=TWO_AXIS_BLOCK):
     """
-    One row per in-scope curve, with every derived quantity already attached.
+    One row per curve of the block, with every derived quantity attached.
 
     Columns: experiment, source, sample, substrate, buffer, temperature, buf,
     pH, s0, h2o2, e0, hoo, duration_s,
@@ -239,7 +239,7 @@ def frame(scope=PRIMARY_SCOPE):
             # B < 0 for a burst. Both forms carry it and until 2026-09-02 this
             # frame carried neither: the time constants were here, the peak
             # rate was here, and nothing said whether the curve began slow or
-            # began fast, so no analysis in the package could ask. The in-scope
+            # began fast, so no analysis in the package could ask. The two-axis
             # block splits almost evenly between the two (46 lag-first against
             # 45 burst-first of 110 live), which is the thing that could not
             # be seen. See summary_kinetics.ProgressFit.kind.
@@ -367,7 +367,7 @@ def _late_over_early(times, values, fraction=0.2):
     return float(late / early) if early > 0 else np.nan
 
 
-def ladder(axis, scope=PRIMARY_SCOPE):
+def ladder(axis, scope=TWO_AXIS_BLOCK):
     """
     How far each run moves `axis` within its own cuvettes, as a factor.
 
@@ -378,7 +378,7 @@ def ladder(axis, scope=PRIMARY_SCOPE):
         lambda values: float(values.max() / max(values.min(), 1e-12)))
 
 
-def within_experiment_share(axis, scope=PRIMARY_SCOPE):
+def within_experiment_share(axis, scope=TWO_AXIS_BLOCK):
     """
     The fraction of an axis's log-variance that lives inside experiments.
 
@@ -398,7 +398,7 @@ def within_experiment_share(axis, scope=PRIMARY_SCOPE):
     return float(within / total)
 
 
-def design(scope=PRIMARY_SCOPE):
+def design(scope=TWO_AXIS_BLOCK):
     """One row per experiment: what it varies, how long it ran, what it saw."""
     data = frame(scope)
     rows = []
@@ -423,13 +423,13 @@ def design(scope=PRIMARY_SCOPE):
     return pd.DataFrame(rows).set_index("experiment")
 
 
-def blocks(scope=PRIMARY_SCOPE):
+def blocks(scope=TWO_AXIS_BLOCK):
     """
     The (substrate, temperature, buffer) cells a scope spans, with counts.
 
     Rate constants may be pooled only within one cell (FITTING.md F7), so a
     scope that returns more than one row here is a scope no fit may be run on
-    as a unit. PRIMARY_SCOPE returns exactly one; the enzyme-free BnOH set
+    as a unit. TWO_AXIS_BLOCK returns exactly one; the enzyme-free BnOH set
     returns two, phosphate and boric, which is why it is a background
     characterisation and not a fit.
     """
@@ -440,13 +440,13 @@ def blocks(scope=PRIMARY_SCOPE):
             .sort_values("curves", ascending=False))
 
 
-def summary(scope=PRIMARY_SCOPE):
+def summary(scope=TWO_AXIS_BLOCK):
     """The scope in one paragraph of numbers, for printing."""
     data = frame(scope)
     cells = blocks(scope)
     return {
         # Read off the curves, not assumed: with `scope` a free parameter this
-        # was reporting PRIMARY_SCOPE_BLOCK for every scope it was handed.
+        # was reporting TWO_AXIS_GROUP for every scope it was handed.
         "block": cells.index[0] if len(cells) == 1 else tuple(cells.index),
         "experiments": int(data.experiment.nunique()),
         "curves": len(data),
@@ -466,7 +466,7 @@ def summary(scope=PRIMARY_SCOPE):
 AXIS_PARTNER = {"s0": "h2o2", "h2o2": "s0"}
 
 
-def ladder_groups(axis, scope=PRIMARY_SCOPE, live_only=True, minimum=3):
+def ladder_groups(axis, scope=TWO_AXIS_BLOCK, live_only=True, minimum=3):
     """
     The runs of cuvettes that vary `axis` alone, as (label, sub-frame) pairs.
 
@@ -491,7 +491,7 @@ def ladder_groups(axis, scope=PRIMARY_SCOPE, live_only=True, minimum=3):
     return groups
 
 
-def ladder_trend(parameter, axis, scope=PRIMARY_SCOPE):
+def ladder_trend(parameter, axis, scope=TWO_AXIS_BLOCK):
     """
     A parameter's median value at the bottom and top rung of the ladders.
 
@@ -515,7 +515,7 @@ def ladder_trend(parameter, axis, scope=PRIMARY_SCOPE):
     return float(np.nanmedian(low)), float(np.nanmedian(high)), len(low)
 
 
-def local_orders(parameter, axis, scope=PRIMARY_SCOPE):
+def local_orders(parameter, axis, scope=TWO_AXIS_BLOCK):
     """
     The log-log slope between each ADJACENT pair of rungs, ladder by ladder.
 
@@ -546,7 +546,7 @@ def local_orders(parameter, axis, scope=PRIMARY_SCOPE):
     return pd.DataFrame(rows)
 
 
-def concentration_agreement(scope=PRIMARY_SCOPE, parameter="vmax"):
+def concentration_agreement(scope=TWO_AXIS_BLOCK, parameter="vmax"):
     """
     Per experiment: does the rate follow the concentrations across its cuvettes?
 
@@ -605,7 +605,7 @@ ORDER_PARAMETERS = ("v0", "vmax", "net", "gain")
 AGREEMENT_FLOOR = 0.70
 
 
-def strong_runs(scope=PRIMARY_SCOPE, floor=AGREEMENT_FLOOR):
+def strong_runs(scope=TWO_AXIS_BLOCK, floor=AGREEMENT_FLOOR):
     """
     The experiments whose own cuvettes predict their own rates.
 
@@ -619,7 +619,7 @@ def strong_runs(scope=PRIMARY_SCOPE, floor=AGREEMENT_FLOOR):
                         table.index[table.agreement >= floor]))
 
 
-def orders(parameter="v0", scope=PRIMARY_SCOPE, within=True, live_only=True,
+def orders(parameter="v0", scope=TWO_AXIS_BLOCK, within=True, live_only=True,
            frame=None, floor=None):
     """
     Apparent reaction orders in [S] and [H2O2], from a log-log regression.
@@ -700,7 +700,7 @@ def orders(parameter="v0", scope=PRIMARY_SCOPE, within=True, live_only=True,
     return out
 
 
-def order_table(scope=PRIMARY_SCOPE, parameters=ORDER_PARAMETERS):
+def order_table(scope=TWO_AXIS_BLOCK, parameters=ORDER_PARAMETERS):
     """Orders for each parameter, within-experiment and pooled, side by side."""
     rows = []
     for parameter in parameters:
@@ -722,9 +722,9 @@ def order_table(scope=PRIMARY_SCOPE, parameters=ORDER_PARAMETERS):
 # the archive on BnOH: every other enzyme-free BnOH run (exps 3 and 6) sits at
 # a pH and [H2O2] no catalysed run shares.
 #
-# They are NOT in PRIMARY_SCOPE and cannot be pooled with it -- phosphate and
+# They are NOT in TWO_AXIS_BLOCK and cannot be pooled with it -- phosphate and
 # boric buffer, and only one value of [H2O2] per run, so they carry no
-# peroxide order. What they carry is the one comparison the primary scope
+# peroxide order. What they carry is the one comparison the two-axis block
 # cannot make at all: the same chemistry with and without the catalyst.
 #
 # (enzyme-free experiments, catalysed partner, label)
@@ -1602,7 +1602,7 @@ def predicted_enhancement(scope=CATALYSED_WITH_BACKGROUND,
 # The scopes worth a name. Anything else is spelled out on the command line as
 # experiment numbers, so a one-off question does not need a constant.
 NAMED_SCOPES = {
-    "primary": PRIMARY_SCOPE,
+    "two-axis": TWO_AXIS_BLOCK,
     "free-bnoh": FREE_BNOH,
     "free-bnoh-all": FREE_BNOH_ALL,
     "free-bnoh-neutral": FREE_BNOH_NEUTRAL,
@@ -1642,9 +1642,9 @@ def parse_scope(text):
 def main():
     import argparse
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
-    parser.add_argument("--scope", default="primary",
+    parser.add_argument("--scope", default="two-axis",
                         help="a named scope (%s) or experiment numbers "
-                             "(\"3,6\", \"135-151\"); default primary"
+                             "(\"3,6\", \"135-151\"); default two-axis"
                              % ", ".join(NAMED_SCOPES))
     parser.add_argument("--design", action="store_true",
                         help="print the per-experiment design table")
@@ -1740,7 +1740,7 @@ def main():
               f"background_reaction/\n  ANALYSIS.md section 6b; the decisive "
               f"tests are 31P NMR and a repeat of exp 65.")
 
-        print(f"\n  The in-scope block is UNAFFECTED: [buf] = 75.013 mM in "
+        print(f"\n  The two-axis block is UNAFFECTED: [buf] = 75.013 mM in "
               f"all 119 of its curves,\n  so no buffer variation can reach "
               f"its substrate order.")
         return 0

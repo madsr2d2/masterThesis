@@ -22,7 +22,7 @@ export to check against.
 
 Since 2026-08-31 this module also supplies the READINGS for runs that were
 exported, through `read_all`. The .txt export is rounded to three decimals of
-absorbance, and on 67 of the 119 in-scope curves that rounding erases the
+absorbance, and on 67 of the 119 two-axis curves that rounding erases the
 point-to-point scatter entirely -- their measured noise is exactly zero, which
 is why every noise estimate in this package is floored at QUANTISATION_SIGMA
 (2.89e-4 AU). The binary stores %T at about 2.1e-4 %, or 9.3e-7 AU, and from it

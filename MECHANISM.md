@@ -657,7 +657,7 @@ buffers at the same nominal pH are not comparable without accounting for this.
   carbonyl at t = 0. There are two ways out and the data prefers the second:
     * *Benzaldehyde, the product, supplies the carbonyl as it accumulates.*
       That route is autocatalytic, and the background does not accelerate:
-      1 of 16 curves at the fixed-buffer anchor, against 50 of 110 in-scope
+      1 of 16 curves at the fixed-buffer anchor, against 50 of 110 two-axis
       catalysed increments, and exps 67, 69 and 70 actively DECELERATE
       (background_reaction/ANALYSIS.md section 7). Disfavoured.
     * *The buffer catalyses the oxidant's formation, before the substrate is
@@ -839,7 +839,7 @@ fixed pH and fixed `[H2O2]`. First order in buffer is exactly what Sander &
 Jencks predict. `python data/scope.py --buffer`; `scope.buffer_dependence`.
 
 This does **not** reach exps 135–151: `[buf]` is 75.013 mM in all 119 of their
-curves, so the in-scope substrate order carries none of this. It also does not
+curves, so the two-axis block's substrate order carries none of this. It also does not
 change what the catalysed curves *are* — the reference channel omits only the
 enzyme, so the background is already subtracted at matched buffer.
 
@@ -929,7 +929,7 @@ explanation.
 
 ### Autocatalysis
 
-**51 of 110 live in-scope curves are steeper later than at the start by more
+**51 of 110 live two-axis curves are steeper later than at the start by more
 than 3σ.** It tracks the peroxide anion: 87% of the 30 curves above 0.1 mM
 [HOO⁻] accelerate, against 31% of the 80 below. Exps 140–143 accelerate hardest (median z of +5 to
 +14, 19 of their 28 live curves); exps 146, 149 and 150 decelerate outright

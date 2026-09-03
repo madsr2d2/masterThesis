@@ -8,6 +8,69 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-03 — `PRIMARY_SCOPE` becomes `TWO_AXIS_BLOCK`: the block did not change, its status did
+
+**Nothing about the data moved.** The same 17 experiments, the same 119 curves,
+the same 10 checks in what is now
+`test_fit_kinetics.test_two_axis_block`. What changed is the name and the claim
+it was making.
+
+**Every earlier entry in this log calls it `PRIMARY_SCOPE`.** Those entries are
+the record and are left as written; read `PRIMARY_SCOPE` as today's
+`fit_dataset.TWO_AXIS_BLOCK` throughout, and `test_scope` as
+`test_two_axis_block`.
+
+### Why
+
+The name asserted a precedence the project's own work had stopped honouring.
+At the point of the rename:
+
+| | |
+|---|---|
+| analysis folders | 5 |
+| …that work outside exps 135-151 | **4** — `temperature_series`, `product_fate`, `induction`, `buffer` |
+| the sole route to activation parameters | `temperature_series/`, entirely outside |
+| curves the deceleration needed | 84, across the 4OMe archive; the block holds none of them |
+| buffer titrations in the archive | 5 (exps 32, 34, 35, 36, 37), none in the block |
+| analysis folders *for* the block | **0** |
+| saved mechanism fits | 1, on exps 3/6/67/69/70 and 68/71/73/74/83 — phosphate, sharing **no experiment** with the block |
+
+A label that says "primary" while four fifths of the analysis happens elsewhere
+is a hazard of the same kind as a filename copied forward between runs: it is
+read instead of the thing it names.
+
+### Why *this* name
+
+Because the design is what selects the block, and no chemistry label does.
+
+- It is **not** "BnOH catalysed": the archive holds **175** such curves — 28
+  boric, 20 phosphate, 127 pyrophosphate.
+- It is **not** "BnOH catalysed pyrophosphate at 25 °C" either: **exps 75 and
+  76** are exactly that and are not in the block.
+- It **is** the set of runs that move both concentration axes inside a single
+  run — seven cuvettes each, `[S]` over ≥ 39.9×, `[H₂O₂]` over ≥ 6.8×, the
+  group spanning three pH units and three decades of [HOO⁻]. That is what the
+  test re-derives, and its last check is that **no run outside the block
+  carries the design**.
+
+### What replaces the idea of a scope
+
+`CLAUDE.md`, "There is no privileged block": each question names the block it
+needs, and every block is defined in `data/scope.py` — never as experiment
+numbers inline. The vocabulary already existed (`TEMPERATURE_SERIES`,
+`FREE_BNOH_ALL`, `FREE_BNOH_PHOSPHATE`, `BUFFER_FIXED`,
+`buffer_role.TITRATIONS`, `slowdown.substrate_blocks`,
+`induction.induction_blocks`); this makes it the rule.
+
+### Also renamed
+
+`PRIMARY_SCOPE_BLOCK` → `TWO_AXIS_GROUP` (the pooling key, so "block" means one
+thing); `in_scope()` → `in_block()`; `EXPECTED_SCOPE_*` → `EXPECTED_BLOCK_*`;
+`SCOPE_*_LADDER` → `BLOCK_*_LADDER`; the `--scope primary` CLI choice →
+`--scope two-axis` in both `scope.py` and `fit_kinetics.py`; and the
+`analyse-scope` skill → `analyse-kinetics`, whose rules were never
+block-specific.
+
 ## 2026-09-02 — The breakpoint screen looked for one break, and there are two
 
 **From the user, on the rebuilt panels:** the fitted curves should show both
@@ -319,7 +382,7 @@ binary**, from 374.
 
 ### What moved
 
-Everything shifted in the third digit; no conclusion changed. The in-scope block
+Everything shifted in the third digit; no conclusion changed. The two-axis block
 (exps 135–151) is untouched — the lowercase label appears only in exps 1–32.
 
 | | before | after |
@@ -1446,7 +1509,7 @@ carry 9 readings each and survive.
 
 ### What it cost, and a finding worth more than the change
 
-The lag statistic moves **158 -> 160 of 402**. Chasing why in-scope gained 10
+The lag statistic moves **158 -> 160 of 402**. Chasing why two-axis gained 10
 while the rest of the archive lost 8 turned up something more important than
 the asymmetry:
 
@@ -1751,7 +1814,7 @@ standing rule -- screens nominate, convictions go into
 warning that curve shape is never a defect.
 
 Counts: **10 isolated readings** over the 27 enzyme-free BnOH curves,
-**222** over the 119 in-scope curves, 23 of those a first reading.
+**222** over the 119 two-axis curves, 23 of those a first reading.
 
 ### Why a general filter was NOT adopted
 
@@ -1760,7 +1823,7 @@ the curves** -- among them exps 135 samples 1-4, which are IN SCOPE and in the
 strong-run set, with 20-26% of their readings flagged. A curve with a quarter
 of its points beyond 5 sigma does not have outliers; it has an underestimated
 noise or real fine structure. A blanket point filter would have carved 20% out
-of four in-scope curves. **Exps 135 s1-s4 are worth a look in their own right.**
+of four two-axis curves. **Exps 135 s1-s4 are worth a look in their own right.**
 
 ### Known limitations, pinned rather than papered over
 
@@ -1945,7 +2008,7 @@ magnitude -- so the block label IS the sample number.
 | curves lagging (`peak_position > 0.15`) | 151 / 402 (37.6%) | **158 / 402 (39.3%)** |
 
 Every one of the 97 changes is `txt` -> `rre`; none goes the other way, and the
-in-scope block is untouched at 119/119 `.rre`. The fallback is now per SAMPLE
+two-axis block is untouched at 119/119 `.rre`. The fallback is now per SAMPLE
 rather than per run: 28 cuvettes keep the export because their block is absent
 from an otherwise readable binary. Exp 6 is the pattern -- it holds
 `Sample001`, `Sample002` and `Sample004`, and no `Sample003`.
@@ -1994,7 +2057,7 @@ the exp 3 sample 3 example, which no longer shows the pathology on `.rre`.
 `test_read_rre.test_both_naming_conventions_are_read` pins both conventions,
 that every fittable experiment now has a readable `.rre`, that all seven of
 exp 3's cuvettes come from the instrument and none of them reports the export's
-floor as its noise, and that the in-scope block is still entirely `.rre`.
+floor as its noise, and that the two-axis block is still entirely `.rre`.
 
 ---
 
@@ -2046,7 +2109,7 @@ output of it.
 ## 2026-09-01 — The background's substrate order is a buffer order wearing its clothes
 
 Raised by the user, asking what the uncatalysed BnOH + H2O2 reaction is, so
-that the in-scope curves — which were recorded against it — can be read. The
+that the two-axis curves — which were recorded against it — can be read. The
 first question was how much of the enzyme-free rate belongs to the buffer.
 
 ### The design problem, stated exactly
@@ -2121,16 +2184,16 @@ phosphate (+0.397). That is one more reason to treat boric as suspect.
   the buffer term stealing the pH effect, and it is why the default
   `background_orders` terms are left at `("s0", "h2o2", "hoo")`.
 
-### What this does and does not change for the in-scope block
+### What this does and does not change for the two-axis block
 
-**It does not contaminate it.** `[buf]` = 75.013 mM in **all 119 in-scope
+**It does not contaminate it.** `[buf]` = 75.013 mM in **all 119 two-axis
 curves across all 17 experiments** — zero variation, `buf_max/buf_min` = 1 in
-every run. No buffer variation can reach the in-scope substrate order, and the
+every run. No buffer variation can reach the two-axis substrate order, and the
 correction developed here is needed for exps 3 and 6, not for exps 135–151.
 
 **It is also already subtracted.** Every run is double-beam and the catalysed
 sheets' reference omits *only* the enzyme (`kinetics_io.py`,
-`verify_enzyme.py`), so an in-scope curve is a catalytic increment taken
+`verify_enzyme.py`), so an two-axis curve is a catalytic increment taken
 against a background at *identical* buffer, substrate, `[H2O2]` and pH. The
 buffer's contribution to the background cancels in the recorded curve. What the
 background is still needed for is the **absolute** rate — the increment plus
@@ -2148,30 +2211,30 @@ So it is roughly **first order in peroxide and in buffer, 0.8 order in
 [HOO-]** — the rate climbs about tenfold per pH unit — and markedly
 **sub-linear in substrate**, +0.297 ± 0.080.
 
-**It does not accelerate, and the in-scope curves do.** Source-matched, which
+**It does not accelerate, and the two-axis curves do.** Source-matched, which
 this comparison has to be (`.txt` curves carry a 1096x higher variance floor
 and their acceleration z is suppressed by it):
 
 | set | source | accelerating, >3 sigma |
 |---|---|---|
 | enzyme-free BnOH, `[buf]` fixed (65, 67, 69, 70) | 16/16 `.rre` | **0 of 16** |
-| in-scope catalysed increments (135–151) | 119/119 `.rre` | **51 of 110 live** |
+| two-axis catalysed increments (135–151) | 119/119 `.rre` | **51 of 110 live** |
 
 Exps 67, 69 and 70 do not merely fail to accelerate, they **decelerate** —
 median `accel_z` of −1.67, −5.15 and −2.26 — which is what an ordinary reaction
 consuming its substrate does. Both sets are entirely `.rre`, so the contrast is
 not the floor artefact of the 2026-09-01 entry below. **The autocatalytic
-signature in the in-scope block is not inherited from the background.** (The
+signature in the two-axis block is not inherited from the background.** (The
 two accelerating curves in the enzyme-free set are both exp 6, which is `.txt`
 and whose z is suppressed if anything.)
 
-For scale against the in-scope block, on `vmax`, within runs:
+For scale against the two-axis block, on `vmax`, within runs:
 
 | set | order in `[S]` |
 |---|---|
 | enzyme-free background, `[buf]` fixed | +0.297 ± 0.080 |
-| in-scope catalysed increment, all 110 live | +0.097 ± 0.052 |
-| in-scope, 11 strong runs | +0.012 ± 0.044 |
+| two-axis catalysed increment, all 110 live | +0.097 ± 0.052 |
+| two-axis, 11 strong runs | +0.012 ± 0.044 |
 
 The recorded increment is flatter in substrate than the background it was
 measured against — worth carrying into `FITTING.md` F1, which argues the
@@ -2291,7 +2354,7 @@ scatter.
 
 ## 2026-09-01 — The variance floor belongs to the source, and it reached only half way
 
-Raised by the user, asking whether the in-scope curves are the `.rre`-derived
+Raised by the user, asking whether the two-axis curves are the `.rre`-derived
 ones and then whether the floor should come from the `.rre` data. Both answers
 were yes, and the second exposed a place where it did not.
 
@@ -2318,7 +2381,7 @@ and is now true of 125.
 
 ### What it cost
 
-Measured over the 110 live in-scope curves, every one of which is `.rre`:
+Measured over the 110 live two-axis curves, every one of which is `.rre`:
 
 | | |
 |---|---|
@@ -2333,7 +2396,7 @@ so an inflated floor shrinks the z-score directly and the statistic was
 
 | | before | after |
 |---|---|---|
-| in-scope accelerating (> 3σ) | 48 of 110 | **51 of 110** |
+| two-axis accelerating (> 3σ) | 48 of 110 | **51 of 110** |
 | accelerating, [HOO⁻] > 0.1 mM | 87 % of 30 | 87 % of 30 |
 | accelerating, [HOO⁻] ≤ 0.1 mM | 28 % of 80 | **31 % of 80** |
 | accelerating, 11 strong runs | 40 of 77 | 40 of 77 |
@@ -2383,7 +2446,7 @@ The floor exists only to stop a degenerate zero — exp 25 sample 3 rises by
 exactly 0.004 AU per reading and produced a standard error of 1.5e-20 AU/s
 before it existed. So the correct value is the source's own digitisation limit,
 which then almost never binds and lets the measured scatter speak. Flooring
-`.rre` curves at the *export's* quantum instead made half of the in-scope block
+`.rre` curves at the *export's* quantum instead made half of the two-axis block
 report the export's precision when the instrument's is a thousand times better.
 
 ### An unrelated observation, recorded so it is not lost
@@ -2683,7 +2746,7 @@ difference in shape.
 ### Autocatalysis does track the chemzyme
 
 At matched `[HOO-]` of 0.03–0.10 mM, **0 of 16 enzyme-free curves accelerate
-against 7 of 23 in-scope catalysed ones** (Fisher p = 0.029). Within the paired
+against 7 of 23 two-axis catalysed ones** (Fisher p = 0.029). Within the paired
 runs alone it is 0/16 against 2/9, p = 0.12. No enzyme-free run reaches
 `[HOO-]` above 0.1 mM, which is exactly where the catalysed block reaches 87%,
 so the regime where the effect is largest is untested without enzyme.
@@ -2739,9 +2802,9 @@ so it is not asked a third time.
 |---|---|---|
 | resolution | 0.001 AU | ~9.3e-7 AU (2.1e-4 %T) |
 | distinct values, exp 139 s1 | 42 of 78 | 78 of 78 |
-| point-to-point noise | **exactly 0 on 67 of 119 in-scope curves** | median 1.8e-4 AU |
+| point-to-point noise | **exactly 0 on 67 of 119 two-axis curves** | median 1.8e-4 AU |
 
-The export is rounded to three decimals, and on most in-scope curves that
+The export is rounded to three decimals, and on most two-axis curves that
 rounding erases the scatter completely. The package compensated with
 `QUANTISATION_SIGMA` = 2.89e-4 AU as a floor — but the real noise is 1.15e-4 to
 7.5e-4 AU, median 1.8e-4. **The floor had been overstating the instrument's
@@ -2749,7 +2812,7 @@ noise by about 1.6x**, and every standard error with it.
 
 ### The check that licenses the substitution
 
-All **119 in-scope curves reproduce from the .rre to within 0.00098 AU**, which
+All **119 two-axis curves reproduce from the .rre to within 0.00098 AU**, which
 is the export's own rounding step. This is the same measurement at finer
 resolution, not a different one. `fit_dataset._prefer_rre` therefore takes the
 .rre only where the sample has the same number of points AND tracks the export
@@ -2771,9 +2834,9 @@ argument rather than assuming one. Nothing may floor a noise at
 | | before | after |
 |---|---|---|
 | archive lag fraction | 136/402 = 34% | **151/402 = 37.6%** |
-| in-scope live curves | 96 of 119 | **110 of 119** |
-| in-scope lagging | 24 | **39** |
-| in-scope accelerating (>3σ) | 40 of 96 | **48 of 110** — SUPERSEDED 2026-09-01, now 51 of 110 |
+| two-axis live curves | 96 of 119 | **110 of 119** |
+| two-axis lagging | 24 | **39** |
+| two-axis accelerating (>3σ) | 40 of 96 | **48 of 110** — SUPERSEDED 2026-09-01, now 51 of 110 |
 | v_max order in [H₂O₂] | +0.77 ± 0.07 | **+0.80 ± 0.08** |
 | v_max order in [BnOH] | +0.01 ± 0.05 | **+0.10 ± 0.05** |
 | v₀ order in [BnOH] | +0.33 ± 0.06 | **+0.44 ± 0.07** |

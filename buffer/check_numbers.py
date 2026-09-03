@@ -103,16 +103,16 @@ def main():
     for label, name in (("4OMe catalysed", "4OMe catalysed"),
                         ("4OMe enzyme-free", "4OMe enzyme-free"),
                         ("the temperature series", "temperature series"),
-                        ("BnOH in scope", "BnOH in scope (135-151)")):
+                        ("BnOH two-axis", "BnOH two-axis (135-151)")):
         got = induction.composition_collinearity(blocks[name])
         # The document bolds the two rows that carry the CONTRAST -- every
-        # 4OMe run against the in-scope block -- and not every row whose
+        # 4OMe run against the two-axis block -- and not every row whose
         # value happens to clear a threshold. Emphasis is an argument, so it
         # is named here rather than inferred from the number. This check was
         # dead until 2026-09-02: the old normaliser stripped `**` from both
         # sides before comparing, so the markers were built and discarded.
         bold = "**" if name in ("4OMe catalysed",
-                                "BnOH in scope (135-151)") else ""
+                                "BnOH two-axis (135-151)") else ""
         # A zero collinearity is written without a sign in the document, which
         # is the right typography and needs saying here rather than there.
         shown = f"{got['median']:.2f}" if got["median"] == 0.0 \
@@ -121,9 +121,9 @@ def main():
                   f"| {got['runs']} | {bold}{shown}{bold} |")
         if np.isfinite(got.get("slope", np.nan)):
             doc.claim(f"{label}: the ladder slope", f"{got['slope']:.3f} |")
-    doc.check("in-scope every run holds [buf] constant",
+    doc.check("two-axis: every run holds [buf] constant",
               induction.composition_collinearity(
-                  blocks["BnOH in scope (135-151)"])["constant_buffer"] == 17)
+                  blocks["BnOH two-axis (135-151)"])["constant_buffer"] == 17)
 
     print("\nsection 5: identity against pH")
     identity = buffer_role.identity_overlap(frame)

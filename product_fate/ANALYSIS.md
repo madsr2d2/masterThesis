@@ -179,12 +179,12 @@ harder elsewhere: **exp 21 loses 40% of its rate on 36 µM of product against
 
 The BnOH blocks reach **0.386 mM** of product against this block's **0.214 mM**,
 and their product coefficient is **positive** — more product, *less*
-deceleration, which is the autocatalysis the in-scope analysis reports. On the
+deceleration, which is the autocatalysis the two-axis block reports. On the
 one-dummy-per-experiment comparison the two substrates differ by
 
     -0.919 +/- 0.161   against   +0.245 +/- 0.121     a gap of 1.16 +/- 0.20
 
-**5.8σ.** Note what the in-scope BnOH block does instead: it decelerates with
+**5.8σ.** Note what the two-axis BnOH block does instead: it decelerates with
 **run length** (−0.697 ± 0.136) while accelerating with product. A clock and an
 autocatalysis at once, which is a different problem from this one and is not
 solved here.
@@ -215,7 +215,7 @@ already in `MECHANISM.md` as side reaction **S2**, which that document called
 "the sink most likely to bite quantitatively" before any of this was measured.
 
 The archive's own bound on the BnOH side is weak, and should be quoted as such:
-pushing the same plateau arithmetic onto the in-scope BnOH curves — generously
+pushing the same plateau arithmetic onto the two-axis BnOH curves — generously
 attributing *all* of their deceleration to a sink, when it is mostly clock —
 gives `k_A/k_S` ≈ **185** on the 3 of 110 curves that yield a plateau at all,
 against 54 for 4OMe. The evidence for the contrast is the regression, not that

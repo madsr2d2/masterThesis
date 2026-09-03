@@ -70,7 +70,7 @@ Fitting:
 
 ```bash
 python data/fit_dataset.py                # what is fittable, by block
-python data/fit_kinetics.py --list                    # blocks in scope (exps 135-151)
+python data/fit_kinetics.py --list                    # the two-axis block (exps 135-151)
 python data/fit_kinetics.py --buffer Pyrophosphate    # fit the scope
 python data/fit_kinetics.py --scope all --list        # every block, ignoring the scope
 python data/fit_kinetics.py --scope all --substrate BnOH --temperature 25 --buffer Phosphate
@@ -89,7 +89,7 @@ Current state:
 readings   402 rre /   0 txt curves        every cuvette from the instrument's own file
 compiled   454 rows / 100 experiments      data/experiment_data.csv
 fittable   402 rows /  88 experiments      clean_experiment_dataframe, less 25,2 and 25,4
-fit scope  119 curves / 17 experiments     exps 135-151; fit_dataset.PRIMARY_SCOPE
+two-axis  119 curves / 17 experiments      exps 135-151; fit_dataset.TWO_AXIS_BLOCK
 manifest   89 use, 11 excluded, 19 ruled experiments, 0 open questions, 0 conflicts
 checks     0 errors, 23 warnings, 15 notes; 20/20 fault injection
 suites     test_kinetic_model 29/29; test_fit_kinetics 59/59;
@@ -97,23 +97,33 @@ suites     test_kinetic_model 29/29; test_fit_kinetics 59/59;
            all others pass
 ```
 
-## What the fitting is scoped to
+## Blocks, and the two-axis block
 
-Fitting is scoped to **exps 135-151** — 119 curves, BnOH / 25 °C /
-pyrophosphate. They are the only runs in the archive that vary *both* the
-substrate and the peroxide inside a single run (100.0% of the scope's log[S]
+There is no privileged block: each question names the one it needs, and every
+block is defined in `data/scope.py`. The archive earns that — the temperature
+series is the only route to activation parameters, the deceleration needs 84
+curves across the whole 4OMe set, the buffer question needs five titrations,
+and none of those live in exps 135-151.
+
+The **two-axis block** — `fit_dataset.TWO_AXIS_BLOCK`, exps 135-151, 119 curves
+of BnOH / 25 °C / pyrophosphate — is the block with the strongest design and
+the one the mechanism fitting uses. It is named for that design, because that
+is what selects it: these are the only runs in the archive that vary *both* the
+substrate and the peroxide inside a single run (100.0% of the block's log[S]
 variance and 94.1% of its log[H₂O₂] variance is within-experiment), and they
-span 19 pH values from 5.47 to 9.73 — 5.1 decades of [HOO⁻] — in one block,
+span 19 pH values from 5.47 to 9.73 — 5.1 decades of [HOO⁻] — in one group,
 with no exclusions and no open questions. `FITTING.md` sets out the full case,
 the two conditions that must be met before a fit here is quotable, and the one
-thing the scope costs: it holds no enzyme-free curves at all.
+thing the block costs: it holds no enzyme-free curves at all.
 
-The scope lives in `fit_dataset.PRIMARY_SCOPE` and is re-derived from the
-designs by `test_fit_kinetics.test_scope`, which fails if any run outside it
-ever turns out to carry the same two-axis design. It is deliberately **not**
-the hand-sorted `data/Mads/good data BnOH/` folder, which also contains an
-already-excluded run, a run from a different cell, and a sheet with no
-instrument data — see `DATA_VERIFICATION.md`, 2026-08-31.
+The block is re-derived from the designs by
+`test_fit_kinetics.test_two_axis_block`, which fails if any run outside it ever
+turns out to carry the same two-axis design. A chemistry label would not select
+it: exps 75 and 76 are BnOH, catalysed, pyrophosphate at 25 °C and are not in
+it. It is deliberately **not** the hand-sorted `data/Mads/good data BnOH/`
+folder, which also contains an already-excluded run, a run from a different
+cell, and a sheet with no instrument data — see `DATA_VERIFICATION.md`,
+2026-08-31.
 
 A full sequential fit takes roughly 30 minutes: the model is integrated once per
 curve per residual evaluation, and the optimiser is deliberately started from

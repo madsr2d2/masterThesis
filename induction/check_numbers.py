@@ -146,7 +146,7 @@ def main():
               f"{gap['induction']['n']} curves at four temperatures")
 
     for label, name in (("4OMe catalysed", "4OMe catalysed"),
-                        ("BnOH", "BnOH in scope (135-151)")):
+                        ("BnOH", "BnOH two-axis (135-151)")):
         row = induction.signal_control(named[name])
         doc.claim(f"{label}: the signal-to-noise control",
               f"{row['signal_slope']:+.3f} +/- {row['signal_stderr']:.3f}** | "
@@ -167,7 +167,7 @@ def main():
     doc.claim("the rate's peroxide order there",
               f"{lever['rate_order']:+.3f} +/- {lever['rate_stderr']:.3f}")
 
-    scoped = scope.orders("t_ind", frame=named["BnOH in scope (135-151)"],
+    scoped = scope.orders("t_ind", frame=named["BnOH two-axis (135-151)"],
                           floor=induction.INDUCTION_FLOOR)
     doc.claim("BnOH's induction order in peroxide",
               f"{scoped['order_h2o2']:+.3f} +/- {scoped['stderr_h2o2']:.3f}")
@@ -175,8 +175,8 @@ def main():
     print("\nsection 4b: the constraint the two orders violate together")
     peroxide_blocks = (("4OMe peroxide, exps 127-131",
                         table[table.experiment.isin(induction.PEROXIDE_LEVER)]),
-                       ("BnOH in scope, exps 135-151",
-                        named["BnOH in scope (135-151)"]))
+                       ("BnOH two-axis, exps 135-151",
+                        named["BnOH two-axis (135-151)"]))
     for label, block in peroxide_blocks:
         joint = induction.joint_peroxide_order(block)
         doc.claim(f"{label}: the joint order",
@@ -193,7 +193,7 @@ def main():
                   for _, block in peroxide_blocks
                   for floor in induction.FLOOR_SWEEP))
 
-    saturation = induction.peroxide_saturation(named["BnOH in scope (135-151)"])
+    saturation = induction.peroxide_saturation(named["BnOH two-axis (135-151)"])
     doc.claim("the ladder's size and range",
           f"**{saturation['points']}\ncurves in {saturation['experiments']} "
               f"runs over {saturation['peroxide_low']:.2f}-"
@@ -239,7 +239,7 @@ def main():
     print("\nsection 6: which way the induction points")
     for label, name in (("4OMe catalysed", "4OMe catalysed"),
                         ("the temperature series", "temperature series"),
-                        ("BnOH in scope", "BnOH in scope (135-151)"),
+                        ("BnOH two-axis", "BnOH two-axis (135-151)"),
                         ("4OMe enzyme-free", "4OMe enzyme-free")):
         block = named[name]
         block = block[block.live]
@@ -248,10 +248,10 @@ def main():
         counts = block.progress_kind.value_counts()
         doc.claim(f"{label}: the shapes",
                   ", ".join(f"{value} {key}" for key, value in counts.items()))
-    arms = induction.ladder_arms(named["BnOH in scope (135-151)"])
-    for label, block, axis in (("in scope, substrate arm",
+    arms = induction.ladder_arms(named["BnOH two-axis (135-151)"])
+    for label, block, axis in (("two-axis, substrate arm",
                                 arms["substrate arm"], "s0"),
-                               ("in scope, peroxide arm",
+                               ("two-axis, peroxide arm",
                                 arms["peroxide arm"], "h2o2"),
                                ("4OMe catalysed", named["4OMe catalysed"],
                                 "s0")):
@@ -263,16 +263,16 @@ def main():
                   f"**{controlled[axis]:+.3f} +/- "
                   f"{controlled[axis + '_stderr']:.3f}**")
     for label, name in (("4OMe catalysed", "4OMe catalysed"),
-                        ("BnOH in scope", "BnOH in scope (135-151)")):
+                        ("BnOH two-axis", "BnOH two-axis (135-151)")):
         got = induction.composition_collinearity(named[name])
         doc.claim(f"{label}: the [S]/[buf] collinearity",
                   f"{got['median']:+.2f}")
     doc.check("the 4OMe blocks have no run with a constant buffer",
               induction.composition_collinearity(
                   named["4OMe catalysed"])["constant_buffer"] == 0)
-    doc.check("and every in-scope run has one",
+    doc.check("and every two-axis run has one",
               induction.composition_collinearity(
-                  named["BnOH in scope (135-151)"])["constant_buffer"] == 17)
+                  named["BnOH two-axis (135-151)"])["constant_buffer"] == 17)
     ladder = induction.buffer_lever(table)
     for run, label in ((34, "exp 34"), (32, "exp 32")):
         block = ladder[ladder.experiment == run]

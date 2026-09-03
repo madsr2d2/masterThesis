@@ -136,13 +136,31 @@ BASELINE_POINTS = 5
 # blocker: across this scope Davies' pKa_eff varies only 11.478 to 11.494, so
 # the entire ionic-strength apparatus is worth under 3.2% in [HOO-] against a
 # 129000x span driven by pH and [H2O2] alone.
-PRIMARY_SCOPE = frozenset(range(135, 152))
-PRIMARY_SCOPE_BLOCK = ("BnOH", 25.0, "Pyrophosphate")
+# THE TWO-AXIS BLOCK. Named for its DESIGN, not for its chemistry, because the
+# design is what selects it: these seventeen runs are the only ones in the
+# archive that move BOTH concentration axes inside a single run -- seven
+# cuvettes each, `[S]` over at least 39.9x and `[H2O2]` over at least 6.8x --
+# and `test_fit_kinetics.test_two_axis_block` re-derives that from the designs
+# rather than trusting the list.
+#
+# A chemistry name would be wrong twice over. It is not "BnOH catalysed": the
+# archive holds 175 such curves across boric, phosphate and pyrophosphate. It
+# is not even "BnOH catalysed pyrophosphate at 25 C": exps 75 and 76 sit in
+# that cell and are NOT here, because they do not carry the two-axis design.
+#
+# It was called TWO_AXIS_BLOCK until 2026-09-03 and the whole project was
+# declared scoped to it. That stopped being true: four of the five analysis
+# folders work outside it, the temperature series is the sole route to
+# activation parameters, and the deceleration needed 84 curves the block does
+# not contain. It is now one named block among several -- the one with the
+# strongest design -- and not a privileged one. See CLAUDE.md.
+TWO_AXIS_BLOCK = frozenset(range(135, 152))
+TWO_AXIS_GROUP = ("BnOH", 25.0, "Pyrophosphate")
 
 
-def in_scope(curves, scope=PRIMARY_SCOPE):
-    """The curves of `curves` whose experiment is in `scope`."""
-    return [curve for curve in curves if curve.experiment in scope]
+def in_block(curves, block=TWO_AXIS_BLOCK):
+    """The curves of `curves` whose experiment is in `block`."""
+    return [curve for curve in curves if curve.experiment in block]
 
 
 @dataclass
@@ -219,7 +237,7 @@ def read_all_curves(directory=CURVE_DIRECTORY, rre_directory=RRE_DIRECTORY):
     Values come from the instrument's own .rre where one exists and from the
     .txt export otherwise. The .rre is the same measurement at ~1000x the
     resolution -- the .txt is rounded to 0.001 AU, which zeroes the measured
-    noise on 67 of the 119 in-scope curves -- so it is preferred wherever it
+    noise on 67 of the 119 two-axis curves -- so it is preferred wherever it
     is available and agrees. See rre_io.
 
     A .rre is used only when its sample has the same number of points as the

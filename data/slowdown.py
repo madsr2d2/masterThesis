@@ -724,8 +724,8 @@ def substrate_blocks(frame=None):
         "4OMe catalysed, all buffers": frame[four & frame.differential],
         "4OMe enzyme-free": frame[four & ~frame.differential],
         "BnOH catalysed, all buffers": frame[bnoh & frame.differential],
-        "BnOH in scope (135-151)":
-            frame[frame.experiment.isin(scope.PRIMARY_SCOPE)],
+        "BnOH two-axis (135-151)":
+            frame[frame.experiment.isin(scope.TWO_AXIS_BLOCK)],
         "BnOH enzyme-free": frame[bnoh & ~frame.differential],
         "temperature series":
             frame[frame.experiment.isin(scope.TEMPERATURE_SERIES)],
@@ -754,7 +754,7 @@ def report(frame=None):
     print("\n   with every condition absorbed by one dummy per experiment, so"
           "\n   only the substrate ladder inside each run carries the product:")
     for name in ("4OMe catalysed, phosphate", "4OMe enzyme-free",
-                 "BnOH catalysed, all buffers", "BnOH in scope (135-151)"):
+                 "BnOH catalysed, all buffers", "BnOH two-axis (135-151)"):
         row = deceleration_drivers(named[name], fixed=True)
         print(f"   {name:30s} {row['points']:4d} {row['r2']:6.3f} "
               f"{'':6s} {'':16s} {row['product']:+8.3f} "

@@ -17,9 +17,9 @@ import sys
 import numpy as np
 import pandas as pd
 
-from fit_dataset import (BASELINE_POINTS, PRIMARY_SCOPE, PRIMARY_SCOPE_BLOCK,
+from fit_dataset import (BASELINE_POINTS, TWO_AXIS_BLOCK, TWO_AXIS_GROUP,
                          QUANTISATION_SIGMA, Curve, build_curves, curve_noise,
-                         group_curves, in_scope, select_fittable)
+                         group_curves, in_block, select_fittable)
 from fit_kinetics import (BOUNDS, FAILURE_RESIDUAL, INITIAL, STAGE_ONE,
                           STAGE_TWO, fit_group, residuals, sequential_fit)
 from kinetic_model import Conditions, RateConstants, observable, simulate
@@ -42,10 +42,10 @@ def check(name, condition, detail=""):
 EXPECTED_ROWS = 402
 EXPECTED_EXPERIMENTS = 88
 
-# The fitting scope, pinned. See fit_dataset.PRIMARY_SCOPE for why these runs
+# The fitting scope, pinned. See fit_dataset.TWO_AXIS_BLOCK for why these runs
 # and not others.
-EXPECTED_SCOPE_CURVES = 119
-EXPECTED_SCOPE_EXPERIMENTS = 17
+EXPECTED_BLOCK_CURVES = 119
+EXPECTED_BLOCK_EXPERIMENTS = 17
 
 # What "well designed" means here, in numbers rather than in a folder name: a
 # run whose own cuvettes vary BOTH the substrate and the peroxide, so both
@@ -56,8 +56,8 @@ EXPECTED_SCOPE_EXPERIMENTS = 17
 # axes exactly constant. The bar could sit anywhere between 1x and 6.9x
 # without changing which runs qualify.
 LADDER_MINIMUM = np.log(2.0)
-SCOPE_SUBSTRATE_LADDER = np.log(39.9)   # the weakest substrate ladder in scope is 40.0x
-SCOPE_PEROXIDE_LADDER = np.log(6.8)     # the weakest peroxide ladder in scope
+BLOCK_SUBSTRATE_LADDER = np.log(39.9)   # the weakest substrate ladder in the block is 40.0x
+BLOCK_PEROXIDE_LADDER = np.log(6.8)     # the weakest peroxide ladder in the block
 
 
 def test_selection():
@@ -85,8 +85,19 @@ def test_curves():
           report["curves"] == EXPECTED_ROWS,
           f"{report['curves']} curves from {report['rows_out']} rows, "
           f"dropped {report['dropped']}")
-    check("nothing was dropped silently",
-          not any(report["dropped"].values()), str(report["dropped"]))
+    # THE FIRST READING OF EVERY RUN IS DROPPED ON PURPOSE, unconditionally
+    # and archive-wide (`DROP_FIRST_READING`): it is a settling artefact, not a
+    # measurement. This assertion did not exempt it and so had been failing
+    # since that drop was introduced -- unnoticed because this suite is the
+    # slow optimiser one and is not run routinely. Restated as the two things
+    # actually worth asserting: nothing ELSE was dropped, and the deliberate
+    # drop reached every curve rather than a selected few.
+    dropped = dict(report["dropped"])
+    first = dropped.pop("first_reading", 0)
+    check("nothing was dropped silently", not any(dropped.values()),
+          str(dropped))
+    check("and the deliberate first-reading drop reached every curve",
+          first == report["curves"], f"{first} of {report['curves']}")
 
     check("time starts at zero for every curve",
           all(curve.times[0] == 0.0 for curve in curves))
@@ -358,42 +369,47 @@ def _two_axis_runs(curves):
             and _ladder_spread(group, "h2o2") >= LADDER_MINIMUM}
 
 
-def test_scope():
+def test_two_axis_block():
     """
-    Pins the fitting scope, and re-derives it from the designs rather than
-    trusting the list.
+    Pins the two-axis block, and re-derives it from the designs, not the list.
 
-    The last check is the one that matters: if a run outside the scope ever
+    THE NAME IS THE DEFINITION. These seventeen runs are the archive's only
+    two-axis designs -- both concentrations moving inside one run -- which is
+    what the ladder checks below assert. A chemistry label would not select
+    them: exps 75 and 76 are BnOH, catalysed, pyrophosphate, 25 C and are not
+    here, because they do not carry the design.
+
+    The last check is the one that matters: if a run outside the block ever
     turns out to carry the same two-axis design -- because an exclusion was
     lifted, a sheet was re-read, or an unexported run was recovered -- this
-    fails and forces a decision, instead of leaving it silently out of the fit.
+    fails and forces a decision, instead of leaving it silently out.
     """
     print("\nfitting scope")
     curves, _ = build_curves()
-    scoped = in_scope(curves)
+    scoped = in_block(curves)
 
-    check(f"{EXPECTED_SCOPE_CURVES} curves in scope",
-          len(scoped) == EXPECTED_SCOPE_CURVES, f"got {len(scoped)}")
-    check(f"{EXPECTED_SCOPE_EXPERIMENTS} experiments in scope",
-          len({c.experiment for c in scoped}) == EXPECTED_SCOPE_EXPERIMENTS,
+    check(f"{EXPECTED_BLOCK_CURVES} curves in the block",
+          len(scoped) == EXPECTED_BLOCK_CURVES, f"got {len(scoped)}")
+    check(f"{EXPECTED_BLOCK_EXPERIMENTS} experiments in the block",
+          len({c.experiment for c in scoped}) == EXPECTED_BLOCK_EXPERIMENTS,
           f"got {len({c.experiment for c in scoped})}")
-    check("every scoped experiment survived the exclusions",
-          {c.experiment for c in scoped} == set(PRIMARY_SCOPE),
-          f"missing {sorted(set(PRIMARY_SCOPE) - {c.experiment for c in scoped})}")
-    check("the scope is one block, so rate constants may be pooled across it",
-          {c.group for c in scoped} == {PRIMARY_SCOPE_BLOCK})
+    check("every experiment in the block survived the exclusions",
+          {c.experiment for c in scoped} == set(TWO_AXIS_BLOCK),
+          f"missing {sorted(set(TWO_AXIS_BLOCK) - {c.experiment for c in scoped})}")
+    check("the block is one group, so rate constants may be pooled across it",
+          {c.group for c in scoped} == {TWO_AXIS_GROUP})
     check("every scoped run carries the full seven cuvettes",
-          all(len([c for c in scoped if c.experiment == e]) == 7 for e in PRIMARY_SCOPE))
+          all(len([c for c in scoped if c.experiment == e]) == 7 for e in TWO_AXIS_BLOCK))
 
     # The reason for the scope, restated as measurements.
     check("every scoped run measures its substrate order internally, over >= 39.9x",
           all(_ladder_spread([c for c in scoped if c.experiment == e], "s0")
-              >= SCOPE_SUBSTRATE_LADDER for e in PRIMARY_SCOPE))
+              >= BLOCK_SUBSTRATE_LADDER for e in TWO_AXIS_BLOCK))
     check("every scoped run measures its peroxide order internally, over >= 6.8x",
           all(_ladder_spread([c for c in scoped if c.experiment == e], "h2o2")
-              >= SCOPE_PEROXIDE_LADDER for e in PRIMARY_SCOPE))
+              >= BLOCK_PEROXIDE_LADDER for e in TWO_AXIS_BLOCK))
     pH_values = {c.pH for c in scoped}
-    check("the scope spans at least three pH units in one block",
+    check("the block spans at least three pH units in one group",
           max(pH_values) - min(pH_values) >= 3.0,
           f"{min(pH_values)}-{max(pH_values)}")
     hoo = [c.conditions.hoo for c in scoped]
@@ -401,9 +417,9 @@ def test_scope():
           np.log10(max(hoo) / max(min(hoo), 1e-12)) >= 3.0)
 
     # The guard: nothing outside the scope has the design the scope was chosen for.
-    outside = _two_axis_runs(curves) - set(PRIMARY_SCOPE)
-    check("no run outside the scope varies both axes at all",
-          not outside, f"unscoped two-axis runs: {sorted(outside)}")
+    outside = _two_axis_runs(curves) - set(TWO_AXIS_BLOCK)
+    check("no run outside the block varies both axes at all",
+          not outside, f"two-axis runs outside the block: {sorted(outside)}")
 
 
 def test_configuration():
@@ -426,7 +442,7 @@ def test_configuration():
 
 if __name__ == "__main__":
     test_selection()
-    test_scope()
+    test_two_axis_block()
     test_curves()
     test_noise_estimator()
     test_parameter_recovery()

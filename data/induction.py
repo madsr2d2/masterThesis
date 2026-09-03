@@ -914,7 +914,7 @@ def ladder_arms(table):
     """
     Split exps 135-151's L into the two arms that each move one thing.
 
-    The seven cuvettes of an in-scope run are not a grid: four step the
+    The seven cuvettes of an two-axis run are not a grid: four step the
     substrate at the run's top peroxide, and four step the peroxide at the run's
     top substrate, sharing the corner. Pooled, `log[S]` and `log[H2O2]`
     correlate about -0.5 by construction, so a banded table against either axis
@@ -1269,8 +1269,8 @@ def induction_blocks(frame):
         "4OMe enzyme-free": frame[four & ~frame.differential],
         "temperature series":
             frame[frame.experiment.isin(scope.TEMPERATURE_SERIES)],
-        "BnOH in scope (135-151)":
-            frame[frame.experiment.isin(scope.PRIMARY_SCOPE)],
+        "BnOH two-axis (135-151)":
+            frame[frame.experiment.isin(scope.TWO_AXIS_BLOCK)],
     }
 
 
@@ -1323,7 +1323,7 @@ def report(table=None):
     print(f"   clock predicts {INDUCTION_CLOCK_SLOPE:+.1f}, "
           f"product control {INDUCTION_PRODUCT_SLOPE:+.1f}")
     for name in ("4OMe catalysed", "temperature series",
-                 "BnOH in scope (135-151)"):
+                 "BnOH two-axis (135-151)"):
         block = named[name]
         for rate in ("peak_rate", "v_peak", "vmax"):
             fit = induction_drivers(block, rate=rate)
@@ -1369,7 +1369,7 @@ def report(table=None):
           f"{lever['signal_slope']:+.3f} +- {lever['signal_stderr']:.3f}"
           f"   n={lever['signal_points']}")
     print("   the same control on the block the conclusion rests on:")
-    for name in ("4OMe catalysed", "BnOH in scope (135-151)"):
+    for name in ("4OMe catalysed", "BnOH two-axis (135-151)"):
         got = signal_control(named[name])
         print(f"   {name:26s} {got['signal_slope']:+.3f} "
               f"+- {got['signal_stderr']:.3f}   n={got['signal_points']}")
@@ -1379,8 +1379,8 @@ def report(table=None):
     print("   every h, so the two questions are one. Measured as one fit:")
     peroxide_blocks = (("4OMe peroxide, exps 127-131",
                         table[table.experiment.isin(PEROXIDE_LEVER)]),
-                       ("BnOH in scope, exps 135-151",
-                        named["BnOH in scope (135-151)"]))
+                       ("BnOH two-axis, exps 135-151",
+                        named["BnOH two-axis (135-151)"]))
     for label, block in peroxide_blocks:
         joint = joint_peroxide_order(block)
         if "slope" not in joint:
@@ -1396,7 +1396,7 @@ def report(table=None):
         print(f"   {label:30s} "
               + "  ".join(f"{floor:.0f}s {fit['slope']:+.3f}"
                           for floor, fit in zip(FLOOR_SWEEP, swept)))
-    saturation = peroxide_saturation(named["BnOH in scope (135-151)"])
+    saturation = peroxide_saturation(named["BnOH two-axis (135-151)"])
     print(f"   and the rate's own order, on the {saturation['points']}-curve "
           f"ladder over {saturation['peroxide_low']:.2f}-"
           f"{saturation['peroxide_high']:.0f} mM:")
@@ -1425,7 +1425,7 @@ def report(table=None):
 
     print("\n4c. WHICH WAY THE INDUCTION POINTS, AND WHAT MOVES IT")
     for name in ("4OMe catalysed", "temperature series",
-                 "BnOH in scope (135-151)", "4OMe enzyme-free"):
+                 "BnOH two-axis (135-151)", "4OMe enzyme-free"):
         block = named[name]
         block = block[block.live]
         counts = block.progress_kind.value_counts()
@@ -1435,16 +1435,16 @@ def report(table=None):
     print("   [S] and [buf] move together inside a run, which is what makes")
     print("   a substrate order in the 4OMe block an order in the pair:")
     for name in ("4OMe catalysed", "temperature series",
-                 "BnOH in scope (135-151)"):
+                 "BnOH two-axis (135-151)"):
         got = composition_collinearity(named[name])
         print(f"   {name:26s} {got['runs']:2d} runs with a ladder, "
               f"median corr(log S, log buf) {got['median']:+.2f}, "
               f"{got['constant_buffer']} with [buf] constant")
     print("   P(lag first) per e-fold, within runs, signal-to-noise controlled:")
-    arms = ladder_arms(named["BnOH in scope (135-151)"])
-    for label, block, axis in (("in scope, substrate arm",
+    arms = ladder_arms(named["BnOH two-axis (135-151)"])
+    for label, block, axis in (("two-axis, substrate arm",
                                 arms["substrate arm"], "s0"),
-                               ("in scope, peroxide arm",
+                               ("two-axis, peroxide arm",
                                 arms["peroxide arm"], "h2o2"),
                                ("4OMe catalysed ([S] and [buf])",
                                 named["4OMe catalysed"], "s0")):
@@ -1516,7 +1516,7 @@ def report(table=None):
     print("   exps 135-151 vary [H2O2] 30-fold inside every run, which the")
     print("   4OMe archive does not; the temperature series holds it at 82.5")
     print("   mM on all 24 curves and can carry no peroxide order at all.")
-    scoped = named["BnOH in scope (135-151)"]
+    scoped = named["BnOH two-axis (135-151)"]
     for parameter, floor in (("t_ind", INDUCTION_FLOOR),
                              ("depth", DEPTH_FLOOR), ("vmax", None)):
         got = scope.orders(parameter, frame=scoped, floor=floor)

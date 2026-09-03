@@ -33,7 +33,7 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from curve_metrics import ACCELERATION_SIGMA
-from scope import (AXIS_PARTNER, PRIMARY_SCOPE, frame, ladder_groups,
+from scope import (AXIS_PARTNER, TWO_AXIS_BLOCK, frame, ladder_groups,
                    ladder_trend, orders)
 
 # label, column, log y?  -- the parameters worth an order.
@@ -88,7 +88,7 @@ def _panel(axis_key, axis_label, parameter, parameter_label, log_y, ax, data):
     return norm, cmap
 
 
-def build(outdir="figures", scope=PRIMARY_SCOPE):
+def build(outdir="figures", scope=TWO_AXIS_BLOCK):
     """Write the figure. Returns its path."""
     os.makedirs(outdir, exist_ok=True)
     data = frame(scope)

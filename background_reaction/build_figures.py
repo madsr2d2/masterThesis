@@ -411,7 +411,7 @@ def figure_curvature():
 
 
 def figure_acceleration():
-    """The in-scope curves accelerate; the background does not."""
+    """The two-axis curves accelerate; the background does not."""
     # The experiment lists come from the constants, not from the label. This
     # one read "(65,67,69,70)" for a day after exp 65's rates were withdrawn
     # from BUFFER_FIXED on 2026-09-01, which is a legend naming a curve that
@@ -426,8 +426,8 @@ def figure_acceleration():
              scope.BUFFER_FIXED, PALETTE[0]),
             (f"enzyme-free titrations\n{_named(scope.BUFFER_CONFOUNDED)}",
              scope.BUFFER_CONFOUNDED, ACCENT),
-            (f"in-scope catalysed\n{_named(scope.PRIMARY_SCOPE)}",
-             scope.PRIMARY_SCOPE, PALETTE[2])]
+            (f"two-axis catalysed\n{_named(scope.TWO_AXIS_BLOCK)}",
+             scope.TWO_AXIS_BLOCK, PALETTE[2])]
     axes = Axes(560, 380, (-0.6, 2.6), (-12.0, 22.0), pad=(62, 16, 62, 26))
     axes.hline(ACCELERATION_SIGMA, ACCENT, "5 3", 1.6)
     axes.hline(0.0, MUTED, "3 3", 1.2)
@@ -528,7 +528,7 @@ def build_index():
     free = scope.frame(scope.FREE_BNOH_ALL)
     whole = scope.frame(tuple(range(1, 152)))
     cell = whole[(whole.buffer == "Pyrophosphate") & (whole.substrate == "BnOH")]
-    in_scope = scope.frame(scope.PRIMARY_SCOPE)
+    in_scope = scope.frame(scope.TWO_AXIS_BLOCK)
     rows = []
     for estimator in ESTIMATORS:
         result = scope.buffer_dependence(parameter=estimator)
@@ -595,7 +595,7 @@ block slope does not. The gap is {abs(pooled['v0_quad']['r2'] - pooled['vmax']['
 and points the other way; the argument is withdrawn.</p>
 <div class='grid two'>
 {fig(figure_rate_law('v0_quad'), "Headline estimator — no window anywhere.")}
-{fig(figure_rate_law('vmax'), "The estimator the in-scope block was measured with.")}
+{fig(figure_rate_law('vmax'), "The estimator the two-axis block was measured with.")}
 </div>
 
 <h2>What the background is not</h2>
@@ -610,11 +610,11 @@ and points the other way; the argument is withdrawn.</p>
 
 <h2>What this means for exps 135–151</h2>
 <p><b>The confound does not reach them.</b> <code>[buf]</code> is
-{in_scope.buf.iloc[0]:.3f} mM in all {len(in_scope)} in-scope curves across all
+{in_scope.buf.iloc[0]:.3f} mM in all {len(in_scope)} two-axis curves across all
 {in_scope.experiment.nunique()} runs — zero variation — so no buffer effect can enter
 their substrate order.</p>
 <p><b>The background is already subtracted.</b> Every run is double-beam and the catalysed
-sheets' reference omits only the enzyme, so an in-scope curve is a catalytic increment
+sheets' reference omits only the enzyme, so an two-axis curve is a catalytic increment
 taken against a background at identical buffer, substrate, peroxide and pH.</p>
 <p><b>What is still missing is the amplitude.</b> There are
 {int((~cell.differential).sum())} enzyme-free curves in the {len(cell)}-curve BnOH

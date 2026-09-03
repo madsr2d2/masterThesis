@@ -37,7 +37,7 @@ def main():
                         ("4OMe catalysed, phosphate",
                          "4OMe catalysed, phosphate"),
                         ("4OMe, no enzyme at all", "4OMe enzyme-free"),
-                        ("BnOH, exps 135-151", "BnOH in scope (135-151)"),
+                        ("BnOH, exps 135-151", "BnOH two-axis (135-151)"),
                         ("BnOH catalysed, every buffer",
                          "BnOH catalysed, all buffers")):
         row = drivers[name]
@@ -184,13 +184,13 @@ def main():
                   len(used) == 1 and abs(used[0] - value) < 1e-9, f"{used}")
 
     print("\nthe weak bound on the BnOH side")
-    bnoh = slowdown.sink_table(scope.PRIMARY_SCOPE)
+    bnoh = slowdown.sink_table(scope.TWO_AXIS_BLOCK)
     good = bnoh[(bnoh.points > 0) & (bnoh.rate_r2 > slowdown.SINK_CLEAN_R2)]
     picked = np.array([slowdown.selectivity(p, s, e) for p, s, e
                        in zip(good.plateau, good.s0, good.epsilon)])
     picked = picked[np.isfinite(picked)]
     doc.claim("the BnOH selectivity", f"**{np.median(picked):.0f}**")
-    live = scope.frame(scope.PRIMARY_SCOPE)
+    live = scope.frame(scope.TWO_AXIS_BLOCK)
     doc.claim("on how few BnOH curves",
               f"{len(picked)} of {int(live.live.sum())} curves that yield a "
               "plateau at all")
