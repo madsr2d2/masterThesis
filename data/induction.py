@@ -663,6 +663,82 @@ SATURATION_GRID = 600
 PROFILE_F = 3.99
 
 
+def joint_order(table, axis, rate="v_peak", timescale="t_ind",
+                covariates=(), floor=INDUCTION_FLOOR, minimum=8,
+                live_only=True, gate=None, required=PERHYDRATE_ORDER_GAP):
+    """
+    `d ln(rate)/d ln(axis) - d ln(timescale)/d ln(axis)`, as ONE regression.
+
+    THE ALGEBRA DOES NOT CARE WHICH SPECIES, WHICH RATE, OR WHICH CLOCK. A
+    catalyst drawn into its active form by a species X held in excess gives
+
+        E + X <-> E*    1/tau = k_f[X] + k_r,   [E*]/E0 = K[X]/(1 + K[X])
+
+    so `d ln v/d ln[X] = 1/(1 + K[X])` and `d ln tau/d ln[X] = -K[X]/(1 +
+    K[X])`, and their DIFFERENCE is 1 for every K and every [X]. That is a
+    parameter-free prediction, and it holds for any timescale of the
+    activation step and any axis the archive moves.
+
+    ONE regression, not two differenced by hand. The two orders it replaces are
+    fitted to the same curves on the same design, so their errors are
+    correlated and a hand-differenced error is not theirs. `covariates` are the
+    other axes that move, in logs; one free level per experiment absorbs pH,
+    buffer, catalyst, cell and day.
+
+    `floor` clips the timescale from below, which is right for a LANDMARK --
+    `t_ind` is resolution-limited and a curve with no induction reads zero --
+    and wrong for a FITTED time constant, which is either resolved or not.
+    Pass `floor=None` with `gate="tau_slow_resolved"` for the latter: the gate
+    is the honest filter, and clipping would put unresolved constants on the
+    floor and call them fast.
+
+    THE AXIS IS ALSO THE CONTROL. The +1 belongs to the species that activates
+    the catalyst, so an axis whose species does NOT should miss it -- and on
+    this archive's substrate axis it misses by 7 sigma and more. A test that
+    only ever confirms is not a test; run the control axis beside the claim.
+
+    `joint_peroxide_order` and `joint_buffer_order` are this function with the
+    species filled in. Returns the coefficient, its error, and how many
+    standard errors it sits from `required`.
+    """
+    live = table[table.live] if live_only else table
+    if gate is not None:
+        live = live[live[gate].astype(bool)]
+    clock = live[timescale].to_numpy(dtype=float)
+    keep = (np.isfinite(clock)
+            & (live[rate].to_numpy(dtype=float) > 0)
+            & (live[axis].to_numpy(dtype=float) > 0))
+    if floor is None:
+        keep = keep & (clock > 0)
+    live = live[keep]
+    if len(live) < minimum or live[axis].nunique() < 2:
+        return {"points": int(len(live))}
+    clock = live[timescale].to_numpy(dtype=float)
+    if floor is not None:
+        clock = np.maximum(clock, floor)
+    response = np.log(live[rate].to_numpy(dtype=float)) - np.log(clock)
+    columns = [np.log(live[axis].to_numpy(dtype=float))]
+    for name in covariates:
+        if live[name].nunique() > 1:
+            columns.append(np.log(live[name].to_numpy(dtype=float)))
+    runs = sorted(live.experiment.unique())
+    columns += [(live.experiment.to_numpy() == run).astype(float)
+                for run in runs]
+    design = np.column_stack(columns)
+    beta, *_ = np.linalg.lstsq(design, response, rcond=None)
+    resid = response - design @ beta
+    rank = int(np.linalg.matrix_rank(design))
+    variance = float(resid @ resid) / max(1, len(live) - rank)
+    covariance = variance * np.linalg.pinv(design.T @ design)
+    slope = float(beta[0])
+    stderr = float(np.sqrt(max(covariance[0, 0], 0.0)))
+    return {"points": int(len(live)), "experiments": len(runs),
+            "runs": len(runs), "slope": slope, "stderr": stderr,
+            "required": required,
+            "sigma": float(abs(required - slope) / stderr)
+            if stderr else np.nan}
+
+
 def joint_peroxide_order(table, floor=INDUCTION_FLOOR):
     """
     Regress log(rate / induction time) on log[H2O2]: the scheme requires +1.
@@ -685,31 +761,63 @@ def joint_peroxide_order(table, floor=INDUCTION_FLOOR):
     pushes the coefficient the other way, up towards +1, and the module's 60 s
     floor is the conservative end of the range rather than the flattering one.
     """
-    live = table[table.live & np.isfinite(table.t_ind)
-                 & (table.v_peak > 0) & (table.h2o2 > 0)].copy()
-    if len(live) < 8 or live.h2o2.nunique() < 2:
-        return {"points": int(len(live))}
-    response = (np.log(live.v_peak.to_numpy(dtype=float))
-                - np.log(np.maximum(live.t_ind.to_numpy(dtype=float), floor)))
-    columns = [np.log(live.h2o2.to_numpy(dtype=float))]
-    if live.s0.nunique() > 1:
-        columns.append(np.log(live.s0.to_numpy(dtype=float)))
-    for experiment in sorted(live.experiment.unique()):
-        columns.append((live.experiment == experiment).to_numpy(float))
-    design = np.column_stack(columns)
-    beta, *_ = np.linalg.lstsq(design, response, rcond=None)
-    resid = response - design @ beta
-    rank = int(np.linalg.matrix_rank(design))
-    variance = float(resid @ resid) / max(1, len(live) - rank)
-    covariance = variance * np.linalg.pinv(design.T @ design)
-    slope = float(beta[0])
-    stderr = float(np.sqrt(max(covariance[0, 0], 0.0)))
-    return {"points": int(len(live)),
-            "experiments": int(live.experiment.nunique()),
-            "slope": slope, "stderr": stderr,
-            "required": PERHYDRATE_ORDER_GAP,
-            "sigma": float(abs(PERHYDRATE_ORDER_GAP - slope) / stderr)
-            if stderr else np.nan}
+    return joint_order(table, axis="h2o2", rate="v_peak", timescale="t_ind",
+                       covariates=("s0",), floor=floor, minimum=8)
+
+
+# The clocks `joint_order` can be asked for, and the flag that says a fitted
+# one was actually pinned. `t_ind` is the landmark and carries a floor; the
+# other two come from the progress fit and carry a gate instead.
+JOINT_CLOCKS = (("t_ind", None), ("tau", "tau_resolved"),
+                ("tau_slow", "tau_slow_resolved"))
+
+
+def joint_clocks(table, axis="h2o2", control="s0", rate="vmax",
+                 clocks=JOINT_CLOCKS, floor=INDUCTION_FLOOR):
+    """
+    The +1 constraint on one axis, through every clock, beside its control.
+
+    THE BLOCK THAT CANNOT USE A LANDMARK CAN STILL BE ASKED. `t_ind` is a
+    rolling window a tenth of the run wide, so it is not comparable between
+    runs of different length, and on the two-axis block `signal_control` fails
+    -- the landmark there is partly measuring the spectrophotometer. `tau` and
+    `tau_slow` come from the progress fit, carry no window, and are subject to
+    the same identity. Where the two routes disagree the disagreement is the
+    result, and it has to be visible in one table rather than argued.
+
+    One row per clock per axis: the axis under test, the control axis, the
+    curves each survives, and how far each sits from +1. READ THE CONTROL. The
+    +1 belongs to the species that draws the catalyst into its active form, so
+    an axis whose species does not -- the alcohol -- must MISS it, and a run of
+    this table where both axes meet +1 is a regression that has stopped
+    discriminating rather than a mechanism.
+
+    `rate` is `vmax` for the fitted clocks and `v_peak` for the landmark, which
+    is the pairing each was defined with; the landmark's floor applies to it
+    alone.
+    """
+    import pandas as pd
+
+    rows = []
+    for clock, gate in clocks:
+        if clock not in table.columns:
+            continue
+        if gate is not None and gate not in table.columns:
+            continue
+        for name, tested, other in (("axis", axis, control),
+                                    ("control", control, axis)):
+            got = joint_order(
+                table, axis=tested,
+                rate="v_peak" if clock == "t_ind" else rate,
+                timescale=clock, covariates=(other,),
+                floor=floor if gate is None else None, gate=gate)
+            rows.append({"clock": clock, "role": name, "axis": tested,
+                         "windowed": gate is None,
+                         "curves": got.get("points", 0),
+                         "order": got.get("slope", np.nan),
+                         "stderr": got.get("stderr", np.nan),
+                         "sigma": got.get("sigma", np.nan)})
+    return pd.DataFrame(rows).set_index(["clock", "role"])
 
 
 def peroxide_ladder(table):
@@ -1210,29 +1318,8 @@ def joint_buffer_order(ladder, floor=INDUCTION_FLOOR):
     join. One regression rather than two differenced by hand, so the covariance
     between the two orders is the fit's own.
     """
-    live = ladder[np.isfinite(ladder.t_ind) & (ladder.v_peak > 0)
-                  & (ladder.buf > 0)]
-    if len(live) < 4 or live.buf.nunique() < 2:
-        return {"points": int(len(live))}
-    response = (np.log(live.v_peak.to_numpy(dtype=float))
-                - np.log(np.maximum(live.t_ind.to_numpy(dtype=float), floor)))
-    columns = [np.log(live.buf.to_numpy(dtype=float))]
-    runs = sorted(live.experiment.unique())
-    columns += [(live.experiment.to_numpy() == run).astype(float)
-                for run in runs]
-    design = np.column_stack(columns)
-    beta, *_ = np.linalg.lstsq(design, response, rcond=None)
-    resid = response - design @ beta
-    rank = int(np.linalg.matrix_rank(design))
-    variance = float(resid @ resid) / max(1, len(live) - rank)
-    covariance = variance * np.linalg.pinv(design.T @ design)
-    slope = float(beta[0])
-    stderr = float(np.sqrt(max(covariance[0, 0], 0.0)))
-    return {"points": int(len(live)), "runs": len(runs),
-            "slope": slope, "stderr": stderr,
-            "required": PERHYDRATE_ORDER_GAP,
-            "sigma": float(abs(PERHYDRATE_ORDER_GAP - slope) / stderr)
-            if stderr else np.nan}
+    return joint_order(ladder, axis="buf", rate="v_peak", timescale="t_ind",
+                       floor=floor, minimum=4, live_only=False)
 
 
 def buffer_join_step(ladder):

@@ -30,7 +30,8 @@ from test_slowdown import FakeCurve
 from induction import (DEPTH_FLOOR, INDUCTION_CLOCK_SLOPE, INDUCTION_FLOOR,
                        INDUCTION_PRODUCT_SLOPE, PERHYDRATE_ORDER_GAP,
                        induction_drivers, induction_point,
-                       joint_buffer_order, joint_peroxide_order,
+                       joint_buffer_order, joint_order,
+                       joint_peroxide_order,
                        order_ratio,
                        peroxide_geometric_mean, peroxide_saturation,
                        composition_collinearity, ladder_arms, sign_drivers,
@@ -186,7 +187,8 @@ def test_induction_drivers_tell_a_clock_from_a_product():
 
 
 def _peroxide_frame(constant, rule, levels=(2.5, 10.0, 40.0, 160.0),
-                    runs=4, seed=3, baseline=4000.0):
+                    runs=4, seed=3, baseline=4000.0, substrate=(8.0,),
+                    substrate_order=0.0, unresolved=0):
     """
     Curves built from a known `K + H2O2 <=> KP`, one peroxide ladder per run.
 
@@ -195,27 +197,53 @@ def _peroxide_frame(constant, rule, levels=(2.5, 10.0, 40.0, 160.0),
     the activation is unimolecular from FREE catalyst, 1/tau = k_act/(1 + K h),
     while the rate still follows [KP] -- which is the reading section 4a says
     the archive's sign would imply.
+
+    `substrate` and `substrate_order` give the rate a factor in [S] that the
+    CLOCK does not carry, which is what makes the substrate axis a control:
+    the joint slope there is the substrate order and not the adduct's +1.
+    `unresolved` plants that many rows per run whose fitted clock is nonsense
+    and whose `tau_slow_resolved` is False, so a gate can be shown to bite.
     """
     generator = np.random.default_rng(seed)
     rows = []
     for run in range(runs):
         level = float(np.exp(generator.normal(0.0, 0.3)))
-        for index, peroxide in enumerate(levels):
-            saturation = constant * peroxide / (1.0 + constant * peroxide)
-            rate = (3e-6 * level * saturation
-                    * float(np.exp(generator.normal(0.0, 0.05))))
-            if rule == "adduct":
-                # k_r = 1/baseline, k_f = K.k_r, so 1/tau = (1 + K h)/baseline.
-                # `baseline` is large enough that no time lands on
-                # INDUCTION_FLOOR, which would break the identity below.
-                time = baseline / (1.0 + constant * peroxide)
-            else:
-                time = baseline * (1.0 + constant * peroxide)
-            noise = float(np.exp(generator.normal(0.0, 0.05)))
-            rows.append({"experiment": 200 + run, "sample": index + 1,
-                         "live": True, "t_ind": time * noise,
-                         "peak_rate": rate, "v_peak": rate, "vmax": rate,
-                         "s0": 8.0, "h2o2": peroxide, "duration_s": 9000.0,
+        sample = 0
+        for peroxide in levels:
+            for concentration in substrate:
+                sample += 1
+                saturation = (constant * peroxide
+                              / (1.0 + constant * peroxide))
+                rate = (3e-6 * level * saturation
+                        * (concentration / substrate[0]) ** substrate_order
+                        * float(np.exp(generator.normal(0.0, 0.05))))
+                if rule == "adduct":
+                    # k_r = 1/baseline, k_f = K.k_r, so 1/tau = (1 + K h)/
+                    # baseline. `baseline` is large enough that no time lands
+                    # on INDUCTION_FLOOR, which would break the identity below.
+                    time = baseline / (1.0 + constant * peroxide)
+                else:
+                    time = baseline * (1.0 + constant * peroxide)
+                noise = float(np.exp(generator.normal(0.0, 0.05)))
+                rows.append({"experiment": 200 + run, "sample": sample,
+                             "live": True, "t_ind": time * noise,
+                             "peak_rate": rate, "v_peak": rate, "vmax": rate,
+                             "tau_slow": time * noise,
+                             "tau_slow_resolved": True,
+                             "s0": concentration, "h2o2": peroxide,
+                             "duration_s": 9000.0,
+                             "depth": 0.5, "net": 0.05, "noise": 1e-5})
+        for spare in range(unresolved):
+            sample += 1
+            # A clock the fit could not pin: the value is whatever the
+            # optimiser stopped at, and the flag is the only thing that knows.
+            rows.append({"experiment": 200 + run, "sample": sample,
+                         "live": True, "t_ind": baseline,
+                         "peak_rate": 3e-6, "v_peak": 3e-6, "vmax": 3e-6,
+                         "tau_slow": baseline * 40.0 * (spare + 1),
+                         "tau_slow_resolved": False,
+                         "s0": substrate[0], "h2o2": levels[spare % len(levels)],
+                         "duration_s": 9000.0,
                          "depth": 0.5, "net": 0.05, "noise": 1e-5})
     return pd.DataFrame(rows)
 
@@ -263,7 +291,7 @@ def test_the_joint_order_reads_back_the_scheme_it_is_built_from():
 def _planted_buffer_ladder(constant, rule="pre-equilibrium",
                            levels=((3.125, 6.25, 12.5, 25.0),
                                    (50.0, 100.0, 150.0, 200.0)),
-                           runs=(34, 32), day=(1.0, 0.55)):
+                           runs=(34, 32), day=(1.0, 0.55), baseline=4000.0):
     """
     Two runs on one buffer ladder, built from the scheme the joint test asserts.
 
@@ -275,6 +303,13 @@ def _planted_buffer_ladder(constant, rule="pre-equilibrium",
 
     The two runs get DIFFERENT levels, a 1.8-fold day step in the rate, because
     that is what the archive's pair does and what the free level per run is for.
+
+    `baseline` is `tau` at zero buffer, and it has to be large enough that no
+    planted time lands on `INDUCTION_FLOOR` -- the clip breaks the identity and
+    biases the answer DOWN. At 400 s it did: K = 0.1 /mM over a ladder reaching
+    200 mM puts tau at 19 s and the joint order at +0.743 rather than +1. That
+    is a property of the floor and not of the regression, and the test below
+    now asserts it deliberately instead of tripping over it.
     """
     rows = []
     for experiment, rungs, scale in zip(runs, levels, day):
@@ -282,13 +317,136 @@ def _planted_buffer_ladder(constant, rule="pre-equilibrium",
             bound = constant * buffer_mM / (1.0 + constant * buffer_mM)
             rate = scale * 1e-4 * bound
             if rule == "pre-equilibrium":
-                tau = 400.0 / (1.0 + constant * buffer_mM)
+                tau = baseline / (1.0 + constant * buffer_mM)
             else:
-                tau = 400.0
+                tau = baseline
             rows.append({"experiment": experiment, "sample": index + 1,
                          "buf": buffer_mM, "t_ind": tau, "v_peak": rate,
                          "live": True, "net": 0.5, "noise": 1e-4})
     return pd.DataFrame(rows)
+
+
+def test_the_joint_order_takes_a_fitted_clock_and_a_gate():
+    """
+    The +1 does not belong to the landmark, and the block that can't use one.
+
+    `t_ind` is a ROLLING WINDOW, so it is not comparable between runs of
+    different length, and on the two-axis block `signal_control` fails at
+    +0.619 +- 0.228 -- the landmark there is partly measuring the
+    spectrophotometer. A time constant from the PROGRESS FIT carries no window
+    and escapes both objections, and the identity holds for it just the same,
+    so `joint_order` has to take one.
+
+    With it comes the gate. An unresolved time constant is whatever the
+    optimiser stopped at, and there is no floor that makes it honest -- so the
+    flag has to drop the row, and this checks that it does by planting rows
+    that would wreck the answer if it did not.
+    """
+    print("\nthe joint order on a fitted clock")
+    frame = _peroxide_frame(0.2, "adduct", runs=12)
+    fitted = joint_order(frame, axis="h2o2", rate="vmax",
+                         timescale="tau_slow", covariates=("s0",),
+                         floor=None, gate="tau_slow_resolved")
+    check("a fitted clock reads back the planted adduct",
+          abs(fitted["slope"] - PERHYDRATE_ORDER_GAP) < 0.03,
+          f"{fitted['slope']:+.3f} +- {fitted['stderr']:.3f}")
+    landmark = joint_peroxide_order(frame)
+    check("and it agrees with the landmark where both are available",
+          abs(fitted["slope"] - landmark["slope"]) < 0.03,
+          f"{fitted['slope']:+.3f} against {landmark['slope']:+.3f}")
+
+    spoilt = _peroxide_frame(0.2, "adduct", runs=12, unresolved=2)
+    gated = joint_order(spoilt, axis="h2o2", rate="vmax",
+                        timescale="tau_slow", covariates=("s0",),
+                        floor=None, gate="tau_slow_resolved")
+    ungated = joint_order(spoilt, axis="h2o2", rate="vmax",
+                          timescale="tau_slow", covariates=("s0",),
+                          floor=None)
+    check("the gate drops the unresolved rows",
+          gated["points"] == fitted["points"]
+          and ungated["points"] > gated["points"],
+          f"{gated['points']} gated against {ungated['points']} ungated")
+    check("and it has to, because they would carry the answer",
+          abs(fitted["slope"] - gated["slope"]) < 1e-9
+          and abs(ungated["slope"] - PERHYDRATE_ORDER_GAP) > 0.1,
+          f"gated {gated['slope']:+.3f}, ungated {ungated['slope']:+.3f}")
+
+    # A floor is for a landmark, not for a fit: it would put the unresolved
+    # constants ON the floor and call them the fastest curves in the block.
+    floored = joint_order(spoilt, axis="h2o2", rate="vmax",
+                          timescale="tau_slow", covariates=("s0",))
+    check("a floor is no substitute for the gate",
+          abs(floored["slope"] - PERHYDRATE_ORDER_GAP)
+          > abs(gated["slope"] - PERHYDRATE_ORDER_GAP),
+          f"floored {floored['slope']:+.3f} against gated {gated['slope']:+.3f}")
+
+
+def test_the_joint_order_control_axis_reads_the_substrate_order():
+    """
+    THE AXIS IS THE CONTROL, and a test that only ever confirms is not a test.
+
+    The +1 belongs to the species that draws the catalyst into its active form.
+    Ask it of an axis whose species does not -- the alcohol -- and the answer
+    is that axis's own order on the rate, because the clock does not carry it.
+    So the control is not "it should be zero"; it is "it should be the
+    substrate order", and missing +1 is the consequence.
+    """
+    print("\nthe joint order's control axis")
+    for planted in (0.0, 0.6, 1.4):
+        frame = _peroxide_frame(0.2, "adduct", runs=10,
+                                substrate=(2.0, 4.0, 8.0, 16.0),
+                                substrate_order=planted)
+        control = joint_order(frame, axis="s0", rate="vmax",
+                              timescale="tau_slow", covariates=("h2o2",),
+                              floor=None, gate="tau_slow_resolved")
+        check(f"the substrate axis returns its planted order {planted:+.1f}",
+              abs(control["slope"] - planted) < 3 * control["stderr"] + 0.02,
+              f"{control['slope']:+.3f} +- {control['stderr']:.3f}")
+        peroxide = joint_order(frame, axis="h2o2", rate="vmax",
+                               timescale="tau_slow", covariates=("s0",),
+                               floor=None, gate="tau_slow_resolved")
+        check("while the peroxide axis still returns the adduct's +1",
+              abs(peroxide["slope"] - PERHYDRATE_ORDER_GAP) < 0.03,
+              f"{peroxide['slope']:+.3f}")
+    # And with a substrate order well away from 1 the control MISSES the +1,
+    # which is the whole use of it.
+    frame = _peroxide_frame(0.2, "adduct", runs=10,
+                            substrate=(2.0, 4.0, 8.0, 16.0),
+                            substrate_order=0.0)
+    control = joint_order(frame, axis="s0", rate="vmax", timescale="tau_slow",
+                          covariates=("h2o2",), floor=None,
+                          gate="tau_slow_resolved")
+    check("so a control axis rejects the constraint it was never subject to",
+          control["sigma"] > 3, f"{control['sigma']:.1f} sigma from +1")
+
+
+def test_the_two_named_orders_are_the_general_one():
+    """
+    `joint_peroxide_order` and `joint_buffer_order` were two copies of one
+    regression, differing in their filters and their minimum. They are now one
+    function with the species filled in, and this is what stops a third copy:
+    each wrapper has to equal the general call it claims to be.
+    """
+    print("\nthe named orders are the general one")
+    frame = _peroxide_frame(0.03, "adduct", runs=6)
+    named = joint_peroxide_order(frame)
+    general = joint_order(frame, axis="h2o2", rate="v_peak",
+                          timescale="t_ind", covariates=("s0",),
+                          floor=INDUCTION_FLOOR, minimum=8)
+    check("the peroxide order IS the general order on h2o2",
+          all(abs(named[k] - general[k]) < 1e-12
+              for k in ("slope", "stderr", "sigma")),
+          f"{named['slope']:+.6f} against {general['slope']:+.6f}")
+
+    ladder = _planted_buffer_ladder(0.02)
+    named = joint_buffer_order(ladder)
+    general = joint_order(ladder, axis="buf", rate="v_peak",
+                          timescale="t_ind", floor=INDUCTION_FLOOR,
+                          minimum=4, live_only=False)
+    check("and the buffer order IS the general order on buf",
+          all(abs(named[k] - general[k]) < 1e-12
+              for k in ("slope", "stderr", "sigma")),
+          f"{named['slope']:+.6f} against {general['slope']:+.6f}")
 
 
 def test_the_joint_buffer_order_reads_back_its_own_scheme():
@@ -321,6 +479,26 @@ def test_the_joint_buffer_order_reads_back_its_own_scheme():
     check("a larger between-run step does not move it, because of the levels",
           abs(stepped["slope"] - PERHYDRATE_ORDER_GAP) < 0.02,
           f"{stepped['slope']:+.3f}")
+
+    # THE FLOOR BREAKS THE IDENTITY, and downward -- towards the shortfall the
+    # peroxide axis reports -- so it is asserted here rather than avoided.
+    # This test did not run until 2026-09-03 and tripped over it at K = 0.1.
+    clipped = joint_buffer_order(_planted_buffer_ladder(0.1, baseline=400.0))
+    check("an induction driven below the floor biases the buffer order DOWN",
+          clipped["slope"] < PERHYDRATE_ORDER_GAP - 0.1,
+          f"{clipped['slope']:+.3f} with tau clipped at "
+          f"{INDUCTION_FLOOR:.0f} s")
+    clear = joint_buffer_order(_planted_buffer_ladder(0.1))
+    check("and clear of the floor the same ladder reads back +1",
+          abs(clear["slope"] - PERHYDRATE_ORDER_GAP) < 0.02,
+          f"{clear['slope']:+.3f}")
+    # And the archive's own ladder is clear of it: its shortest induction is
+    # 120 s and the answer does not move for any floor up to that.
+    check("the archive's buffer ladder is not floor-limited",
+          all(abs(joint_buffer_order(_planted_buffer_ladder(0.02),
+                                     floor=floor)["slope"]
+                  - PERHYDRATE_ORDER_GAP) < 0.02
+              for floor in (1.0, 30.0, 60.0, 120.0)))
 
 
 def test_the_saturation_fit_recovers_a_planted_constant():
@@ -724,6 +902,10 @@ if __name__ == "__main__":
     test_it_agrees_with_the_gated_statistic()
     test_induction_drivers_tell_a_clock_from_a_product()
     test_the_joint_order_reads_back_the_scheme_it_is_built_from()
+    test_the_joint_buffer_order_reads_back_its_own_scheme()
+    test_the_joint_order_takes_a_fitted_clock_and_a_gate()
+    test_the_joint_order_control_axis_reads_the_substrate_order()
+    test_the_two_named_orders_are_the_general_one()
     test_the_saturation_fit_recovers_a_planted_constant()
     test_the_trap_constant_inverts_its_own_order()
     test_the_floor_does_not_carry_the_answer()
