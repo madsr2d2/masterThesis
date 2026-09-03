@@ -125,9 +125,12 @@ BASELINE_POINTS = 5
 # excluded from the scope: they carry the unresolved hexametaphosphate
 # speciation question (DATA_VERIFICATION.md 2026-08-31).
 #
-# One condition must be met before a fit on this scope is quotable, recorded in
-# FITTING.md: the high-peroxide cuvettes of exps 135 and 138 need a ruling,
-# since they backtrack up to 0.35 AU and that lands straight in the residuals.
+# The high-peroxide cuvettes were ruled on 2026-09-03: their chop is O2 from
+# the catalysed decomposition of the peroxide, and thirteen live curves carry
+# more of it than they carry reaction. They are flagged and NOT excluded --
+# read `scope.bubble_load` before letting one into a residual, and correct with
+# `curve_metrics.debubble`, never by stitching the pieces together. See
+# FITTING.md and DATA_VERIFICATION.md 2026-09-03.
 #
 # The two-salt buffer (Na4P2O7 with Na2HPO4, 143-151 NaH2PO4, equimolar) is
 # still treated as pure pyrophosphate and is worth correcting -- it moves 6 of

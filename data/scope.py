@@ -28,11 +28,14 @@ import itertools
 import numpy as np
 import pandas as pd
 
-from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
-                           OUTLIER_SIGMA, acceleration, burst_amplitude,
+from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
+                           INITIAL_WINDOW, LAG_THRESHOLD,
+                           OUTLIER_SIGMA, acceleration, bubble_drops, bubble_load,
+                           burst_amplitude, debubble,
                            initial_rate,
                            isolated_outliers, lag_time, local_outlier_z,
-                           model_residual, peak_position, peak_rate,
+                           model_residual, monotone_bound, peak_position,
+                           peak_rate,
                            quadratic_rate, segmented_fit, segment_selection,
                            SEGMENT_RATIO_STEEP,
                            whole_slope)
@@ -75,6 +78,7 @@ def frame(scope=TWO_AXIS_BLOCK):
     pH, s0, h2o2, e0, hoo, duration_s,
     points, outliers, outliers_in_runs, first_point_z, first_point_flagged,
     noise, net, live, v0, v0_stderr, v0_rms, vmax, vmax_stderr, vmax_where,
+    bubble_drops, bubble_load, vmax_corrected, vmax_monotone,
     gain, vmax_time_s, lag_time_s, conversion, peak, lags, accel_z, accel_where, accelerates,
     late_over_early.
 
@@ -109,6 +113,17 @@ def frame(scope=TWO_AXIS_BLOCK):
         peak = peak_position(values, times)
         accel_z, accel_where = acceleration(times, values, floor=floor)
         vmax, vmax_stderr, vmax_where = peak_rate(times, values, floor=floor)
+        # THE GAS. O2 from the catalysed decomposition of the peroxide grows on
+        # the window and detaches, so the readings carry a sawtooth that no
+        # kinetic form can hold. `debubble` subtracts the ramp each detachment
+        # reveals and `monotone_bound` brackets it from the assumption-free
+        # side; `bubble_load` says which of the two a curve is entitled to.
+        # curve_metrics.bubble_ramp has the case against stitching, which is
+        # the repair that suggests itself and the one that makes it worse.
+        corrected, drops = debubble(times, values, noise)
+        vmax_corrected, _, _ = peak_rate(times, corrected, floor=floor)
+        vmax_monotone, _, _ = peak_rate(
+            times, monotone_bound(values), floor=floor)
         # Three more rate estimators, so that "does this conclusion depend on
         # how the rate was measured" is a groupby rather than an argument.
         # v0 uses the first 20% of the run, v0_whole every point with no bend
@@ -303,6 +318,17 @@ def frame(scope=TWO_AXIS_BLOCK):
             "vmax": vmax,
             "vmax_stderr": vmax_stderr,
             "vmax_where": vmax_where,
+            # THE SAME RATE WITH THE GAS TAKEN OUT, and the bound that needs no
+            # bubble model at all. Quote the pair: `vmax_corrected` is the
+            # estimate and the gap to `vmax_monotone` is its systematic, the
+            # way product_fate quotes the sink's activation energy. Neither is
+            # a substitute for reading `bubble_load` first -- above 1 the
+            # artefact carries more absorbance than the reaction and no repair
+            # here recovers the rate.
+            "bubble_drops": int(len(drops)),
+            "bubble_load": bubble_load(values, drops),
+            "vmax_corrected": vmax_corrected,
+            "vmax_monotone": vmax_monotone,
             # vmax/v0: how many times over the reaction sped up. accel_z
             # says whether the speed-up is real, this says how big it is --
             # z also carries the curve's noise and length, so z alone is not
@@ -1181,6 +1207,214 @@ def enzyme_pair_sensitivity(scope=TWO_AXIS_BLOCK, floors=ENZYME_PAIR_SWEEP):
                      "cuvettes": verdict.get("cuvettes")})
     return pd.DataFrame(rows).set_index("floor")
 
+
+# Above this the detachments carry more absorbance than the reaction does, and
+# no repair in curve_metrics recovers the rate: against planted sawtooths the
+# subtraction is unbiased to a load of about 0.5 (1.01), leaves a tenth by 1
+# (1.13) and half by 2 (1.52). It is a CEILING ON USE, not an exclusion --
+# every curve stays in the frame, on the page and in the counts.
+BUBBLE_LOAD_CEILING = 1.0
+
+# The peroxide bands the drop rate is reported over. Edges, in mM.
+BUBBLE_PEROXIDE_BANDS = (0.0, 5.0, 10.0, 25.0, 40.0, 80.0, 200.0)
+
+
+def bubble_table(scope=TWO_AXIS_BLOCK, live_only=True):
+    """
+    Every curve's gas load, and what its rate looks like under each repair.
+
+    Columns: experiment, sample, s0, h2o2, bubble_drops, bubble_load, vmax,
+    vmax_corrected, vmax_monotone, repairable.
+
+    `repairable` is `bubble_load <= BUBBLE_LOAD_CEILING`. Read it before
+    quoting a rate off any curve in this block; it is the flag the folder
+    documents cite and the one `check_numbers` counts.
+    """
+    data = frame(scope)
+    if live_only:
+        data = data[data.live]
+    out = data[["experiment", "sample", "s0", "h2o2", "bubble_drops",
+                "bubble_load", "vmax", "vmax_corrected",
+                "vmax_monotone"]].copy()
+    out["repairable"] = out.bubble_load <= BUBBLE_LOAD_CEILING
+    return out.sort_values("bubble_load", ascending=False).reset_index(
+        drop=True)
+
+
+def bubble_ladder(scope=TWO_AXIS_BLOCK, bands=BUBBLE_PEROXIDE_BANDS):
+    """
+    Detachments against [H2O2]: the evidence that the chop is gas.
+
+    One row per peroxide band, with the number of live curves, how many carry
+    a detachment, and the mean absorbance lost to them. The count rises
+    monotonically across the block's six bands, from none below 5 mM to every
+    curve above 80 mM.
+
+    PEROXIDE ALONE IS NOT ENOUGH -- see `bubble_turnover_control`, which is the
+    other half of this argument and the reason the cause is the CATALYSED
+    decomposition rather than the peroxide sitting in a cuvette.
+    """
+    data = frame(scope)
+    data = data[data.live].copy()
+    data["band"] = pd.cut(data.h2o2, list(bands))
+    grouped = data.groupby("band", observed=True)
+    return pd.DataFrame({
+        "curves": grouped.size(),
+        "with_drops": grouped.bubble_drops.apply(lambda s: int((s > 0).sum())),
+        "mean_drops": grouped.bubble_drops.mean(),
+        "mean_lost": grouped.apply(
+            lambda g: float((g.bubble_load * g.net).sum() / len(g)),
+            include_groups=False),
+    })
+
+
+def bubble_turnover_control(scope=TWO_AXIS_BLOCK):
+    """
+    Runs at the block's top peroxide that carry no detachment at all.
+
+    The control on `bubble_ladder`. If gas came from peroxide standing in a
+    cuvette, every run at 73.4 mM would chop; exps 136 and 137 sit there and
+    carry none, and they are the block's two weakest runs on
+    `concentration_agreement` (0.25 and 0.21) with median rates thirty times
+    below exp 140's. So the gas needs TURNOVER as well as peroxide, which is
+    what makes it the ketone-catalysed decomposition rather than the peroxide.
+
+    One row per run, sorted by the peroxide it reaches: top_h2o2, drops,
+    agreement, median_rate. Read the two runs that sit at the block's own top
+    peroxide with a drop count of zero.
+    """
+    data = frame(scope)
+    data = data[data.live]
+    if data.empty:
+        return pd.DataFrame()
+    agreement = concentration_agreement(scope)
+    rows = []
+    for experiment, group in data.groupby("experiment"):
+        rows.append({
+            "experiment": int(experiment),
+            "top_h2o2": float(group.h2o2.max()),
+            "cuvettes": len(group),
+            "drops": int(group.bubble_drops.sum()),
+            "agreement": float(agreement.agreement.get(experiment, np.nan)),
+            "median_rate": float(agreement.median_rate.get(experiment,
+                                                           np.nan)),
+        })
+    return pd.DataFrame(rows).set_index("experiment").sort_values(
+        "top_h2o2", ascending=False)
+
+
+def bubble_synchrony(scope=TWO_AXIS_BLOCK):
+    """
+    Do the cuvettes of one run detach together? They do not.
+
+    The instrument control. A lamp flicker, a shutter or the carousel would hit
+    all seven cuvettes of a run at the same reading; a bubble on one window
+    cannot. Counts detachment times shared by a pair of cuvettes in the same
+    run against what independence predicts -- for a pair with `a` and `b`
+    detachments over `n` intervals, `a * b / n`.
+
+    Returns a dict: `observed`, `expected`, `pairs`, `runs`. Over the two-axis
+    block the two agree, which leaves the light path itself as the only place
+    the absorbance can be going.
+    """
+    observed = expected = 0.0
+    pairs = runs = 0
+    for experiment in sorted({c.experiment for c in curves(scope)}):
+        group = [c for c in curves_of(experiment)]
+        if len(group) < 2:
+            continue
+        runs += 1
+        marks = []
+        for curve in group:
+            values = np.asarray(curve.absorbance, dtype=float)
+            times = np.asarray(curve.times, dtype=float)
+            drops = bubble_drops(values, curve.noise)
+            marks.append((set(np.round(times[drops], 3)), len(values) - 1))
+        for first in range(len(marks)):
+            for second in range(first + 1, len(marks)):
+                (one, count_one), (two, count_two) = marks[first], marks[second]
+                intervals = min(count_one, count_two)
+                if intervals <= 0:
+                    continue
+                pairs += 1
+                observed += len(one & two)
+                expected += len(one) * len(two) / intervals
+    return {"observed": int(observed), "expected": float(expected),
+            "pairs": int(pairs), "runs": int(runs)}
+
+
+def bubble_mass_balance(scope=TWO_AXIS_BLOCK):
+    """
+    What each repair claims the substrate produced, as a fraction of what it
+    could.
+
+    THE TEST THAT REFUTES STITCHING. `stitched` is the net a curve would show
+    if every detachment were added back to the readings after it. On exp 135
+    sample 4 that is 1.26 -- more absorbance than 0.219 mM of substrate can
+    make -- and four more curves land between 0.49 and 0.86 while their ramps
+    STEEPEN (`ramp_gain` below 1 is a reaction spending its substrate; these
+    read 1.07 to 23.5). Subtracting the ramp instead keeps every curve under 1.
+
+    Columns: experiment, sample, s0, h2o2, ceiling, raw, stitched, corrected,
+    ramp_gain. `ceiling` is `epsilon * s0` in AU.
+    """
+    rows = []
+    for curve in curves(scope):
+        times = np.asarray(curve.times, dtype=float)
+        values = np.asarray(curve.absorbance, dtype=float)
+        ceiling = float(curve.epsilon * curve.conditions.s0)
+        if ceiling <= 0:
+            continue
+        steps = np.diff(values)
+        drops = bubble_drops(values, curve.noise)
+        corrected, _ = debubble(times, values, curve.noise)
+        # The ramps' own slope, early against late, over rising steps only, so
+        # that the detachments do not enter the comparison.
+        quarter = max(1, len(steps) // 4)
+        gains = []
+        for span in (slice(0, quarter), slice(-quarter, None)):
+            rising = steps[span] > 0
+            gains.append(steps[span][rising].sum() / np.diff(times)[span][
+                rising].sum() if rising.any() else np.nan)
+        rows.append({
+            "experiment": curve.experiment, "sample": curve.sample,
+            "s0": curve.conditions.s0, "h2o2": curve.conditions.h2o2,
+            "ceiling": ceiling,
+            "raw": float(values[-1] - values[0]) / ceiling,
+            "stitched": float(values[-1] - values[0]
+                              - steps[drops].sum()) / ceiling,
+            "corrected": float(corrected[-1] - corrected[0]) / ceiling,
+            "ramp_gain": float(gains[1] / gains[0]) if gains[0] else np.nan,
+        })
+    return pd.DataFrame(rows)
+
+
+BUBBLE_TREATMENTS = ("vmax", "vmax_corrected", "vmax_monotone")
+
+
+def bubble_sensitivity(scope=TWO_AXIS_BLOCK, treatments=BUBBLE_TREATMENTS,
+                       ceiling=BUBBLE_LOAD_CEILING):
+    """
+    Every concentration order this block reports, under each repair.
+
+    THE ANSWER TO "IS vmax MISLEADING". Curve by curve, on the worst curves,
+    badly -- the bound cuts `vmax` to a sixth on one of them. Block by block,
+    no: over the strong runs every order here moves by less than its own
+    standard error, and the substrate order moves AWAY from zero rather than
+    toward it, which is the direction that matters because a substrate-blind,
+    peroxide-driven artefact is exactly what would manufacture a flat one.
+
+    Rows: each treatment, plus `vmax` over the repairable curves alone.
+    """
+    data = frame(scope)
+    rows = []
+    for treatment in treatments:
+        rows.append({"treatment": treatment, "curves": "all live",
+                     **orders(treatment, frame=data)})
+    kept = data[data.bubble_load.fillna(0.0) <= ceiling]
+    rows.append({"treatment": "vmax", "curves": f"load <= {ceiling:g}",
+                 **orders("vmax", frame=kept)})
+    return pd.DataFrame(rows).set_index(["treatment", "curves"])
 
 def hoo_consistency(parameter="vmax", scope=None):
     """

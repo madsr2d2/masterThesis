@@ -334,6 +334,193 @@ def test_the_acceleration_band_uses_live_curves_only():
           f"{bands.loc['pH < 9', 'share']:.2f}")
 
 
+def test_the_gas_is_gas_and_not_the_instrument():
+    """
+    The three controls that make the chop O2 rather than anything else.
+
+    A ladder in [H2O2] alone would also fit a peroxide-dependent CHEMISTRY, so
+    the ladder is not enough on its own; the two controls beside it are what
+    close it. Turnover: two runs sit at the block's top peroxide and carry no
+    detachment, and they are its two weakest. Synchrony: a lamp, a shutter or
+    the carousel would take all seven cuvettes of a run at once.
+    """
+    print("\nthe chop is gas")
+    ladder = scope.bubble_ladder()
+    shares = (ladder.with_drops / ladder.curves).to_numpy()
+    check("no curve at the bottom of the peroxide range detaches",
+          shares[0] == 0.0, f"{shares[0]:.2f}")
+    check("every curve at the top of it does",
+          shares[-1] == 1.0, f"{shares[-1]:.2f}")
+    check("and the drop count rises monotonically between",
+          bool((np.diff(ladder.mean_drops.to_numpy()) > 0).all()),
+          ", ".join(f"{v:.2f}" for v in ladder.mean_drops))
+
+    runs = scope.bubble_turnover_control()
+    top = runs[np.isclose(runs.top_h2o2, 73.424)]
+    quiet = top[top.drops == 0]
+    check("peroxide alone does not do it -- some top-peroxide runs are quiet",
+          len(quiet) > 0, f"{sorted(quiet.index)}")
+    check("and the quiet ones are the weakest runs at that peroxide",
+          float(quiet.agreement.max()) < float(
+              top[top.drops > 0].agreement.min()),
+          f"{quiet.agreement.max():.2f} against "
+          f"{top[top.drops > 0].agreement.min():.2f}")
+
+    together = scope.bubble_synchrony()
+    check("detachments are not synchronised between cuvettes of a run",
+          abs(together["observed"] - together["expected"])
+          < 3 * np.sqrt(max(together["expected"], 1.0)),
+          f"{together['observed']} observed against "
+          f"{together['expected']:.1f} expected over {together['pairs']} pairs")
+
+
+def test_stitching_is_refused_on_the_real_curves():
+    """
+    Mass balance, on the archive rather than on a synthetic curve.
+
+    Joining the pieces keeps the artefact's rise and drops its fall, so it
+    inflates by the sum of the drops. On this block that carries at least one
+    curve past the most absorbance its own substrate could ever make -- which
+    the subtraction, being conserving, cannot do to any curve.
+    """
+    print("\nstitching, against the substrate")
+    balance = scope.bubble_mass_balance()
+    check("no curve as read exceeds its substrate ceiling",
+          int((balance.raw > 1.0).sum()) == 0)
+    check("stitching pushes at least one curve past it",
+          int((balance.stitched > 1.0).sum()) > 0,
+          f"worst {balance.stitched.max():.2f} on exp "
+          f"{int(balance.loc[balance.stitched.idxmax(), 'experiment'])} "
+          f"sample {int(balance.loc[balance.stitched.idxmax(), 'sample'])}")
+    check("the subtraction leaves every curve inside it",
+          int((balance.corrected > 1.0).sum()) == 0)
+    # It cannot do otherwise, and saying so here is the point: the artefact
+    # begins and ends at nothing, so it cannot have moved the net. That
+    # identity is exactly what stitching breaks.
+    check("because the subtraction conserves the net rise",
+          np.allclose(balance.raw, balance.corrected))
+    # The curves stitching ruins are the ones that were still speeding up, so
+    # the conversion it claims cannot be believed on its own terms either.
+    worst = balance.nlargest(5, "stitched")
+    check("and the curves it ruins were accelerating, not spending substrate",
+          float(worst.ramp_gain.min()) > 1.0,
+          f"gains {', '.join(f'{v:.1f}' for v in worst.ramp_gain)}")
+
+
+def test_the_correction_recovers_a_planted_rate():
+    """
+    The recovery table, on real curves with a known truth.
+
+    Donors are the block's own clean curves; the artefact is planted, so the
+    rate before it is the truth. Three claims: the subtraction beats leaving
+    the curve alone, stitching LOSES to leaving it alone at every severity, and
+    the correction is unbiased while the artefact is small.
+    """
+    print("\nrecovery of a planted rate")
+    generator = np.random.default_rng(7)
+    frame = scope.frame()
+    donors = [c for c in scope.curves()
+              if not len(curve_metrics.bubble_drops(
+                  np.asarray(c.absorbance, float), c.noise))
+              and float(np.ptp(np.asarray(c.absorbance, float))) > 0.02]
+    check("there are clean donor curves to plant into", len(donors) >= 10,
+          f"{len(donors)}")
+
+    def recovered(severity):
+        raw, stitched, subtracted = [], [], []
+        for curve in donors:
+            times = np.asarray(curve.times, dtype=float)
+            values = np.asarray(curve.absorbance, dtype=float)
+            floor = scope.source_floor(curve.source)
+            truth = curve_metrics.peak_rate(times, values, floor=floor)[0]
+            if not np.isfinite(truth) or truth <= 0:
+                continue
+            for _ in range(4):
+                edges = np.sort(generator.choice(
+                    np.arange(5, len(times) - 5), size=5, replace=False))
+                rate = severity * (values[-1] - values[0]) / times[-1]
+                artefact = np.zeros(len(times))
+                start = 0
+                for edge in edges:
+                    artefact[start:edge + 1] = rate * (
+                        times[start:edge + 1] - times[start])
+                    start = edge + 1
+                artefact[start:] = rate * (times[start:] - times[start])
+                spoilt = values + artefact
+                drops = curve_metrics.bubble_drops(spoilt, curve.noise)
+                joined = spoilt.copy()
+                for index in drops:
+                    joined[index + 1:] -= np.diff(spoilt)[index]
+                fixed, _ = curve_metrics.debubble(times, spoilt, curve.noise)
+                for bag, series in ((raw, spoilt), (stitched, joined),
+                                    (subtracted, fixed)):
+                    bag.append(curve_metrics.peak_rate(
+                        times, series, floor=floor)[0] / truth)
+        return (float(np.median(raw)), float(np.median(stitched)),
+                float(np.median(subtracted)))
+
+    for severity in (0.25, 0.5, 1.0):
+        raw, stitched, subtracted = recovered(severity)
+        check(f"at {severity:g}x the chemistry, stitching is worse than "
+              f"leaving it alone", stitched > raw,
+              f"{stitched:.2f} against {raw:.2f}")
+        check(f"at {severity:g}x, subtracting the ramp beats both",
+              subtracted < raw and subtracted < stitched,
+              f"{subtracted:.2f} against {raw:.2f} and {stitched:.2f}")
+        if severity <= 0.5:
+            check(f"and at {severity:g}x it is unbiased",
+                  abs(subtracted - 1.0) < 0.06, f"{subtracted:.2f}")
+
+
+def test_no_published_order_rests_on_the_gas():
+    """
+    The reason the block's conclusions survive a defect this large.
+
+    A substrate-blind, peroxide-driven additive artefact is exactly what would
+    manufacture the flat substrate order of section 2, so the orders have to be
+    read under every repair before that order can stand. They move by less than
+    their own standard errors, and the substrate order moves AWAY from zero.
+    """
+    print("\nthe orders under each repair")
+    table = scope.bubble_sensitivity()
+    published = table.loc[("vmax", "all live")]
+    for (treatment, subset), row in table.iterrows():
+        if treatment == "vmax" and subset == "all live":
+            continue
+        for axis in ("s0", "h2o2"):
+            gap = abs(row[f"order_{axis}"] - published[f"order_{axis}"])
+            spread = float(np.hypot(row[f"stderr_{axis}"],
+                                    published[f"stderr_{axis}"]))
+            check(f"{treatment} on {subset}: the {axis} order does not move",
+                  gap < spread, f"{gap:.3f} against {spread:.3f}")
+    check("the substrate order does not move toward zero under the bound",
+          abs(table.loc[("vmax_monotone", "all live"), "order_s0"])
+          >= abs(published["order_s0"]))
+    check("every treatment keeps all 110 live curves",
+          int(table.loc[("vmax_corrected", "all live"), "n"])
+          == int(published["n"]))
+
+
+def test_the_load_ceiling_flags_and_does_not_exclude():
+    print("\nthe load ceiling")
+    table = scope.bubble_table()
+    frame = scope.frame()
+    check("the table holds every live curve",
+          len(table) == int(frame.live.sum()),
+          f"{len(table)} against {int(frame.live.sum())}")
+    check("some curves are beyond repair", int((~table.repairable).sum()) > 0,
+          f"{int((~table.repairable).sum())}")
+    check("and they are the high-peroxide ones",
+          float(table[~table.repairable].h2o2.median())
+          > float(table[table.repairable].h2o2.median()),
+          f"{table[~table.repairable].h2o2.median():.1f} against "
+          f"{table[table.repairable].h2o2.median():.1f}")
+    check("the ceiling is a flag, not an exclusion -- the frame keeps them all",
+          int(frame.live.sum()) == len(table))
+    check("a curve with no detachment carries no load",
+          float(table[table.bubble_drops == 0].bubble_load.max()) == 0.0)
+
+
 if __name__ == "__main__":
     test_an_axis_the_offsets_absorb_is_not_reported()
     test_the_block_still_measures_both_axes()
@@ -346,5 +533,10 @@ if __name__ == "__main__":
     test_the_burst_bound_bites_between_runs_and_not_within_them()
     test_the_enzyme_pair_is_derived_and_survives_its_window()
     test_the_acceleration_band_uses_live_curves_only()
+    test_the_gas_is_gas_and_not_the_instrument()
+    test_stitching_is_refused_on_the_real_curves()
+    test_the_correction_recovers_a_planted_rate()
+    test_no_published_order_rests_on_the_gas()
+    test_the_load_ceiling_flags_and_does_not_exclude()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)

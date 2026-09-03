@@ -101,7 +101,30 @@ burst_table()             # the early rise, and it in units of catalyst
 burst_drivers()           # its orders in [S] and [H2O2], within runs
 enzyme_pair()             # the block's one lever on [enz]: exps 140 vs 141
 enzyme_pair_sensitivity() # and the window it is read at, swept
+bubble_table()            # every curve's O2 load, and its rate under each repair
+bubble_ladder()           # detachments against [H2O2]: the evidence
+bubble_turnover_control() # and that peroxide alone does not do it
+bubble_synchrony()        # not the lamp: 17 coincidences against 16.0 expected
+bubble_mass_balance()     # what stitching would claim of the substrate
+bubble_sensitivity()      # every order under every repair
 ```
+
+**The chop is gas, and the curves may NOT be stitched.** Many of the block's
+curves rise, fall by more in one 60 s reading than the reaction moves in five,
+and resume -- absorbance that goes away was never product. Adding each step
+back is the repair that suggests itself and the one that must not be used: a
+bubble that costs delta when it leaves contributed delta of rise while it grew,
+so stitching keeps the artefact's whole upward half. It puts exp 135 cuvette 4
+at 1.26x the absorbance its own substrate could make, and against planted
+sawtooths it LOSES TO DOING NOTHING at every severity. Use
+`curve_metrics.debubble` (subtract the ramp; unbiased to a load of 0.5) and
+quote the gap to `monotone_bound` as its systematic.
+
+**Read `bubble_load` before quoting a rate off this block.** Thirteen of 110
+live curves sit above 1 and carry no measurable rate -- all four substrate rungs
+of exp 135, plus inner rungs of 138, 140, 141, 142 and 150. They are FLAGGED,
+NOT EXCLUDED: they stay in the frame, the live counts and the curves page.
+Nothing published moves under any repair (`bubble_sensitivity`).
 
 `burst` is `curve_metrics.burst_amplitude` on the FITTED curve, never on
 `B_fast` -- the two-phase solve trades amplitude between its exponentials

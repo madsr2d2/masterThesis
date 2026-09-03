@@ -176,13 +176,24 @@ Two things still make the correction worth doing, neither of which gates a fit:
   of the buffer's own concentration at the pH extremes. That closes limitation
   2 in `solution_chemistry.py` for these 17 runs.
 
-### One condition before a fit here is quotable
+### The thrashing cuvettes — ruled 2026-09-03
 
-**The thrashing cuvettes.** Exps 135 and 138, samples 1–4 (the high-peroxide
-end), backtrack up to 0.35 AU; 138 and 140 also show step discontinuities.
-Backtracking tracks [H₂O₂] across 19 of 22 experiments, so this is physical —
-almost certainly O₂ evolution — and it hits the residuals directly. These
-cuvettes need a ruling before they carry weight.
+It is O₂ evolution, as this section suspected. The evidence and the ruling are
+in `DATA_VERIFICATION.md` that date and in `two_axis/ANALYSIS.md` §5; the short
+form is that detachments ladder with [H₂O₂] but need turnover as well, are not
+synchronised between the cuvettes of a run, and move absorbance that cannot be
+product.
+
+**For a fit, read `scope.bubble_load` first.** Thirteen of the block's 110 live
+curves sit above 1 — the artefact has moved more absorbance than the reaction —
+and carry no measurable rate: all four substrate rungs of exp 135, plus inner
+rungs of 138, 140, 141, 142 and 150. Nothing is excluded; they stay in the frame
+and on the curves page, but a residual computed against them is measuring gas.
+The other 97 are usable, and `curve_metrics.debubble` is the correction —
+**never a stitch**, which inflates by the whole sum of the drops and loses to
+doing nothing at every severity tested.
+
+No order in `two_axis/` moves under any repair (`scope.bubble_sensitivity`).
 
 ### What stays outside the scope but must not be lost
 

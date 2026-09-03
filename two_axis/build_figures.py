@@ -17,6 +17,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "data"))
 sys.path.insert(0, os.path.dirname(HERE))
 
+import curve_metrics
 import induction
 import scope
 import slowdown
@@ -222,7 +223,7 @@ def figure_levers():
 
 
 def figure_turnovers():
-    """G · how many times the catalyst went round, where the rise finished."""
+    """I · how many times the catalyst went round, where the rise finished."""
     table = scope.burst_table()
     bounded = table[table.burst_bounded]
     axes = Axes(560, 300, (5.2, 10.0), (0.18, 6.0), ylog=True,
@@ -244,7 +245,7 @@ def figure_turnovers():
     low = bands[bands.band == "pH < 9"].turnovers.median()
     high = bands[bands.band == "pH >= 9"].turnovers.median()
     return fig(axes.render("pH", "turnovers = rise ÷ ε ÷ [enz]",
-                           "G · one turnover, or many?"),
+                           "I · one turnover, or many?"),
                f"The {len(bounded)} curves of the block whose rise finishes "
                f"inside their run — the other {len(table) - len(bounded)} peak "
                "on the last reading and give only a lower bound. Below pH 9 "
@@ -257,7 +258,7 @@ def figure_turnovers():
 
 
 def figure_enzyme_pair():
-    """H · the block's one lever on the catalyst."""
+    """J · the block's one lever on the catalyst."""
     pair, verdict = scope.enzyme_pair()
     high, low = verdict["high"], verdict["low"]
     x = pair[f"rise_{low}"].to_numpy(dtype=float)
@@ -278,7 +279,7 @@ def figure_enzyme_pair():
                CATEGORY[1], size=10.5)
     return fig(axes.render(f"rise in exp {low}, AU  ([enz] 0.014 mM)",
                            f"rise in exp {high}, AU  ([enz] 0.034 mM)",
-                           "H · the same chemistry at two catalyst loadings"),
+                           "J · the same chemistry at two catalyst loadings"),
                f"All {verdict['cuvettes']} cuvettes of the block's one matched "
                f"pair, both fits read at {verdict['window_s']:.0f} s — the "
                "largest window the two runs share. The runs differ in loading "
@@ -291,8 +292,85 @@ def figure_enzyme_pair():
                f"order is not, at {verdict['sigma_first_order']:.1f}σ.")
 
 
+def figure_gas_ladder():
+    """F · the detachments ladder with peroxide, and need turnover too."""
+    frame = _block()
+    live = frame[frame.live]
+    axes = Axes(560, 300, (2.0, 260.0), (0.4, 30.0), xlog=True, ylog=True,
+                pad=(72, 30, 48, 34))
+    quiet = {136, 137}
+    for row in live.itertuples():
+        drops = max(int(row.bubble_drops), 0)
+        axes.points([row.h2o2], [max(drops, 0.45)],
+                    MUTED if row.experiment in quiet else
+                    (ACCENT if drops else GRID),
+                    radius=4.0, opacity=0.75,
+                    title=f"exp {int(row.experiment)} cuvette "
+                          f"{int(row.sample)}: {drops} detachments, "
+                          f"load {row.bubble_load:.2f}")
+    ladder = scope.bubble_ladder()
+    for band, row in ladder.iterrows():
+        if row.mean_drops <= 0:
+            continue
+        axes.line(np.array([max(band.left, 2.0), band.right]),
+                  np.array([row.mean_drops] * 2), INK, width=2.0)
+    axes.note(88, 46, "grey: no detachment · slate: exps 136 and 137, the "
+                      "quiet runs at 73.4 mM", MUTED, size=10.5)
+    top = scope.bubble_turnover_control()
+    top = top[np.isclose(top.top_h2o2, 73.424)]
+    return fig(axes.render("[H₂O₂], mM", "detachments in the curve",
+                           "F · the chop ladders with peroxide"),
+               "Every live curve. Bars are each band's mean, and the count "
+               "rises monotonically across all six. <strong>Peroxide alone is "
+               "not enough</strong>: exps 136 and 137 sit at 73.4 mM with none "
+               "at all, and they are the two weakest runs there — "
+               f"agreement {top[top.drops == 0].agreement.min():.2f} and "
+               f"{top[top.drops == 0].agreement.max():.2f} against "
+               f"{top[top.drops > 0].agreement.min():.2f}–"
+               f"{top[top.drops > 0].agreement.max():.2f}. So the gas needs "
+               "turnover, which makes it the catalysed decomposition.")
+
+
+def figure_repair():
+    """G · one curve under each repair, and why stitching is refused."""
+    lookup = {(c.experiment, c.sample): c for c in scope.curves()}
+    curve = lookup[(140, 4)]
+    times = np.asarray(curve.times, dtype=float)
+    values = np.asarray(curve.absorbance, dtype=float)
+    drops = curve_metrics.bubble_drops(values, curve.noise)
+    corrected, _ = curve_metrics.debubble(times, values, curve.noise)
+    bound = curve_metrics.monotone_bound(values)
+    stitched = values.copy()
+    for index in drops:
+        stitched[index + 1:] -= np.diff(values)[index]
+    ceiling = float(curve.epsilon * curve.conditions.s0)
+    axes = Axes(560, 300, (0.0, float(times[-1])), (-0.01, 0.30),
+                pad=(72, 30, 48, 34))
+    axes.hline(ceiling, GRID, dash="4 3")
+    axes.note(axes._fx(times[-1] * 0.42), axes._fy(ceiling) - 8,
+              f"all {curve.conditions.s0:g} mM of substrate = "
+              f"{ceiling:.3f} AU", MUTED, size=10.5)
+    for series, colour, label in ((stitched, CATEGORY[2], "stitched"),
+                                  (values, INK, "as read"),
+                                  (corrected, ACCENT, "ramp subtracted"),
+                                  (bound, MUTED, "monotone bound")):
+        axes.line(times, series, colour, width=1.8)
+        axes.note(axes._fx(times[-1]) - 108, axes._fy(series[-1]) - 6,
+                  label, colour, size=10.5)
+    return fig(axes.render("time, s", "ΔA",
+                           "G · exp 140 cuvette 4 under each repair"),
+               "The curve loses more absorbance in one 60 s reading than it "
+               "gains in five, eight times over. <strong>Stitching the pieces "
+               "together climbs toward the whole of the cuvette's "
+               "substrate</strong> — on exp 135 cuvette 4 it passes it — "
+               "because a bubble that costs δ when it leaves contributed δ of "
+               "rise while it grew, and stitching keeps that rise. Subtracting "
+               "the ramp conserves the net; the monotone bound assumes only "
+               "that gas adds and product accumulates.")
+
+
 def figure_acceleration_against_ph():
-    """F · what the autocatalysis tracks: pH, not run length."""
+    """H · what the autocatalysis tracks: pH, not run length."""
     frame = _block()
     live = frame[frame.live]
     axes = Axes(560, 300, (5.2, 10.0), (0.02, 30.0), ylog=True,
@@ -321,7 +399,7 @@ def figure_acceleration_against_ph():
     axes.note(88, 46, "rust: accelerates past 3σ · mark size is run length",
               MUTED, size=10.5)
     return fig(axes.render("pH", "late slope ÷ early slope",
-                           "F · the acceleration is a high-pH effect"),
+                           "H · the acceleration is a high-pH effect"),
                "Every live curve, by pH. The mark grows with the run's length, "
                "and the long runs sit at the <em>bottom</em>: the eight-hour "
                "runs are long because they are slow. What the acceleration "
@@ -414,6 +492,13 @@ def build_index():
     drivers = slowdown.deceleration_drivers(frame)
     bands = scope.acceleration_by_ph()
     burst = scope.burst_drivers(scope.strong_runs())
+    synchrony = scope.bubble_synchrony()
+    balance = scope.bubble_mass_balance()
+    stitch_worst = balance.loc[balance.stitched.idxmax()]
+    gas = scope.bubble_table()
+    beyond_count = int((~gas.repairable).sum())
+    sensitivity = scope.bubble_sensitivity()
+    recovery = "1.15, 1.32 and 1.64 against 1.12, 1.24 and 1.58" 
     _, pair_verdict = scope.enzyme_pair()
     sweep = scope.enzyme_pair_sensitivity()
     pooled = ladders.loc["pooled"]
@@ -564,6 +649,29 @@ saturation predicts. A 1.5× difference in level is a thin thing to hang
 archive has none.</p>
 
 <h2>5 · What the curves do</h2>
+{figure_gas_ladder()}
+<p>Many of these curves rise, fall by more in one 60 s reading than the reaction
+moves in five, resume at the new level and do it again. <strong>Absorbance that
+goes away was never product</strong> — benzaldehyde does not un-form — so the
+falls are something leaving the light path. It is O₂ from the ketone-catalysed
+decomposition of the peroxide: the detachments ladder with [H₂O₂], they need
+turnover as well (exps 136 and 137 sit at 73.4 mM with none), and they are not
+synchronised between the cuvettes of a run —
+<strong>{synchrony['observed']} coincidences over {synchrony['pairs']} cuvette
+pairs against the {synchrony['expected']:.1f} independence predicts</strong>,
+which leaves the light path itself as the only place the absorbance can go.</p>
+{figure_repair()}
+<p>The repair that suggests itself is the one that must not be used. Stitched,
+exp 135 cuvette 4 ends at
+<strong>{stitch_worst.stitched:.2f}× the most absorbance its
+{stitch_worst.s0:.3f} mM of substrate could ever make</strong>, and against
+sawtooths planted into the block's own clean curves stitching recovers
+{recovery} — <em>worse at every severity than leaving the curve alone</em>.
+Subtracting the ramp each detachment reveals is unbiased while the artefact is
+the smaller half. Of 110 live curves, <strong>{beyond_count} sit above a load
+of 1</strong> and carry no measurable rate; they are flagged, drawn here and in
+the counts, and <em>not</em> excluded. No order in this document moves under any
+repair.</p>
 {figure_acceleration_against_ph()}
 <p>The acceleration is a <strong>high-pH</strong> phenomenon, not a long-run
 one: {int(bands.loc['pH >= 9', 'accelerating'])} of

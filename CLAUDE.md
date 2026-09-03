@@ -217,6 +217,26 @@ Three things follow that are worth not re-deriving.
   The block cannot separate them: the L has NO INTERIOR POINT, so no cuvette
   crosses `[S]` with `[H2O2]` and no run crosses `[buf]` with `[H2O2]`.
 
+- **The chop is O2, and the curves may NOT be stitched.** Many curves rise,
+  fall by more in one 60 s reading than the reaction moves in five, and resume
+  -- absorbance that goes away was never product. It is O2 from the catalysed
+  decomposition of the peroxide: `bubble_ladder` (0 of 7 curves below 5 mM
+  detach, 5 of 5 above 80 mM, monotone across six bands),
+  `bubble_turnover_control` (exps 136 and 137 sit at 73.4 mM with NONE, being
+  the two weakest runs there) and `bubble_synchrony` (17 coincidences over 357
+  cuvette pairs against 16.0 expected, so it is not the instrument).
+  **Adding each step back is the one repair that must not be used**: a bubble
+  that costs delta when it leaves contributed delta of rise while it grew, so
+  stitching keeps the artefact's whole upward half -- it puts exp 135 cuvette 4
+  at 1.26x the absorbance its own substrate could make, and against planted
+  sawtooths it LOSES TO DOING NOTHING at every severity (1.15/1.32/1.64 against
+  1.12/1.24/1.58). Subtract the ramp instead (`curve_metrics.debubble`, unbiased
+  to a load of 0.5) and quote the gap to `monotone_bound` as its systematic.
+  **Read `bubble_load` before quoting a rate**: 13 of 110 live curves sit above
+  1 and carry no measurable rate -- all four substrate rungs of exp 135, plus
+  inner rungs of 138, 140, 141, 142 and 150. They are FLAGGED, NOT EXCLUDED, and
+  no order moves under any repair (`bubble_sensitivity`, worst shift smaller
+  than the errors combined).
 - **The early rise is counted by the CATALYST, not the substrate.**
   `curve_metrics.burst_amplitude` reads it off the FITTED CURVE, because the
   two-phase solve trades amplitude between its exponentials without moving the

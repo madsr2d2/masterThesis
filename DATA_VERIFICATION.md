@@ -8,6 +8,118 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-03 — the chop is O₂, and it may not be stitched
+
+Asked about by eye again -- exps 143.3, 140.4 and 144.2, which rise, fall by
+more in one 60 s reading than the reaction moves in five, resume at the new
+level and do it again. This closes the one condition `fit_dataset.py` has
+carried since 2026-08-30: *"the high-peroxide cuvettes of exps 135 and 138 need
+a ruling, since they backtrack up to 0.35 AU and that lands straight in the
+residuals."*
+
+### Absorbance that goes away was never product
+
+Benzaldehyde does not un-form, so the falls are something leaving the light
+path and the rises before them are the same thing arriving. Three independent
+observations name it as O₂ from the ketone-catalysed decomposition of the
+peroxide (`MECHANISM.md` refs 34-35):
+
+| observation | number | what it rules out |
+|---|---|---|
+| detachments ladder with [H₂O₂] | 0 of 7 curves below 5 mM, 5 of 5 above 80 mM, monotone across six bands | a cause independent of peroxide |
+| but need turnover too | exps 136 and 137 sit at 73.4 mM with **no detachment**, and are the two weakest runs there (agreement 0.25 and 0.21 against 0.83-0.97) | peroxide standing in a cuvette |
+| and are not synchronised | **17 coincidences over 357 cuvette pairs against the 16.0 independence predicts** | the lamp, the shutter, the carousel |
+
+`scope.bubble_ladder`, `scope.bubble_turnover_control`, `scope.bubble_synchrony`.
+The step asymmetry is the signature that made it findable: across the block's
+28827 steps, 23 rise by more than +20σ and **122 fall** by more than -20σ, and
+the largest fall (-260σ) is 4.6× the largest rise. Slow growth, sudden release.
+
+### Stitching the pieces back together is the one repair that must not be used
+
+It is the obvious repair -- add each step back to everything after it -- and it
+is wrong by conservation. **A bubble that costs δ when it detaches contributed
+δ of rise while it grew**, so stitching removes the artefact's downward half and
+keeps all of its upward half.
+
+Stated against the substrate (`scope.bubble_mass_balance`): stitched, exp 135
+cuvette 4 ends at **1.26× the most absorbance its 0.219 mM of substrate could
+ever make**, and exps 138.4, 140.4, 141.4 and 142.4 land between 0.49 and 0.86
+-- while their ramps *steepen*, at 1.1 to 23.5 times their starting slope. A
+reaction that has spent half its substrate cannot accelerate twentyfold.
+
+Against sawtooths planted into the block's own clean curves, where the truth is
+the donor's own rate:
+
+```
+artefact/chemistry    left alone    stitched    ramp subtracted
+      0.25              1.12          1.15           1.01
+      0.5               1.24          1.32           1.01
+      1.0               1.58          1.64           1.12
+```
+
+**Stitching loses to doing nothing at every severity.** The correction that
+works is the opposite sign: subtract the ramp each detachment reveals
+(`curve_metrics.bubble_ramp`). Its limit is structural rather than a matter of
+detection -- the last bubble never detaches, and given the TRUE detachment times
+the recovery moves only 1.13 to 1.10 -- so `bubble_load` is a ceiling on use,
+not a threshold to tune.
+
+### The ruling: thirteen curves, flagged and not excluded
+
+`bubble_load` is absorbance lost to detachments over the curve's net rise. Of
+110 live curves: 60 carry none, 31 sit at or below 0.5 where the correction is
+unbiased, 6 between 0.5 and 1, and **13 above 1** -- all four substrate rungs of
+exp 135 (163 mM peroxide, loads 4.0 to 8.7) and inner rungs of 138, 140, 141,
+142 and 150.
+
+Those thirteen **carry no rate**, and that is the ruling. They are **not
+excluded**: every one stays in `scope.frame`, in the live counts and on
+`two_axis/progress_curves.html`. Curve shape is never a defect in this project
+and these are not defective in shape; what they lack is a measurable rate, which
+is a different finding and is recorded as one. No `KNOWN_SAMPLE_EXCLUSIONS`
+entry is made.
+
+### Nothing published moves
+
+The check that had to pass, because a substrate-blind, peroxide-driven additive
+artefact is exactly what would manufacture the flat substrate order of
+`two_axis/` §2. `scope.bubble_sensitivity`:
+
+```
+vmax from                    n     order in [S]        order in [H2O2]
+the readings               110   +0.091 +/- 0.052    +0.794 +/- 0.077
+the ramp subtracted        110   +0.079 +/- 0.049    +0.781 +/- 0.074
+the monotone bound         110   +0.141 +/- 0.049    +0.770 +/- 0.072
+readings, load <= 1 only    97   +0.139 +/- 0.059    +0.767 +/- 0.086
+```
+
+Every order moves by less than the two estimates' errors combined, and the
+substrate order moves AWAY from zero -- the direction that matters, since the
+artefact could only have flattened it. Curve by curve the gas is severe (the
+monotone bound costs 83% of `vmax` on the worst curve); block by block it
+carries nothing.
+
+### What was added
+
+`curve_metrics`: `bubble_drops`, `bubble_ramp`, `debubble`, `bubble_load`,
+`monotone_bound`. `scope.frame`: `bubble_drops`, `bubble_load`,
+`vmax_corrected`, `vmax_monotone`. `scope`: `bubble_table`, `bubble_ladder`,
+`bubble_turnover_control`, `bubble_synchrony`, `bubble_mass_balance`,
+`bubble_sensitivity`. Tests: 13 synthetic checks in `test_curve_metrics` (the
+conservation identity, and stitching losing to doing nothing) and 33 in
+`test_scope` (the three controls, the mass balance, the recovery table, the
+order sensitivity).
+
+**Still open.** `curve_dossier.backtrack` (worst excursion from the running
+maximum, in σ) and `build_dossier.curve_backtrack` (total reverse travel, in AU)
+are two more measurements of this same artefact, in two modules, neither
+imported by `scope` and neither named so as to say which it is. They escape
+`test_no_duplicate_definitions` only because the names differ. They should be
+folded into `curve_metrics` beside the machinery above.
+
+---
+
 ## 2026-09-03 — the size of the early rise, and what counts it
 
 Added because a curve was asked about by eye -- exp 150 cuvette 6, which climbs

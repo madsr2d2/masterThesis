@@ -11,6 +11,7 @@ import os
 import sys
 
 import numpy as np
+import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "data"))
@@ -205,6 +206,109 @@ def main():
               == (levers["across_order"] < levers["within_order"]),
               "which is the direction saturation predicts")
 
+    doc.section("section 5: the gas")
+    ladder = scope.bubble_ladder()
+    for band, row in ladder.iterrows():
+        low, high = band.left, band.right
+        # The extremes are the argument -- none at the bottom, all at the top
+        # -- so they carry the document's bold and the claim has to build it.
+        extreme = int(row.with_drops) in (0, int(row.curves))
+        mark = "**" if extreme else ""
+        doc.claim(f"{low:g}-{high:g} mM: the peroxide band's row",
+                  f"| {int(row.curves)} | {mark}{int(row.with_drops)}{mark} | "
+                  f"{row.mean_lost:.4f}")
+    doc.check("the drop count rises monotonically with peroxide",
+              bool((np.diff(ladder.mean_drops.to_numpy()) > 0).all()),
+              ", ".join(f"{v:.2f}" for v in ladder.mean_drops))
+
+    runs = scope.bubble_turnover_control()
+    top = runs[np.isclose(runs.top_h2o2, 73.424)]
+    quiet = top[top.drops == 0]
+    doc.claim("the quiet runs at the top peroxide",
+              "Exps " + " and ".join(str(int(e)) for e in sorted(quiet.index)))
+    doc.claim("their peroxide", f"{quiet.top_h2o2.iloc[0]:.1f} mM")
+    doc.claim("their agreement",
+              " and ".join(f"{v:.2f}" for v in quiet.agreement))
+    doc.claim("against the noisy runs' agreement",
+              f"{top[top.drops > 0].agreement.min():.2f} to "
+              f"{top[top.drops > 0].agreement.max():.2f}")
+    doc.check("the quiet runs really are the weakest at that peroxide",
+              float(quiet.agreement.max())
+              < float(top[top.drops > 0].agreement.min()))
+
+    together = scope.bubble_synchrony()
+    doc.claim("the cuvette pairs", f"{together['pairs']} cuvette pairs")
+    doc.claim("coincident detachments",
+              f"**{together['observed']} times against the "
+              f"{together['expected']:.1f} independence predicts**")
+
+    balance = scope.bubble_mass_balance()
+    worst = balance.loc[balance.stitched.idxmax()]
+    doc.claim("what stitching claims of the worst curve",
+              f"**{worst.stitched:.2f}x the most absorbance its "
+              f"{worst.s0:.3f} mM of substrate could ever make**")
+    doc.claim("and of the next four",
+              f"between {balance.nlargest(5, 'stitched').stitched.min():.2f} "
+              f"and {balance.nlargest(5, 'stitched').stitched.iloc[1]:.2f}")
+    doc.claim("their ramps steepen",
+              f"{balance.nlargest(5, 'stitched').ramp_gain.min():.1f} to "
+              f"{balance.nlargest(5, 'stitched').ramp_gain.max():.1f} times")
+    doc.check("no curve as read exceeds its own substrate",
+              int((balance.raw > 1.0).sum()) == 0)
+    doc.check("and the subtraction leaves none exceeding it",
+              int((balance.corrected > 1.0).sum()) == 0)
+
+    table = scope.bubble_table()
+    bands = pd.cut(table.bubble_load, [-0.001, 1e-4, 0.25, 0.5, 1.0, np.inf],
+                   labels=["none", "<=0.25", "0.25-0.5", "0.5-1", ">1"])
+    counts = table.groupby(bands, observed=True)
+    for name, group in counts:
+        # Only the band that carries no rate is argued for, so only it is bold.
+        mark = "**" if str(name) == ">1" else ""
+        doc.claim(f"load {name}: the row",
+                  f"| {mark}{len(group)}{mark} | "
+                  f"{mark}{group.h2o2.median():.1f}{mark} |")
+    beyond = table[~table.repairable]
+    doc.claim("how many curves carry no measurable rate", f"**{len(beyond)}**")
+    doc.claim("the run that carries most of them",
+              f"**all four substrate rungs of exp "
+              f"{int(beyond.experiment.mode().iloc[0])}**")
+    doc.claim("its peroxide", f"{beyond.h2o2.max():.0f} mM peroxide")
+    doc.claim("its loads",
+              f"loads {beyond[beyond.experiment == 135].bubble_load.min():.1f} "
+              f"to {beyond[beyond.experiment == 135].bubble_load.max():.1f}")
+    doc.claim("the other runs that carry one",
+              ", ".join(str(int(e)) for e in sorted(
+                  set(beyond.experiment) - {135})[:-1])
+              + " and " + str(int(sorted(set(beyond.experiment) - {135})[-1])))
+    doc.check("the ceiling excludes nothing -- every live curve is in the table",
+              len(table) == int(frame.live.sum()),
+              f"{len(table)} against {int(frame.live.sum())}")
+    doc.claim("what the bound costs a typical curve",
+              f"**{(1 - (table.vmax_monotone / table.vmax).median()) * 100:.1f}%**")
+    doc.claim("and the worst one",
+              f"**{(1 - (table.vmax_monotone / table.vmax).min()) * 100:.0f}%**")
+
+    sensitivity = scope.bubble_sensitivity()
+    for (treatment, subset), row in sensitivity.iterrows():
+        doc.claim(f"{treatment} on {subset}: the order row",
+                  f"| {int(row.n)} | {row.order_s0:+.3f} +/- "
+                  f"{row.stderr_s0:.3f} | {row.order_h2o2:+.3f} +/- "
+                  f"{row.stderr_h2o2:.3f} |")
+    published = sensitivity.loc[("vmax", "all live")]
+    for (treatment, subset), row in sensitivity.iterrows():
+        if (treatment, subset) == ("vmax", "all live"):
+            continue
+        for axis in ("s0", "h2o2"):
+            gap = abs(row[f"order_{axis}"] - published[f"order_{axis}"])
+            spread = float(np.hypot(row[f"stderr_{axis}"],
+                                    published[f"stderr_{axis}"]))
+            doc.check(f"{treatment}/{subset}: the {axis} order does not move",
+                      gap < spread, f"{gap:.3f} against {spread:.3f}")
+    doc.check("the substrate order moves away from zero, not toward it",
+              abs(sensitivity.loc[("vmax_monotone", "all live"), "order_s0"])
+              >= abs(published["order_s0"]))
+
     doc.section("section 5: what the curves do")
     bands = scope.acceleration_by_ph()
     for band, row in bands.iterrows():
@@ -340,8 +444,8 @@ def main():
               f"{sorted(_fitted_experiments())}")
 
     doc.section("the figures the document promises")
-    doc.figures(os.path.join(HERE, "index.html"), "ABCDEFGH")
-    doc.claim("the document's own count of them", "eight figures, A\nto H")
+    doc.figures(os.path.join(HERE, "index.html"), "ABCDEFGHIJ")
+    doc.claim("the document's own count of them", "ten figures, A\nto J")
 
     doc.section("the curves page draws every cuvette it claims to")
     page = io.open(os.path.join(HERE, "progress_curves.html"),

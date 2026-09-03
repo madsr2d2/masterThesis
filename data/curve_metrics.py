@@ -749,3 +749,155 @@ def burst_amplitude(times, fitted, edge=BURST_EDGE):
     span = len(times) - 1
     bounded = bool(edge * span < index < (1 - edge) * span)
     return (float(fitted[index] - fitted[0]), float(times[index]), bounded)
+
+
+# A downward step this many of the curve's own noise is a DETACHMENT, not a
+# reading. 8 is chosen from the block's own step distribution rather than from
+# a table: across the two-axis block's 28827 steps, 23 rise by more than +20
+# sigma and 122 fall by more than -20 sigma, and the largest fall (-260 sigma)
+# is 4.6x the largest rise. That asymmetry is the artefact's signature -- slow
+# growth, sudden release -- and 8 sits well above the noise while staying below
+# the smallest step the asymmetry is visible in.
+BUBBLE_DROP_SIGMA = 8.0
+
+
+def bubble_drops(values, noise, sigma=BUBBLE_DROP_SIGMA):
+    """
+    Indices `i` where the reading falls from `i` to `i + 1` by more than
+    `sigma` of the curve's own noise: the detachments.
+
+    ABSORBANCE THAT GOES AWAY WAS NEVER PRODUCT. Benzaldehyde does not
+    un-form, so a fall of this size is not the reaction running backwards; it
+    is something leaving the light path. In this archive that something is O2:
+    the drops scale with [H2O2] (0 of 8 curves below 5 mM carry one, 5 of 5
+    above 80 mM do), they need TURNOVER as well as peroxide (exps 136 and 137
+    sit at 73.4 mM and carry none, being the block's two weakest runs), they
+    are NOT synchronised between the cuvettes of a run, and their onset is
+    delayed to a median 40% of the run while the solution supersaturates.
+    See DATA_VERIFICATION.md 2026-09-03 and MECHANISM.md refs 34-35, which are
+    the ketone-catalysed decomposition of peroxide to O2.
+
+    Pass `noise` floored by the curve's SOURCE -- `fit_dataset.source_floor` --
+    or a .rre curve is compared against the export's quantisation and every
+    detachment in it is 1096x under-counted.
+    """
+    values = np.asarray(values, dtype=float)
+    if len(values) < 2 or not np.isfinite(noise) or noise <= 0:
+        return np.array([], dtype=int)
+    return np.flatnonzero(np.diff(values) < -sigma * noise)
+
+
+def monotone_bound(values):
+    """
+    The greatest non-decreasing function lying under the readings.
+
+    THE ASSUMPTION-FREE BOUND. A bubble only ever ADDS absorbance and product
+    only ever accumulates, so with `A_obs = A_chem + b` and `b >= 0`,
+    `A_chem(t) <= min(A_obs(s) : s >= t)` -- which is this. It needs no drop
+    detector, no bubble model and no free parameter, and it is an UPPER bound
+    on the chemistry, so a rate read off it cannot be inflated by gas.
+
+    It is the systematic to quote beside `debubble`, not a replacement for it:
+    it also removes real curvature, so it under-reads a clean curve. Over the
+    two-axis block it costs a median 0.6% of `vmax` and up to 83% on the worst
+    curve, which is the point -- the spread IS the contamination.
+    """
+    values = np.asarray(values, dtype=float)
+    if len(values) < 2:
+        return values.copy()
+    return np.minimum.accumulate(values[::-1])[::-1]
+
+
+def bubble_ramp(times, values, drops):
+    """
+    The artefact's own contribution to each reading, `b(t) >= 0`.
+
+    A bubble that costs `delta` when it detaches must have contributed `delta`
+    of RISE while it grew -- you cannot lose absorbance you never gained -- so
+    between one detachment and the next, `b` is taken to climb linearly from
+    zero to the size of the drop that ends the interval, and to return to zero
+    across the detachment itself.
+
+    THIS IS WHY THE CURVES MAY NOT BE STITCHED. Joining the pieces by adding
+    each step back removes the artefact's downward half and keeps ALL of its
+    upward half, so it inflates by exactly the sum of the drops: stitched, exp
+    135 sample 4 ends at 126% of the most absorbance its 0.219 mM of substrate
+    could ever produce, and four more curves land at 49-86% conversion while
+    still accelerating. Against planted sawtooths of known truth, stitching
+    recovers `vmax` at 1.12, 1.31, 1.64 and 2.32 as the artefact grows from
+    0.25 to 2x the chemistry -- WORSE AT EVERY SEVERITY than leaving the curve
+    alone (1.11, 1.22, 1.51, 2.21). Subtracting this ramp instead recovers
+    1.01, 1.01, 1.13 and 1.52.
+
+    TWO LIMITATIONS, and the first is structural.
+
+      the last bubble  never detaches, so its ramp is never revealed and the
+                       stretch after the final drop is left uncorrected. This
+                       is not a detector problem: given the TRUE detachment
+                       times the recovery moves only 1.13 -> 1.10 and
+                       1.52 -> 1.50, so no better detector rescues it.
+      the drop size    is the bubble less whatever the reaction added over the
+                       same interval, so `delta` under-states the bubble by
+                       one reading's worth of chemistry.
+
+    A drop in the very first interval leaves `b` at zero across it: that bubble
+    grew before the run began, so its rise is not in the data and there is
+    nothing to subtract.
+    """
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    ramp = np.zeros(len(values))
+    if len(values) < 2:
+        return ramp
+    steps = np.diff(values)
+    start = 0
+    for index in np.asarray(drops, dtype=int):
+        if index < start or index + 1 >= len(values):
+            continue
+        span = times[index] - times[start]
+        if span > 0:
+            ramp[start:index + 1] = (-steps[index]) * (
+                times[start:index + 1] - times[start]) / span
+        start = index + 1
+    return ramp
+
+
+def debubble(times, values, noise, sigma=BUBBLE_DROP_SIGMA):
+    """
+    The readings with the gas taken out. Returns `(corrected, drops)`.
+
+    `curve_metrics.bubble_ramp` is the correction and says why it is a
+    subtraction rather than a stitch. Read `bubble_load` before trusting the
+    result on any one curve: above a load of 1 the artefact carries more
+    absorbance than the reaction does and no repair in this module recovers
+    the rate.
+    """
+    drops = bubble_drops(values, noise, sigma=sigma)
+    return np.asarray(values, dtype=float) - bubble_ramp(
+        times, values, drops), drops
+
+
+def bubble_load(values, drops):
+    """
+    Absorbance lost to detachments, divided by the curve's net rise.
+
+    The severity axis, and the one that decides what a curve may be used for.
+    Over the two-axis block's 110 live curves: 60 carry no detachment at all,
+    31 sit below 0.5 where `debubble` is unbiased, 6 between 0.5 and 1 where it
+    leaves about a tenth, and 13 above 1 -- all four substrate rungs of exp 135
+    at 4.0-8.7, plus inner rungs of 138, 140, 141, 142 and 150 -- where the
+    rate is not measurable by any means here.
+
+    Returns 0.0 for a curve with no detachment and nan where the net rise is
+    not positive, since the ratio has no meaning on a curve that went nowhere.
+    """
+    values = np.asarray(values, dtype=float)
+    drops = np.asarray(drops, dtype=int)
+    if len(values) < 2:
+        return np.nan
+    net = float(values[-1] - values[0])
+    if net <= 0:
+        return np.nan
+    if not len(drops):
+        return 0.0
+    return float(-np.diff(values)[drops].sum() / net)

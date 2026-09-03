@@ -17,8 +17,8 @@ both is what this folder is.
     python two_axis/build_figures.py
     python two_axis/check_numbers.py
 
-**Figures**: [`index.html`](index.html) is the presentation — eight figures, A
-to H, one per claim below. [`progress_curves.html`](progress_curves.html) carries
+**Figures**: [`index.html`](index.html) is the presentation — ten figures, A
+to J, one per claim below. [`progress_curves.html`](progress_curves.html) carries
 all 119 cuvettes with the form each earned, which is the audit surface for
 every number here.
 
@@ -232,6 +232,125 @@ archive has none — the same missing experiment `buffer/` §6 ends on.
 
 ## 5. What the curves do
 
+### The chop is gas, and it is measured rather than excluded
+
+Many of the block's curves rise, fall by more in one 60 s reading than the
+reaction moves in five, resume at the new level, and do it again. Exps 143.3,
+140.4 and 144.2 are ordinary examples and exp 135 does it twenty times a
+cuvette. **Absorbance that goes away was never product** — benzaldehyde does not
+un-form — so the falls are something leaving the light path, and the rises
+before them are the same thing arriving.
+
+It is O₂, from the ketone-catalysed decomposition of the peroxide
+(`MECHANISM.md` refs 34–35), growing on the window and detaching. Three things
+say so and no two of them could be arranged by the same accident.
+
+**It ladders with peroxide.** `scope.bubble_ladder`:
+
+| [H₂O₂] mM | live curves | carrying a detachment | mean absorbance lost |
+|---|---|---|---|
+| 0–5 | 7 | **0** | 0.0000 AU |
+| 5–10 | 14 | 2 | 0.0005 |
+| 10–25 | 18 | 3 | 0.0007 |
+| 25–40 | 38 | 21 | 0.0071 |
+| 40–80 | 28 | 19 | 0.0469 |
+| 80–200 | 5 | **5** | 0.2916 AU |
+
+**But peroxide alone will not do it.** Exps 136 and 137 sit at the same 73.4 mM
+as exps 138–142 and carry **no detachment at all**, and they are the two weakest
+runs at that peroxide — `concentration_agreement` 0.25 and 0.21 against 0.83 to
+0.97. The gas needs turnover as well as peroxide, which is what makes it the
+*catalysed* decomposition. `scope.bubble_turnover_control`.
+
+**And it is not the instrument.** A lamp, a shutter or the carousel would take
+all seven cuvettes of a run at the same reading. Over the block's 357 cuvette
+pairs, detachments coincide **17 times against the 16.0 independence predicts**
+(`scope.bubble_synchrony`), so each detachment belongs to one window.
+
+### The curves may not be stitched back together
+
+The repair that suggests itself — add each step back to everything after it —
+is the one repair guaranteed to make things worse, and the reason is
+conservation. **A bubble that costs δ when it leaves must have contributed δ of
+rise while it grew.** Stitching removes the artefact's downward half and keeps
+all of its upward half, so it inflates the curve by exactly the sum of the
+drops.
+
+`scope.bubble_mass_balance` is that stated against the substrate. Stitched, exp
+135 cuvette 4 ends at **1.26× the most absorbance its 0.219 mM of substrate
+could ever make**, and four more land between 0.49 and 0.86 — while their ramps
+*steepen*, at 1.1 to 23.5 times their starting slope. A reaction that has spent
+half its substrate cannot be running twenty times faster than it started.
+
+Subtract the ramp instead. Between one detachment and the next the artefact is
+taken to climb linearly to the size of the drop that ends the interval, and to
+return to nothing across the detachment itself — `curve_metrics.bubble_ramp`.
+Against sawtooths planted into the block's own clean curves, where the rate
+before the planting is the truth:
+
+| artefact ÷ chemistry | left alone | **stitched** | ramp subtracted |
+|---|---|---|---|
+| 0.25 | 1.12 | **1.15** | **1.01** |
+| 0.5 | 1.24 | **1.32** | **1.01** |
+| 1.0 | 1.58 | **1.64** | 1.12 |
+
+*(recovered `vmax` ÷ true `vmax`; 1.00 is exact)*
+
+Stitching loses to doing nothing at every severity. The subtraction is unbiased
+while the artefact is the smaller half and leaves about a tenth by parity.
+`data/test_scope.py::test_the_correction_recovers_a_planted_rate` is that table.
+
+**Its limit is structural, not a matter of detection.** The last bubble never
+detaches, so its ramp is never revealed; given the *true* detachment times the
+recovery moves only from 1.13 to 1.10. No better detector rescues it, which is
+why the load below is a ceiling on use rather than a threshold to tune.
+
+### What each curve is entitled to
+
+`bubble_load` is the absorbance lost to detachments over the curve's net rise.
+`scope.bubble_table`:
+
+| load | live curves | median [H₂O₂], mM | what the curve carries |
+|---|---|---|---|
+| none | 60 | 25.0 | nothing to correct |
+| ≤ 0.25 | 19 | 35.2 | the correction is unbiased |
+| 0.25–0.5 | 12 | 36.0 | the correction is unbiased |
+| 0.5–1 | 6 | 73.4 | a rate, with about a tenth of systematic |
+| **> 1** | **13** | **73.4** | **no rate this package can measure** |
+
+The thirteen are not scattered: **all four substrate rungs of exp 135** (163 mM
+peroxide, the archive's highest, loads 4.0 to 8.7), and inner rungs of 138, 140,
+141, 142 and 150. They are **flagged and not excluded** — every one stays in the
+frame, in the live counts and on `progress_curves.html`. Curve shape is never a
+defect in this project, and these are not excluded for their shape; what they
+lack is a measurable rate.
+
+Beside the correction sits the assumption-free bracket. Gas only adds absorbance
+and product only accumulates, so the greatest non-decreasing function under the
+readings is an upper bound on the chemistry with no bubble model in it at all
+(`curve_metrics.monotone_bound`). It costs a median **0.6%** of `vmax` across the
+block and **83%** on the worst curve — that spread *is* the contamination.
+Quote the corrected rate with the gap to the bound as its systematic, the way
+`product_fate/` quotes the sink's activation energy.
+
+### No order in this document rests on the gas
+
+This is the check that had to pass before §2 could stand, because a
+substrate-blind, peroxide-driven additive artefact is precisely what would
+manufacture a flat substrate order. `scope.bubble_sensitivity`:
+
+| `vmax` from | n | order in [S] | order in [H₂O₂] |
+|---|---|---|---|
+| the readings | 110 | +0.091 ± 0.052 | +0.794 ± 0.077 |
+| the ramp subtracted | 110 | +0.079 ± 0.049 | +0.781 ± 0.074 |
+| the monotone bound | 110 | +0.141 ± 0.049 | +0.770 ± 0.072 |
+| readings, load ≤ 1 only | 97 | +0.139 ± 0.059 | +0.767 ± 0.086 |
+
+Every order moves by less than the two estimates' errors combined, and the
+substrate order moves *away* from zero rather than toward it — the direction
+that matters, since the artefact could only have flattened it. Curve by curve
+the gas is severe; block by block it carries nothing.
+
 ### The acceleration is a high-pH effect, not a long-run one
 
 | band | live curves | accelerating | share | median late ÷ early |
@@ -355,6 +474,9 @@ exists only across curves, which is why it takes a block to ask.
 - **Enzyme is confounded with pH** between the sub-series and constant within
   them, which is why §3 measures inside a ladder rather than across the block.
 - **No windowed statistic travels across it**, at 9.6x in run length.
+- **Thirteen curves carry no measurable rate**, their O₂ detachments having
+  moved more absorbance than the reaction did (§5). They are flagged, drawn
+  and counted; they are not excluded, and nothing here is read off one.
 - **No mechanism fit has ever been run on it.** `data/fits/` holds one saved
   fit, on BnOH / 25 °C / *phosphate*, and it shares no experiment with this
   block: stage 1 on exps 3, 6, 67, 69, 70 and stage 2 on exps 68, 71, 73, 74,

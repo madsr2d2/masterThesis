@@ -19,7 +19,9 @@ import numpy as np
 from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            QUANTISATION_SIGMA, acceleration, curve_noise,
                            initial_rate, line_fit, line_slope, peak_position,
-                           OUTLIER_SIGMA, isolated_outliers,
+                           OUTLIER_SIGMA, bubble_drops, bubble_load,
+                           bubble_ramp, debubble, isolated_outliers,
+                           monotone_bound,
                            local_outlier_z, model_residual, quadratic_rate,
                            segmented_fit, segment_breaks,
                            segment_selection, _segment_errors,
@@ -603,6 +605,114 @@ def test_two_breakpoints():
               f"{errors[start, stop]:.6e} against {float(residual @ residual):.6e}")
 
 
+def _sawtooth(times, chemistry, edges, rate):
+    """A curve plus a bubble that grows at `rate` and sheds at each edge."""
+    artefact = np.zeros(len(times))
+    start = 0
+    for edge in edges:
+        artefact[start:edge + 1] = rate * (times[start:edge + 1] - times[start])
+        start = edge + 1
+    artefact[start:] = rate * (times[start:] - times[start])
+    return chemistry + artefact, artefact
+
+
+def _stitch(values, drops):
+    """The repair this module refuses: add each step back to everything after
+    it. Defined HERE and not in curve_metrics, because it is the wrong answer
+    and the only thing it is wanted for is to fail against the right one."""
+    out = np.asarray(values, dtype=float).copy()
+    steps = np.diff(values)
+    for index in drops:
+        out[index + 1:] -= steps[index]
+    return out
+
+
+def test_the_bubble_correction():
+    print("\nthe bubble correction")
+    times = np.arange(0, 3600, 60.0)
+    noise = 1e-4
+    # A decelerating reaction: the chemistry the repairs have to give back.
+    chemistry = 0.08 * (1 - np.exp(-times / 1200.0))
+    edges = np.array([12, 26, 41, 52])
+
+    spoilt, artefact = _sawtooth(times, chemistry, edges,
+                                 rate=1.0 * chemistry[-1] / times[-1])
+    found = bubble_drops(spoilt, noise)
+    check("every planted detachment is found",
+          set(found) == set(edges), f"{sorted(found)} against {list(edges)}")
+    check("a curve with no bubble has no detachment",
+          len(bubble_drops(chemistry, noise)) == 0)
+
+    corrected, _ = debubble(times, spoilt, noise)
+    # The last bubble never detaches, so only what precedes the final edge is
+    # recoverable -- that limit is the module's, not the test's.
+    upto = edges[-1] + 1
+    before = np.abs(spoilt[:upto] - chemistry[:upto]).max()
+    after = np.abs(corrected[:upto] - chemistry[:upto]).max()
+    check("the correction removes most of the planted artefact",
+          after < 0.15 * before, f"{after:.2e} against {before:.2e}")
+    # What is left is the documented limitation, not slack in the threshold: a
+    # drop measures the bubble LESS whatever the reaction added over the same
+    # interval, so each detachment under-subtracts by one reading's worth of
+    # chemistry and those accumulate. The residual has to sit inside that sum.
+    missed = float(np.diff(chemistry)[edges].sum())
+    check("and what is left is the chemistry inside each drop, no more",
+          after <= missed, f"{after:.2e} against {missed:.2e}")
+
+    # THE CASE AGAINST STITCHING, as an assertion rather than a caveat.
+    stitched = _stitch(spoilt, found)
+    check("stitching ends ABOVE the truth by the sum of the drops",
+          stitched[-1] - stitched[0] > 1.5 * (chemistry[-1] - chemistry[0]),
+          f"{stitched[-1] - stitched[0]:.4f} against "
+          f"{chemistry[-1] - chemistry[0]:.4f}")
+    check("stitching is further from the truth than doing nothing",
+          np.abs(stitched - chemistry).max()
+          > np.abs(spoilt - chemistry).max())
+    check("subtracting the ramp is closer than either",
+          np.abs(corrected[:upto] - chemistry[:upto]).max()
+          < np.abs(spoilt[:upto] - chemistry[:upto]).max())
+
+    # The subtraction CONSERVES: a bubble starts and ends at nothing, so it
+    # cannot have moved the curve's net. That is the property stitching breaks.
+    check("the correction leaves the net rise alone",
+          abs((corrected[-1] - corrected[0]) - (spoilt[-1] - spoilt[0]))
+          < 1e-12)
+
+    check("the ramp is never negative", bubble_ramp(times, spoilt, found).min()
+          >= 0.0)
+    check("a detachment in the first interval subtracts no ramp",
+          bubble_ramp(times, spoilt, np.array([0])).max() == 0.0)
+
+    load = bubble_load(spoilt, found)
+    check("the load is the absorbance lost over the net rise",
+          abs(load - (-np.diff(spoilt)[found].sum()
+                      / (spoilt[-1] - spoilt[0]))) < 1e-12,
+          f"{load:.3f}")
+    check("a clean curve carries no load",
+          bubble_load(chemistry, bubble_drops(chemistry, noise)) == 0.0)
+    check("a curve that went nowhere has no load to report",
+          not np.isfinite(bubble_load(np.zeros(20), np.array([], dtype=int))))
+
+
+def test_the_monotone_bound():
+    print("\nthe monotone bound")
+    times = np.arange(0, 3600, 60.0)
+    chemistry = 0.08 * (1 - np.exp(-times / 1200.0))
+    spoilt, _ = _sawtooth(times, chemistry, np.array([12, 26, 41, 52]),
+                          rate=1.0 * chemistry[-1] / times[-1])
+    bound = monotone_bound(spoilt)
+    check("the bound never decreases", (np.diff(bound) >= -1e-15).all())
+    check("the bound lies under the readings", (bound <= spoilt + 1e-15).all())
+    check("and it is the GREATEST such function -- it touches the readings",
+          np.isclose(bound, spoilt).any())
+    # The bound is an upper bound on the chemistry: A_chem <= min of every
+    # later reading, because product accumulates and gas only ever adds.
+    check("the bound stays above the chemistry it brackets",
+          (bound >= chemistry - 1e-12).all())
+    check("a clean rising curve is its own bound",
+          np.allclose(monotone_bound(chemistry), chemistry))
+
+
 if __name__ == "__main__":
     test_no_duplicate_definitions()
     test_the_duplicate_guard_catches_a_planted_duplicate()
@@ -615,5 +725,7 @@ if __name__ == "__main__":
     test_model_residual()
     test_segmented_fit()
     test_two_breakpoints()
+    test_the_bubble_correction()
+    test_the_monotone_bound()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)
