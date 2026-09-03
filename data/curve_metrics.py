@@ -813,7 +813,20 @@ def monotone_bound(values):
     return np.minimum.accumulate(values[::-1])[::-1]
 
 
-def detachments(values, noise, sigma=BUBBLE_DROP_SIGMA):
+# How much of a fall a single ADJACENT reading may undo before the fall is read
+# as an instrument excursion rather than as gas leaving. Half.
+#
+# It is the same timescale argument `isolated_outliers` rests on, applied to
+# the other artefact: at 60 s sampling a bubble cannot grow half its size in
+# one interval, and absorbance that goes away because gas left the beam does
+# not come back at all, let alone in one reading. The block separates cleanly
+# on it -- its ten largest detachments have adjacent readings moving -0.001 to
+# 0.110 of the fall, while the excursions sit at 0.8 to 1.66.
+BUBBLE_RECOVERY_FRACTION = 0.5
+
+
+def detachments(values, noise, sigma=BUBBLE_DROP_SIGMA,
+                recovery=BUBBLE_RECOVERY_FRACTION):
     """
     The falls of `bubble_drops`, grouped into events: `(start, stop)` index
     pairs, where the reading falls from `start` to `stop`.
@@ -831,6 +844,7 @@ def detachments(values, noise, sigma=BUBBLE_DROP_SIGMA):
     drops = bubble_drops(values, noise, sigma=sigma)
     if not len(drops):
         return []
+    values = np.asarray(values, dtype=float)
     events = []
     start = previous = int(drops[0])
     for index in drops[1:]:
@@ -841,7 +855,43 @@ def detachments(values, noise, sigma=BUBBLE_DROP_SIGMA):
             events.append((start, previous + 1))
             start = previous = index
     events.append((start, previous + 1))
-    return events
+    return [event for event in events
+            if not _is_excursion(values, event, recovery)]
+
+
+def _is_excursion(values, event, recovery=BUBBLE_RECOVERY_FRACTION):
+    """
+    Is this fall an instrument excursion rather than gas leaving?
+
+    GAS THAT LEAVES DOES NOT COME BACK, and a bubble does not grow half its
+    size in one 60 s reading. So a fall flanked by a single reading that
+    climbs a comparable amount is a spike -- either the fall departs from an
+    anomalously high reading, in which case it is the return off one, or it
+    lands on an anomalously low one, in which case the level is back next
+    reading.
+
+    `local_outlier_z` CANNOT BE USED FOR THIS, though it is the obvious tool:
+    its window spans the fall, so a genuine step change flags itself. That is
+    the "sharp kink" limitation its own docstring records, and it is not
+    marginal here -- exp 135 cuvette 2's 0.1196 AU detachment scores +130.
+    This looks only at the two readings immediately either side, which no step
+    change can make anomalous.
+
+    Exp 149 cuvette 5 is the curve that forced it. Its two "detachments" are
+    9.3 and 8.2 sigma, both instrument excursions: the first falls 0.00206 and
+    the next reading climbs 0.00222 straight back, the second falls off a
+    reading that is an isolated spike. Between them they set a production rate
+    of 6.2e-6 AU/s, and the repair then removed 0.0097 AU from a curve that
+    rose 0.0262 -- flattening a real early rise into a straight line.
+    """
+    start, stop = event
+    drop = float(values[start] - values[stop])
+    if drop <= 0:
+        return True
+    into = (float(values[start] - values[start - 1]) if start >= 1 else 0.0)
+    out = (float(values[stop + 1] - values[stop])
+           if stop + 1 < len(values) else 0.0)
+    return max(into, out) > recovery * drop
 
 
 def bubble_ceiling(times, values, events, rate):
@@ -1015,13 +1065,19 @@ def debubble(times, values, noise, sigma=BUBBLE_DROP_SIGMA):
     parameter, `bubble_profile` builds `b`, and this returns `A_obs - b`.
 
     WHAT IT GUARANTEES. `f` is non-decreasing across every detachment and
-    every ordinary step, so the repaired curve carries no fall the noise
-    cannot explain: over the block's 50 detaching curves the worst single step
-    goes from -260 sigma to -9.6 sigma, and the one curve still past 8 sigma
-    is exp 135 cuvette 6, the first-interval case `bubble_rate` returns `inf`
-    for and this leaves alone. `f` also never rises further than the readings
-    do, because `b >= 0` at both ends -- which is the mass balance stitching
-    breaks.
+    every ordinary step, so every fall the model calls gas is gone from the
+    result: over the block's 180 detachments `scope.rebuild_smoothness`'s
+    `worst_at_event` is zero or above on all 44 repairable curves, the one
+    exception being exp 135 cuvette 6, the first-interval case `bubble_rate`
+    returns `inf` for and this leaves alone. `f` also never rises further than
+    the readings do, because `b >= 0` at both ends -- which is the mass
+    balance stitching breaks.
+
+    WHAT IT DELIBERATELY DOES NOT TOUCH is a fall `detachments` rejected as an
+    instrument excursion, so a repaired curve can still carry a large single
+    fall. That is not a failure: absorbance that comes straight back was never
+    gas leaving, and running it through a gas model is how exp 149 cuvette 5
+    lost a third of a real early rise.
 
     AGAINST A PLANTED TRUTH it recovers `vmax` at 1.00, 0.99, 0.97 and 0.97 as
     the artefact grows from 0.25 to 2x the chemistry when each bubble empties,

@@ -8,6 +8,85 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-03 — a fall that comes straight back is not gas
+
+Asked by eye a third time, and the sharpest of the three: are exps 149.1, 149.2
+and 149.5 not **over-corrected on a legitimate early rise rather than a
+bubble?** They are. The fault was not in the repair this time but in the
+**detector** — it was correcting falls that were never gas.
+
+Exp 149 cuvette 5 has two "detachments", at 9.3σ and 8.2σ. Neither is gas.
+
+- The first falls **0.00206 AU** and the **next reading climbs 0.00222 straight
+  back**. Readings 8 and 9 are a spike up (z = +5.78) then a spike down
+  (z = −9.46), and reading 10 resumes the trend exactly. They are adjacent, so
+  `isolated_outliers` files them as a *run* rather than as isolated points and
+  they escaped that flag too.
+- The second falls off reading 56, which *is* an isolated spike (z = +7.37).
+  The fall is the return off it.
+
+Between them they set a production rate of 6.2 × 10⁻⁶ AU/s, and the repair then
+removed **0.0097 AU from a curve that rose 0.0262** — a third of it — turning a
+real early rise into a flat line. It stayed perfectly monotone throughout and
+passed every test in the suite.
+
+**The rule.** Absorbance that goes away because gas left the beam does not come
+back, and at 60 s sampling a bubble cannot grow half its size in one interval.
+So a fall that a single *adjacent* reading undoes by more than half is an
+instrument excursion, not a detachment — `curve_metrics.BUBBLE_RECOVERY_FRACTION`
+and `_is_excursion`. It is the same timescale argument `isolated_outliers`
+already rests on, applied to the other artefact.
+
+The block separates cleanly on it. Its ten largest detachments have the
+readings either side moving **−0.001 to 0.110** of the fall; the excursions sit
+at **0.8 to 1.66**.
+
+**`local_outlier_z` cannot do this job, though it is the obvious tool.** Its
+window spans the fall, so a genuine step change flags itself: exp 135 cuvette
+2's 0.1196 AU detachment scores **+130**, and using it would have rejected 200
+of 221 falls including every large one. That is the "sharp kink" limitation its
+own docstring records, and it is not marginal here. The excursion test looks
+only at the two readings immediately either side, which no step change can make
+anomalous.
+
+Of 214 candidate falls, **34 are rejected and 180 kept**. Five curves lose all
+of theirs and are returned exactly as they were read — exps 143.1, 143.2, 144.7,
+149.1 and 149.5. Exp 141 cuvette 3 loses one of four, the 8.4σ one.
+
+**Nothing is deleted.** An excursion stays in the readings, visible as the
+instrument problem it is; `isolated_outliers` is what nominates those, and it
+nominates rather than removes. This means a repaired curve can still carry a
+large single fall, so `rebuild_smoothness`'s guarantee had to change: it is
+`worst_at_event` — zero or above on all 44 repairable curves, over 180
+detachments — and **not** `rebuilt_worst`, which still reaches −61.1σ and
+should.
+
+| | before | after |
+|---|---|---|
+| detachments | 214 | 180 |
+| curves carrying gas | 50 | 45 |
+| exp 149.5 rebuilt ÷ raw net | 63% | **100%, untouched** |
+| exp 149.1 rebuilt ÷ raw net | 89% | **100%, untouched** |
+| worst held gas ÷ largest bubble | 4.7× | 3.7× |
+| reconstructions ending below zero | 1 | **0** |
+
+Recovery against a planted truth is unchanged (1.00 / 0.98 / 0.97 / 0.97
+emptying, 1.02 / 1.02 / 1.03 / 1.08 partly), and `bubble_load` still counts
+every fall rather than only the gas — deliberately, since a curve dominated by
+large excursions of *any* kind is one whose rate should not be quoted, and the
+ceiling verdict is identical either way: **13 curves above 1.0** on both
+definitions, none changing side.
+
+The peroxide order moves +0.794 → +0.692 all live and +0.871 → +0.754 strong,
+0.9σ and 1.3σ. Direction and reading unchanged.
+
+**Three faults on this artefact have now been found by eye and none by a
+test.** The pattern is the same each time: the model stayed self-consistent and
+produced a plausible-looking curve, and the check I had written tested the
+property I had just fixed rather than the one I had not thought of.
+
+---
+
 ## 2026-09-03 — a smooth curve can still be the wrong curve: the gas needed a ceiling
 
 Asked by eye again, and again the objection was right: exps 149.1, 149.2 and
@@ -139,8 +218,9 @@ curves are clean. The old ramp had no such guarantee to state.
 
 **An independent check that fell out of it.** The production rate is fitted
 from the timing and size of the detachments alone and never sees a
-concentration. It is **+1.203 ± 0.221 in peroxide**, 5.4σ from zero and within
-1σ of exactly first order, and −0.250 ± 0.094 in substrate. That is the
+concentration. It is **+1.389 ± 0.251 in peroxide** (see the entry above; it read
++1.203 ± 0.221 before falls that were not gas were removed from the fit), and
+−0.307 ± 0.103 in substrate. That is the
 catalysed decomposition of H₂O₂ measured a second way: `bubble_ladder` says
 detachments get *more common* with peroxide, this says the gas is made *faster*,
 in proportion. `scope.gas_rate_drivers`.

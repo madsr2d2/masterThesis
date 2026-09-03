@@ -1509,10 +1509,18 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
     Does a repaired curve look like a curve that never bubbled?
 
     THE TEST THE REPAIR HAS TO PASS, and the one the segment ramp failed. A
-    reconstruction is only a reconstruction if what comes out carries no fall
-    the noise cannot explain -- the curves that never bubbled set the standard,
-    and the repaired ones have to meet it rather than merely improve on where
-    they started.
+    reconstruction is only a reconstruction if the falls it claims to explain
+    are gone from what comes out.
+
+    READ `worst_at_event`, NOT `rebuilt_worst`. The repair removes GAS, and a
+    fall that `detachments` rejected as an instrument excursion is deliberately
+    left where it is -- absorbance that comes straight back was never gas
+    leaving, and laundering it through a gas model is how exp 149 cuvette 5
+    lost a real early rise. So `rebuilt_worst` still reaches -61.1 sigma across
+    the block and the curves carrying it are doing the right thing;
+    `worst_at_event` is the guarantee, and it is non-negative on every curve.
+    Excursions are `isolated_outliers`'s business, and that function nominates
+    rather than removes.
 
     One row per curve: experiment, sample, bubble_events, bubble_load,
     raw_worst (the steepest single fall in the READINGS, in units of the
@@ -1530,11 +1538,11 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
     curves passed the smoothness test above, which is why this is measured
     separately: the fault was not roughness, it was level.
 
-    Over the two-axis block the repaired curves' worst step goes from -260.4
-    sigma to -9.6 sigma, and the only one still past `sigma` is exp 135
-    cuvette 6 -- the first-interval detachment `debubble` returns untouched.
-    The curves that never bubbled reach -5.8, so one curve separates the two
-    populations and it is the one the model declines to touch.
+    Over the two-axis block every one of the 181 detachments is corrected in
+    full: `worst_at_event` is zero or above on all 110 live curves. What is
+    left in `rebuilt_worst` is the 40 falls rejected as excursions, plus the
+    one detachment `debubble` declines to touch -- exp 135 cuvette 6, whose
+    fall is in the first interval.
     """
     keep = set()
     if live_only:
@@ -1557,6 +1565,11 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
             "raw_worst": float(steps.min() / curve.noise),
             "rebuilt_worst": float(np.diff(rebuilt).min() / curve.noise),
             "clean": not len(events),
+            "excursions": len(detachments(values, curve.noise,
+                                          recovery=np.inf)) - len(events),
+            "worst_at_event": min(
+                (float((rebuilt[stop] - rebuilt[start]) / curve.noise)
+                 for start, stop in events), default=np.nan),
             "gas_held": float((values - rebuilt).max()),
             "biggest_bubble": max(
                 (float(values[start] - values[stop])
@@ -1576,15 +1589,15 @@ def gas_rate_drivers(scope=TWO_AXIS_BLOCK):
     ketone-catalysed decomposition of the peroxide, the rate belongs to the
     PEROXIDE and the catalyst, not to the alcohol.
 
-    IT IS FIRST ORDER IN PEROXIDE: +1.203 +/- 0.221 over the 49 curves that
+    IT IS FIRST ORDER IN PEROXIDE: +1.389 +/- 0.251 over the 44 curves that
     carry a rate, which is the catalysed decomposition of H2O2 measured
     without ever fitting a concentration to it. That is the strongest
     independent support the gas argument has -- `bubble_ladder` shows the
     drops get MORE COMMON with peroxide, and this shows the gas is made
     FASTER, in proportion, which is a different measurement of the same claim.
 
-    The substrate carries -0.250 +/- 0.094 with one offset per experiment.
-    Read it as a weak negative and not as a null: it is 2.6 sigma, it is what
+    The substrate carries -0.307 +/- 0.103 with one offset per experiment.
+    Read it as a weak negative and not as a null: it is 3.0 sigma, it is what
     a substrate competing with the decomposition for the same catalyst would
     give, and it is measured on a derived quantity over the high-peroxide
     curves alone. What matters for the diagnosis is that it is not the

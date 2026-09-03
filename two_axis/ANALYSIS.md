@@ -20,9 +20,11 @@ both is what this folder is.
 **Figures**: [`index.html`](index.html) is the presentation — ten figures, A
 to J, one per claim below. [`progress_curves.html`](progress_curves.html) carries
 all 119 cuvettes with the form each earned, which is the audit surface for
-every number here. The **51 curves carrying O₂ detachments** are drawn twice
-there — the raw readings and the corrected series, with a fit to each and a rule
+every number here. The **46 curves carrying O₂ detachments** are drawn twice
+there — the raw readings and the reconstruction, with a fit to each and a rule
 at every detachment — so a fit to the gas cannot pass for a fit to the reaction.
+A curve whose only falls were instrument excursions is drawn once, because
+there is nothing there the gas model will touch.
 The **14 panels** whose load clears 1 say so on their own face.
 
 Related: `FITTING.md` owns the mechanism fitting and why the block was chosen
@@ -319,7 +321,7 @@ rest over, which is what one curve below actually does.
 | artefact ÷ chemistry | left alone | **stitched** | **rebuilt** |
 |---|---|---|---|
 | 0.25 | 1.12 | **1.15** | **1.00** |
-| 0.5 | 1.24 | **1.32** | **0.99** |
+| 0.5 | 1.24 | **1.32** | **0.98** |
 | 1 | 1.58 | **1.64** | **0.97** |
 | 2 | 2.26 | **2.34** | **0.97** |
 
@@ -347,10 +349,10 @@ reached 1.60 by 2×. `scope.bubble_recovery` is both tables and
 close, identical — so nothing here can move a clean curve, and 60 of the
 block's 110 live curves are clean.
 
-### The repaired curves are as smooth as the ones that never bubbled
+### Every detachment is corrected, and nothing else is touched
 
-A repair is only a repair if what comes out carries no fall the noise cannot
-explain. That is the test the segment ramp failed, and it failed it two ways.
+A repair is only a repair if the falls it claims to explain are gone from what
+comes out. That is the test the segment ramp failed, and it failed it two ways.
 
 It dated each bubble from the previous detachment and made it reach the full
 size of the drop, so a large drop after a short window implied a bubble growing
@@ -361,22 +363,50 @@ readings as two bubbles, gave the second a growth window of **zero seconds**,
 skipped it, and left the whole of it in place — −0.0165 AU at 60σ in exp 144
 cuvette 2.
 
-`scope.rebuild_smoothness` measures what is left, in units of each curve's own
-noise:
+Both are gone. Over the block's **180 detachments**, every one is corrected in
+full: `scope.rebuild_smoothness`'s `worst_at_event` is zero or above on all 44
+repairable curves. The single exception is exp 135 cuvette 6, whose fall is in
+the *first interval* — a bubble grown before the run began leaves no rise to
+date it from, no rate explains it, and `debubble` returns that curve untouched
+rather than guessing.
 
-| | worst single fall |
-|---|---|
-| the 50 detaching curves, as read | **−260.4σ** |
-| the same 50, rebuilt | **−9.6σ** |
-| the 60 that never bubbled | −5.8σ |
+**`rebuilt_worst` is not the guarantee, and it should not be.** The
+reconstructions still fall by up to −61.1σ somewhere, and the curves doing that
+are behaving correctly: those are the **34 falls rejected as instrument
+excursions**, which the gas model deliberately leaves where they are. The next
+section is why.
 
-Exp 141 cuvette 3 goes from −109.9σ to −2.1σ and exp 144 cuvette 2 from −59.9σ
-to −7.0σ. **Exactly one repaired curve still carries a fall past 8σ**, and it
-is exp 135 cuvette 6, whose fall is in the *first interval*: a bubble that grew
-before the run began leaves no rise in the data to date it from, no rate
-explains it, and `debubble` returns that curve untouched rather than guessing.
-One curve separates the two populations and it is the one the model declines to
-touch.
+### A fall that comes straight back is not gas
+
+Exps 149.1, 149.2 and 149.5 came out pulled far too low, and the cause was not
+the repair but the *detector*: it was correcting falls that were never gas.
+
+Exp 149 cuvette 5 has two, at 9.3σ and 8.2σ. The first falls 0.00206 AU and the
+**next reading climbs 0.00222 straight back** — readings 8 and 9 are a spike up
+followed by a spike down, and reading 10 resumes the trend exactly. The second
+falls off a reading that is an isolated spike. Between them they set a
+production rate of 6.2 × 10⁻⁶ AU/s, and the repair then removed **0.0097 AU
+from a curve that rose 0.0262** — turning a real early rise into a flat line,
+while staying perfectly monotone and passing every test there was.
+
+Absorbance that goes away because gas left the beam does not come back, and at
+60 s sampling a bubble cannot grow half its size in one interval. So a fall
+that a single adjacent reading undoes by more than half is an excursion, not a
+detachment — the same timescale argument `curve_metrics.isolated_outliers`
+rests on, applied to the other artefact. The block separates cleanly on it: its
+ten largest detachments have the readings either side moving −0.001 to 0.110 of
+the fall, while the excursions sit at 0.8 to 1.66.
+
+**`local_outlier_z` cannot do this job**, though it is the obvious tool. Its
+window spans the fall, so a genuine step change flags itself — exp 135 cuvette
+2's 0.1196 AU detachment scores **+130**, and using it would have rejected 200
+of 221 falls including every large one. The excursion test looks only at the
+two readings immediately either side, which no step change can make anomalous.
+
+Of 214 candidate falls, **34 are rejected** and 180 kept. **5 curves** lose all
+of theirs and are returned exactly as they were read, exps 149.1 and 149.5
+among them. Nothing is deleted: an excursion stays in the readings, visible as
+the instrument problem it is, and `isolated_outliers` is what nominates those.
 
 ### A smooth curve can still be the wrong curve
 
@@ -403,11 +433,10 @@ bubbles: they left at both ends. Capping those as well is the obvious
 simplification and it costs real accuracy, taking the partly-emptying recovery
 from 1.03 and 1.08 to 1.11 and 1.34.
 
-Afterwards no curve holds more than 4.7× its own largest bubble, the median is
-1.2×, and one rebuilds to a net below zero: exp 150 cuvette 1, which sheds 2.7×
-its own net rise and lands at −0.0004 AU — zero within its noise, and already
-flagged by its load. `data/test_scope.py::test_the_gas_may_not_outlast_the_evidence`
-names the three curves so it cannot come back quietly.
+Afterwards no curve holds more than 3.7× its own largest bubble, the median is
+1.2×, and **no reconstruction ends below where it started**.
+`data/test_scope.py::test_the_gas_may_not_outlast_the_evidence` names the three
+curves so it cannot come back quietly.
 
 ### The rate the model fits is the peroxide decomposing
 
@@ -415,14 +444,14 @@ The production rate is read off the timing and size of the detachments alone —
 **the fit never sees a concentration** — so what it correlates with is a
 prediction the gas argument makes rather than a parameter it was given.
 
-It is **first order in peroxide, +1.203 ± 0.221** over the 49 live curves that
-carry one, 5.4σ from zero and within 1σ of exactly first order. That is the
+It is **first order in peroxide, +1.389 ± 0.251** over the 44 live curves that
+carry one, 5.5σ from zero and within 2σ of exactly first order. That is the
 catalysed decomposition of H₂O₂, measured a second and independent way: the
 ladder above shows detachments get *more common* with peroxide, and this shows
 the gas is made *faster*, in proportion.
 
-The substrate carries −0.250 ± 0.094 with one offset per experiment — a weak
-negative, 2.6σ, of the sign a substrate competing for the same catalyst would
+The substrate carries −0.307 ± 0.103 with one offset per experiment — a weak
+negative, 3.0σ, of the sign a substrate competing for the same catalyst would
 give. What matters for the diagnosis is that it is nothing like the substrate
 order of a rate: **the alcohol is not what is turning into gas.**
 `scope.gas_rate_drivers`.
@@ -569,7 +598,7 @@ manufacture a flat substrate order. `scope.bubble_sensitivity`:
 | `vmax` from | n | order in [S] | order in [H₂O₂] |
 |---|---|---|---|
 | the readings | 110 | +0.091 ± 0.052 | +0.794 ± 0.077 |
-| the reconstruction | 110 | +0.111 ± 0.051 | **+0.688 ± 0.076** |
+| the reconstruction | 110 | +0.114 ± 0.051 | **+0.692 ± 0.075** |
 | the monotone bound | 110 | +0.141 ± 0.049 | +0.770 ± 0.072 |
 | readings, load ≤ 1 only | 97 | +0.139 ± 0.059 | +0.767 ± 0.086 |
 
@@ -579,8 +608,8 @@ estimates' errors combined every time — and under the monotone bound it moves
 since the artefact could only have flattened it. §2 stands.
 
 **The peroxide order does move.** The reconstruction takes it from +0.794 to
-+0.688, and on the strong runs alone from +0.871 to +0.760 — about 0.11 either
-way, which is 1.0σ and 1.2σ of the two estimates' errors combined and the
++0.692, and on the strong runs alone from +0.871 to +0.754 — about 0.11 either
+way, which is 0.9σ and 1.3σ of the two estimates' errors combined and the
 largest shift any repair here produces. That is not the repair failing, it is
 the repair working: the gas is *made from peroxide*, so an uncorrected artefact
 has to inflate the apparent peroxide order, and taking the gas out has to bring

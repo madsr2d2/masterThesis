@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import induction
 import scope
 import slowdown
+import curve_metrics
 import solution_chemistry
 from doc_check import Checker
 
@@ -387,31 +388,64 @@ def main():
 
     smoothness = scope.rebuild_smoothness()
     repaired = smoothness[~smoothness.clean]
-    clean = smoothness[smoothness.clean]
-    doc.claim("how many curves carry gas",
-              f"the {len(repaired)} detaching curves")
-    doc.claim("their worst fall as read",
-              f"| the {len(repaired)} detaching curves, as read | "
-              f"**{repaired.raw_worst.min():.1f}sigma** |")
-    doc.claim("their worst fall rebuilt",
-              f"| the same {len(repaired)}, rebuilt | "
-              f"**{repaired.rebuilt_worst.min():.1f}sigma** |")
-    doc.claim("and the clean curves' worst fall",
-              f"| the {len(clean)} that never bubbled | "
-              f"{clean.rebuilt_worst.min():.1f}sigma |")
-    survivors = repaired[repaired.rebuilt_worst < -scope.REBUILD_STEP_SIGMA]
-    doc.claim("how many repaired curves still carry one",
-              f"**Exactly one repaired curve still carries a fall past "
-              f"{scope.REBUILD_STEP_SIGMA:g}sigma**")
-    doc.check("and it is the first-interval curve",
-              [(int(r.experiment), int(r["sample"]))
-               for _, r in survivors.iterrows()] == [(135, 6)],
-              f"{[(int(r.experiment), int(r['sample'])) for _, r in survivors.iterrows()]}")
-    for experiment, sample in ((141, 3), (144, 2)):
-        row = smoothness[(smoothness.experiment == experiment)
-                         & (smoothness["sample"] == sample)].iloc[0]
-        doc.claim(f"exp {experiment} cuvette {sample}'s worst step",
-                  f"{row.raw_worst:.1f}sigma to {row.rebuilt_worst:.1f}sigma")
+    fixable = repaired[repaired.worst_at_event.notna()
+                       & (repaired.worst_at_event >= -1e-9)]
+    doc.claim("how many detachments the block has",
+              f"**{int(repaired.bubble_events.sum())} detachments**")
+    doc.claim("how many curves they are corrected on",
+              f"on all {len(fixable)} repairable curves")
+    doc.claim("what the rebuilt curves still fall by",
+              f"still fall by up to {repaired.rebuilt_worst.min():.1f}sigma")
+    doc.claim("how many falls are rejected",
+              f"**{int(smoothness.excursions.sum())} falls rejected as "
+              f"instrument\nexcursions**")
+    doc.check("every detachment is corrected in full",
+              float(fixable.worst_at_event.min()) >= -1e-9,
+              f"{fixable.worst_at_event.min():+.3f} sigma")
+    doc.check("and one curve is left uncorrected, the first-interval one",
+              len(repaired) - len(fixable) == 1)
+
+    worked = {c.sample: c for c in scope.curves_of(149)}[5]
+    marks = np.asarray(worked.absorbance, dtype=float)
+    doc.claim("the worked excursion curve's two falls",
+              f"two, at {abs(np.diff(marks)[curve_metrics.bubble_drops(marks, worked.noise)][0] / worked.noise):.1f}sigma and "
+              f"{abs(np.diff(marks)[curve_metrics.bubble_drops(marks, worked.noise)][1] / worked.noise):.1f}sigma")
+    doc.claim("what the first falls and what comes back",
+              f"falls {marks[8] - marks[9]:.5f} AU and the\n"
+              f"**next reading climbs {marks[10] - marks[9]:.5f} straight back**")
+    unfiltered = curve_metrics.detachments(marks, worked.noise,
+                                           recovery=np.inf)
+    times = np.asarray(worked.times, dtype=float)
+    held = curve_metrics.bubble_profile(
+        times, marks, unfiltered,
+        curve_metrics.bubble_rate(times, marks, unfiltered))
+    doc.claim("what the repair would have removed from it",
+              f"**{held.max():.4f} AU\nfrom a curve that rose "
+              f"{marks[-1] - marks[0]:.4f}**")
+    doc.check("and it is now left alone",
+              curve_metrics.detachments(marks, worked.noise) == [])
+    doc.check("the recovery fraction the document calls a half is one",
+              curve_metrics.BUBBLE_RECOVERY_FRACTION == 0.5,
+              f"{curve_metrics.BUBBLE_RECOVERY_FRACTION:g}")
+    total = int(repaired.bubble_events.sum()) + int(smoothness.excursions.sum())
+    doc.claim("how many candidate falls there are",
+              f"Of {total} candidate falls, **{int(smoothness.excursions.sum())} "
+              f"are rejected** and {int(repaired.bubble_events.sum())} kept")
+    doc.claim("how many curves lose all of theirs",
+              f"**{int(((smoothness.excursions > 0) & smoothness.clean).sum())} "
+              "curves** lose all")
+
+    held_ratio = repaired.gas_held / repaired.biggest_bubble
+    doc.claim("the worst held gas after the ceiling",
+              f"no curve holds more than {held_ratio.max():.1f}x its own "
+              f"largest bubble")
+    doc.claim("and the typical one", f"the median is\n{held_ratio.median():.1f}x")
+    doc.claim("and none rebuilds below zero",
+              "**no reconstruction ends below where it started**")
+    doc.check("no reconstruction ends below zero",
+              int((smoothness.rebuilt_net < 0).sum()) == 0)
+    doc.check("no curve holds many times its own largest bubble",
+              float(held_ratio.max()) < 6.0, f"{held_ratio.max():.1f}x")
 
     drivers = scope.gas_rate_drivers()
     doc.claim("what the gas rate does with peroxide",
@@ -475,25 +509,6 @@ def main():
     doc.check("the strong runs move the same way", strong_sigma < 1.5,
               f"{strong_sigma:.1f} sigma")
 
-    doc.claim("what the worked tail curve sheds",
-              f"**{smoothness[(smoothness.experiment == 149) & (smoothness['sample'] == 4)].biggest_bubble.iloc[0]:.4f} AU once**")
-    ratio = repaired.gas_held / repaired.biggest_bubble
-    doc.claim("the worst curve's held gas after the ceiling",
-              f"no curve holds more than {ratio.max():.1f}x its own largest "
-              f"bubble")
-    doc.claim("and the typical one", f"the median is\n{ratio.median():.1f}x")
-    negative = smoothness[smoothness.rebuilt_net < 0]
-    doc.claim("the one curve that rebuilds below zero",
-              f"exp {int(negative.experiment.iloc[0])} cuvette "
-              f"{int(negative['sample'].iloc[0])}")
-    doc.claim("what it sheds and lands at",
-              f"sheds {negative.bubble_load.iloc[0]:.1f}x\n"
-              f"its own net rise and lands at {negative.rebuilt_net.iloc[0]:.4f} AU")
-    doc.check("only one curve rebuilds below zero", len(negative) == 1)
-    doc.check("and its load already flags it",
-              float(negative.bubble_load.iloc[0]) > scope.BUBBLE_LOAD_CEILING)
-    doc.check("no curve holds many times its own largest bubble",
-              float(ratio.max()) < 6.0, f"{ratio.max():.1f}x")
 
     doc.section("section 5: what the curves do")
     bands = scope.acceleration_by_ph()
@@ -644,7 +659,10 @@ def main():
     # Every contaminated panel has to SHOW the correction, not just have one
     # computed. A page that quietly stopped drawing it would show a fit to the
     # gas again, which is exactly the state this page was in until 2026-09-03.
-    chopped = frame[frame.bubble_drops > 0]
+    # The page draws the correction where there is GAS to correct, which is
+    # `bubble_events` and not `bubble_drops`: a fall rejected as an instrument
+    # excursion is left in the readings and there is no second series to draw.
+    chopped = frame[frame.bubble_events > 0]
     doc.check("every contaminated panel names its detachments",
               page.count("O₂ detachment") == len(chopped),
               f"{page.count('O₂ detachment')} panels against "

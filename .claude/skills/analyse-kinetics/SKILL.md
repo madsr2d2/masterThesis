@@ -140,7 +140,16 @@ the most the beam carried while detachments were still happening. That last
 clause is not decoration: without it a rate fixed by early drops is
 extrapolated across hours with none, and exp 149 cuvette 4 rebuilt to -0.0209
 against a raw rise of +0.0064. A MONOTONE RECONSTRUCTION CAN STILL BE THE WRONG
-ONE -- read `rebuild_smoothness`'s `gas_held` against `biggest_bubble`. `bubble_rate` pins the one parameter to the least rate that
+ONE -- read `rebuild_smoothness`'s `gas_held` against `biggest_bubble`.
+
+A FALL THAT COMES STRAIGHT BACK IS NOT GAS. Gas that leaves does not return and
+a bubble cannot grow half its size in one 60 s reading, so `detachments`
+rejects a fall that a single adjacent reading undoes by more than half --
+34 of 214 candidate falls in the block, five curves losing all of theirs.
+`local_outlier_z` cannot do this job: its window spans the fall, so a genuine
+step flags itself at +130 sigma. `rebuild_smoothness`'s guarantee is
+`worst_at_event`, NOT `rebuilt_worst`; rejected excursions stay in the curve on
+purpose and `isolated_outliers` is what nominates them. `bubble_rate` pins the one parameter to the least rate that
 pays, so the result is an UPPER bound on the chemistry -- quote the gap to
 `monotone_bound` as its systematic. It recovers a planted `vmax` to within a
 tenth at every severity up to 2x whether the bubbles empty or only partly
@@ -151,7 +160,7 @@ against -260.4 as read and -5.8 on curves that never bubbled. The one survivor,
 exp 135 cuvette 6, has its fall in the FIRST interval -- a bubble grown before
 the run leaves no rise to date it from, and that curve is returned untouched.
 `gas_rate_drivers` is the independent check on the diagnosis: the fitted rate
-is +1.203 +/- 0.221 in peroxide, from a fit that never saw a concentration.
+is +1.389 +/- 0.251 in peroxide, from a fit that never saw a concentration.
 
 **Read `bubble_load` before quoting a rate off this block.** Thirteen of 110
 live curves sit above 1 and carry no measurable rate -- all four substrate rungs

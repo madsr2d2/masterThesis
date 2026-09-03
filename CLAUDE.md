@@ -255,13 +255,26 @@ Three things follow that are worth not re-deriving.
   1.02/1.02/1.03/1.08), and on a curve with no detachment it returns the
   readings UNCHANGED.
   **A MONOTONE RECONSTRUCTION CAN STILL BE THE WRONG ONE** -- pulling a curve
-  down by a smooth ramp leaves it smooth. Without the ceiling the rate was
-  extrapolated across hours with no detachment: exp 149 cuvette 4 sheds 0.0031
-  AU once and ended holding 0.0273, rebuilding to -0.0209 against a raw rise of
-  +0.0064. Twelve of 49 curves held more than twice their own largest bubble
-  and three finished below zero, and all of them passed the smoothness test.
-  Check `rebuild_smoothness`'s `gas_held` against `biggest_bubble`, not just
-  the step size. Quote the
+  down by a smooth ramp leaves it smooth. Two faults hid behind that, and both
+  were found by eye, not by a test.
+  Without the ceiling the rate was extrapolated across hours with no
+  detachment: exp 149 cuvette 4 sheds 0.0031 AU once and ended holding 0.0273,
+  rebuilding to -0.0209 against a raw rise of +0.0064. Check
+  `rebuild_smoothness`'s `gas_held` against `biggest_bubble`.
+  And **A FALL THAT COMES STRAIGHT BACK IS NOT GAS**: gas that leaves the beam
+  does not return, and a bubble cannot grow half its size in one 60 s reading,
+  so `detachments` rejects a fall that a single adjacent reading undoes by more
+  than `BUBBLE_RECOVERY_FRACTION`. Exp 149 cuvette 5's two "detachments" are
+  9.3 and 8.2 sigma and neither is gas -- the first falls 0.00206 and the next
+  reading climbs 0.00222 back -- and they were licensing the removal of 0.0097
+  AU from a curve that rose 0.0262. 34 of 214 candidate falls are rejected;
+  five curves lose all of theirs and are returned untouched.
+  **`local_outlier_z` CANNOT be used for this**: its window spans the fall, so
+  a genuine step flags itself (exp 135 cuvette 2's 0.1196 AU detachment scores
+  +130). The test looks only at the two readings either side.
+  So `rebuild_smoothness`'s guarantee is `worst_at_event`, NOT `rebuilt_worst`
+  -- rejected excursions stay in the curve on purpose, and `isolated_outliers`
+  is what nominates those. Quote the
   gap to `monotone_bound` as its systematic. Rewritten 2026-09-03: the segment
   ramp it replaced subtracted a ramp steeper than the curve rises (five steps
   past 8 sigma in 141.3) and skipped the second of two adjacent falls entirely
@@ -271,8 +284,8 @@ Three things follow that are worth not re-deriving.
   never bubbled. The ONE survivor is exp 135 cuvette 6, whose fall is in the
   first interval -- no rate explains a bubble grown before the run, and
   `debubble` returns that curve untouched.
-  **`gas_rate_drivers`**: the fitted rate is +1.203 +/- 0.221 in peroxide and
-  -0.250 +/- 0.094 in substrate, from a fit that never saw a concentration.
+  **`gas_rate_drivers`**: the fitted rate is +1.389 +/- 0.251 in peroxide and
+  -0.307 +/- 0.103 in substrate, from a fit that never saw a concentration.
   **Read `bubble_load` before quoting a rate**: 13 of 110 live curves sit above
   1 and carry no measurable rate -- all four substrate rungs of exp 135, plus
   inner rungs of 138, 140, 141, 142 and 150. They are FLAGGED, NOT EXCLUDED.

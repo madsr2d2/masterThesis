@@ -201,7 +201,7 @@ the readings unchanged**, so it is safe to apply to a whole block rather than
 to a hand-picked subset — which is what a residual needs.
 
 The **substrate** order in `two_axis/` moves under no repair. The **peroxide**
-order does: +0.794 → +0.688 under the reconstruction, 1.0σ, and downward, which
+order does: +0.794 → +0.692 under the reconstruction, 0.9σ, and downward, which
 is what an artefact made from peroxide requires (`scope.bubble_sensitivity`).
 Neither reading is significant, but do not quote the older "no order moves".
 

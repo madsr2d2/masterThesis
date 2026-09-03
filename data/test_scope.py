@@ -467,51 +467,117 @@ def test_the_correction_recovers_a_planted_rate():
           f"{sum(untouched)} of {len(untouched)}")
 
 
-def test_the_reconstruction_is_as_smooth_as_a_curve_that_never_bubbled():
+def test_every_detachment_is_corrected_and_nothing_else_is():
     """
-    The repaired curves have to meet the clean curves' standard, not merely
-    improve on where they started.
+    The repair removes gas, and ONLY gas.
 
-    This is what the segment ramp failed. It left five consecutive steps past
-    8 sigma in exp 141 cuvette 3 -- it subtracted a ramp climbing +0.0061 a
-    reading from a trace rising +0.0018 -- and it left the second of a pair of
-    adjacent falls entirely uncorrected, -0.0165 at 60 sigma in exp 144
-    cuvette 2. Both are gone, and the test is against the curves that never
-    carried gas at all.
+    Two halves. Every detachment has to be gone from the reconstruction --
+    that is what the segment ramp failed, leaving five consecutive steps past
+    8 sigma in exp 141 cuvette 3 and the whole of a -0.0165 AU fall at 60
+    sigma in exp 144 cuvette 2. And a fall the model decided was NOT gas has
+    to be left exactly where it is, because laundering an instrument
+    excursion through a gas model is how a real early rise gets removed.
+
+    So the guarantee is `worst_at_event` and not `rebuilt_worst`. The
+    reconstructions still fall by up to -61.1 sigma somewhere, and the curves
+    doing that are behaving correctly: those are the 34 rejected excursions,
+    which `isolated_outliers` nominates and nothing removes automatically.
     """
-    print("\nthe reconstruction against the curves that never bubbled")
+    print("\nevery detachment corrected, and nothing else touched")
     table = scope.rebuild_smoothness()
     repaired = table[~table.clean]
-    clean = table[table.clean]
-    check("there are both kinds to compare",
-          len(repaired) > 20 and len(clean) > 20,
-          f"{len(repaired)} repaired, {len(clean)} clean")
+    frame = scope.frame().set_index(["experiment", "sample"])
+    untouched = [(int(r.experiment), int(r["sample"]))
+                 for _, r in repaired.iterrows()
+                 if not np.isfinite(frame.loc[(int(r.experiment),
+                                               int(r["sample"])), "gas_rate"])]
+    check("there are curves carrying gas to repair", len(repaired) > 20,
+          f"{len(repaired)} of {len(table)} live")
     check("the readings carry falls no noise can explain",
           float(repaired.raw_worst.min()) < -100,
           f"{repaired.raw_worst.min():.1f} sigma")
-    check("the reconstructions do not",
-          float(repaired.rebuilt_worst.min()) > -12,
+
+    fixable = repaired[[(int(r.experiment), int(r["sample"])) not in untouched
+                        for _, r in repaired.iterrows()]]
+    check("every detachment is corrected in full",
+          float(fixable.worst_at_event.min()) >= -1e-9,
+          f"worst {fixable.worst_at_event.min():+.3f} sigma over "
+          f"{len(fixable)} curves")
+    check("and the only curve left uncorrected is the first-interval one",
+          untouched == [(135, 6)], f"{untouched}")
+
+    # THE OTHER HALF. A fall that is not gas must survive the repair, so that
+    # it stays visible as the instrument problem it is.
+    check("falls rejected as excursions are left in place",
+          int(table.excursions.sum()) > 0,
+          f"{int(table.excursions.sum())} rejected")
+    check("and they are why the rebuilt curves still fall somewhere",
+          float(repaired.rebuilt_worst.min()) < -20,
           f"{repaired.rebuilt_worst.min():.1f} sigma")
-    survivors = repaired[repaired.rebuilt_worst < -scope.REBUILD_STEP_SIGMA]
-    check("exactly one repaired curve still carries one",
-          len(survivors) == 1, f"{len(survivors)}")
-    check("and it is the first-interval curve the model declines to touch",
-          [(int(r.experiment), int(r["sample"]))
-           for _, r in survivors.iterrows()] == [(135, 6)],
-          f"{[(int(r.experiment), int(r['sample'])) for _, r in survivors.iterrows()]}")
-    check("that curve is returned exactly as it was read",
-          not np.isfinite(float(scope.frame().set_index(
-              ["experiment", "sample"]).loc[(135, 6), "gas_rate"])))
-    # The two populations meet: the worst clean curve and the worst repaired
-    # one are the same size, so the repaired curves are no longer a class the
-    # eye can pick out.
-    check("the worst clean curve is the same size as the worst repaired one",
-          abs(float(clean.rebuilt_worst.min())
-              / float(repaired[repaired.rebuilt_worst
-                               > -scope.REBUILD_STEP_SIGMA]
-                      .rebuilt_worst.min())) > 0.5,
-          f"{clean.rebuilt_worst.min():.1f} against "
-          f"{repaired[repaired.rebuilt_worst > -scope.REBUILD_STEP_SIGMA].rebuilt_worst.min():.1f}")
+    for experiment, sample in ((149, 5), (149, 1)):
+        row = table[(table.experiment == experiment)
+                    & (table["sample"] == sample)].iloc[0]
+        check(f"exp {experiment} cuvette {sample} is left entirely alone",
+              int(row.bubble_events) == 0 and int(row.excursions) > 0,
+              f"{int(row.bubble_events)} detachments, "
+              f"{int(row.excursions)} excursions")
+        check(f"  and its reconstruction is the readings",
+              abs(row.raw_worst - row.rebuilt_worst) < 1e-9)
+
+
+def test_the_excursion_test_on_the_curve_that_forced_it():
+    """
+    Exp 149 cuvette 5, the real curve the excursion test was written for.
+
+    Its two "detachments" are 9.3 and 8.2 sigma and neither is gas. The first
+    falls 0.00206 AU and the NEXT READING climbs 0.00222 straight back; the
+    second falls off a reading that is an isolated spike. Between them they
+    set a production rate of 6.2e-6 AU/s, and the repair then removed 0.0097
+    AU from a curve that rose 0.0262 -- turning a real early rise into a flat
+    line, while staying perfectly monotone and passing every test there was.
+    """
+    print("\na fall that comes straight back is not gas")
+    curve = {c.sample: c for c in scope.curves_of(149)}[5]
+    times = np.asarray(curve.times, dtype=float)
+    values = np.asarray(curve.absorbance, dtype=float)
+    falls = curve_metrics.bubble_drops(values, curve.noise)
+    check("the detector still sees both falls", len(falls) == 2, f"{len(falls)}")
+    check("and they are past the threshold on their own",
+          float(np.diff(values)[falls].min() / curve.noise)
+          < -curve_metrics.BUBBLE_DROP_SIGMA,
+          f"{np.diff(values)[falls].min() / curve.noise:.1f} sigma")
+    check("the first is undone by the very next reading",
+          float(values[10] - values[9]) > float(values[8] - values[9]),
+          f"+{values[10] - values[9]:.5f} against a fall of "
+          f"{values[8] - values[9]:.5f}")
+    check("neither survives as a detachment",
+          curve_metrics.detachments(values, curve.noise) == [], "")
+    rebuilt, _ = curve_metrics.debubble(times, values, curve.noise)
+    check("so the curve is returned exactly as it was read",
+          np.array_equal(rebuilt, values))
+
+    # WITHOUT the test, the repair takes a third of the curve.
+    unfiltered = curve_metrics.detachments(values, curve.noise,
+                                           recovery=np.inf)
+    rate = curve_metrics.bubble_rate(times, values, unfiltered)
+    held = curve_metrics.bubble_profile(times, values, unfiltered, rate)
+    check("and that is not a small correction it is refusing",
+          held.max() / float(values[-1] - values[0]) > 0.3,
+          f"{held.max():.4f} AU off a rise of {values[-1] - values[0]:.4f}")
+
+    # The one-sided shape of the test matters: local_outlier_z cannot do this,
+    # because its window spans the fall and a genuine step flags itself.
+    worst = max(scope.curves(), key=lambda c: float(
+        np.max(np.maximum.accumulate(np.asarray(c.absorbance, dtype=float))
+               - np.asarray(c.absorbance, dtype=float))))
+    z = curve_metrics.local_outlier_z(
+        np.asarray(worst.times, dtype=float),
+        np.asarray(worst.absorbance, dtype=float), worst.noise)
+    events = curve_metrics.detachments(
+        np.asarray(worst.absorbance, dtype=float), worst.noise)
+    check("a genuine step change flags ITSELF under local_outlier_z",
+          any(z[start] > curve_metrics.OUTLIER_SIGMA for start, _ in events),
+          "which is why the excursion test never looks across the fall")
 
 
 def test_the_gas_may_not_outlast_the_evidence():

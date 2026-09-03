@@ -21,6 +21,7 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            initial_rate, line_fit, line_slope, peak_position,
                            OUTLIER_SIGMA, bubble_drops, bubble_load,
                            bubble_profile, bubble_rate, bubble_shortfall,
+                           local_outlier_z, OUTLIER_SIGMA,
                            debubble, detachments, isolated_outliers,
                            monotone_bound,
                            local_outlier_z, model_residual, quadratic_rate,
@@ -708,9 +709,12 @@ def test_the_bubble_correction():
                            0.5 * bubble_rate(times, spoilt, events)) > 0)
 
     # A bubble that grew before the first reading leaves no rise to date it
-    # from, so no rate explains it and the curve is returned untouched.
+    # from, so no rate explains it and the curve is returned untouched. The
+    # fall has to be well clear of the excursion test -- on this chemistry the
+    # first interval alone rises 0.0039, so a 0.01 fall is 61% recovered by
+    # the very next reading and is rejected as a spike, correctly.
     early = chemistry.copy()
-    early[1:] -= 0.01
+    early[1:] -= 0.03
     untouched, _ = debubble(times, early, noise)
     check("a detachment in the first interval has no affordable rate",
           not np.isfinite(bubble_rate(times, early, detachments(early, noise))))
@@ -741,6 +745,59 @@ def test_the_bubble_correction():
           not np.isfinite(bubble_load(np.zeros(20), np.array([], dtype=int))))
     check("a clean curve is returned untouched, not merely close",
           np.array_equal(debubble(times, chemistry, noise)[0], chemistry))
+
+
+def test_the_excursion_test_on_planted_spikes():
+    """
+    The excursion test on synthetic spikes of known kind.
+
+    Gas that leaves the beam does not come back, and a bubble does not grow
+    half its size in one 60 s reading. So a fall flanked by a single reading
+    that climbs a comparable amount is an instrument spike, and correcting it
+    as gas removes real chemistry: on exp 149 cuvette 5 that cost 0.0097 AU
+    off a curve that rose 0.0262.
+    """
+    print("\na fall that comes straight back is not gas")
+    times = np.arange(0, 3600, 60.0)
+    noise = 1e-4
+    chemistry = 0.02 + 1e-5 * times
+
+    # A SPIKE DOWN: one reading dips and the next is back on the line.
+    spike = chemistry.copy()
+    spike[30] -= 0.004
+    check("the detector sees the fall",
+          30 - 1 in set(bubble_drops(spike, noise)) or 29 in
+          set(bubble_drops(spike, noise)),
+          f"{list(bubble_drops(spike, noise))}")
+    check("but it is not a detachment", detachments(spike, noise) == [],
+          f"{detachments(spike, noise)}")
+    check("and the curve is returned untouched",
+          np.array_equal(debubble(times, spike, noise)[0], spike))
+
+    # A SPIKE UP: one reading jumps and the fall is the return off it.
+    perched = chemistry.copy()
+    perched[30] += 0.004
+    check("a fall off a spike is not a detachment either",
+          detachments(perched, noise) == [], f"{detachments(perched, noise)}")
+
+    # A REAL STEP: the level goes down and STAYS down.
+    step = chemistry.copy()
+    step[30:] -= 0.004
+    check("a persistent step IS a detachment",
+          detachments(step, noise) == [(29, 30)],
+          f"{detachments(step, noise)}")
+    rebuilt, _ = debubble(times, step, noise)
+    check("and it is corrected in full",
+          rebuilt[30] - rebuilt[29] >= -1e-12,
+          f"{rebuilt[30] - rebuilt[29]:+.2e}")
+
+    # THE TEST MUST NOT LOOK ACROSS THE FALL. `local_outlier_z` does, so a
+    # genuine step flags itself -- which is why this is a separate test and
+    # not a call to that one.
+    z = local_outlier_z(times, step, noise)
+    check("local_outlier_z flags the step change itself",
+          abs(z[29]) > OUTLIER_SIGMA or abs(z[30]) > OUTLIER_SIGMA,
+          f"z[29]={z[29]:+.1f} z[30]={z[30]:+.1f}")
 
 
 def test_the_monotone_bound():
