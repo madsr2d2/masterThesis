@@ -217,6 +217,27 @@ Three things follow that are worth not re-deriving.
   The block cannot separate them: the L has NO INTERIOR POINT, so no cuvette
   crosses `[S]` with `[H2O2]` and no run crosses `[buf]` with `[H2O2]`.
 
+- **The early rise is counted by the CATALYST, not the substrate.**
+  `curve_metrics.burst_amplitude` reads it off the FITTED CURVE, because the
+  two-phase solve trades amplitude between its exponentials without moving the
+  curve -- exp 135 cuvette 3 returns `B_fast` = -241 against `B_slow` = +303 on
+  a curve that moves 0.06 AU, so neither `B_fast` nor their sum is the burst.
+  `burst_bounded` says whether the rise finished inside the run: only 17 of 110
+  live curves do, and the bound bites BETWEEN runs, not within them (inside a
+  run the length is constant to one 60 s reading, between them it spans 9.6x).
+  `scope.turnovers` divides by the catalyst; below pH 9 the median is 1.41 and
+  above it 3.31.
+- **`[enz]` is never identified within a run**, so `burst_drivers` gives its
+  orders in `[S]` and `[H2O2]` (+0.136 +/- 0.045 and +0.793 +/- 0.063 over the
+  strong runs) and refuses the catalyst. The block's one lever is
+  `scope.enzyme_pair` -- exps 140 and 141, matched composition, 0.034 against
+  0.014 mM, 0.07 pH units apart -- read at the largest window the two runs share
+  and corrected for that pH gap with the block's own pH order. The rise is
+  **proportional to the catalyst**: no dependence excluded at 3.6 sigma, first
+  order admitted at 1.0 sigma. It rests on TWO RUNS, and
+  `enzyme_pair_sensitivity` moves the apparent order from +0.77 to +1.35 across
+  windows -- quote the range, not one window.
+
 And what it cannot do: no enzyme-free curve in the whole pyrophosphate cell; no
 windowed statistic across it (run length spans 9.6x); no induction analysis
 (`signal_control` fails at +0.619 +/- 0.228). **No mechanism fit has ever been

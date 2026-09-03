@@ -221,6 +221,76 @@ def figure_levers():
                "opposes it.")
 
 
+def figure_turnovers():
+    """G · how many times the catalyst went round, where the rise finished."""
+    table = scope.burst_table()
+    bounded = table[table.burst_bounded]
+    axes = Axes(560, 300, (5.2, 10.0), (0.18, 6.0), ylog=True,
+                pad=(74, 30, 48, 34))
+    axes.hline(1.0, ACCENT, dash="5 4", width=1.6)
+    loadings = sorted(bounded.e0.unique())
+    for index, loading in enumerate(loadings):
+        rows = bounded[bounded.e0 == loading]
+        colour = RUNGS[min(index, len(RUNGS) - 1)]
+        axes.points(rows.pH.to_numpy(), rows.turnovers.to_numpy(), colour,
+                    radius=5.0, opacity=0.85,
+                    title=f"[enz] {loading:g} mM: {len(rows)} curves")
+        axes.label(9.86, 5.2 / (1.45 ** index), f"{loading:g} mM", colour,
+                   size=10.5, anchor="end")
+    axes.note(axes._fx(5.35), axes._fy(1.0) - 7, "one turnover", ACCENT,
+              size=10.5)
+    bands = bounded.assign(
+        band=np.where(bounded.pH >= 9.0, "pH >= 9", "pH < 9"))
+    low = bands[bands.band == "pH < 9"].turnovers.median()
+    high = bands[bands.band == "pH >= 9"].turnovers.median()
+    return fig(axes.render("pH", "turnovers = rise ÷ ε ÷ [enz]",
+                           "G · one turnover, or many?"),
+               f"The {len(bounded)} curves of the block whose rise finishes "
+               f"inside their run — the other {len(table) - len(bounded)} peak "
+               "on the last reading and give only a lower bound. Below pH 9 "
+               f"the median is <strong>{low:.2f} turnovers</strong> and above "
+               f"it <strong>{high:.2f}</strong>: where [HOO⁻] is scarce the "
+               "catalyst goes round about once and stops, which is what a "
+               "regeneration step that needs it would do. The sub-"
+               "stoichiometric points are mostly in the runs "
+               "<code>concentration_agreement</code> rejects.")
+
+
+def figure_enzyme_pair():
+    """H · the block's one lever on the catalyst."""
+    pair, verdict = scope.enzyme_pair()
+    high, low = verdict["high"], verdict["low"]
+    x = pair[f"rise_{low}"].to_numpy(dtype=float)
+    y = pair[f"rise_{high}"].to_numpy(dtype=float)
+    axes = Axes(560, 320, (2e-3, 0.3), (2e-3, 0.6), xlog=True, ylog=True,
+                pad=(78, 26, 48, 34))
+    grid = np.array([2e-3, 0.3])
+    correction = verdict["pH_correction"]
+    axes.line(grid, grid * correction, MUTED, width=1.5, dash="4 4")
+    axes.line(grid, grid * verdict["expected"] * correction, CATEGORY[1],
+              width=2.0)
+    for cuvette, px, py in zip(pair.index, x, y):
+        axes.points([px], [py], CATEGORY[0], radius=5.2,
+                    title=f"cuvette {cuvette}: "
+                          f"{pair.loc[cuvette, 'corrected']:.2f}x")
+    axes.label(0.017, 0.030, "no dependence on [enz]", MUTED, size=10.5)
+    axes.label(0.0045, 0.36, f"{verdict['expected']:.2f}× — first order",
+               CATEGORY[1], size=10.5)
+    return fig(axes.render(f"rise in exp {low}, AU  ([enz] 0.014 mM)",
+                           f"rise in exp {high}, AU  ([enz] 0.034 mM)",
+                           "H · the same chemistry at two catalyst loadings"),
+               f"All {verdict['cuvettes']} cuvettes of the block's one matched "
+               f"pair, both fits read at {verdict['window_s']:.0f} s — the "
+               "largest window the two runs share. The runs differ in loading "
+               f"by {verdict['expected']:.2f}× and in pH by "
+               f"{verdict['pH_gap']:.2f} units, which §3's own pH order "
+               f"corrects out at {correction:.3f}×. The points sit on the "
+               "first-order line, not the flat one: <strong>no dependence on "
+               f"catalyst is excluded at "
+               f"{verdict['sigma_no_dependence']:.1f}σ</strong> and first "
+               f"order is not, at {verdict['sigma_first_order']:.1f}σ.")
+
+
 def figure_acceleration_against_ph():
     """F · what the autocatalysis tracks: pH, not run length."""
     frame = _block()
@@ -343,6 +413,9 @@ def build_index():
     control = induction.signal_control(_induction())
     drivers = slowdown.deceleration_drivers(frame)
     bands = scope.acceleration_by_ph()
+    burst = scope.burst_drivers(scope.strong_runs())
+    _, pair_verdict = scope.enzyme_pair()
+    sweep = scope.enzyme_pair_sensitivity()
     pooled = ladders.loc["pooled"]
 
     hero = f"""
@@ -498,6 +571,26 @@ one: {int(bands.loc['pH >= 9', 'accelerating'])} of
 3σ against {int(bands.loc['pH < 9', 'accelerating'])} of
 {int(bands.loc['pH < 9', 'curves'])} below it, and the eight-hour runs are the
 slow ones.</p>
+{figure_turnovers()}
+<p>Many of these curves rise to a maximum and then fall, and the quantity worth
+having there is how much product the catalyst made before it stopped, in units
+of the catalyst. <code>curve_metrics.burst_amplitude</code> reads it off the
+<em>fitted</em> curve — the two-phase solve trades amplitude between its
+exponentials without moving the curve, so <code>B_fast</code> is not the burst
+and neither is the sum. Only {int(scope.burst_table().burst_bounded.sum())} of
+the 110 live curves finish their rise inside their run.</p>
+{figure_enzyme_pair()}
+<p>Within runs the rise is nearly flat in substrate and strong in peroxide —
+{burst['order_s0']:+.3f} ± {burst['stderr_s0']:.3f} and
+{burst['order_h2o2']:+.3f} ± {burst['stderr_h2o2']:.3f} over the strong runs —
+and the catalyst cannot be asked that way at all, because <code>[enz]</code>
+never moves inside a run. The one matched pair the block holds says the rise is
+<strong>proportional to the catalyst</strong>: no dependence excluded at
+{pair_verdict['sigma_no_dependence']:.1f}σ, first order admitted at
+{pair_verdict['sigma_first_order']:.1f}σ. It rests on two runs, and the window
+sweep moves the apparent order between +{sweep.order.min():.2f} and
++{sweep.order.max():.2f}.</p>
+
 <p>What the block does <em>not</em> support is an induction analysis.
 <code>induction.signal_control</code> regresses the landmark on
 signal-to-noise and returns

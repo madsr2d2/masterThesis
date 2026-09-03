@@ -23,11 +23,14 @@ point of the module.
     python data/scope.py              # print the summary
     python data/scope.py --design     # the per-experiment design table
 """
+import itertools
+
 import numpy as np
 import pandas as pd
 
 from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
-                           OUTLIER_SIGMA, acceleration, initial_rate,
+                           OUTLIER_SIGMA, acceleration, burst_amplitude,
+                           initial_rate,
                            isolated_outliers, lag_time, local_outlier_z,
                            model_residual, peak_position, peak_rate,
                            quadratic_rate, segmented_fit, segment_selection,
@@ -143,6 +146,12 @@ def frame(scope=TWO_AXIS_BLOCK):
         # set the grid to [span, 2*span] and made every curve look two-phase.
         progress = fit_progress(times, values)
         peak_fitted, peak_fitted_time = progress.peak_rate
+        # How much the curve put on before it stopped rising, off the FITTED
+        # curve rather than the readings -- curve_metrics.burst_amplitude says
+        # why, and `burst_bounded` is the flag that keeps an unfinished rise
+        # out of any comparison between runs of different length.
+        burst_rise, burst_at, burst_bounded = burst_amplitude(
+            times, progress.predict(times))
         burst = fit_burst_bounded(times, values, noise_floor=floor)
         burst_pred = (burst.c + burst.v_ss * times
                       - burst.B * (1.0 - np.exp(-times / burst.tau)))
@@ -246,6 +255,14 @@ def frame(scope=TWO_AXIS_BLOCK):
             "progress_kind": progress.kind,
             "B_fast": progress.amplitudes[0],
             "B_slow": progress.amplitudes[1],
+            # THE SIZE OF THE EARLY RISE, which `B_fast` is not: the two-phase
+            # solve trades amplitude between its exponentials without moving
+            # the curve, so the split is unstable where the prediction is not.
+            # `turnovers` divides it by the catalyst, and is the whole question
+            # of whether the rise is one turnover or many.
+            "burst": burst_rise,
+            "burst_time_s": burst_at,
+            "burst_bounded": burst_bounded,
             # THE RATE TO USE ON AN ARRHENIUS PLOT. The largest rate the fitted
             # model reaches: v_ss for a one-phase lag, the interior maximum for
             # a two-phase curve. It is what `vmax` measures off the raw
@@ -309,6 +326,15 @@ def frame(scope=TWO_AXIS_BLOCK):
             "conversion": (net / (curve.epsilon * curve.conditions.s0)
                            if curve.epsilon > 0 and curve.conditions.s0 > 0
                            else np.nan),
+            # THE EARLY RISE IN UNITS OF THE CATALYST. Below one, the run has
+            # not turned the catalyst over even once and the rise is a
+            # stoichiometric burst; well above it, the catalyst is being
+            # regenerated. Both epsilon and [enz] come off the sheet, so this
+            # is as good as the weighing -- `verify_enzyme_stock.py` is the
+            # independent check on the second of them.
+            "turnovers": (burst_rise / (curve.epsilon * curve.conditions.e0)
+                          if curve.epsilon > 0 and curve.conditions.e0 > 0
+                          else np.nan),
             "peak": peak,
             "lags": bool(peak > LAG_THRESHOLD) if np.isfinite(peak) else False,
             "accel_z": accel_z,
@@ -953,6 +979,207 @@ def ph_schedule_control(parameter="vmax", scope=None):
     return out, {"ladders": len(out),
                  "opposed_schedules": len(directions) > 1,
                  "orders_agree_in_sign": len(signs) == 1}
+
+
+# ---------------------------------------------------------------------------
+# The size of the early rise, and whether it is one turnover or many.
+#
+# Exp 150 cuvette 6 is the curve that prompted this: a rise to 0.0120 AU by
+# 7900 s and then a steady fall at -2.6e-7 AU/s over the remaining six hours,
+# on 0.057% of its substrate. Divided by the extinction coefficient and the
+# catalyst it is HALF AN EQUIVALENT -- one turnover and stop, which is what a
+# catalyst whose regeneration has failed looks like, and at pH 6.26 the step
+# that regenerates it needs a [HOO-] four decades down.
+#
+# WHAT IS AND IS NOT COMPARABLE. `burst` is the fitted curve's rise above its
+# own start, up to the fit's maximum. When that maximum sits at the end of the
+# run the curve had not stopped rising and the value is a LOWER BOUND, which
+# `burst_bounded` records -- and only 17 of the block's 110 live curves are
+# bounded, so most of the block never finishes its rise.
+#
+# The bound bites BETWEEN runs and not within them. Every cuvette of one run
+# shares its length, so a per-experiment offset absorbs the truncation exactly
+# and an order in [S] or [H2O2] may be read off all the live curves;
+# `burst_drivers` does that. Comparing one run's burst with another's may not,
+# and the block spans 3000 to 28740 s, so `enzyme_pair` -- which has to
+# compare runs, because [enz] never moves inside one -- reads both members at a
+# window in SECONDS common to both instead.
+# The window to read both runs at, as a fraction of the SHORTER run's length.
+# One, not a half: the largest window both runs cover is the one choice here
+# that is not arbitrary, it uses the most signal, and it needs no extrapolation
+# of either fit beyond its own data. `enzyme_pair_sensitivity` sweeps it,
+# because the number does move -- the apparent order runs 0.77 to 1.35 over
+# 945-3780 s, a systematic the size of the statistical error, and every window
+# in the sweep is consistent with first order and excludes no dependence.
+ENZYME_PAIR_FLOOR = 1.0
+
+
+def burst_table(scope=TWO_AXIS_BLOCK, live_only=True):
+    """One row per curve: the early rise, when it peaked, and in catalyst units."""
+    data = frame(scope)
+    if live_only:
+        data = data[data.live]
+    columns = ["experiment", "sample", "pH", "e0", "s0", "h2o2", "hoo",
+               "duration_s", "progress_kind", "burst", "burst_time_s",
+               "burst_bounded", "turnovers"]
+    return data[columns].sort_values(["pH", "experiment", "sample"])
+
+
+def burst_drivers(scope=TWO_AXIS_BLOCK):
+    """
+    What the early rise scales with -- within runs, where the axes move.
+
+    Returns the orders of `burst` in [S] and [H2O2] against one offset per
+    experiment, and `enzyme_identified` to say what it cannot answer: [enz] is
+    constant across every cuvette of a run and moves only between runs, so the
+    offsets absorb it and `_moves` refuses it. `enzyme_pair` is the route to
+    that one.
+    """
+    data = frame(scope)
+    live = data[data.live & np.isfinite(data.burst) & (data.burst > 0)]
+    result = orders("burst", frame=live)
+    within = [float(np.ptp(block.e0)) > 0
+              for _, block in live.groupby("experiment")]
+    return {**result,
+            "curves": int(len(live)),
+            "bounded": int(live.burst_bounded.sum()),
+            "enzyme_identified": any(within)}
+
+
+def enzyme_pair(scope=TWO_AXIS_BLOCK, floor=ENZYME_PAIR_FLOOR):
+    """
+    Does the early rise scale with the CATALYST? The block's one lever on it.
+
+    [enz] never moves inside a run, so this has to compare runs, and only one
+    comparison in the block is worth making: two runs that share a composition,
+    differ in loading, and sit as close in pH as the block allows. It is
+    derived here rather than listed -- the pair is whichever qualifying pair
+    has the smallest pH gap -- and comes out as exps 140 and 141, 0.034 against
+    0.014 mM, pH 9.22 against 9.15.
+
+    READ AT A WINDOW IN SECONDS COMMON TO BOTH, not at each run's own maximum,
+    and at the largest such window rather than a fraction chosen to taste --
+    `ENZYME_PAIR_FLOOR`, swept by `enzyme_pair_sensitivity`.
+    The runs are 3780 s and 4680 s and `burst` stops at whichever time each
+    fit peaks, so comparing those two numbers would be comparing two windows --
+    the error `induction.buffer_lever` exists to avoid. Reading both fitted
+    curves at the same absolute time gives all seven cuvette pairs instead of
+    the one that happens to be bounded in both.
+
+    AND CORRECTED FOR THE PH GAP THAT IS LEFT, using this block's own measured
+    pH order (`ph_order`), because 0.07 pH units at pH 9.2 is about a 9%
+    effect and the enzyme step being tested is only 2.4x.
+
+    Returns (per-cuvette table, verdict). The verdict's `ratio` is the observed
+    rise ratio after correction and `expected` the loading ratio: equal means
+    the rise is proportional to catalyst.
+    """
+    from summary_kinetics import fit_progress
+
+    data = frame(scope)
+    signatures = {experiment: _composition(group)
+                  for experiment, group in data.groupby("experiment")}
+    candidates = []
+    for high, low in itertools.permutations(sorted(signatures), 2):
+        if signatures[high] != signatures[low]:
+            continue
+        rows = {e: data[data.experiment == e] for e in (high, low)}
+        if rows[high].e0.iloc[0] <= rows[low].e0.iloc[0]:
+            continue
+        candidates.append((abs(rows[high].pH.iloc[0] - rows[low].pH.iloc[0]),
+                           high, low))
+    if not candidates:
+        return pd.DataFrame(), {"pairs": 0}
+    gap, high, low = min(candidates)
+
+    lookup = {(c.experiment, c.sample): c for c in curves(scope)}
+    window = floor * min(data[data.experiment == e].duration_s.max()
+                         for e in (high, low))
+    rises = {}
+    for experiment in (high, low):
+        for row in data[data.experiment == experiment].itertuples():
+            curve = lookup.get((experiment, row.sample))
+            if curve is None:
+                continue
+            times = np.asarray(curve.times, dtype=float)
+            values = np.asarray(curve.absorbance, dtype=float)
+            fitted = fit_progress(times, values)
+            grid = np.array([times[0], window], dtype=float)
+            predicted = fitted.predict(grid)
+            rises[(experiment, row.sample)] = float(predicted[1]
+                                                    - predicted[0])
+
+    order = ph_order("vmax", scope=scope)
+    slope = float(order.loc["pooled", "order"] if "pooled" in order.index
+                  else order.iloc[0].order)
+    high_rows = data[data.experiment == high]
+    low_rows = data[data.experiment == low]
+    # [HOO-] at the two pH values, at matched composition: its ratio is the
+    # correction the pH order is applied to.
+    hoo_ratio = float(high_rows.hoo.iloc[0] / low_rows.hoo.iloc[0])
+    correction = hoo_ratio ** slope
+
+    rows = []
+    for sample in sorted(set(high_rows["sample"]) & set(low_rows["sample"])):
+        top, bottom = rises.get((high, sample)), rises.get((low, sample))
+        if not top or not bottom or bottom <= 0 or top <= 0:
+            continue
+        rows.append({"sample": int(sample),
+                     "s0": float(high_rows.loc[high_rows["sample"] == sample,
+                                               "s0"].iloc[0]),
+                     "h2o2": float(high_rows.loc[high_rows["sample"] == sample,
+                                                 "h2o2"].iloc[0]),
+                     f"rise_{high}": top, f"rise_{low}": bottom,
+                     "ratio": top / bottom,
+                     "corrected": (top / bottom) / correction})
+    table = pd.DataFrame(rows).set_index("sample")
+    expected = float(high_rows.e0.iloc[0] / low_rows.e0.iloc[0])
+    observed = float(np.exp(np.log(table.corrected.to_numpy()).mean())) \
+        if len(table) else np.nan
+    spread = float(np.exp(np.log(table.corrected.to_numpy()).std(ddof=1)
+                          / np.sqrt(len(table)))) if len(table) > 1 else np.nan
+    # In logs, because the quantity is a ratio: the spread is a FACTOR and a
+    # symmetric error bar on a ratio is the wrong shape.
+    log_error = float(np.log(spread)) if np.isfinite(spread) else np.nan
+    return table, {"high": int(high), "low": int(low),
+                   "pH_gap": float(gap), "window_s": float(window),
+                   "cuvettes": int(len(table)),
+                   "pH_correction": correction,
+                   "expected": expected, "ratio": observed,
+                   "stderr_factor": spread,
+                   "order": float(np.log(observed) / np.log(expected))
+                   if observed > 0 and expected > 1 else np.nan,
+                   # Against the two hypotheses worth naming: the rise is
+                   # proportional to catalyst, and the rise does not depend on
+                   # catalyst at all.
+                   "sigma_first_order": abs(np.log(observed)
+                                            - np.log(expected)) / log_error
+                   if log_error > 0 else np.nan,
+                   "sigma_no_dependence": abs(np.log(observed)) / log_error
+                   if log_error > 0 else np.nan}
+
+
+ENZYME_PAIR_SWEEP = (0.25, 0.5, 0.75, 1.0)
+
+
+def enzyme_pair_sensitivity(scope=TWO_AXIS_BLOCK, floors=ENZYME_PAIR_SWEEP):
+    """
+    The pair's ratio at four windows, because the window was a choice.
+
+    `enzyme_pair` reads both runs at one absolute time and that time is not
+    handed down by anything -- so the number is only worth quoting if it does
+    not move much when the window does. This is the same discipline as
+    `slowdown.sink_window_sensitivity` and `induction.BUFFER_WINDOW_SWEEP`.
+    """
+    rows = []
+    for floor in floors:
+        _, verdict = enzyme_pair(scope, floor=floor)
+        rows.append({"floor": floor, "window_s": verdict.get("window_s"),
+                     "ratio": verdict.get("ratio"),
+                     "stderr_factor": verdict.get("stderr_factor"),
+                     "order": verdict.get("order"),
+                     "cuvettes": verdict.get("cuvettes")})
+    return pd.DataFrame(rows).set_index("floor")
 
 
 def hoo_consistency(parameter="vmax", scope=None):

@@ -17,8 +17,8 @@ both is what this folder is.
     python two_axis/build_figures.py
     python two_axis/check_numbers.py
 
-**Figures**: [`index.html`](index.html) is the presentation — six figures, A to
-F, one per claim below. [`progress_curves.html`](progress_curves.html) carries
+**Figures**: [`index.html`](index.html) is the presentation — eight figures, A
+to H, one per claim below. [`progress_curves.html`](progress_curves.html) carries
 all 119 cuvettes with the form each earned, which is the audit surface for
 every number here.
 
@@ -255,6 +255,81 @@ The curve forms say the same from the other side. The block splits 56 two-phase
 against 54 one-phase, so `tau_fast` is τ₁ of one fit on half the curves and τ
 of another on the rest; and it splits 46 lag-first against 64 burst-first, so
 an induction time averaged over it would average two different things.
+
+### How big is the early rise, and is it one turnover or many?
+
+Many of the block's curves rise to a maximum and then fall — exp 150 cuvette 6
+is the plainest: its fit climbs **0.0129 AU** above its start, peaks at
+6900 s, and then declines steadily for six hours. The chemically interesting
+quantity there is **how much product the catalyst made before it stopped**, in
+units of the catalyst itself.
+
+`curve_metrics.burst_amplitude` measures it off the **fitted** curve rather
+than the readings, and the reason is not noise. When the two exponentials are
+nearly degenerate the linear solve trades enormous opposite amplitudes between
+them — exp 135 cuvette 3 returns `B_fast` = -241 against `B_slow` = +303 on a
+curve that moves 0.06 AU — so neither `B_fast` nor their sum is the burst. The
+trade leaves the fitted *curve* alone and moves only the split, so the value of
+the curve at a time inside the window is what survives it.
+
+**Only 17 of the 110 live curves finish their rise inside their run.** The rest
+peak on the last reading, and their amplitude is a lower bound; `burst_bounded`
+carries the distinction, and it matters *between* runs and not within them —
+inside a run every cuvette shares the length to within one 60 s reading, while
+between runs it spans 9.6x.
+
+| band | bounded curves | median turnovers | range |
+|---|---|---|---|
+| pH < 9 | 11 | 1.41 | 0.28-3.62 |
+| pH >= 9 | 6 | 3.31 | 1.98-4.22 |
+
+So at the bottom of the pH ladder the catalyst gets **about one turnover and
+stops** — exp 150 cuvette 6 is 0.50 — and at the top it gets three or four.
+That is what a catalyst whose regeneration needs HOO⁻ should do. It is also
+where the caveat bites hardest: the sub-stoichiometric curves are in exps 149,
+150 and 151, which are the runs `concentration_agreement` rejects, and the one
+sub-stoichiometric burst in a strong run is exp 135 cuvette 4 at 0.58.
+
+### And the rise scales with the catalyst, not with the substrate
+
+Within runs, where both concentration axes move, the rise is nearly flat in
+substrate and strong in peroxide:
+
+| set | order in [S] | order in [H₂O₂] | n | R² |
+|---|---|---|---|---|
+| all live curves | +0.201 ± 0.041 | +0.757 ± 0.062 | 110 | 0.795 |
+| strong runs | +0.136 ± 0.045 | +0.793 ± 0.063 | 77 | 0.805 |
+
+The catalyst cannot be asked that way: `[enz]` is constant across every cuvette
+of a run and moves only between runs, so the per-experiment offsets absorb it
+and `scope.orders` refuses it. The block offers exactly one comparison instead
+— **exps 140 and 141**, which share a composition, step the loading 0.034
+against 0.014 mM, and sit 0.07 pH units apart, the smallest gap in the block.
+Both fits are read at **3780 s**, the largest window the two runs share, because
+their own maxima fall at different times; and the residual pH gap is corrected
+with §3's own pH order, worth 1.065x against the 2.43x enzyme step.
+
+| corrected rise ratio | expected if first order in [enz] | σ from first order | σ from no dependence |
+|---|---|---|---|
+| **1.99 ×/÷ 1.21** | 2.43 | 1.0 | **3.6** |
+
+**The early rise is proportional to the catalyst.** No dependence on it is
+excluded at 3.6σ; first order in it is not distinguishable at 1.0σ. Sweeping
+the window gives an apparent order of +0.77 to +1.35 over 945 to 3780 s — a
+systematic about the size of the statistical error, and every window in the
+sweep says the same two things.
+
+| window, s | ratio | apparent order in [enz] | cuvettes |
+|---|---|---|---|
+| 945 | 2.58 | +1.07 | 5 |
+| 1890 | 3.30 | +1.35 | 7 |
+| 2835 | 2.47 | +1.02 | 7 |
+| 3780 | 1.99 | +0.77 | 7 |
+
+It rests on **one pair of runs**, which is all the block has, and it should be
+read as such. What it does say is that the thing accumulating early is counted
+by the catalyst rather than by the substrate — the substrate order of the same
+quantity is +0.14 ± 0.05 over a fifty-fold ladder.
 
 ### It decelerates on a clock, not on its product
 

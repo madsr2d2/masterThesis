@@ -16,6 +16,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import curve_metrics
 import induction
 import scope
 
@@ -206,6 +207,119 @@ def test_the_two_levers_are_measured_on_different_contrasts():
           "so its substrate order is the one the guard refuses")
 
 
+def test_the_burst_amplitude_is_read_off_predictions_not_parameters():
+    """
+    Planted so the parameters are degenerate and the prediction is not.
+
+    Two exponentials with nearly the same time constant let the linear solve
+    trade enormous opposite amplitudes between them without moving the fitted
+    curve -- exp 135 sample 3 comes back with B_fast = -241 against B_slow =
+    +303 on a curve that moves 0.06 AU. Any burst read off `B_fast`, or off
+    their sum, inherits that. Reading the curve does not, and this test is the
+    statement of why.
+    """
+    print("\nthe burst is a prediction, not a parameter")
+    times = np.linspace(0.0, 1000.0, 400)
+    rise = 0.02 * (1 - np.exp(-times / 100.0)) - 3e-6 * times
+    amplitude, when, bounded = curve_metrics.burst_amplitude(times, rise)
+    check("a curve that turns over inside the run is bounded", bounded,
+          f"peak at {when:.0f} s of {times[-1]:.0f}")
+    check("and its amplitude is the height it reached",
+          abs(amplitude - (rise.max() - rise[0])) < 1e-12,
+          f"{amplitude:.6f}")
+
+    climbing = 0.02 * (1 - np.exp(-times / 100.0))
+    _, _, still_rising = curve_metrics.burst_amplitude(times, climbing)
+    check("a curve still rising at the last reading is NOT bounded",
+          not still_rising, "so it cannot be compared between runs")
+
+    # The degeneracy itself: two shapes with identical predictions and wildly
+    # different parameter splits must give the same burst.
+    slow = 0.02 * (1 - np.exp(-times / 100.0)) - 3e-6 * times
+    traded = (slow + 5.0 * (1 - np.exp(-times / 1e9))
+              - 5.0 * (1 - np.exp(-times / 1e9)))
+    check("and a parameter trade that leaves the curve alone changes nothing",
+          abs(curve_metrics.burst_amplitude(times, traded)[0] - amplitude)
+          < 1e-9, "predictions are what is read")
+
+
+def test_the_burst_bound_bites_between_runs_and_not_within_them():
+    """
+    Which is why `burst_drivers` may use every live curve and `enzyme_pair` may not.
+
+    Every cuvette of a run shares its length, so a truncated rise is truncated
+    identically across the run and a per-experiment offset absorbs it. Between
+    runs it is not, and the block spans 3000 to 28740 s.
+    """
+    print("\nwhere the bound bites")
+    frame = scope.frame()
+    live = frame[frame.live]
+    # NOT exactly constant, and the reason is the instrument rather than the
+    # design: it reads the seven cuvettes in sequence, so six runs end with
+    # some cuvettes one 60 s interval short of the others. That is 0.7-1.6%,
+    # against 9.6x between runs, so the argument survives -- but it is 1.6%
+    # and not zero, and asserting zero here failed the first time it was run.
+    inside = live.groupby("experiment").duration_s.agg(lambda d: d.max() / d.min())
+    check("run length is constant inside a run to within one reading",
+          bool((inside <= 1.02).all()),
+          f"worst {inside.max():.4f}x in exp {inside.idxmax()}")
+    check("and varies a long way between them",
+          live.duration_s.max() / live.duration_s.min() > 5,
+          f"{live.duration_s.max() / live.duration_s.min():.1f}x")
+    check("so the within-run spread is two orders below the between-run one",
+          (inside.max() - 1) * 100 < live.duration_s.max() / live.duration_s.min(),
+          f"{(inside.max() - 1) * 100:.1f}% against "
+          f"{live.duration_s.max() / live.duration_s.min():.0f}00%")
+
+    drivers = scope.burst_drivers()
+    check("so the burst's concentration orders use every live curve",
+          drivers["curves"] == int(live.burst.gt(0).sum()),
+          f"{drivers['curves']} of {int(live.live.sum())}")
+    check("most of which never finish their rise",
+          drivers["bounded"] < drivers["curves"] / 2,
+          f"{drivers['bounded']} bounded of {drivers['curves']}")
+    check("and the catalyst is not identified there",
+          not drivers["enzyme_identified"],
+          "[enz] never moves inside a run")
+
+
+def test_the_enzyme_pair_is_derived_and_survives_its_window():
+    """
+    The pair, the correction it needs, and the sweep that says it is not a window.
+
+    The pair is chosen by the smallest pH gap among runs that share a
+    composition and differ in loading -- not listed -- so a change in the
+    archive moves it rather than silently invalidating it.
+    """
+    print("\nthe enzyme lever")
+    table, verdict = scope.enzyme_pair()
+    check("the pair shares a composition and steps the catalyst",
+          verdict["expected"] > 2.0, f"{verdict['expected']:.2f}x in [enz]")
+    check("with the smallest pH gap the block offers",
+          verdict["pH_gap"] < 0.15, f"{verdict['pH_gap']:.2f} pH units")
+    check("and all seven cuvettes pair up", verdict["cuvettes"] == 7,
+          f"{verdict['cuvettes']}")
+    check("the pH gap is corrected, and is small beside the enzyme step",
+          1.0 < verdict["pH_correction"] < 1.2,
+          f"{verdict['pH_correction']:.3f} against "
+          f"{verdict['expected']:.2f}")
+
+    check("the rise scales with the catalyst",
+          verdict["sigma_no_dependence"] > 3.0,
+          f"no dependence excluded at {verdict['sigma_no_dependence']:.1f} sigma")
+    check("and is not distinguishable from first order in it",
+          verdict["sigma_first_order"] < 2.0,
+          f"{verdict['sigma_first_order']:.1f} sigma from {verdict['expected']:.2f}x")
+
+    sweep = scope.enzyme_pair_sensitivity()
+    check("every window in the sweep says the same thing",
+          bool((sweep.order > 0.5).all() and (sweep.order < 1.6).all()),
+          f"{sweep.order.round(2).to_dict()}")
+    check("and the published window is the largest one, not a chosen one",
+          verdict["window_s"] == sweep.window_s.max(),
+          f"{verdict['window_s']:.0f} s")
+
+
 def test_the_acceleration_band_uses_live_curves_only():
     """A dead curve's `accelerates` is its quantisation staircase stepping late."""
     print("\nthe acceleration bands")
@@ -228,6 +342,9 @@ if __name__ == "__main__":
     test_the_weak_runs_flatten_the_ph_ladder()
     test_the_schedule_control_is_a_real_control()
     test_the_two_levers_are_measured_on_different_contrasts()
+    test_the_burst_amplitude_is_read_off_predictions_not_parameters()
+    test_the_burst_bound_bites_between_runs_and_not_within_them()
+    test_the_enzyme_pair_is_derived_and_survives_its_window()
     test_the_acceleration_band_uses_live_curves_only()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)

@@ -8,6 +8,75 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-03 — the size of the early rise, and what counts it
+
+Added because a curve was asked about by eye -- exp 150 cuvette 6, which climbs
+0.0129 AU and then falls steadily for six hours on 0.057% of its substrate --
+and the quantity that answers it did not exist.
+
+### The burst is a prediction, not a parameter
+
+`curve_metrics.burst_amplitude` is the fitted curve's rise above its own start,
+up to the fit's maximum. It is read off the PREDICTIONS and not off `B_fast`,
+and the reason is recorded here because `B_fast` is the obvious thing to reach
+for: when the two exponentials are nearly degenerate the linear solve trades
+enormous opposite amplitudes between them without moving the curve. Exp 135
+cuvette 3 comes back with `B_fast` = -241 against `B_slow` = +303 on a curve
+that moves 0.06 AU, so neither the fast amplitude nor the sum of the two is the
+burst. `induction.sign_table` already relied on the SIGN of that trade being
+stable where its size is not; this is the same fact used the other way.
+
+`burst_bounded` is the second half. Only **17 of the block's 110 live curves**
+reach their maximum inside their run; the rest peak on the last reading, and
+their amplitude is a lower bound. The bound bites BETWEEN runs and not within
+them, and a test asserting the premise found the premise was not quite true:
+run length is constant inside a run only to within **one 60 s reading**, because
+the instrument reads the seven cuvettes in sequence and six runs end with some
+cuvettes one interval short. That is 0.7-1.6% against 9.6x between runs, so the
+argument stands -- but it is not zero, and `test_scope` now asserts the true
+statement rather than the tidy one.
+
+### What the rise scales with
+
+`scope.turnovers` divides it by the extinction coefficient and the catalyst.
+Over the 17 bounded curves the median is **1.41 turnovers below pH 9 and 3.31
+above it** -- at the bottom of the ladder the catalyst goes round about once and
+stops, which is what a regeneration step needing [HOO-] would do. The caveat is
+sharp: the sub-stoichiometric curves are in exps 149, 150 and 151, the runs
+`concentration_agreement` rejects, and the only sub-stoichiometric burst in a
+strong run is exp 135 cuvette 4 at 0.58.
+
+`burst_drivers` gives the orders within runs -- **+0.136 +/- 0.045 in [S] and
++0.793 +/- 0.063 in [H2O2]** over the strong runs -- and refuses the catalyst,
+correctly: `[enz]` is constant across every cuvette of a run, so the
+per-experiment offsets absorb it and the guard fixed earlier today returns NaN.
+
+### The one lever on the catalyst, and its window
+
+`scope.enzyme_pair` derives rather than lists the comparison: among runs sharing
+a composition and differing in loading, the pair with the smallest pH gap. That
+is **exps 140 and 141** -- 0.034 against 0.014 mM, pH 9.22 against 9.15.
+
+Two choices had to be made and both are recorded in the code. The runs are
+3780 s and 4680 s and their fits peak at different times, so both are read at
+**3780 s**, the largest window the two share -- the same discipline as
+`induction.BUFFER_WINDOW`, and for the same reason. And the residual 0.07 pH
+units is corrected with this block's own pH order, worth **1.065x** against the
+2.43x enzyme step.
+
+The corrected rise ratio is **1.99 x/÷ 1.21** against 2.43 expected for first
+order. **No dependence on catalyst is excluded at 3.6 sigma; first order is not
+distinguishable at 1.0 sigma.** So the thing accumulating early is counted by
+the catalyst and not by the substrate, whose order in the same quantity is
++0.136 +/- 0.045 over a fifty-fold ladder.
+
+It rests on **two runs**, which is all the block has, and it carries a window
+systematic the size of its statistical error: `enzyme_pair_sensitivity` moves
+the apparent order from **+0.77 to +1.35** over 945 to 3780 s. Every window in
+the sweep excludes no dependence and admits first order. Quote the range.
+
+---
+
 ## 2026-09-03 — the two-axis block is also a pH ladder, and an order was being fabricated
 
 `two_axis/` is new: the folder exps 135-151 never had. Three things came out of

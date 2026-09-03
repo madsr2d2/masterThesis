@@ -97,7 +97,16 @@ ph_schedule_control()     # the two ladders walk pH in opposite directions
 hoo_consistency()         # move [HOO-] two ways; they disagree at 3.4 sigma
 run_dates()               # the instrument's own Date Collected
 acceleration_by_ph()      # the acceleration is high-pH, not long-run
+burst_table()             # the early rise, and it in units of catalyst
+burst_drivers()           # its orders in [S] and [H2O2], within runs
+enzyme_pair()             # the block's one lever on [enz]: exps 140 vs 141
+enzyme_pair_sensitivity() # and the window it is read at, swept
 ```
+
+`burst` is `curve_metrics.burst_amplitude` on the FITTED curve, never on
+`B_fast` -- the two-phase solve trades amplitude between its exponentials
+without moving the curve. Check `burst_bounded` before comparing two runs:
+only 17 of 110 live curves finish their rise, and the rest are lower bounds.
 
 Two cautions come with them. **Filter to `strong_runs()` before quoting a pH
 order** -- the weak runs sit at the bottom of the ladder and flatten it, from

@@ -704,3 +704,48 @@ def lag_time(times, values, fraction=LAG_WINDOW, level=LAG_LEVEL,
     if not len(crossings):
         return np.nan
     return float(centres[crossings[0]] - centres[0])
+
+
+# A peak this close to either end of the run is AT THE BOUNDARY, not inside it.
+# Two of the block's 480-reading runs place their maximum on the last reading;
+# calling that a turnover would make the amplitude a measure of how long the
+# instrument was left running.
+BURST_EDGE = 0.02
+
+
+def burst_amplitude(times, fitted, edge=BURST_EDGE):
+    """
+    How far a fitted curve climbs above its own start before it turns over.
+
+    Returns `(amplitude, time, bounded)`. `bounded` is False when the maximum
+    sits within `edge` of either end of the run, and then the amplitude is a
+    LOWER BOUND -- the curve had not stopped rising when the reading stopped.
+    Nothing may be compared across runs on an unbounded value, because the
+    two-axis block spans 3000 to 28740 s and the comparison would be of run
+    lengths.
+
+    READ OFF THE FIT, NOT THE READINGS, and for two reasons.
+
+    The small one is noise: the maximum of 480 readings is biased upward by
+    about one noise excursion, which on this block is 1.5-2.7e-4 AU against
+    features of 5e-3 to 1e-1 -- up to 5% of the quantity, all of it in one
+    direction.
+
+    The large one is that the fit's PREDICTIONS are stable where its
+    PARAMETERS are not. When the two exponentials are nearly degenerate the
+    linear solve trades enormous opposite amplitudes between them -- exp 135
+    sample 3 returns B_fast = -241 against B_slow = +303 on a curve that moves
+    0.06 AU -- so `-B_fast` is not the burst and neither is `-(B_fast +
+    B_slow)`: the trade leaves the curve alone and moves only the split. What
+    the trade cannot touch is the value of the fitted curve at a time inside
+    the window, which is what this reads.
+    """
+    times = np.asarray(times, dtype=float)
+    fitted = np.asarray(fitted, dtype=float)
+    if len(times) < 3 or len(fitted) != len(times) or not np.all(
+            np.isfinite(fitted)):
+        return np.nan, np.nan, False
+    index = int(np.argmax(fitted))
+    span = len(times) - 1
+    bounded = bool(edge * span < index < (1 - edge) * span)
+    return (float(fitted[index] - fitted[0]), float(times[index]), bounded)

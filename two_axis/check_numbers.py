@@ -235,6 +235,91 @@ def main():
               f"{int(signs.lag_first.sum())} lag-first against "
               f"{int((~signs.lag_first).sum())} burst-first")
 
+    doc.section("section 5: the burst amplitude")
+    bursts = scope.burst_table()
+    bounded = bursts[bursts.burst_bounded]
+    doc.claim("how many curves finish their rise",
+              f"**Only {len(bounded)} of the {len(bursts)} live curves finish "
+              "their rise inside their run.**")
+    inside = frame[frame.live].groupby("experiment").duration_s.agg(
+        lambda d: d.max() - d.min())
+    doc.claim("the within-run spread in length", "one 60 s reading")
+    doc.check("and no run varies inside itself by more than that",
+              inside.max() <= 60.0, f"{inside.max():.0f} s")
+    for band, rows in bounded.groupby(np.where(bounded.pH >= 9.0,
+                                               "pH >= 9", "pH < 9")):
+        doc.claim(f"{band}: the turnover row",
+                  f"| {band} | {len(rows)} | {rows.turnovers.median():.2f} | "
+                  f"{rows.turnovers.min():.2f}-{rows.turnovers.max():.2f} |")
+    doc.check("the catalyst turns over more often at high pH",
+              bounded[bounded.pH >= 9].turnovers.median()
+              > bounded[bounded.pH < 9].turnovers.median(),
+              f"{bounded[bounded.pH >= 9].turnovers.median():.2f} against "
+              f"{bounded[bounded.pH < 9].turnovers.median():.2f}")
+    one_fifty = bursts[(bursts.experiment == 150) & (bursts["sample"] == 6)]
+    doc.claim("exp 150 cuvette 6, the curve that prompted this",
+              f"is {one_fifty.turnovers.iloc[0]:.2f}")
+    doc.claim("its fitted rise",
+              f"**{one_fifty.burst.iloc[0]:.4f} AU**")
+    doc.claim("and where it peaks",
+              f"peaks at\n{one_fifty.burst_time_s.iloc[0]:.0f} s")
+    in_strong = bounded[bounded.experiment.isin(strong)]
+    weakest = in_strong.loc[in_strong.turnovers.idxmin()]
+    doc.claim("the weakest burst in a strong run",
+              f"exp {int(weakest.experiment)} cuvette "
+              f"{int(weakest['sample'])} at {weakest.turnovers:.2f}")
+    doc.check("and it is the only sub-stoichiometric one there",
+              int((in_strong.turnovers < 1.0).sum()) == 1,
+              f"{int((in_strong.turnovers < 1.0).sum())} below one turnover")
+
+    for label, subset in (("all live curves", scope.TWO_AXIS_BLOCK),
+                          ("strong runs", strong)):
+        row = scope.burst_drivers(subset)
+        doc.claim(f"{label}: the burst's concentration orders",
+                  f"| {label} | {row['order_s0']:+.3f} +/- "
+                  f"{row['stderr_s0']:.3f} | {row['order_h2o2']:+.3f} +/- "
+                  f"{row['stderr_h2o2']:.3f} | {int(row['n'])} | "
+                  f"{row['r2']:.3f} |")
+        doc.check(f"{label}: and the catalyst is not identified there",
+                  not row["enzyme_identified"], "[enz] is constant per run")
+
+    doc.section("section 5: the enzyme lever")
+    pair, verdict = scope.enzyme_pair()
+    doc.claim("which runs", f"**exps {verdict['high']} and {verdict['low']}**")
+    doc.claim("the loading step",
+              f"{frame[frame.experiment == verdict['high']].e0.iloc[0]:g}\n"
+              f"against {frame[frame.experiment == verdict['low']].e0.iloc[0]:g} mM")
+    doc.claim("the pH gap", f"{verdict['pH_gap']:.2f} pH units apart")
+    doc.claim("the window", f"**{verdict['window_s']:.0f} s**")
+    doc.claim("the pH correction",
+              f"{verdict['pH_correction']:.3f}x against the "
+              f"{verdict['expected']:.2f}x enzyme step")
+    doc.claim("the result row",
+              f"| **{verdict['ratio']:.2f} x/÷ {verdict['stderr_factor']:.2f}** "
+              f"| {verdict['expected']:.2f} | "
+              f"{verdict['sigma_first_order']:.1f} | "
+              f"**{verdict['sigma_no_dependence']:.1f}** |")
+    doc.check("no dependence on catalyst is excluded",
+              verdict["sigma_no_dependence"] > 3.0,
+              f"{verdict['sigma_no_dependence']:.2f} sigma")
+    doc.check("and first order in it is not",
+              verdict["sigma_first_order"] < 2.0,
+              f"{verdict['sigma_first_order']:.2f} sigma")
+    doc.check("all seven cuvettes pair up", verdict["cuvettes"] == 7,
+              f"{verdict['cuvettes']}")
+
+    sweep = scope.enzyme_pair_sensitivity()
+    doc.claim("the window systematic",
+              f"+{sweep.order.min():.2f} to +{sweep.order.max():.2f} over "
+              f"{sweep.window_s.min():.0f} to {sweep.window_s.max():.0f} s")
+    for _, row in sweep.iterrows():
+        doc.claim(f"the sweep at {row.window_s:.0f} s",
+                  f"| {row.window_s:.0f} | {row.ratio:.2f} | "
+                  f"{row.order:+.2f} | {int(row.cuvettes)} |")
+    doc.check("every window excludes no dependence and admits first order",
+              bool((sweep.order > 0.5).all() and (sweep.order < 1.6).all()),
+              f"{sweep.order.round(2).to_list()}")
+
     drivers = slowdown.deceleration_drivers(frame)
     doc.claim("the clock coefficient",
               f"**{drivers['span']:+.3f} +/- {drivers['span_stderr']:.3f}**")
@@ -255,8 +340,8 @@ def main():
               f"{sorted(_fitted_experiments())}")
 
     doc.section("the figures the document promises")
-    doc.figures(os.path.join(HERE, "index.html"), "ABCDEF")
-    doc.claim("the document's own count of them", "six figures, A to\nF")
+    doc.figures(os.path.join(HERE, "index.html"), "ABCDEFGH")
+    doc.claim("the document's own count of them", "eight figures, A\nto H")
 
     doc.section("the curves page draws every cuvette it claims to")
     page = io.open(os.path.join(HERE, "progress_curves.html"),
