@@ -140,7 +140,7 @@ def breakpoints(axes, where, labels=None, colour=MUTED):
 
 
 def progress_axes(times, values, width=340, height=210, limit=None,
-                  colour=MUTED, pad=(56, 12, 34, 20)):
+                  colour=MUTED, pad=(56, 12, 34, 20), companion=None):
     """
     Axes over one progress curve with its readings already drawn on.
 
@@ -152,13 +152,22 @@ def progress_axes(times, values, width=340, height=210, limit=None,
     None every reading is drawn, which is right for a 24-panel page and wrong
     for a 200-panel one. Returns the axes and the mark radius, so the caller
     can pass the radius to `progress_overlay` and have the width asserted.
+
+    `companion` is a SECOND series the caller will draw itself, given here only
+    so the limits hold it. A panel that draws a transformed copy of the curve
+    beside the readings -- `two_axis/` draws the O2-corrected series beside the
+    raw one -- must not let that copy fall off the frame, and a mark drawn
+    outside the limits vanishes silently while the figure still looks finished.
+    Nothing is drawn from it; only `values` gets marks.
     """
     from svgplot import Axes
     times = np.asarray(times, dtype=float)
     values = np.asarray(values, dtype=float)
+    extent = (values if companion is None
+              else np.concatenate([values, np.asarray(companion, dtype=float)]))
     axes = Axes(width, height, (0, float(times[-1]) * 1.02),
-                (min(float(values.min()), 0.0) * 1.1 - 1e-4,
-                 max(float(values.max()), 1e-4) * 1.12), pad=pad)
+                (min(float(extent.min()), 0.0) * 1.1 - 1e-4,
+                 max(float(extent.max()), 1e-4) * 1.12), pad=pad)
     dense = len(times) > 150
     radius = 1.6 if dense else 2.1
     shown = (slice(None) if limit is None

@@ -419,6 +419,16 @@ def build_curves_page():
     draws the dead curves too — nine of the 119 — because the block's low-pH
     end is where the argument stops, and a page showing only the live ones
     would show only the part that works.
+
+    AND IT DRAWS THE GAS. Fifty of these curves carry O₂ detachments, and until
+    2026-09-03 this page showed a progress fit to the raw readings with nothing
+    to say so — a fit to the bubble, presented as a fit to the reaction. Each
+    contaminated panel now carries the raw readings, the corrected series (§5,
+    `curve_metrics.debubble`), a fit to EACH, and a rule at every detachment.
+    The correction is drawn beside the readings rather than in place of them:
+    `frame`'s `vmax`, `v0` and progress form are still measured on the raw
+    curve, `vmax_corrected` sits beside them, and the reader decides which the
+    panel supports.
     """
     frame = _block()
     lookup = {(c.experiment, c.sample): c for c in scope.curves()}
@@ -430,13 +440,32 @@ def build_curves_page():
             continue
         times = np.asarray(curve.times, dtype=float)
         values = np.asarray(curve.absorbance, dtype=float)
-        axes, radius = progress_axes(times, values, limit=140)
+        # THE GAS, DRAWN. A fit to a curve the O2 has moved is a fit to the O2,
+        # and this page is where that has to be visible -- the raw readings, the
+        # corrected series and BOTH fits, so the panel shows what the correction
+        # did rather than asserting it in prose. Only where there is something
+        # to correct: with no detachment the two series are identical and the
+        # second line would be a decoration.
+        corrected, drops = curve_metrics.debubble(times, values, curve.noise)
+        chopped = len(drops) > 0
+        axes, radius = progress_axes(times, values, limit=140,
+                                     companion=corrected if chopped else None)
+        if chopped:
+            axes.line(times, corrected, CATEGORY[2], width=1.0, dash="3 2",
+                      opacity=0.85)
+            progress_overlay(axes, times, corrected, colour=CATEGORY[2],
+                             mark_radius=radius)
         progress_overlay(axes, times, values, mark_radius=radius)
         marks, labels = [], []
         if np.isfinite(row.vmax_time_s) and row.vmax_time_s > 0:
             marks.append(float(row.vmax_time_s))
             labels.append("v_max")
         breakpoints(axes, marks, labels, colour=CATEGORY[0])
+        if chopped:
+            # Where the gas left, so the reader can see the correction is
+            # anchored to the readings and not to a smoothing choice.
+            breakpoints(axes, [float(times[i]) for i in drops],
+                        [""] * len(drops), colour=GRID)
         panels.append(panel(
             f"pH {row.pH:.2f} · [S] {row.s0:g} mM · [H₂O₂] {row.h2o2:g} mM"
             f"<span class='pill'>exp {int(row.experiment)}.{int(row.sample)}"
@@ -453,7 +482,14 @@ def build_curves_page():
             + (" · <strong>accelerates</strong>" if row.accelerates else "")
             + ("" if row.live else " · <strong>NOT LIVE</strong>")
             + ("" if row.experiment in strong
-               else " · <strong>weak run</strong>")))
+               else " · <strong>weak run</strong>")
+            + ("" if not chopped else
+               f" · <span style='color:{CATEGORY[2]}'>{len(drops)} O₂ "
+               f"detachment" + ("s" if len(drops) > 1 else "") + ", load "
+               f"{row.bubble_load:.2f}, corrected v_max "
+               f"{row.vmax_corrected:.2e}</span>")
+            + ("" if row.bubble_load <= scope.BUBBLE_LOAD_CEILING else
+               " · <strong>NO MEASURABLE RATE</strong>")))
     agreement = scope.concentration_agreement()
     weak = sorted(int(e) for e in agreement.index if e not in strong)
     body = (f"<p class='lede'>All {len(panels)} cuvettes of exps 135–151 — "

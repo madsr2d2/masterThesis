@@ -20,7 +20,10 @@ both is what this folder is.
 **Figures**: [`index.html`](index.html) is the presentation — ten figures, A
 to J, one per claim below. [`progress_curves.html`](progress_curves.html) carries
 all 119 cuvettes with the form each earned, which is the audit surface for
-every number here.
+every number here. The **51 curves carrying O₂ detachments** are drawn twice
+there — the raw readings and the corrected series, with a fit to each and a rule
+at every detachment — so a fit to the gas cannot pass for a fit to the reaction.
+The **14 panels** whose load clears 1 say so on their own face.
 
 Related: `FITTING.md` owns the mechanism fitting and why the block was chosen
 for it; [`../buffer/`](../buffer/ANALYSIS.md) §6 owns the perhydrate question

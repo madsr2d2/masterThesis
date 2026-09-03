@@ -455,6 +455,31 @@ def main():
               drawn == len(frame), f"{drawn} panels, {len(frame)} cuvettes")
     doc.check("and it draws the dead ones too",
               f"{int((~frame.live).sum())} of {len(frame)} curves" in page)
+    # Every contaminated panel has to SHOW the correction, not just have one
+    # computed. A page that quietly stopped drawing it would show a fit to the
+    # gas again, which is exactly the state this page was in until 2026-09-03.
+    chopped = frame[frame.bubble_drops > 0]
+    doc.check("every contaminated panel names its detachments",
+              page.count("O₂ detachment") == len(chopped),
+              f"{page.count('O₂ detachment')} panels against "
+              f"{len(chopped)} contaminated curves")
+    doc.check("and the corrected series is drawn on each of them",
+              page.count("stroke-dasharray='3 2'") == len(chopped),
+              f"{page.count(chr(39).join(['stroke-dasharray=', '3 2', '']))} "
+              f"against {len(chopped)}")
+    beyond = frame[frame.bubble_load > scope.BUBBLE_LOAD_CEILING]
+    doc.check("and the curves with no measurable rate say so on the page",
+              page.count("NO MEASURABLE RATE") == len(beyond),
+              f"{page.count('NO MEASURABLE RATE')} against {len(beyond)}")
+    # The counts the preamble quotes are over EVERY curve the page draws, not
+    # over the live ones section 5 reports -- the page draws the dead curves
+    # too, and one of them carries a load past the ceiling.
+    doc.claim("how many panels carry the correction",
+              f"**{len(chopped)} curves carrying O₂ detachments**")
+    doc.claim("and how many are flagged on their own face",
+              f"**{len(beyond)} panels**")
+    doc.check("but none of them is missing from the page",
+              drawn == len(frame))
 
     doc.section("the figures: no data point drawn outside its own frame")
     doc.unclipped(os.path.join(HERE, "index.html"),
