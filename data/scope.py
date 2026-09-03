@@ -37,7 +37,8 @@ from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
                            isolated_outliers, lag_time, local_outlier_z,
                            model_residual, monotone_bound, peak_position,
                            peak_rate,
-                           quadratic_rate, segmented_fit, segment_selection,
+                           quadratic_rate, quiet_tail, segmented_fit,
+                           segment_selection,
                            SEGMENT_RATIO_STEEP,
                            whole_slope)
 from fit_dataset import (TWO_AXIS_BLOCK, TWO_AXIS_GROUP, build_curves,
@@ -1418,8 +1419,8 @@ RECOVERY_REPEATS = 4
 
 
 def bubble_recovery(severities=RECOVERY_SEVERITIES, emptying=True,
-                    scope=TWO_AXIS_BLOCK, seed=RECOVERY_SEED,
-                    repeats=RECOVERY_REPEATS):
+                    ends_holding=True, scope=TWO_AXIS_BLOCK,
+                    seed=RECOVERY_SEED, repeats=RECOVERY_REPEATS):
     """
     Recovered `vmax` over true `vmax`, for each repair, at a known truth.
 
@@ -1436,10 +1437,24 @@ def bubble_recovery(severities=RECOVERY_SEVERITIES, emptying=True,
     its SHORTEST growth window cannot be one bubble emptying each time. A
     repair has to survive both, and the segment ramp survived only the first:
     1.01, 1.01, 1.12, 1.60 emptying, against 1.05, 1.10, 1.28, 1.70 not. It
-    is also what `curve_metrics.bubble_ceiling` is measured rather than
-    assumed for: capping the stretches between detachments as well as the
-    tail costs 1.11 and 1.34 here at 1x and 2x, while changing nothing
-    under the emptying planting.
+    `ends_holding` is THE STATED SYSTEMATIC OF `unreleased_gas`, and it is the
+    argument for reading both rows. With `True` the planted run is still making
+    gas when the last reading is taken, so it ends holding a bubble that never
+    detached; the reconstruction subtracts only gas it watched leave, so it
+    leaves that bubble in and the recovered `vmax` is the readings' -- 1.00,
+    1.00, 1.16, 1.65 emptying. With `False` production stops at the last
+    release and the recovery is 0.99, 0.99, 1.00, 1.00. The whole of the
+    difference is the terminal bubble: THE REPAIR IS EXACT ON GAS THAT WAS SEEN
+    TO GO, and blind to gas that never went. `curve_metrics.quiet_tail` says
+    which curves are at risk, and on the block's own curves the tails are long
+    -- 11 of 45 run more than a full shedding interval past their last
+    detachment, and on 18 of 45 the fitted rate would have made more gas over
+    the tail than the trace rose in total.
+
+    Carrying the rate across those tails instead is what the ceiling used to
+    do, and it recovered 0.97 here by asserting gas nothing had seen: it put
+    exp 149 cuvette 3 a flat 0.0022 AU below its own readings for 82% of the
+    run and exp 150 cuvette 1 below them by 99% of everything it rose.
 
     Columns: severity, raw, stitched, rebuilt, n.
     """
@@ -1463,7 +1478,7 @@ def bubble_recovery(severities=RECOVERY_SEVERITIES, emptying=True,
                     np.arange(5, len(times) - 5), size=5, replace=False))
                 rate = severity * (values[-1] - values[0]) / times[-1]
                 artefact = _planted_gas(times, edges, rate, emptying,
-                                        generator)
+                                        ends_holding, generator)
                 spoilt = values + artefact
                 drops = bubble_drops(spoilt, curve.noise)
                 joined = spoilt.copy()
@@ -1481,8 +1496,16 @@ def bubble_recovery(severities=RECOVERY_SEVERITIES, emptying=True,
     return pd.DataFrame(rows).set_index("severity")
 
 
-def _planted_gas(times, edges, rate, emptying, generator):
-    """One planted artefact: gas made at `rate`, shed at each of `edges`."""
+def _planted_gas(times, edges, rate, emptying, ends_holding, generator):
+    """
+    One planted artefact: gas made at `rate`, shed at each of `edges`.
+
+    `ends_holding` decides what the run is doing when the recording stops.
+    True leaves production running, so the artefact ends carrying a bubble
+    that never detached; False stops it at the last release, which is the run
+    that has stopped bubbling. Both happen, and they are the two sides of
+    `curve_metrics.unreleased_gas`.
+    """
     if emptying:
         artefact = np.zeros(len(times))
         start = 0
@@ -1490,14 +1513,18 @@ def _planted_gas(times, edges, rate, emptying, generator):
             artefact[start:edge + 1] = rate * (
                 times[start:edge + 1] - times[start])
             start = edge + 1
-        artefact[start:] = rate * (times[start:] - times[start])
+        if ends_holding:
+            artefact[start:] = rate * (times[start:] - times[start])
         return artefact
     held = rate * (times - times[0])
     released = np.zeros(len(times))
     for edge in edges:
         released[edge + 1:] += (held[edge] - released[edge]) * (
             generator.uniform(0.4, 1.0))
-    return held - released
+    artefact = held - released
+    if not ends_holding:
+        artefact[edges[-1] + 1:] = artefact[edges[-1] + 1]
+    return artefact
 
 
 REBUILD_STEP_SIGMA = BUBBLE_DROP_SIGMA
@@ -1525,18 +1552,24 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
     One row per curve: experiment, sample, bubble_events, bubble_load,
     raw_worst (the steepest single fall in the READINGS, in units of the
     curve's own noise), rebuilt_worst (the same for the reconstruction),
-    `clean` for the curves with no detachment at all, and three columns for
-    the second way a repair can go wrong: gas_held (the most the profile ever
-    puts in the beam), biggest_bubble (the largest single detachment), and
-    rebuilt_net.
+    `clean` for the curves with no detachment at all, and four columns for the
+    second way a repair can go wrong: gas_held (the most the profile ever puts
+    in the beam), biggest_bubble (the largest single detachment), gas_at_end
+    (what it still holds at the last reading) and quiet_tail, beside
+    tail_gas, tail_rise and rebuilt_net.
 
-    READ `gas_held` AGAINST `biggest_bubble`. A monotone reconstruction can
-    still be a wrong one -- until 2026-09-03 this table would have shown 12 of
-    49 curves holding more than twice their own largest bubble, one at 26.6x,
-    and three finishing BELOW ZERO, because the production rate was
-    extrapolated across hours in which nothing detached. Every one of those
-    curves passed the smoothness test above, which is why this is measured
-    separately: the fault was not roughness, it was level.
+    READ `gas_at_end`, AND IT IS ZERO EVERYWHERE. A monotone reconstruction
+    can still be a wrong one, and this is the fault that was not roughness but
+    LEVEL: until 2026-09-03 a rate fixed by the drops was carried across hours
+    in which nothing detached, and this table would have shown 12 of 49 curves
+    holding more than twice their own largest bubble, one at 26.6x, and three
+    finishing below zero. Capping the tail at the most the beam had carried
+    bounded that without curing it -- exp 149 cuvette 3 still sat a flat
+    0.0022 AU under its own readings for 82% of the run. `unreleased_gas`
+    cures it: gas is subtracted only where the run was watched to shed it, so
+    every reconstruction lands back ON the readings at the end. What that
+    costs is stated in `bubble_recovery(ends_holding=True)` rather than
+    assumed away, and `quiet_tail` says which curves could be paying it.
 
     Over the two-axis block every one of the 181 detachments is corrected in
     full: `worst_at_event` is zero or above on all 110 live curves. What is
@@ -1555,6 +1588,7 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
         times = np.asarray(curve.times, dtype=float)
         values = np.asarray(curve.absorbance, dtype=float)
         rebuilt, events = debubble(times, values, curve.noise)
+        gas_rate = bubble_rate(times, values, events)
         steps = np.diff(values)
         rows.append({
             "experiment": curve.experiment,
@@ -1574,6 +1608,15 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
             "biggest_bubble": max(
                 (float(values[start] - values[stop])
                  for start, stop in events), default=np.nan),
+            "gas_at_end": float(values[-1] - rebuilt[-1]),
+            "quiet_tail": quiet_tail(times, events),
+            # What the fitted rate would have made over the quiet tail, and
+            # what the readings did over it. Where the first exceeds the
+            # second the trace itself refuses the extrapolation.
+            "tail_gas": (float(gas_rate * (times[-1] - times[events[-1][1]]))
+                         if events and np.isfinite(gas_rate) else np.nan),
+            "tail_rise": (float(values[-1] - values[events[-1][1]])
+                          if events else np.nan),
             "rebuilt_net": float(rebuilt[-1] - rebuilt[0]),
         })
     return pd.DataFrame(rows)

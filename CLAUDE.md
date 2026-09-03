@@ -247,20 +247,33 @@ Three things follow that are worth not re-deriving.
   **`curve_metrics.debubble` splits the readings into `f + b`** -- a
   non-decreasing chemistry and a non-negative gas made at a steady rate. THREE
   clauses: the gas may not outrun the curve it rides on (that IS `f' >= 0`), it
-  must pay for every detachment out of gas already made, and after the LAST
-  detachment it may not exceed `bubble_ceiling`, the most the beam carried
-  while detachments were still happening. One parameter, `bubble_rate`, pinned
-  to the least rate that pays. It recovers a planted `vmax` to within a tenth
-  at every severity to 2x under both plantings (1.00/0.99/0.97/0.97 and
-  1.02/1.02/1.03/1.08), and on a curve with no detachment it returns the
-  readings UNCHANGED.
+  must pay for every detachment out of gas already made, and it may hold no
+  more than `unreleased_gas` -- the total of the detachments STILL TO COME, so
+  a reading after the last fall carries no gas at all. One parameter,
+  `bubble_rate`, pinned to the least rate that pays.
+  **ONLY GAS THAT WAS WATCHED TO LEAVE IS SUBTRACTED**, and that third clause
+  is where the recovery table splits in two. On a planting whose run stops
+  making gas at its last release the repair is exact -- 0.99/0.98/1.00/0.99 and
+  1.01/1.02/1.02/1.07 -- and on one still making gas at the last reading it
+  KEEPS the bubble that never detached: 1.00/1.00/1.15/1.65 and
+  1.03/1.04/1.17/1.79. `scope.bubble_recovery(ends_holding=...)` is both, the
+  gap between them IS the systematic, and `curve_metrics.quiet_tail` says which
+  curves could be paying it. On a curve with no detachment `debubble` returns
+  the readings UNCHANGED.
   **A MONOTONE RECONSTRUCTION CAN STILL BE THE WRONG ONE** -- pulling a curve
-  down by a smooth ramp leaves it smooth. Two faults hid behind that, and both
-  were found by eye, not by a test.
-  Without the ceiling the rate was extrapolated across hours with no
-  detachment: exp 149 cuvette 4 sheds 0.0031 AU once and ended holding 0.0273,
-  rebuilding to -0.0209 against a raw rise of +0.0064. Check
-  `rebuild_smoothness`'s `gas_held` against `biggest_bubble`.
+  down by a smooth ramp leaves it smooth. Three faults hid behind that, and all
+  three were found by eye, not by a test.
+  Carrying the rate across a quiet tail invents gas nothing saw leave: exp 149
+  cuvette 4 sheds 0.0031 AU once and ended holding 0.0273, rebuilding to
+  -0.0209 against a raw rise of +0.0064. A ceiling at the most the beam had
+  carried BOUNDED that without curing it -- exp 149 cuvette 3 still sat a flat
+  0.0022 AU under its own readings for 82% of the run, and exp 150 cuvette 1
+  under its by 99% of everything it rose. THE READINGS REFUTE THE
+  EXTRAPOLATION: on 18 of 44 repairable curves the rate would have made more
+  gas over the tail than the trace rose in total, and 11 of 44 ran more than a
+  full shedding interval past their last detachment without one. Check
+  `rebuild_smoothness`'s `gas_at_end` -- it is zero on every curve, so every
+  reconstruction lands back ON the readings.
   And **A FALL THAT COMES STRAIGHT BACK IS NOT GAS**: gas that leaves the beam
   does not return, and a bubble cannot grow half its size in one 60 s reading,
   so `detachments` rejects a fall that a single adjacent reading undoes by more

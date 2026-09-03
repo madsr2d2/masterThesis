@@ -135,12 +135,20 @@ sawtooths it never beats DOING NOTHING at any severity -- stitching IS
 Use `curve_metrics.debubble`. It splits the readings into `f + b`: a
 non-decreasing chemistry and a non-negative gas made at a steady rate, which
 may never outrun the curve it rides on, must pay for each detachment out of gas
-already made, and after the LAST detachment may not exceed `bubble_ceiling` --
-the most the beam carried while detachments were still happening. That last
-clause is not decoration: without it a rate fixed by early drops is
-extrapolated across hours with none, and exp 149 cuvette 4 rebuilt to -0.0209
-against a raw rise of +0.0064. A MONOTONE RECONSTRUCTION CAN STILL BE THE WRONG
-ONE -- read `rebuild_smoothness`'s `gas_held` against `biggest_bubble`.
+already made, and may hold no more than `unreleased_gas` -- the total of the
+detachments STILL TO COME, so a reading after the last fall carries no gas at
+all. That last clause is not decoration: without it a rate fixed by early drops
+is extrapolated across hours with none, and exp 149 cuvette 4 rebuilt to
+-0.0209 against a raw rise of +0.0064. A MONOTONE RECONSTRUCTION CAN STILL BE
+THE WRONG ONE -- read `rebuild_smoothness`'s `gas_at_end`, which is zero on
+every curve, so every reconstruction lands back ON the readings.
+
+ONLY GAS THAT WAS WATCHED TO LEAVE IS SUBTRACTED, and the price of that is
+stated rather than assumed: a run still making gas at its last reading keeps
+the bubble that never detached. `scope.bubble_recovery(ends_holding=False)` is
+the recovery on gas that went (exact to 0.07 at every severity under both
+plantings) and `ends_holding=True` is the same planting left holding one; the
+gap is the systematic and `curve_metrics.quiet_tail` says which curves carry it.
 
 A FALL THAT COMES STRAIGHT BACK IS NOT GAS. Gas that leaves does not return and
 a bubble cannot grow half its size in one 60 s reading, so `detachments`

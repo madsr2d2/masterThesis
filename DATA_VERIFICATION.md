@@ -8,6 +8,88 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-03 — only gas that was watched to leave is subtracted
+
+Asked by eye a fourth time, and against the *level* rather than the shape: exp
+149 cuvette 3's **last arm has been lowered below the recorded data**, and that
+stretch of readings looks undisturbed. It is right, and this is the same fault
+as the entry two below, which the ceiling had bounded rather than cured.
+
+The curve sheds **0.0022 AU once**, at 5100 s of a 28 740 s run, and nothing
+leaves again. `bubble_ceiling` held the tail to the most the beam had carried
+while detachments were still happening — 0.0022 — so the profile regrew to that
+value and held it for the remaining **23 580 s, 82% of the run**, subtracting a
+flat 0.0022 AU from readings that show no bubble at all. Exp 150 cuvette 1 was
+worse: the gas it ended holding was **99% of everything the curve rose**.
+
+Two things were wrong with regrowing it.
+
+- **The readings refute it.** At the fitted rate the tail of exp 149 cuvette 4
+  would have carried **0.0736 AU** of gas; that tail rises **0.0041** in total.
+  On **18 of the 44** repairable curves the rate would have made more gas over
+  the quiet tail than the trace rose altogether.
+- **The missing detachment refutes it.** A bubble that keeps growing detaches,
+  and **11 of 44** curves ran more than a full shedding interval past their
+  last fall without one — exps 149.4 at 14.4 intervals, 150.1 at 7.7, 146.1 at
+  6.9, 149.2 at 5.7 (`curve_metrics.quiet_tail`). Those runs stopped making
+  gas, and the last thing they did was shed, so their beams are empty.
+
+The clause that replaces the ceiling is evidence rather than extrapolation:
+**the beam may hold at most the total of the detachments still to come**
+(`curve_metrics.unreleased_gas`), and after the last one, nothing. The cap
+cannot block a detachment — at the reading before the *j*th fall it is
+*d<sub>j</sub>* plus everything later — so **no rate changed and no detachment
+went uncorrected**: `worst_at_event` is still zero or above on all 44 repairable
+curves over 180 detachments, and `gas_at_end` is now **exactly zero on every
+one**, so every reconstruction lands back on the readings. That is checkable by
+eye, which is how all four of these faults were found.
+
+### The price, stated rather than assumed
+
+Subtracting only gas that was seen to leave means a run still making gas when
+the recording stopped keeps the bubble it never shed. That is a real cost and it
+is now measured instead of being assumed away: `bubble_recovery` gained
+`ends_holding`, which decides whether the planted run is still producing at its
+last reading.
+
+| planting | ends holding | shed out |
+|---|---|---|
+| each bubble empties | 1.00 / 1.00 / 1.15 / 1.65 | 0.99 / 0.98 / 1.00 / 0.99 |
+| empties only partly | 1.03 / 1.04 / 1.17 / 1.79 | 1.01 / 1.02 / 1.02 / 1.07 |
+
+*(recovered `vmax` ÷ true, at 0.25× / 0.5× / 1× / 2× the chemistry)*
+
+**The whole of the difference is the terminal bubble.** On gas that went, the
+repair is exact — within 0.07 at every severity under both plantings, better
+than the ceiling's own 0.97/1.08. On gas that never went, it is blind, by
+construction. The old 0.97 was bought by asserting gas nothing had seen, which
+is what put exp 149 cuvette 3 under its own readings for four fifths of a run.
+
+### One number in the entry below moves
+
+The two spurious falls on exp 149 cuvette 5 were licensing the removal of
+**0.0097 AU** from a curve that rose 0.0262 — a third of it — under the tail
+rule then in force. Under `unreleased_gas` the same two falls would license only
+**0.0021 AU**, because the rate can no longer run past the last of them. The
+entry below stands as the record of what was observed; the excursion test is
+still what keeps them out, and the reason is unchanged. **Neither number is
+gas.** A repair that launders an instrument spike through a gas model is wrong
+at any size, and the two clauses cover different halves of the same fault.
+
+`data/test_curve_metrics.py::test_the_bubble_correction` plants both endings and
+asserts that what is left over is *exactly* the unshed bubble — an
+over-correction of the same size would pass a bound and fails that.
+`data/test_scope.py::test_the_gas_may_not_outlast_the_evidence` names the
+curves.
+
+**Four faults on this artefact have now been found by eye and none by a test.**
+The pattern held a fourth time: the model stayed self-consistent, drew a smooth
+plausible curve, and the check I had written tested the property I had just
+fixed — the tail no longer *ran away*, so I stopped asking whether it should
+have been there at all.
+
+---
+
 ## 2026-09-03 — a fall that comes straight back is not gas
 
 Asked by eye a third time, and the sharpest of the three: are exps 149.1, 149.2

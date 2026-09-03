@@ -894,50 +894,52 @@ def _is_excursion(values, event, recovery=BUBBLE_RECOVERY_FRACTION):
     return max(into, out) > recovery * drop
 
 
-def bubble_ceiling(times, values, events, rate):
+def unreleased_gas(values, events):
     """
-    The most gas the beam may be holding after the last detachment.
+    At every reading, the gas that is still going to be seen leaving.
 
-    WHERE THE EVIDENCE STOPS. Between two detachments the beam is known to
-    have held bubbles -- they left at both ends -- so the gas may accumulate
-    there as far as the detachments demand. After the LAST one nothing more
-    leaves, and a bubble detaches when it reaches a critical size, so a long
-    quiet tail is evidence that nothing large was sitting there. The
-    production rate is fixed by the detachments and says nothing about a
-    stretch that has none, and extrapolating it across one is how the tail
-    runs away: exp 149 cuvette 4 sheds 0.0031 AU once, 1920 s into a 8.0 h
-    run, and over the remaining 7.5 h an unbounded profile grows to 0.0273 --
-    8.8x the largest bubble that curve ever shed -- dragging the
-    reconstruction to -0.0209 against a raw rise of +0.0064. Twelve of the
-    block's 49 detaching curves held more than twice their own largest bubble
-    and three finished below zero.
+    ONLY GAS THE RUN WAS WATCHED TO SHED IS SUBTRACTED. A detachment is the
+    whole of the evidence that the beam held gas, so at any reading the beam
+    may hold at most the total of the detachments still to come -- and after
+    the last one, nothing at all. The cap never blocks a detachment: at the
+    reading before the jth fall it is `d_j` plus everything later, which is
+    already more than `d_j` has to pay.
 
-    So the tail is held to the most the beam carried while detachments were
-    still happening, which is measured off the profile rather than assumed.
-    THE STRETCHES BETWEEN DETACHMENTS ARE LEFT ALONE. Capping those as well
-    is the obvious simplification and it costs real accuracy: against
-    partly-emptying plantings, where the beam genuinely accumulates more than
-    any single drop reveals, it takes the recovery from 1.03 and 1.04 to 1.11
-    and 1.34 at 1x and 2x the chemistry.
+    THE READINGS THEMSELVES REFUTE THE ALTERNATIVE. Carrying the rate across a
+    quiet tail asserts gas that nothing ever saw leave, and on 18 of the 45
+    detaching curves the rate would have made more gas over that tail than the
+    trace rose in total -- exp 149 cuvette 4 sheds 0.0031 AU once, 1920 s into
+    an 8.0 h run, and the rate carried over the remaining 7.5 h makes 0.0736
+    against a tail that rises 0.0041. Gas that accumulates detaches, and 11 of
+    the 45 ran on for more than a full detachment interval without one. So
+    production stopped, and the beam is empty because the last thing it did
+    was shed.
 
-    Saturation costs the rate nothing: gas sitting at the ceiling is CONSTANT,
-    so it contributes no slope, and what it shifts is the level.
+    This is what keeps the reconstruction ON the readings wherever a run has
+    stopped shedding. The ceiling it replaced held the tail at the most the
+    beam ever carried, which put exp 149 cuvette 3 a flat 0.0022 AU below its
+    own readings for 82% of the run, and exp 150 cuvette 1 below them by 99%
+    of everything it rose.
+
+    The price is stated rather than assumed: a run that ENDS holding a bubble
+    it never shed keeps that bubble, so its `vmax` is the readings' and not the
+    chemistry's. `scope.bubble_recovery(ends_holding=...)` is both halves.
     """
-    if not events or not np.isfinite(rate):
-        return np.inf
-    evidenced = events[-1][1]
-    return float(bubble_profile(times, values, events, rate,
-                                ceiling=np.inf)[:evidenced + 1].max())
+    values = np.asarray(values, dtype=float)
+    owed = np.zeros(len(values))
+    for start, stop in events:
+        owed[:start + 1] += values[start] - values[stop]
+    return owed
 
 
-def bubble_profile(times, values, events, rate, ceiling=None):
+def bubble_profile(times, values, events, rate):
     """
     The gas held in the beam at each reading, `b(t) >= 0`.
 
     Gas is made at a steady `rate` -- the peroxide is in enough excess that
     its decomposition does not slow over a run -- and leaves in the whole of
-    each detachment. Between detachments `b` climbs, and TWO clauses bound the
-    climb.
+    each detachment. Between detachments `b` climbs, and THREE clauses bound
+    the climb.
 
       it may not outrun    `b` grows by at most what the reading itself gained,
       the curve            so `f = A_obs - b` can never fall across an ordinary
@@ -946,12 +948,12 @@ def bubble_profile(times, values, events, rate, ceiling=None):
                            faster than the trace it rides on.
       it may not go        a detachment takes `b` down by the size of the fall
       negative             and no further.
-      it may not outlast   after the LAST detachment the gas is held to
-      the evidence         `bubble_ceiling`, the most the beam carried while
-                           detachments were still happening. A rate fixed by
+      it may not exceed    `unreleased_gas`: the beam holds at most the total
+      what leaves          of the detachments still to come, so a reading after
+                           the last one carries no gas at all. A rate fixed by
                            the drops says nothing about a stretch that has
-                           none, and extrapolating across one is how a long
-                           quiet tail runs away.
+                           none, and the trace over such a stretch says the
+                           production stopped.
 
     THE FIRST CLAUSE IS WHAT `bubble_ramp` LACKED. That model dated each
     bubble from the previous detachment and made it reach the full size of the
@@ -971,31 +973,58 @@ def bubble_profile(times, values, events, rate, ceiling=None):
     values = np.asarray(values, dtype=float)
     times = np.asarray(times, dtype=float)
     held = np.zeros(len(values))
+    owed = unreleased_gas(values, events)
     # The growth increment does not depend on how much is already held, so a
     # whole stretch between detachments is a cumulative sum rather than a
     # loop. Only the detachments themselves are stepped through, and there are
     # at most a few dozen -- which matters, because `bubble_rate` bisects and
     # so calls this some tens of times per curve.
-    if ceiling is None:
-        ceiling = bubble_ceiling(times, values, events, rate)
     room = np.maximum(np.diff(values), 0.0)
     growth = np.minimum(rate * np.diff(times), room)
-    # `np.minimum(start + cumsum(growth), ceiling)` IS the saturating
-    # recursion, not an approximation of it: every increment is non-negative,
-    # so once the running sum passes the ceiling it stays past it, and
+    # `np.minimum(start + cumsum(growth), owed)` IS the saturating recursion,
+    # not an approximation of it: every increment is non-negative and `owed`
+    # never rises, so once the running sum meets the cap it stays at it, and
     # clipping the sum gives the same answer as clipping at every step.
     position = 0
     for start, stop in events:
         if start > position:
-            held[position + 1:start + 1] = (
-                held[position] + np.cumsum(growth[position:start]))
+            held[position + 1:start + 1] = np.minimum(
+                held[position] + np.cumsum(growth[position:start]),
+                owed[position + 1:start + 1])
         held[start + 1:stop + 1] = np.maximum(
             held[start] - (values[start] - values[start + 1:stop + 1]), 0.0)
         position = stop
     if position < len(values) - 1:
         held[position + 1:] = np.minimum(
-            held[position] + np.cumsum(growth[position:]), ceiling)
+            held[position] + np.cumsum(growth[position:]), owed[position + 1:])
     return held
+
+
+def quiet_tail(times, events):
+    """
+    The stretch after the last detachment, in the run's own shedding intervals.
+
+    WHERE THE SUBTRACTED GAS ENDS AND THE STATED SYSTEMATIC BEGINS. A bubble
+    that keeps growing detaches, so a run that sheds every 1900 s and then goes
+    27000 s without a fall has stopped making gas, and `unreleased_gas` is
+    exactly right to leave its tail alone. A run that stops shedding one
+    interval before the last reading may simply have ended mid-bubble, and
+    there the reconstruction keeps gas it should have removed.
+
+    Over the two-axis block 11 of the 45 detaching curves exceed 1, and the
+    four the eye picks out -- exps 149 cuvette 4 at 14.4, 150 cuvette 1 at 7.7,
+    149 cuvette 2 at 5.7 and 149 cuvette 3 at 4.6 -- are the top of the list.
+    The first interval is dated from the start of the run, because the first
+    bubble grew from nothing.
+    """
+    if not events:
+        return np.nan
+    times = np.asarray(times, dtype=float)
+    marks = [times[start] for start, _ in events]
+    cadence = (marks[-1] - times[0]) / len(marks)
+    if cadence <= 0:
+        return np.inf
+    return float((times[-1] - times[events[-1][1]]) / cadence)
 
 
 def bubble_shortfall(times, values, events, rate):
@@ -1008,8 +1037,7 @@ def bubble_shortfall(times, values, events, rate):
     """
     if not events:
         return 0.0
-    held = bubble_profile(times, values, events, rate,
-                          ceiling=np.inf)
+    held = bubble_profile(times, values, events, rate)
     return max(float((values[start] - values[stop]) - held[start])
                for start, stop in events)
 

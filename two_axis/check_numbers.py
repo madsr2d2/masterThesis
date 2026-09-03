@@ -371,20 +371,31 @@ def main():
     doc.claim("and the worst one",
               f"**{(1 - (table.vmax_monotone / table.vmax).min()) * 100:.0f}%**")
 
+    worst_shed = 0.0
     for emptying in (True, False):
         how = "emptying" if emptying else "partly emptying"
         recovery = scope.bubble_recovery(emptying=emptying)
+        shed = scope.bubble_recovery(emptying=emptying, ends_holding=False)
         for severity, row in recovery.iterrows():
             # Bold marks what the section argues: that stitching is worse than
-            # doing nothing, and that the reconstruction is close to the truth.
+            # doing nothing, and that the repair is exact on the gas it claims
+            # -- the gas that was watched to leave. The middle column is the
+            # stated cost of the third clause and is not argued for.
             doc.claim(f"{how}, the recovery row at {severity:g}x",
                       f"| {severity:g} | {row.raw:.2f} | "
-                      f"**{row.stitched:.2f}** | **{row.rebuilt:.2f}** |")
+                      f"**{row.stitched:.2f}** | {row.rebuilt:.2f} | "
+                      f"**{shed.rebuilt[severity]:.2f}** |")
         doc.check(f"{how}: stitching never beats leaving the curve alone",
                   bool((recovery.stitched >= recovery.raw - 1e-9).all()))
-        doc.check(f"{how}: the reconstruction is within a tenth throughout",
-                  bool(((recovery.rebuilt - 1.0).abs() < 0.10).all()),
-                  f"worst {(recovery.rebuilt - 1.0).abs().max():.3f}")
+        doc.check(f"{how}: the repair is exact on the gas that left",
+                  bool(((shed.rebuilt - 1.0).abs() < 0.10).all()),
+                  f"worst {(shed.rebuilt - 1.0).abs().max():.3f}")
+        doc.check(f"{how}: and the bubble that never left is what it keeps",
+                  bool((recovery.rebuilt >= shed.rebuilt - 0.01).all()))
+        worst_shed = max(worst_shed, float((shed.rebuilt - 1.0).abs().max()))
+    doc.claim("how close the repair is on gas that was seen to leave",
+              f"**{worst_shed:.2f} of the truth at every severity under both "
+              f"plantings**")
 
     smoothness = scope.rebuild_smoothness()
     repaired = smoothness[~smoothness.clean]
@@ -435,17 +446,37 @@ def main():
               f"**{int(((smoothness.excursions > 0) & smoothness.clean).sum())} "
               "curves** lose all")
 
-    held_ratio = repaired.gas_held / repaired.biggest_bubble
-    doc.claim("the worst held gas after the ceiling",
-              f"no curve holds more than {held_ratio.max():.1f}x its own "
-              f"largest bubble")
-    doc.claim("and the typical one", f"the median is\n{held_ratio.median():.1f}x")
-    doc.claim("and none rebuilds below zero",
-              "**no reconstruction ends below where it started**")
+    doc.check("no reconstruction ends holding gas",
+              float(repaired.gas_at_end.abs().max()) == 0.0,
+              f"worst {repaired.gas_at_end.abs().max():.2e} AU")
     doc.check("no reconstruction ends below zero",
               int((smoothness.rebuilt_net < 0).sum()) == 0)
-    doc.check("no curve holds many times its own largest bubble",
-              float(held_ratio.max()) < 6.0, f"{held_ratio.max():.1f}x")
+
+    # The tail the third clause refuses to fill, measured two ways: the gas the
+    # fitted rate would have made across it against what the trace actually
+    # rose, and its length in the run's own shedding intervals.
+    quiet = fixable[fixable.quiet_tail > 1]
+    worked = fixable[(fixable.experiment == 149) & (fixable["sample"] == 4)]
+    doc.claim("what the worked curve's tail would have carried",
+              f"the tail would have carried\n"
+              f"{float(worked.tail_gas.iloc[0]):.4f} AU of it")
+    doc.claim("and what that tail actually did",
+              f"rises {float(worked.tail_rise.iloc[0]):.4f} in total")
+    doc.claim("how many curves outran their own evidence",
+              f"**{int((fixable.tail_gas > fixable.tail_rise).sum())} of the "
+              f"{len(fixable)}** repairable curves")
+    doc.claim("and how many ran a full interval past their last detachment",
+              f"**{len(quiet)} of {len(fixable)}** ran more")
+    doc.claim("the four longest quiet tails",
+              ", ".join(f"exps {int(row.experiment)}.{int(row['sample'])} at "
+                        f"{row.quiet_tail:.1f}" if first else
+                        f"{int(row.experiment)}.{int(row['sample'])} at "
+                        f"{row.quiet_tail:.1f}"
+                        for first, (_, row) in zip(
+                            [True] + [False] * 3,
+                            quiet.nlargest(4, "quiet_tail").iterrows())))
+    doc.check("every long quiet tail ends on its readings",
+              float(quiet.gas_at_end.abs().max()) == 0.0)
 
     drivers = scope.gas_rate_drivers()
     doc.claim("what the gas rate does with peroxide",

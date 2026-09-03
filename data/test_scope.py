@@ -422,11 +422,20 @@ def test_the_correction_recovers_a_planted_rate():
     is what the ramp assumed, and with each emptying only partly, which is what
     `bubble_record(141, 3)` says actually happens. A repair that only works
     under its own assumption is not a repair.
+
+    And scored two ways within each, because the reconstruction subtracts only
+    gas it watched leave. `ends_holding=False` stops production at the last
+    release, so all the planted gas went and the repair is answerable for all
+    of it; `ends_holding=True` leaves the run still making gas at the last
+    reading, so it ends holding a bubble nothing ever saw go and the repair
+    keeps it. The FIRST is the recovery. The second is the stated systematic,
+    and the gap between them is its size.
     """
     print("\nrecovery of a planted rate")
     for emptying in (True, False):
         how = "emptying" if emptying else "partly emptying"
         table = scope.bubble_recovery(emptying=emptying)
+        shed = scope.bubble_recovery(emptying=emptying, ends_holding=False)
         check(f"{how}: there are clean donor curves to plant into",
               int(table.n.iloc[0]) >= 40, f"{int(table.n.iloc[0])} plantings")
         for severity, row in table.iterrows():
@@ -448,9 +457,22 @@ def test_the_correction_recovers_a_planted_rate():
                   f"{row.stitched:.2f}")
             # THE CLAIM THE SEGMENT RAMP COULD NOT MAKE. It held to 1.01 while
             # the artefact was small and reached 1.60 by 2x; this stays inside
-            # a tenth at every severity, under both plantings.
-            check(f"{how}, {severity:g}x: and it is within a tenth of the "
-                  f"truth", abs(row.rebuilt - 1.0) < 0.10, f"{row.rebuilt:.2f}")
+            # a tenth at every severity, under both plantings -- on the gas
+            # that was seen to leave.
+            check(f"{how}, {severity:g}x: and on gas that left it is within a "
+                  f"tenth of the truth",
+                  abs(shed.rebuilt[severity] - 1.0) < 0.10,
+                  f"{shed.rebuilt[severity]:.2f}")
+            # The systematic runs one way: keeping a bubble means removing too
+            # little, never too much.
+            check(f"{how}, {severity:g}x: and the bubble it keeps only ever "
+                  f"raises the answer",
+                  row.rebuilt >= shed.rebuilt[severity] - 0.01,
+                  f"{row.rebuilt:.2f} against {shed.rebuilt[severity]:.2f}")
+        check(f"{how}: and the systematic is real at the largest artefact",
+              table.rebuilt.iloc[-1] - shed.rebuilt.iloc[-1] > 0.2,
+              f"{table.rebuilt.iloc[-1]:.2f} against "
+              f"{shed.rebuilt.iloc[-1]:.2f}")
 
     # A repair that moves a curve it was not needed on is a repair that has to
     # be defended on every curve. This one is the identity there.
@@ -595,26 +617,52 @@ def test_the_gas_may_not_outlast_the_evidence():
     curves held more than twice their own largest bubble and three finished
     below zero, and every one of them passed the smoothness test.
 
-    `bubble_ceiling` holds the tail to the most the beam carried while
-    detachments were still happening. This is the test that would have caught
-    it, and the three curves are named so it cannot come back quietly.
+    Capping the tail at the most the beam had carried bounded that without
+    curing it: the reconstruction still sat a flat 0.0022 AU under exp 149
+    cuvette 3's own readings for 82% of the run, and under exp 150 cuvette 1's
+    by 99% of everything it rose. `unreleased_gas` is the rule that cures it --
+    THE BEAM MAY HOLD AT MOST THE DETACHMENTS STILL TO COME -- so a reading
+    after the last fall carries no gas at all and every reconstruction lands
+    back ON the readings. This is the test that would have caught it, and the
+    curves are named so it cannot come back quietly.
     """
     print("\nthe gas may not outlast the evidence for it")
     table = scope.rebuild_smoothness()
     repaired = table[~table.clean]
+    check("no reconstruction ends holding gas",
+          float(repaired.gas_at_end.abs().max()) == 0.0,
+          f"worst {repaired.gas_at_end.abs().max():.2e}")
     ratio = repaired.gas_held / repaired.biggest_bubble
     check("no curve holds many times its own largest bubble",
           float(ratio.max()) < 6.0, f"worst {ratio.max():.1f}x")
     check("and the typical curve holds about one",
           float(ratio.median()) < 2.0, f"median {ratio.median():.1f}x")
-    for experiment, sample in ((149, 4), (149, 5), (150, 1)):
+    for experiment, sample in ((149, 2), (149, 3), (149, 4), (150, 1)):
         row = table[(table.experiment == experiment)
                     & (table["sample"] == sample)]
         if not len(row):
             continue
-        held = float(row.gas_held.iloc[0] / row.biggest_bubble.iloc[0])
-        check(f"exp {experiment} cuvette {sample} no longer runs away",
-              held < 6.0, f"{held:.1f}x its largest bubble")
+        check(f"exp {experiment} cuvette {sample} ends on its readings",
+              float(row.gas_at_end.iloc[0]) == 0.0,
+              f"{row.gas_at_end.iloc[0]:+.2e} AU below them")
+
+    # THE PRICE, STATED. Subtracting only gas that was watched to leave means
+    # a run still making gas when the recording stopped keeps the bubble it
+    # never shed. Against a planting that ends at a release the repair is
+    # exact; against one that ends mid-bubble it is not, and the gap between
+    # the two is the systematic rather than a failure.
+    shed = scope.bubble_recovery(ends_holding=False).rebuilt
+    holding = scope.bubble_recovery(ends_holding=True).rebuilt
+    check("gas that was seen to leave is removed in full",
+          float(np.abs(shed - 1.0).max()) < 0.05,
+          ", ".join(f"{x:.2f}" for x in shed))
+    check("and gas that never left is left in, which is the stated cost",
+          float(holding.max()) > 1.2,
+          ", ".join(f"{x:.2f}" for x in holding))
+    check("the curves at risk of it are the ones with a short quiet tail",
+          int((repaired.quiet_tail > 1).sum()) >= 10,
+          f"{int((repaired.quiet_tail > 1).sum())} of {len(repaired)} run "
+          f"more than a full shedding interval past their last detachment")
 
     # A reconstruction that ends below where it started has removed more than
     # the curve ever rose. One curve is allowed to graze it and it has to be
@@ -630,9 +678,6 @@ def test_the_gas_may_not_outlast_the_evidence():
         check("and it is zero within the curve's own noise",
               abs(row.rebuilt_net) < 0.001, f"{row.rebuilt_net:+.4f}")
 
-    # The ceiling binds the TAIL and not the stretches between detachments.
-    # Capping those as well is the obvious simplification and it costs real
-    # accuracy where the beam genuinely accumulates.
     check("every live curve still carries a rate after the repair",
           int((scope.frame().query("live").vmax_corrected <= 0).sum()) == 0)
 

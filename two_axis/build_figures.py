@@ -420,7 +420,7 @@ def build_curves_page():
     end is where the argument stops, and a page showing only the live ones
     would show only the part that works.
 
-    AND IT DRAWS THE GAS. Fifty of these curves carry O₂ detachments, and until
+    AND IT DRAWS THE GAS. Forty-six of these carry O₂ detachments, and until
     2026-09-03 this page showed a progress fit to the raw readings with nothing
     to say so — a fit to the bubble, presented as a fit to the reaction. Each
     contaminated panel now carries the raw readings, the reconstruction (§5,
@@ -448,6 +448,11 @@ def build_curves_page():
         # did rather than asserting it in prose. Only where there is something
         # to correct: with no detachment the two series are identical and the
         # second line would be a decoration.
+        # THE TWO LINES MEET AGAIN AT THE LAST READING, on every panel. Only
+        # gas that was watched to leave is subtracted, so after the last
+        # detachment the reconstruction carries none and lies on the readings.
+        # A panel where it does not is this page catching a fault the tests
+        # cannot see -- which is how the last four were found.
         corrected, events = curve_metrics.debubble(times, values, curve.noise)
         chopped = len(events) > 0
         axes, radius = progress_axes(times, values, limit=140,

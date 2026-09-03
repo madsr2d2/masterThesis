@@ -298,9 +298,9 @@ close the model:
   grows by at most what the reading itself gained, which is exactly `f' ≥ 0`.
 - **a bubble cannot shed gas that was never made.** The production rate is set
   to the least that pays for every detachment, so `b ≥ 0` throughout.
-- **the gas may not outlast the evidence for it.** After the *last* detachment
-  the beam is held to the most it carried while detachments were still
-  happening — `scope.rebuild_smoothness` and the section below.
+- **the gas may not exceed what leaves.** The beam holds at most the total of
+  the detachments still to come, so a reading after the last fall carries no
+  gas at all — `curve_metrics.unreleased_gas` and the section below.
 
 That leaves one free parameter, the production rate, and it is *pinned* rather
 than fitted — the least rate consistent with what was seen to leave, which
@@ -316,33 +316,39 @@ Against sawtooths planted into the block's own clean curves, where the rate
 before the planting is the truth. Planted twice, because the difference between
 the plantings is the difference between the two repairs: with each bubble
 emptying at its detachment, and with each emptying only partly and carrying the
-rest over, which is what one curve below actually does.
+rest over, which is what one curve below actually does. The last column is the
+same planting stopped at its final release, and the gap between the last two
+columns is the third clause's whole cost — see below.
 
-| artefact ÷ chemistry | left alone | **stitched** | **rebuilt** |
-|---|---|---|---|
-| 0.25 | 1.12 | **1.15** | **1.00** |
-| 0.5 | 1.24 | **1.32** | **0.98** |
-| 1 | 1.58 | **1.64** | **0.97** |
-| 2 | 2.26 | **2.34** | **0.97** |
+| artefact ÷ chemistry | left alone | **stitched** | rebuilt, ends holding | **rebuilt, shed out** |
+|---|---|---|---|---|
+| 0.25 | 1.12 | **1.15** | 1.00 | **0.99** |
+| 0.5 | 1.24 | **1.32** | 1.00 | **0.98** |
+| 1 | 1.58 | **1.64** | 1.15 | **1.00** |
+| 2 | 2.26 | **2.34** | 1.65 | **0.99** |
 
 *(each bubble empties; recovered `vmax` ÷ true `vmax`, 1.00 exact)*
 
-| artefact ÷ chemistry | left alone | **stitched** | **rebuilt** |
-|---|---|---|---|
-| 0.25 | 1.12 | **1.12** | **1.02** |
-| 0.5 | 1.26 | **1.31** | **1.02** |
-| 1 | 1.51 | **1.64** | **1.03** |
-| 2 | 2.22 | **2.32** | **1.08** |
+| artefact ÷ chemistry | left alone | **stitched** | rebuilt, ends holding | **rebuilt, shed out** |
+|---|---|---|---|---|
+| 0.25 | 1.12 | **1.12** | 1.03 | **1.01** |
+| 0.5 | 1.26 | **1.31** | 1.04 | **1.02** |
+| 1 | 1.51 | **1.64** | 1.17 | **1.02** |
+| 2 | 2.22 | **2.32** | 1.79 | **1.07** |
 
 *(each bubble empties only partly)*
 
 Stitching never beats doing nothing, and from 0.5x on it is strictly worse
 under both plantings; at the smallest artefact with the bubbles emptying
 only partly the two are equal to four decimals, because barely a drop clears
-the detector and there is nothing for stitching to add back. The
-reconstruction stays **within a tenth of the truth at every severity**, where
-the segment ramp it replaced held to 1.01 while the artefact was small and
-reached 1.60 by 2×. `scope.bubble_recovery` is both tables and
+the detector and there is nothing for stitching to add back.
+
+**On gas that was seen to leave the reconstruction is exact** — within
+**0.07 of the truth at every severity under both plantings** — where the
+segment ramp it replaced held to 1.01 while the artefact was small and reached
+1.60 by 2×. What separates the last two columns is entirely the bubble that
+never detached, and that is the third clause stating its price rather than
+assuming it away. `scope.bubble_recovery` is all four columns and
 `data/test_scope.py::test_the_correction_recovers_a_planted_rate` asserts them.
 
 **On a curve with no detachment it returns the readings unchanged** — not
@@ -385,9 +391,15 @@ Exp 149 cuvette 5 has two, at 9.3σ and 8.2σ. The first falls 0.00206 AU and th
 **next reading climbs 0.00222 straight back** — readings 8 and 9 are a spike up
 followed by a spike down, and reading 10 resumes the trend exactly. The second
 falls off a reading that is an isolated spike. Between them they set a
-production rate of 6.2 × 10⁻⁶ AU/s, and the repair then removed **0.0097 AU
-from a curve that rose 0.0262** — turning a real early rise into a flat line,
-while staying perfectly monotone and passing every test there was.
+production rate the curve has no business carrying, and the repair then removed
+**0.0021 AU
+from a curve that rose 0.0262** — flattening a real early rise,
+while staying perfectly monotone and passing every test there was. When the
+fault was found on 2026-09-03 it was worse still, 0.0097 AU or a third of the
+curve, because the tail rule then in force let that rate run on to the end of
+the run; the clause below has since taken most of it back. **Neither number is
+gas**, and that is the point: a repair that launders an instrument spike
+through a gas model is wrong at any size.
 
 Absorbance that goes away because gas left the beam does not come back, and at
 60 s sampling a bubble cannot grow half its size in one interval. So a fall
@@ -408,13 +420,13 @@ of theirs and are returned exactly as they were read, exps 149.1 and 149.5
 among them. Nothing is deleted: an excursion stays in the readings, visible as
 the instrument problem it is, and `isolated_outliers` is what nominates those.
 
-### A smooth curve can still be the wrong curve
+### Only gas that was watched to leave is subtracted
 
-Monotone is necessary and not sufficient, and the second fault found on this
-page was invisible to the test above: pulling a curve down by a smooth ramp
-leaves it smooth. The production rate is fixed by the detachments, and where
-those are early and the run is long it was extrapolated across hours in which
-nothing detached.
+Monotone is necessary and not sufficient, and the fault this cures was
+invisible to the test above: pulling a curve down by a smooth ramp leaves it
+smooth. The production rate is fixed by the detachments, and where those are
+early and the run is long it was extrapolated across hours in which nothing
+detached.
 
 Exp 149 cuvette 4 sheds **0.0031 AU once**, 1920 s into an 8 h run, and nothing
 else ever leaves. An unbounded profile keeps making gas at the rate that one
@@ -424,19 +436,38 @@ detachment implies, so by the end it has **0.0273 AU** sitting in the beam —
 held more than twice their own largest bubble, one at 26.6×, and three finished
 below zero. All twelve passed the smoothness test.
 
-A bubble detaches when it reaches a critical size, so a long quiet stretch is
-evidence that nothing large was sitting there. `curve_metrics.bubble_ceiling`
-holds the tail to the most the beam carried while detachments were still
-happening — measured off the profile, not assumed. The stretches *between*
-detachments are left alone, because there the beam is known to have held
-bubbles: they left at both ends. Capping those as well is the obvious
-simplification and it costs real accuracy, taking the partly-emptying recovery
-from 1.03 and 1.08 to 1.11 and 1.34.
+Capping the tail at the most the beam had carried *bounded* that without curing
+it, and the residue was visible by eye on this page: exp 149 cuvette 3 sheds
+0.0022 AU once at 5100 s, runs on for another **23 580 s with nothing leaving**,
+and the reconstruction sat that flat 0.0022 AU below its own readings for 82% of
+the run — under a last arm that shows no sign of a bubble at all. Exp 150
+cuvette 1 sat below its readings by **99% of everything it rose**.
 
-Afterwards no curve holds more than 3.7× its own largest bubble, the median is
-1.2×, and **no reconstruction ends below where it started**.
-`data/test_scope.py::test_the_gas_may_not_outlast_the_evidence` names the three
-curves so it cannot come back quietly.
+**The readings themselves refute the gas that was being subtracted.** If exp 149
+cuvette 4 had gone on making gas at its fitted rate, the tail would have carried
+0.0736 AU of it; that tail rises 0.0041 in total. On **18 of the 44** repairable
+curves the rate would have made more gas over the quiet tail than the trace rose
+altogether, and a bubble that keeps growing detaches — **11 of 44** ran more
+than a full shedding interval past their last detachment without one
+(`curve_metrics.quiet_tail`; exps 149.4 at 14.4, 150.1 at 7.7, 146.1 at 6.9,
+149.2 at 5.7). Those runs stopped making gas, and the last thing they did was
+shed, so their beams are empty.
+
+So the third clause is evidence and not extrapolation: **the beam holds at most
+the total of the detachments still to come**, and after the last one, nothing.
+`curve_metrics.unreleased_gas`. The cap never blocks a detachment — at the
+reading before the *j*th fall it is *d<sub>j</sub>* plus everything later, which
+already exceeds what *d<sub>j</sub>* has to pay — so no rate changed and no
+detachment went uncorrected. Every reconstruction now lands back **on** the
+readings at the last reading, which is checkable by eye on the page opposite.
+
+The price is stated rather than assumed. A run still making gas when the
+recording stopped keeps the bubble it never shed, and that is the whole of the
+gap between the last two columns of the recovery tables above: exact on gas that
+went, blind to gas that did not. `quiet_tail` says which curves could be paying
+it, and on this block the tails are long.
+`data/test_scope.py::test_the_gas_may_not_outlast_the_evidence` names the curves
+so it cannot come back quietly.
 
 ### The rate the model fits is the peroxide decomposing
 
@@ -457,10 +488,11 @@ order of a rate: **the alcohol is not what is turning into gas.**
 `scope.gas_rate_drivers`.
 
 **What the model still cannot do.** The last bubble on a curve never detaches,
-so nothing reveals how much gas was sitting in the beam when the run ended; the
-rate is a lower bound whenever a bubble leaves only partly, which is why the
-recovery sits at 1.02–1.06 rather than 1.00 under that planting; and the
-detector cannot see a bubble that grows and leaves inside one reading. The load
+so nothing reveals how much gas was sitting in the beam when the run ended, and
+the reconstruction deliberately leaves it there; the rate is a lower bound
+whenever a bubble leaves only partly, which is why the recovery sits at
+1.01–1.07 rather than 1.00 under that planting; and the detector cannot see a
+bubble that grows and leaves inside one reading. The load
 below is a ceiling on use rather than a threshold to tune.
 
 ### Which beam the bubble is in, and why it raises the absorbance
@@ -598,7 +630,7 @@ manufacture a flat substrate order. `scope.bubble_sensitivity`:
 | `vmax` from | n | order in [S] | order in [H₂O₂] |
 |---|---|---|---|
 | the readings | 110 | +0.091 ± 0.052 | +0.794 ± 0.077 |
-| the reconstruction | 110 | +0.114 ± 0.051 | **+0.692 ± 0.075** |
+| the reconstruction | 110 | +0.093 ± 0.047 | **+0.700 ± 0.070** |
 | the monotone bound | 110 | +0.141 ± 0.049 | +0.770 ± 0.072 |
 | readings, load ≤ 1 only | 97 | +0.139 ± 0.059 | +0.767 ± 0.086 |
 
@@ -608,8 +640,8 @@ estimates' errors combined every time — and under the monotone bound it moves
 since the artefact could only have flattened it. §2 stands.
 
 **The peroxide order does move.** The reconstruction takes it from +0.794 to
-+0.692, and on the strong runs alone from +0.871 to +0.754 — about 0.11 either
-way, which is 0.9σ and 1.3σ of the two estimates' errors combined and the
++0.700, and on the strong runs alone from +0.871 to +0.765 — about 0.10 either
+way, which is 0.9σ and 1.2σ of the two estimates' errors combined and the
 largest shift any repair here produces. That is not the repair failing, it is
 the repair working: the gas is *made from peroxide*, so an uncorrected artefact
 has to inflate the apparent peroxide order, and taking the gas out has to bring

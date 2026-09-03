@@ -607,14 +607,23 @@ def test_two_breakpoints():
               f"{errors[start, stop]:.6e} against {float(residual @ residual):.6e}")
 
 
-def _sawtooth(times, chemistry, edges, rate):
-    """A curve plus a bubble that grows at `rate` and sheds at each edge."""
+def _sawtooth(times, chemistry, edges, rate, ends_holding=True):
+    """
+    A curve plus a bubble that grows at `rate` and sheds at each edge.
+
+    `ends_holding` is what the run is doing when the recording stops: True
+    leaves production running past the last release, so the curve ends
+    carrying a bubble that never detached, and False stops it there. The
+    reconstruction subtracts only gas it watched leave, so the two endings are
+    the two sides of that rule and both are planted below.
+    """
     artefact = np.zeros(len(times))
     start = 0
     for edge in edges:
         artefact[start:edge + 1] = rate * (times[start:edge + 1] - times[start])
         start = edge + 1
-    artefact[start:] = rate * (times[start:] - times[start])
+    if ends_holding:
+        artefact[start:] = rate * (times[start:] - times[start])
     return chemistry + artefact, artefact
 
 
@@ -653,8 +662,40 @@ def test_the_bubble_correction():
     corrected, _ = debubble(times, spoilt, noise)
     before = np.abs(spoilt - chemistry).max()
     after = np.abs(corrected - chemistry).max()
-    check("the correction removes most of the planted artefact",
-          after < 0.2 * before, f"{after:.2e} against {before:.2e}")
+
+    # ONLY GAS THAT WAS WATCHED TO LEAVE IS SUBTRACTED, so this planting --
+    # which is still making gas when the recording stops -- keeps the bubble
+    # it never shed, and what is left over is exactly that bubble and nothing
+    # else. Asserting the residual rather than bounding it is the point: an
+    # over-correction of the same size would pass a bound and fails this.
+    unshed = np.zeros(len(times))
+    unshed[edges[-1] + 1:] = artefact[edges[-1] + 1:]
+    # To a tenth of a bubble, not to the noise: the rate is pinned to the LEAST
+    # that pays for every detachment, so it comes out a few percent under the
+    # planted one and the reconstruction removes slightly less than was put in.
+    # That is the direction the whole model is built to err in.
+    check("what the correction leaves is the bubble that never detached",
+          np.abs(corrected - chemistry - unshed).max() < 0.1 * artefact.max(),
+          f"worst {np.abs(corrected - chemistry - unshed).max():.2e} "
+          f"against a bubble of {artefact.max():.4f}")
+    check("so it is closer than the readings, but not by everything",
+          0.05 * before < after < 0.75 * before,
+          f"{after:.2e} against {before:.2e}")
+
+    # The same planting stopped at its last release: nothing is left holding
+    # gas, and there the repair is exact.
+    shed, _ = _sawtooth(times, chemistry, edges,
+                        rate=1.0 * chemistry[-1] / times[-1],
+                        ends_holding=False)
+    shed_fixed, _ = debubble(times, shed, noise)
+    check("a run that stops making gas is corrected in full",
+          np.abs(shed_fixed - chemistry).max() < 0.1
+          * np.abs(shed - chemistry).max(),
+          f"{np.abs(shed_fixed - chemistry).max():.2e} against "
+          f"{np.abs(shed - chemistry).max():.2e}")
+    check("and the tail of one that does not is left ON the readings",
+          abs(corrected[-1] - spoilt[-1]) < 1e-12,
+          f"{corrected[-1] - spoilt[-1]:+.2e}")
 
     # THE PROPERTY THE OLD SEGMENT RAMP DID NOT HAVE, and the reason this
     # module was rewritten: the repaired curve may not fall. `bubble_profile`
@@ -692,8 +733,6 @@ def test_the_bubble_correction():
           (corrected[-1] - corrected[0]) <= (spoilt[-1] - spoilt[0]) + 1e-12,
           f"{corrected[-1] - corrected[0]:.4f} against "
           f"{spoilt[-1] - spoilt[0]:.4f}")
-    check("and it corrects the tail the last bubble is still growing in",
-          (corrected[-1] - corrected[0]) < (spoilt[-1] - spoilt[0]) - 1e-6)
 
     held = bubble_profile(times, spoilt, events, bubble_rate(
         times, spoilt, events))
