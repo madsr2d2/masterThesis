@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import induction
 import scope
 import slowdown
+import solution_chemistry
 from doc_check import Checker
 
 DOCUMENT = os.path.join(HERE, "ANALYSIS.md")
@@ -257,6 +258,86 @@ def main():
               int((balance.raw > 1.0).sum()) == 0)
     doc.check("and the subtraction leaves none exceeding it",
               int((balance.corrected > 1.0).sum()) == 0)
+
+    asymmetry = scope.bubble_step_asymmetry()
+    doc.claim("how many steps the block has",
+              f"**{asymmetry['steps']}** steps")
+    doc.claim("how many rise past the tail threshold",
+              f"**{asymmetry['rises']} rises** beyond "
+              f"{scope.BUBBLE_STEP_SIGMA:g}sigma")
+    doc.claim("and how many fall", f"**{asymmetry['falls']} falls**")
+    doc.claim("their ratio", f"a ratio of\n**{asymmetry['ratio']:.1f}**")
+    doc.claim("the largest fall against the largest rise",
+              f"({asymmetry['largest_fall']:.0f}sigma) "
+              f"{abs(asymmetry['largest_fall']) / asymmetry['largest_rise']:.1f}x the\n"
+              f"largest rise (+{asymmetry['largest_rise']:.0f}sigma)")
+    doc.check("large steps fall far more often than they rise",
+              asymmetry["falls"] > 3 * asymmetry["rises"],
+              f"{asymmetry['falls']} against {asymmetry['rises']}")
+
+    doc.claim("the solubility the budget rests on",
+              f"**{solution_chemistry.OXYGEN_SOLUBILITY_mM:.2f} mM**")
+    worked_h2o2 = float(frame[
+        (frame.experiment == scope.BUBBLE_WORKED_EXAMPLE[0])
+        & (frame["sample"] == scope.BUBBLE_WORKED_EXAMPLE[1])].h2o2.iloc[0])
+    ladder_bottom = float(frame.h2o2.min())
+    for label, level in (("the block's top peroxide", float(frame.h2o2.max())),
+                         ("where the turnover control sits", worked_h2o2),
+                         ("the bottom of the ladder", ladder_bottom)):
+        budget = solution_chemistry.oxygen_budget(level)
+        # The bottom of the ladder is quoted to whole percent because it is
+        # past 100 and the tenth would be noise on an argument about whether a
+        # bubble is possible at all.
+        precision = 0 if label == "the bottom of the ladder" else 1
+        doc.claim(f"the budget row at {level:.1f} mM",
+                  f"| {label}, {level:.1f} mM | "
+                  f"**{budget['oxygen_mM']:.1f} mM** | "
+                  f"**{budget['saturation_fraction'] * 100:.{precision}f}%** |")
+    doc.claim("what each further mM is",
+              f"**{solution_chemistry.MOLAR_VOLUME_uL_per_umol:.2f} uL of gas "
+              f"per mL of\nsolution**")
+    top_budget = solution_chemistry.oxygen_budget(float(frame.h2o2.max()))
+    doc.check("the top of the ladder saturates on a couple of percent",
+              top_budget["saturation_fraction"] < 0.05,
+              f"{top_budget['saturation_fraction'] * 100:.1f}%")
+    bottom_budget = solution_chemistry.oxygen_budget(ladder_bottom)
+    doc.check("and the bottom of it cannot saturate at all here",
+              bottom_budget["saturation_fraction"] > 0.5,
+              f"{bottom_budget['saturation_fraction'] * 100:.0f}%")
+    doc.check("no live curve below 5 mM carries a detachment",
+              int(frame[frame.live & (frame.h2o2 < 5.0)].bubble_drops.sum())
+              == 0)
+
+    record = scope.bubble_record(*scope.BUBBLE_WORKED_EXAMPLE)
+    worked = frame[(frame.experiment == scope.BUBBLE_WORKED_EXAMPLE[0])
+                   & (frame["sample"] == scope.BUBBLE_WORKED_EXAMPLE[1])].iloc[0]
+    doc.claim("the worked curve's conditions",
+              f"{worked.s0:g} mM substrate, {worked.h2o2:.1f} mM H2O2, "
+              f"pH {worked.pH:.2f}")
+    for row in record.itertuples():
+        bold = "**" if row.lost == record["lost"].max() else ""
+        window = "**" if row.grew_s == record.grew_s.min() else ""
+        after = "**" if row.after == record.after.min() else ""
+        doc.claim(f"its detachment at {row.time_s:.0f} s",
+                  f"| {row.time_s:.0f} s | {bold}{row.lost:.4f}{bold} | "
+                  f"{row.sigma:.1f} | {window}{row.grew_s:.0f} s{window} | "
+                  f"+{row.rose:.4f} | {after}+{row.after:.4f}{after} |")
+    doc.claim("what it sheds in total",
+              f"**{record['lost'].sum():.4f} AU** in total against a net rise of "
+              f"{worked.net:.4f}")
+    doc.claim("and its load", f"load {worked.bubble_load:.2f}")
+    doc.check("the largest drop follows the shortest growth window",
+              record.loc[record["lost"].idxmax(), "grew_s"] == record.grew_s.min(),
+              f"{record.loc[record['lost'].idxmax(), 'grew_s']:.0f} s against "
+              f"{record.grew_s.min():.0f} s")
+    doc.check("and the last level sits below every earlier one",
+              record.after.iloc[-1] < record.after.iloc[:-1].min(),
+              f"{record.after.iloc[-1]:.4f} against "
+              f"{record.after.iloc[:-1].min():.4f}")
+    doc.claim("the levels it climbs through",
+              ", ".join(f"+{v:.4f}" for v in record.after[:-1]))
+    doc.claim("and the one it falls back to",
+              f"then falls to +{record.after.iloc[-1]:.4f}, below all three")
 
     table = scope.bubble_table()
     bands = pd.cut(table.bubble_load, [-0.001, 1e-4, 0.25, 0.5, 1.0, np.inf],

@@ -308,6 +308,104 @@ detaches, so its ramp is never revealed; given the *true* detachment times the
 recovery moves only from 1.13 to 1.10. No better detector rescues it, which is
 why the load below is a ceiling on use rather than a threshold to tune.
 
+### Which beam the bubble is in, and why it raises the absorbance
+
+The trace says something accumulates and then releases. Two questions decide
+what: **which cuvette** the gas is in, and **which of two opposite optical
+effects** a bubble has. Every run here is double-beam, and the reference omits
+only the *enzyme* — it holds the same peroxide, substrate and buffer — so
+`ΔA = A_sample − A_reference` and a bubble's sign flips with the beam.
+
+A bubble in the beam does two opposite things. It **displaces absorbing
+solution**, which lowers that beam's absorbance, and it **scatters and refracts
+light out of the collection aperture**, which raises it. Crossing that against
+the two cuvettes gives four possibilities, and only two of them produce the
+slow-rise/sudden-fall shape the curves actually have:
+
+| bubble grows in | if displacement wins | if scattering wins |
+|---|---|---|
+| sample | ΔA falls slowly, jumps up on release | **ΔA rises slowly, drops on release** |
+| reference | ΔA rises slowly, drops on release | ΔA falls slowly, jumps up on release |
+
+The two survivors are *scattering in the sample* and *displacement in the
+reference*. Three things pick the first.
+
+**Displacement cannot make a step that large.** It is capped by the absorbance
+the displaced solution actually carried, and the largest step in exp 141
+cuvette 3 is **0.0303 AU**. The exports record no wavelength, but ε = 1.23
+mM⁻¹cm⁻¹ places these runs in the benzaldehyde n→π\* region near 285–300 nm,
+where 73 mM H₂O₂ contributes only a few hundredths of an AU across the entire
+1 cm path. A bubble would have to swallow a large fraction of the cuvette —
+millimetres — and a bubble that size does not sit still for ten minutes.
+Scattering has no such ceiling.
+
+**The gas is made where the catalyst is.** Both cuvettes hold 73.4 mM H₂O₂, so
+peroxide standing in solution would bubble both beams alike. It does not:
+detachments need **turnover**, and exps 136 and 137 sit at that same peroxide
+with none at all, being the block's two weakest runs. Turnover happens only in
+the sample cuvette. This argument needs no wavelength and no optics.
+
+**And the large steps are lopsided the right way.** `scope.bubble_step_asymmetry`
+over the block's **28827** steps finds **23 rises** beyond 20σ against
+**122 falls**, a ratio of **5.3**, with the largest fall (−260σ) 4.6× the
+largest rise (+57σ). Sample-beam events dominate, and the minority of sudden
+rises is what a stray reference-beam bubble — or one sliding *into* the sample
+beam — would contribute.
+
+### The gas budget makes this unavoidable, not lucky
+
+The objection to reading a few percent of a side reaction as visible bubbles is
+that it sounds too small. It is not, by a wide margin
+(`solution_chemistry.oxygen_budget`). 2 H₂O₂ → 2 H₂O + O₂, so the ceiling is
+half the peroxide, and water at 25 °C holds only **1.25 mM** O₂:
+
+| | O₂ it can make | decomposed before the solution saturates |
+|---|---|---|
+| the block's top peroxide, 163.2 mM | **81.6 mM** | **1.5%** |
+| where the turnover control sits, 73.4 mM | **36.7 mM** | **3.4%** |
+| the bottom of the ladder, 2.4 mM | **1.2 mM** | **102%** |
+
+Past saturation every further mM of O₂ is **24.45 µL of gas per mL of
+solution**. One percent of net decomposition beyond that point is millimetres
+of bubble in a 1 cm cuvette. Given a ketone known to decompose peroxide to O₂
+(`MECHANISM.md` refs 34–35), a curve at 73 mM that did *not* chop would be the
+thing needing explanation — and exps 136 and 137, which don't, are exactly the
+runs that barely turn over.
+
+The bottom row is the other half of the ladder in §5's first table, and it is
+emphatic: at 2.4 mM, decomposing **all** of the peroxide would still leave the
+solution able to dissolve every molecule of O₂ it made. A bubble there is not
+merely unlikely, it is unavailable — which is why **no curve below 5 mM carries
+a detachment at all**.
+
+### One curve, read detachment by detachment
+
+`scope.bubble_record(141, 3)` — 0.865 mM substrate, 73.4 mM H₂O₂, pH 9.15:
+
+| detached at | drop | σ | grew for | rose over that window | level after |
+|---|---|---|---|---|---|
+| 2460 s | 0.0023 | −8.4 | 2460 s | +0.0490 | +0.0472 |
+| 3120 s | 0.0214 | −77.7 | 600 s | +0.0300 | +0.0558 |
+| 3780 s | 0.0153 | −55.6 | 600 s | +0.0242 | +0.0647 |
+| 4140 s | **0.0303** | −109.9 | **300 s** | +0.0086 | **+0.0430** |
+
+It sheds **0.0694 AU** in total against a net rise of 0.0551 — load 1.26, past
+the ceiling.
+
+**And it is not one bubble.** A single site growing steadily would shed in
+proportion to the time it had to grow; here the *largest* drop follows the
+*shortest* window. The level after each release says the same from the other
+end: it climbs +0.0472, +0.0558, +0.0647 — consistent with product
+accumulating underneath — and then falls to +0.0430, below all three. A
+monotone chemistry beneath a single bubble cannot do that. Something detached
+at 4140 s that had been growing since before the release at 3780 s, so **at
+least two bubbles were on different sites at once** and the trace is their sum.
+
+That is the honest limit of the repair. `debubble` charges each drop to growth
+since the previous drop, which is right on average — hence the unbiased
+recovery above — and wrong curve by curve. It is why the correction is quoted
+with the monotone bound beside it rather than on its own.
+
 ### What each curve is entitled to
 
 `bubble_load` is the absorbance lost to detachments over the curve's net rise.

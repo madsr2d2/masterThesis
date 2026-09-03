@@ -107,7 +107,17 @@ bubble_turnover_control() # and that peroxide alone does not do it
 bubble_synchrony()        # not the lamp: 17 coincidences against 16.0 expected
 bubble_mass_balance()     # what stitching would claim of the substrate
 bubble_sensitivity()      # every order under every repair
+bubble_step_asymmetry()   # which beam: 122 falls beyond 20 sigma against 23 rises
+bubble_record(141, 3)     # one curve's detachments, one row each
 ```
+
+The bubble is in the **sample** beam and it **scatters** light out of the
+aperture, so absorbance climbs while it grows and drops when it detaches. The
+reference omits only the enzyme, so it holds the same peroxide and would bubble
+too if the gas came from peroxide standing in solution; it needs turnover,
+which only the sample has. `solution_chemistry.oxygen_budget` answers "could a
+side reaction really make a bubble" -- the solution saturates on 1.5% of the
+peroxide at the top of the ladder and cannot saturate at all at the bottom.
 
 **The chop is gas, and the curves may NOT be stitched.** Many of the block's
 curves rise, fall by more in one 60 s reading than the reaction moves in five,

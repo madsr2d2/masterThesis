@@ -20,6 +20,7 @@ from solution_chemistry import (
     DEBYE_HUCKEL_B, PKA_H2O2,
     add_solution_columns, dominant_buffer_pair, effective_pka_h2o2,
     hydroperoxide, hydroperoxide_fraction, ionic_strength, speciation,
+    OXYGEN_SOLUBILITY_mM, MOLAR_VOLUME_uL_per_umol, oxygen_budget,
 )
 
 FAILURES = []
@@ -286,6 +287,45 @@ def test_dataset(path="data/experiment_data.csv"):
           f"[HOO-] spans {out['[HOO-]'].min():.3g} - {out['[HOO-]'].max():.3g} mM")
 
 
+def test_oxygen_budget():
+    """
+    The budget behind two_axis/ section 5: can a side reaction make a bubble?
+
+    Worked by hand, not against the module's own arithmetic. 2 H2O2 -> 2 H2O +
+    O2 halves the peroxide; saturation is reached once twice the solubility has
+    been consumed; and an ideal gas at 25 C is 24.45 L/mol, so 1 umol is 24.45
+    uL.
+    """
+    print("\nthe oxygen budget")
+    budget = oxygen_budget(73.424)
+    check("the stoichiometry halves the peroxide",
+          abs(budget["oxygen_mM"] - 36.712) < 1e-9,
+          f"{budget['oxygen_mM']:.4f}")
+    check("saturation costs twice the solubility, as a fraction of peroxide",
+          abs(budget["saturation_fraction"]
+              - 2 * OXYGEN_SOLUBILITY_mM / 73.424) < 1e-12)
+    check("which is a few percent at the block's top peroxide",
+          0.02 < budget["saturation_fraction"] < 0.05,
+          f"{budget['saturation_fraction'] * 100:.1f}%")
+    check("a mM of excess O2 is tens of microlitres per mL",
+          abs(budget["microlitres_per_mM"] - MOLAR_VOLUME_uL_per_umol) < 1e-9)
+
+    # More peroxide saturates the solution sooner, as a FRACTION of itself --
+    # which is the direction that matters, because it says the top of the
+    # block's ladder starts making gas earlier in its own turnover.
+    check("more peroxide reaches saturation on a smaller fraction of itself",
+          oxygen_budget(163.165)["saturation_fraction"]
+          < oxygen_budget(3.671)["saturation_fraction"],
+          f"{oxygen_budget(163.165)['saturation_fraction'] * 100:.2f}% against "
+          f"{oxygen_budget(3.671)['saturation_fraction'] * 100:.2f}%")
+    check("and the bottom of the ladder cannot saturate on a plausible "
+          "conversion",
+          oxygen_budget(3.671)["saturation_fraction"] > 0.5,
+          f"{oxygen_budget(3.671)['saturation_fraction'] * 100:.0f}%")
+    check("zero peroxide is handled rather than dividing",
+          oxygen_budget(0.0)["oxygen_mM"] == 0.0)
+
+
 if __name__ == "__main__":
     test_tables()
     test_speciation()
@@ -294,5 +334,6 @@ if __name__ == "__main__":
     test_debye_huckel()
     test_regressions()
     test_dataset()
+    test_oxygen_budget()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

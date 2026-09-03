@@ -399,3 +399,45 @@ if __name__ == "__main__":
         delta = (recomputed[column] - data[column]).abs()
         worst = delta.max()
         print(f"\n{column}: stored column present, max |difference| = {worst:.3e}")
+
+
+# Oxygen solubility in water at 25 C under 1 atm of pure O2, mM. Henry's law
+# constant 1.3e-3 mol/(L*atm); under air (0.21 atm) the equilibrium value is
+# 0.27 mM, but a cuvette generating its own O2 reaches the pure-gas value
+# locally at a nucleation site, which is the number that matters for whether a
+# bubble can form at all.
+OXYGEN_SOLUBILITY_mM = 1.25
+
+# Molar volume of an ideal gas at 25 C and 1 atm, in uL per umol. A bubble is
+# reported by volume because that is what can be compared against a cuvette.
+MOLAR_VOLUME_uL_per_umol = 24.45
+
+
+def oxygen_budget(h2o2_mM, solubility_mM=OXYGEN_SOLUBILITY_mM):
+    """
+    How much O2 a cuvette's peroxide can make, and when it must leave solution.
+
+    2 H2O2 -> 2 H2O + O2, so the ceiling is half the peroxide. Returns a dict:
+
+      oxygen_mM            the ceiling, h2o2 / 2
+      saturation_fraction  the fraction of the PEROXIDE that has to decompose
+                           before the solution is saturated, 2 * solubility /
+                           h2o2. Past this every further turnover makes gas.
+      microlitres_per_mM   uL of gas per mL of solution for each mM of O2 in
+                           excess of saturation.
+
+    WHY IT IS HERE. The two-axis block's chop is O2 (two_axis/ANALYSIS.md 5),
+    and the objection to that reading is that a few percent of a side reaction
+    could not possibly make a visible bubble. It can, by a wide margin: at the
+    block's top peroxide the solution saturates after decomposing about three
+    percent, and each further mM is some twenty-five microlitres of gas per mL
+    -- millimetres of bubble in a 1 cm cuvette. The surprise would be a curve
+    at 73 mM that did NOT chop.
+    """
+    h2o2_mM = float(h2o2_mM)
+    if h2o2_mM <= 0:
+        return {"oxygen_mM": 0.0, "saturation_fraction": float("nan"),
+                "microlitres_per_mM": MOLAR_VOLUME_uL_per_umol}
+    return {"oxygen_mM": h2o2_mM / 2.0,
+            "saturation_fraction": 2.0 * solubility_mM / h2o2_mM,
+            "microlitres_per_mM": MOLAR_VOLUME_uL_per_umol}

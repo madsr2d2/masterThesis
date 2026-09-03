@@ -35,6 +35,69 @@ The step asymmetry is the signature that made it findable: across the block's
 28827 steps, 23 rise by more than +20σ and **122 fall** by more than -20σ, and
 the largest fall (-260σ) is 4.6× the largest rise. Slow growth, sudden release.
 
+### Which beam, and why a bubble RAISES the absorbance
+
+Asked directly, and worth recording because the natural reading is the other
+one. Every run here is double-beam and the reference omits only the ENZYME, so
+`dA = A_sample - A_reference` and a bubble's sign flips with the cuvette. A
+bubble also does two OPPOSITE things: it displaces absorbing solution (lowers
+that beam) and it scatters light out of the collection aperture (raises it).
+
+|                  | displacement wins | scattering wins |
+|---|---|---|
+| bubble in sample    | dA falls slowly, jumps up | **dA rises slowly, drops** |
+| bubble in reference | dA rises slowly, drops | dA falls slowly, jumps up |
+
+Two of the four give the observed slow-rise/sudden-fall shape: scattering in
+the sample, or displacement in the reference. Three things pick the first.
+
+1. **Displacement cannot make a step that large.** It is bounded by the
+   absorbance the displaced solution carried, and the largest step in exp 141
+   cuvette 3 is **0.0303 AU**. No wavelength is recorded in the exports, but
+   `epsilon` = 1.23 mM^-1 cm^-1 places these runs near 285-300 nm where 73 mM
+   H2O2 contributes a few hundredths of an AU across the WHOLE 1 cm path. The
+   bubble would have to be millimetres across, and one that size does not sit
+   still for ten minutes.
+2. **The gas is made where the catalyst is.** Both cuvettes hold the same
+   73.4 mM peroxide, so peroxide standing in solution would bubble both beams
+   alike. It does not: `bubble_turnover_control` shows detachments need
+   TURNOVER, and turnover happens only in the sample. This argument needs
+   neither a wavelength nor any optics.
+3. **The large steps are lopsided the right way.**
+   `scope.bubble_step_asymmetry` over 28827 steps: **23 rises beyond 20 sigma
+   against 122 falls**, ratio 5.3, largest fall (-260 sigma) 4.6x the largest
+   rise (+57 sigma).
+
+`solution_chemistry.oxygen_budget` closes the "too small to matter" objection.
+The solution saturates at ~1.25 mM O2, which is **1.5%** of the peroxide at the
+block's top level and **3.4%** at 73.4 mM; past that each mM of O2 is 24.45 uL
+of gas per mL. At the ladder's bottom, 2.4 mM, decomposing ALL of the
+peroxide would still not saturate the solution (102%) -- and no curve below
+5 mM carries a detachment.
+
+### One curve is more than one bubble
+
+`scope.bubble_record(141, 3)`, the worked example in `two_axis/` 5:
+
+```
+detached at   drop     sigma   grew for   rose over it   level after
+    2460 s   0.0023     -8.4     2460 s      +0.0490       +0.0472
+    3120 s   0.0215    -77.7      600 s      +0.0300       +0.0558
+    3780 s   0.0153    -55.6      600 s      +0.0242       +0.0647
+    4140 s   0.0303   -109.9      300 s      +0.0086       +0.0430
+```
+
+A single site growing steadily sheds in proportion to the time it had; here the
+LARGEST drop follows the SHORTEST window. The level after each release says the
+same from the other end -- +0.0472, +0.0558, +0.0647, then +0.0430, below all
+three -- which a monotone chemistry beneath one bubble cannot produce. At least
+two bubbles were growing on different sites at once and the trace is their sum.
+
+That is the honest limit of `debubble`: it charges each drop to growth since
+the previous drop, which is right ON AVERAGE (hence the unbiased recovery
+below) and wrong curve by curve. It is why the correction is always quoted with
+`monotone_bound` beside it.
+
 ### Stitching the pieces back together is the one repair that must not be used
 
 It is the obvious repair -- add each step back to everything after it -- and it

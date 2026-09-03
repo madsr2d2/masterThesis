@@ -225,6 +225,18 @@ Three things follow that are worth not re-deriving.
   `bubble_turnover_control` (exps 136 and 137 sit at 73.4 mM with NONE, being
   the two weakest runs there) and `bubble_synchrony` (17 coincidences over 357
   cuvette pairs against 16.0 expected, so it is not the instrument).
+  **The bubble is in the SAMPLE beam and it SCATTERS**, so absorbance climbs
+  while it grows and drops when it goes. The reference omits only the enzyme,
+  so it holds the same peroxide and would bubble too if the gas came from
+  peroxide standing in solution -- it needs turnover, which only the sample
+  has. `bubble_step_asymmetry` is the shape half: 122 falls beyond 20 sigma
+  against 23 rises. `solution_chemistry.oxygen_budget` kills the "too small to
+  see" objection -- the solution saturates on 1.5% of the peroxide at the top
+  of the ladder and cannot saturate at all at the bottom.
+  **One curve is more than one bubble**: `bubble_record(141, 3)` sheds its
+  LARGEST drop after its SHORTEST growth window (r = -0.91) and ends below
+  every earlier post-release level, so `debubble` is right on average and
+  wrong curve by curve -- always quote `monotone_bound` beside it.
   **Adding each step back is the one repair that must not be used**: a bubble
   that costs delta when it leaves contributed delta of rise while it grew, so
   stitching keeps the artefact's whole upward half -- it puts exp 135 cuvette 4

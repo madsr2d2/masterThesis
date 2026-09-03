@@ -521,6 +521,93 @@ def test_the_load_ceiling_flags_and_does_not_exclude():
           float(table[table.bubble_drops == 0].bubble_load.max()) == 0.0)
 
 
+def test_the_large_steps_say_which_beam_the_gas_is_in():
+    """
+    The sign of a large step separates the two cuvettes.
+
+    A bubble in the SAMPLE beam scatters light out of the aperture, so the
+    difference climbs while it grows and drops when it goes: slow up, sudden
+    down. A bubble in the REFERENCE beam does the same to the reference, and
+    the subtraction inverts it. So the two populations are separable by sign,
+    and if they were balanced the reading would be in doubt.
+    """
+    print("\nwhich beam the gas is in")
+    asymmetry = scope.bubble_step_asymmetry()
+    check("large steps fall far more often than they rise",
+          asymmetry["falls"] > 3 * asymmetry["rises"],
+          f"{asymmetry['falls']} falls against {asymmetry['rises']} rises, "
+          f"ratio {asymmetry['ratio']:.1f}")
+    check("and the largest fall dwarfs the largest rise",
+          abs(asymmetry["largest_fall"]) > 3 * asymmetry["largest_rise"],
+          f"{asymmetry['largest_fall']:.0f} against "
+          f"+{asymmetry['largest_rise']:.0f}")
+    check("the tail threshold is well above the detachment threshold",
+          scope.BUBBLE_STEP_SIGMA > 2 * curve_metrics.BUBBLE_DROP_SIGMA,
+          f"{scope.BUBBLE_STEP_SIGMA:g} against "
+          f"{curve_metrics.BUBBLE_DROP_SIGMA:g}")
+    counted = sum(max(len(np.asarray(c.absorbance, float)) - 1, 0)
+                  for c in scope.curves())
+    check("every step in the block is counted exactly once",
+          asymmetry["steps"] == counted,
+          f"{asymmetry['steps']} against {counted}")
+    # And the statistic has to be able to see the other sign, or it is not a
+    # test. A curve mirrored top to bottom must swap the two counts.
+    values = np.asarray(scope.curves_of(141)[2].absorbance, dtype=float)
+    noise = scope.curves_of(141)[2].noise
+    forward = np.diff(values) / noise
+    mirrored = np.diff(-values) / noise
+    check("mirroring a curve swaps its rises and falls",
+          int((mirrored > scope.BUBBLE_STEP_SIGMA).sum())
+          == int((forward < -scope.BUBBLE_STEP_SIGMA).sum()))
+
+
+def test_the_worked_curve_carries_more_than_one_bubble():
+    """
+    `bubble_record` on the curve section 5 walks through.
+
+    The repair charges each drop to growth since the previous drop. That is
+    right on average and this curve is the counter-example: the largest drop
+    follows the SHORTEST growth window, and the level after the last release
+    sits below every earlier one -- which a monotone chemistry beneath a single
+    bubble cannot produce. The test asserts the counter-example, because it is
+    the honest limit of the correction and a document quoting it must not be
+    able to drift away from it.
+    """
+    print("\nthe worked curve carries more than one bubble")
+    experiment, sample = scope.BUBBLE_WORKED_EXAMPLE
+    record = scope.bubble_record(experiment, sample)
+    check("the record has a row per detachment",
+          len(record) == int(scope.frame()[
+              (scope.frame().experiment == experiment)
+              & (scope.frame()["sample"] == sample)].bubble_drops.iloc[0]),
+          f"{len(record)} rows")
+    curve = {c.sample: c for c in scope.curves_of(experiment)}[sample]
+    values = np.asarray(curve.absorbance, dtype=float)
+    drops = curve_metrics.bubble_drops(values, curve.noise)
+    check("and its drops are the readings' own",
+          np.allclose(record["lost"].to_numpy(), -np.diff(values)[drops]))
+    check("every drop clears the detachment threshold",
+          bool((record.sigma <= -curve_metrics.BUBBLE_DROP_SIGMA).all()),
+          f"worst {record.sigma.max():.1f}")
+
+    check("the largest drop follows the shortest growth window",
+          record.loc[record["lost"].idxmax(), "grew_s"] == record.grew_s.min(),
+          f"{record.loc[record['lost'].idxmax(), 'grew_s']:.0f} s of growth shed "
+          f"{record["lost"].max():.4f} AU")
+    check("so the drops do not scale with the time available to grow",
+          float(np.corrcoef(record.grew_s, record["lost"])[0, 1]) < 0.5,
+          f"r = {float(np.corrcoef(record.grew_s, record["lost"])[0, 1]):+.2f}")
+    check("and the last level sits below every earlier one",
+          record.after.iloc[-1] < record.after.iloc[:-1].min(),
+          f"{record.after.iloc[-1]:+.4f} against "
+          f"{record.after.iloc[:-1].min():+.4f}")
+    check("which a monotone curve under one bubble could not do",
+          not record.after.is_monotonic_increasing)
+    check("the curve sheds more than it nets", record["lost"].sum() >
+          float(values[-1] - values[0]),
+          f"{record["lost"].sum():.4f} against {values[-1] - values[0]:.4f}")
+
+
 if __name__ == "__main__":
     test_an_axis_the_offsets_absorb_is_not_reported()
     test_the_block_still_measures_both_axes()
@@ -538,5 +625,7 @@ if __name__ == "__main__":
     test_the_correction_recovers_a_planted_rate()
     test_no_published_order_rests_on_the_gas()
     test_the_load_ceiling_flags_and_does_not_exclude()
+    test_the_large_steps_say_which_beam_the_gas_is_in()
+    test_the_worked_curve_carries_more_than_one_bubble()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)

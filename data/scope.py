@@ -1416,6 +1416,100 @@ def bubble_sensitivity(scope=TWO_AXIS_BLOCK, treatments=BUBBLE_TREATMENTS,
                  **orders("vmax", frame=kept)})
     return pd.DataFrame(rows).set_index(["treatment", "curves"])
 
+# A step this many of a curve's own noise is "large" for the purpose of asking
+# whether large steps rise or fall. Well above the detachment threshold, so the
+# comparison is between the two TAILS and not between a tail and the noise.
+BUBBLE_STEP_SIGMA = 20.0
+
+# The curve section 5 walks through detachment by detachment. Exp 141 cuvette 3
+# because it is the clearest case of the thing the repair cannot do: four
+# detachments, the largest after the shortest growth window, and a level after
+# the last one below every earlier level -- so more than one bubble was growing
+# at a time. Named here so the document and its checker read the same curve.
+BUBBLE_WORKED_EXAMPLE = (141, 3)
+
+
+def bubble_step_asymmetry(scope=TWO_AXIS_BLOCK, sigma=BUBBLE_STEP_SIGMA):
+    """
+    Do the block's large steps rise or fall? They fall, about five to one.
+
+    WHICH BEAM THE GAS IS IN, read off the shape alone. A bubble growing in the
+    SAMPLE beam scatters light out of the aperture, so absorbance climbs while
+    it grows and drops when it detaches: slow up, sudden down. A bubble in the
+    REFERENCE beam does the same to the reference, and the difference inverts
+    it: slow down, sudden up. The two populations are therefore separable by
+    the sign of the large steps, and they are not balanced.
+
+    Returns a dict: `steps`, `rises`, `falls` (counts beyond `sigma`),
+    `largest_rise`, `largest_fall` (in noise), `ratio` = falls / rises.
+
+    The reference cuvette omits only the ENZYME, so it holds the same peroxide
+    as the sample and would bubble too if the gas came from peroxide standing
+    in solution. It barely does, which is the same conclusion
+    `bubble_turnover_control` reaches from the other side.
+    """
+    rises = falls = steps = 0
+    largest_rise = largest_fall = 0.0
+    for curve in curves(scope):
+        values = np.asarray(curve.absorbance, dtype=float)
+        if len(values) < 2 or not np.isfinite(curve.noise) or curve.noise <= 0:
+            continue
+        z = np.diff(values) / curve.noise
+        steps += len(z)
+        rises += int((z > sigma).sum())
+        falls += int((z < -sigma).sum())
+        largest_rise = max(largest_rise, float(z.max()))
+        largest_fall = min(largest_fall, float(z.min()))
+    return {"steps": steps, "rises": rises, "falls": falls,
+            "largest_rise": largest_rise, "largest_fall": largest_fall,
+            "ratio": (falls / rises) if rises else np.nan}
+
+
+def bubble_record(experiment, sample, sigma=BUBBLE_DROP_SIGMA):
+    """
+    One curve's detachments, one row each: when, how much, and what preceded it.
+
+    Columns: time_s, lost, sigma, grew_s (seconds since the previous
+    detachment, or since t = 0), rose (how far the curve climbed over that
+    window), ramp (that climb per second), after (the reading immediately
+    following the detachment).
+
+    `lost` and not `drop`, because `DataFrame.drop` is a method and
+    `record.drop.max()` silently reaches the method rather than the column.
+
+    READ `grew_s` AGAINST `lost`. One bubble growing steadily on one site would
+    shed in proportion to the time it had to grow. Exp 141 cuvette 3 does not:
+    600 s of growth sheds 0.0215, another 600 s sheds 0.0153, and 300 s sheds
+    0.0303 -- the largest drop after the shortest window. `after` says the same
+    thing from the other end, rising +0.0472, +0.0558, +0.0647 and then falling
+    to +0.0430, which a monotone chemistry under a single bubble cannot do.
+    At least two bubbles were growing on different sites at once, and the trace
+    is their sum. That is why `debubble` is a bound and not a reconstruction:
+    it attributes each drop to growth since the previous drop, which is right
+    on average and wrong curve by curve.
+    """
+    curve = {c.sample: c for c in curves_of(experiment)}[int(sample)]
+    times = np.asarray(curve.times, dtype=float)
+    values = np.asarray(curve.absorbance, dtype=float)
+    drops = bubble_drops(values, curve.noise, sigma=sigma)
+    steps = np.diff(values)
+    rows = []
+    start = 0
+    for index in drops:
+        window = times[index] - times[start]
+        climb = float(values[index] - values[start])
+        rows.append({
+            "time_s": float(times[index]),
+            "lost": float(-steps[index]),
+            "sigma": float(steps[index] / curve.noise),
+            "grew_s": float(window),
+            "rose": climb,
+            "ramp": climb / window if window > 0 else np.nan,
+            "after": float(values[index + 1]),
+        })
+        start = index + 1
+    return pd.DataFrame(rows)
+
 def hoo_consistency(parameter="vmax", scope=None):
     """
     Is [HOO-] the reactant? Move it two ways and ask whether the order agrees.
