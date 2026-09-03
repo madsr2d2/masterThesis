@@ -285,28 +285,120 @@ could ever make**, and four more land between 0.49 and 0.86 — while their ramp
 *steepen*, at 1.1 to 23.5 times their starting slope. A reaction that has spent
 half its substrate cannot be running twenty times faster than it started.
 
-Subtract the ramp instead. Between one detachment and the next the artefact is
-taken to climb linearly to the size of the drop that ends the interval, and to
-return to nothing across the detachment itself — `curve_metrics.bubble_ramp`.
+**Take the gas out instead.** Write the readings as a sum of two things and
+give each one the only property it cannot lack: `A_obs = f + b`, where `f` is
+the chemistry and never decreases, and `b` is the gas and is never negative.
+Gas is made steadily — the peroxide is in enough excess that its decomposition
+does not slow over a run — and leaves in whole detachments, and two clauses
+close the model:
+
+- **the gas may not outrun the curve it rides on.** Over an ordinary step `b`
+  grows by at most what the reading itself gained, which is exactly `f' ≥ 0`.
+- **a bubble cannot shed gas that was never made.** The production rate is set
+  to the least that pays for every detachment, so `b ≥ 0` throughout.
+
+That leaves one free parameter, the production rate, and it is *pinned* rather
+than fitted — the least rate consistent with what was seen to leave, which
+makes the result an upper bound on the chemistry, the same direction as the
+monotone bound. `curve_metrics.bubble_profile` and `curve_metrics.bubble_rate`.
+
+**Stitching is this model at a rate of zero** — every bubble springing into
+being full-sized at the instant it leaves. That is not a caricature of it, it
+is the same arithmetic with the one parameter set to the one value the
+mass balance excludes.
+
 Against sawtooths planted into the block's own clean curves, where the rate
-before the planting is the truth:
+before the planting is the truth. Planted twice, because the difference between
+the plantings is the difference between the two repairs: with each bubble
+emptying at its detachment, and with each emptying only partly and carrying the
+rest over, which is what one curve below actually does.
 
-| artefact ÷ chemistry | left alone | **stitched** | ramp subtracted |
+| artefact ÷ chemistry | left alone | **stitched** | **rebuilt** |
 |---|---|---|---|
-| 0.25 | 1.12 | **1.15** | **1.01** |
-| 0.5 | 1.24 | **1.32** | **1.01** |
-| 1.0 | 1.58 | **1.64** | 1.12 |
+| 0.25 | 1.12 | **1.15** | **0.99** |
+| 0.5 | 1.24 | **1.32** | **0.98** |
+| 1 | 1.58 | **1.64** | **0.96** |
+| 2 | 2.26 | **2.34** | **0.95** |
 
-*(recovered `vmax` ÷ true `vmax`; 1.00 is exact)*
+*(each bubble empties; recovered `vmax` ÷ true `vmax`, 1.00 exact)*
 
-Stitching loses to doing nothing at every severity. The subtraction is unbiased
-while the artefact is the smaller half and leaves about a tenth by parity.
-`data/test_scope.py::test_the_correction_recovers_a_planted_rate` is that table.
+| artefact ÷ chemistry | left alone | **stitched** | **rebuilt** |
+|---|---|---|---|
+| 0.25 | 1.12 | **1.12** | **1.02** |
+| 0.5 | 1.26 | **1.31** | **1.02** |
+| 1 | 1.51 | **1.64** | **1.02** |
+| 2 | 2.22 | **2.32** | **1.06** |
 
-**Its limit is structural, not a matter of detection.** The last bubble never
-detaches, so its ramp is never revealed; given the *true* detachment times the
-recovery moves only from 1.13 to 1.10. No better detector rescues it, which is
-why the load below is a ceiling on use rather than a threshold to tune.
+*(each bubble empties only partly)*
+
+Stitching never beats doing nothing, and from 0.5x on it is strictly worse
+under both plantings; at the smallest artefact with the bubbles emptying
+only partly the two are equal to four decimals, because barely a drop clears
+the detector and there is nothing for stitching to add back. The
+reconstruction stays **within a tenth of the truth at every severity**, where
+the segment ramp it replaced held to 1.01 while the artefact was small and
+reached 1.60 by 2×. `scope.bubble_recovery` is both tables and
+`data/test_scope.py::test_the_correction_recovers_a_planted_rate` asserts them.
+
+**On a curve with no detachment it returns the readings unchanged** — not
+close, identical — so nothing here can move a clean curve, and 60 of the
+block's 110 live curves are clean.
+
+### The repaired curves are as smooth as the ones that never bubbled
+
+A repair is only a repair if what comes out carries no fall the noise cannot
+explain. That is the test the segment ramp failed, and it failed it two ways.
+
+It dated each bubble from the previous detachment and made it reach the full
+size of the drop, so a large drop after a short window implied a bubble growing
+faster than the curve: across exp 141 cuvette 3's last six readings it
+subtracted **+0.0061 per reading from a trace rising +0.0018**, and the
+"corrected" curve fell at every one of them. And it treated a fall spanning two
+readings as two bubbles, gave the second a growth window of **zero seconds**,
+skipped it, and left the whole of it in place — −0.0165 AU at 60σ in exp 144
+cuvette 2.
+
+`scope.rebuild_smoothness` measures what is left, in units of each curve's own
+noise:
+
+| | worst single fall |
+|---|---|
+| the 50 detaching curves, as read | **−260.4σ** |
+| the same 50, rebuilt | **−9.6σ** |
+| the 60 that never bubbled | −5.8σ |
+
+Exp 141 cuvette 3 goes from −109.9σ to −2.1σ and exp 144 cuvette 2 from −59.9σ
+to −7.0σ. **Exactly one repaired curve still carries a fall past 8σ**, and it
+is exp 135 cuvette 6, whose fall is in the *first interval*: a bubble that grew
+before the run began leaves no rise in the data to date it from, no rate
+explains it, and `debubble` returns that curve untouched rather than guessing.
+One curve separates the two populations and it is the one the model declines to
+touch.
+
+### The rate the model fits is the peroxide decomposing
+
+The production rate is read off the timing and size of the detachments alone —
+**the fit never sees a concentration** — so what it correlates with is a
+prediction the gas argument makes rather than a parameter it was given.
+
+It is **first order in peroxide, +1.203 ± 0.221** over the 49 live curves that
+carry one, 5.4σ from zero and within 1σ of exactly first order. That is the
+catalysed decomposition of H₂O₂, measured a second and independent way: the
+ladder above shows detachments get *more common* with peroxide, and this shows
+the gas is made *faster*, in proportion.
+
+The substrate carries −0.250 ± 0.094 with one offset per experiment — a weak
+negative, 2.6σ, of the sign a substrate competing for the same catalyst would
+give. What matters for the diagnosis is that it is nothing like the substrate
+order of a rate: **the alcohol is not what is turning into gas.**
+`scope.gas_rate_drivers`.
+
+**What the model still cannot do.** The last bubble on a curve never detaches,
+so nothing reveals how much gas was sitting in the beam when the run ended; the
+rate is a lower bound whenever a bubble leaves only partly, which is why the
+recovery sits at 1.02–1.06 rather than 1.00 under that planting; and the
+detector cannot see a bubble that grows and leaves inside one reading. The load
+below is a ceiling on use rather than a threshold to tune.
 
 ### Which beam the bubble is in, and why it raises the absorbance
 
@@ -434,7 +526,7 @@ block and **83%** on the worst curve — that spread *is* the contamination.
 Quote the corrected rate with the gap to the bound as its systematic, the way
 `product_fate/` quotes the sink's activation energy.
 
-### No order in this document rests on the gas
+### The substrate order does not rest on the gas, and the peroxide order moves
 
 This is the check that had to pass before §2 could stand, because a
 substrate-blind, peroxide-driven additive artefact is precisely what would
@@ -443,14 +535,30 @@ manufacture a flat substrate order. `scope.bubble_sensitivity`:
 | `vmax` from | n | order in [S] | order in [H₂O₂] |
 |---|---|---|---|
 | the readings | 110 | +0.091 ± 0.052 | +0.794 ± 0.077 |
-| the ramp subtracted | 110 | +0.079 ± 0.049 | +0.781 ± 0.074 |
+| the reconstruction | 109 | +0.076 ± 0.051 | **+0.666 ± 0.075** |
 | the monotone bound | 110 | +0.141 ± 0.049 | +0.770 ± 0.072 |
 | readings, load ≤ 1 only | 97 | +0.139 ± 0.059 | +0.767 ± 0.086 |
 
-Every order moves by less than the two estimates' errors combined, and the
-substrate order moves *away* from zero rather than toward it — the direction
-that matters, since the artefact could only have flattened it. Curve by curve
-the gas is severe; block by block it carries nothing.
+**The substrate order does not move** under any repair — by less than the two
+estimates' errors combined every time — and under the monotone bound it moves
+*away* from zero rather than toward it, which is the direction that matters
+since the artefact could only have flattened it. §2 stands.
+
+**The peroxide order does move.** The reconstruction takes it from +0.794 to
++0.666, a shift of 1.2σ of its own error and the largest any repair here
+produces; on the strong runs alone it is +0.871 to +0.758, also 1.2σ. That is
+not the repair failing, it is the repair working: the gas is *made from
+peroxide*, so an uncorrected artefact has to inflate the apparent peroxide
+order, and taking the gas out has to bring it down. The shift is not
+significant and neither reading changes any conclusion in this document — but
+it is the one number here that the choice of repair visibly touches, and the
+earlier claim that *no* order moved was made with a repair too weak to move it.
+
+One live curve of 110 loses a positive rate to the reconstruction: exp 149
+cuvette 4, netting 0.0064 AU with a load of 0.49, whose best local slope goes
+slightly negative once the gas is out. It is in the weak runs, which
+`scope.strong_runs` already excludes from every quoted number here. A rate that
+does not survive having the gas removed was not a rate.
 
 ### The acceleration is a high-pH effect, not a long-run one
 

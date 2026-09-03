@@ -129,7 +129,10 @@ BASELINE_POINTS = 5
 # the catalysed decomposition of the peroxide, and thirteen live curves carry
 # more of it than they carry reaction. They are flagged and NOT excluded --
 # read `scope.bubble_load` before letting one into a residual, and correct with
-# `curve_metrics.debubble`, never by stitching the pieces together. See
+# `curve_metrics.debubble`, never by stitching the pieces together -- stitching
+# is that model with its one parameter set to zero, and it is the value the
+# mass balance excludes. `debubble` is the identity on a curve with no
+# detachment, so it is safe to apply across a whole block. See
 # FITTING.md and DATA_VERIFICATION.md 2026-09-03.
 #
 # The two-salt buffer (Na4P2O7 with Na2HPO4, 143-151 NaH2PO4, equimolar) is

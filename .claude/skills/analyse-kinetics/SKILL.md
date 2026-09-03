@@ -106,6 +106,9 @@ bubble_ladder()           # detachments against [H2O2]: the evidence
 bubble_turnover_control() # and that peroxide alone does not do it
 bubble_synchrony()        # not the lamp: 17 coincidences against 16.0 expected
 bubble_mass_balance()     # what stitching would claim of the substrate
+bubble_recovery()         # recovered vmax / true vmax, at a planted truth
+rebuild_smoothness()      # does a repaired curve look like a clean one?
+gas_rate_drivers()        # what the fitted gas rate depends on
 bubble_sensitivity()      # every order under every repair
 bubble_step_asymmetry()   # which beam: 122 falls beyond 20 sigma against 23 rises
 bubble_record(141, 3)     # one curve's detachments, one row each
@@ -126,9 +129,24 @@ back is the repair that suggests itself and the one that must not be used: a
 bubble that costs delta when it leaves contributed delta of rise while it grew,
 so stitching keeps the artefact's whole upward half. It puts exp 135 cuvette 4
 at 1.26x the absorbance its own substrate could make, and against planted
-sawtooths it LOSES TO DOING NOTHING at every severity. Use
-`curve_metrics.debubble` (subtract the ramp; unbiased to a load of 0.5) and
-quote the gap to `monotone_bound` as its systematic.
+sawtooths it never beats DOING NOTHING at any severity -- stitching IS
+`debubble` with its one parameter set to zero.
+
+Use `curve_metrics.debubble`. It splits the readings into `f + b`: a
+non-decreasing chemistry and a non-negative gas made at a steady rate, which
+may never outrun the curve it rides on and must pay for each detachment out of
+gas already made. `bubble_rate` pins the one parameter to the least rate that
+pays, so the result is an UPPER bound on the chemistry -- quote the gap to
+`monotone_bound` as its systematic. It recovers a planted `vmax` to within a
+tenth at every severity up to 2x whether the bubbles empty or only partly
+empty, and on a curve with NO detachment it returns the readings unchanged.
+
+`rebuild_smoothness` is the check: rebuilt curves fall by at worst -9.6 sigma
+against -260.4 as read and -5.8 on curves that never bubbled. The one survivor,
+exp 135 cuvette 6, has its fall in the FIRST interval -- a bubble grown before
+the run leaves no rise to date it from, and that curve is returned untouched.
+`gas_rate_drivers` is the independent check on the diagnosis: the fitted rate
+is +1.203 +/- 0.221 in peroxide, from a fit that never saw a concentration.
 
 **Read `bubble_load` before quoting a rate off this block.** Thirteen of 110
 live curves sit above 1 and carry no measurable rate -- all four substrate rungs

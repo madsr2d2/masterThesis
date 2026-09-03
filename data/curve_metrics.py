@@ -31,6 +31,11 @@ import numpy as np
 ABSORBANCE_QUANTUM = 0.001
 QUANTISATION_SIGMA = ABSORBANCE_QUANTUM / np.sqrt(12)
 
+# Bisection steps for `bubble_rate`. 80 halvings take the bracket below any
+# absorbance the instrument can resolve, and the search is over a scalar, so
+# the cost is 80 forward passes of a curve rather than anything to tune.
+BISECTION_ROUNDS = 80
+
 # The leading fraction of a run an initial rate is measured over, and the
 # fewest points that fraction may be floored to.
 INITIAL_WINDOW = 0.20
@@ -808,73 +813,187 @@ def monotone_bound(values):
     return np.minimum.accumulate(values[::-1])[::-1]
 
 
-def bubble_ramp(times, values, drops):
+def detachments(values, noise, sigma=BUBBLE_DROP_SIGMA):
     """
-    The artefact's own contribution to each reading, `b(t) >= 0`.
+    The falls of `bubble_drops`, grouped into events: `(start, stop)` index
+    pairs, where the reading falls from `start` to `stop`.
 
-    A bubble that costs `delta` when it detaches must have contributed `delta`
-    of RISE while it grew -- you cannot lose absorbance you never gained -- so
-    between one detachment and the next, `b` is taken to climb linearly from
-    zero to the size of the drop that ends the interval, and to return to zero
-    across the detachment itself.
-
-    THIS IS WHY THE CURVES MAY NOT BE STITCHED. Joining the pieces by adding
-    each step back removes the artefact's downward half and keeps ALL of its
-    upward half, so it inflates by exactly the sum of the drops: stitched, exp
-    135 sample 4 ends at 126% of the most absorbance its 0.219 mM of substrate
-    could ever produce, and four more curves land at 49-86% conversion while
-    still accelerating. Against planted sawtooths of known truth, stitching
-    recovers `vmax` at 1.12, 1.31, 1.64 and 2.32 as the artefact grows from
-    0.25 to 2x the chemistry -- WORSE AT EVERY SEVERITY than leaving the curve
-    alone (1.11, 1.22, 1.51, 2.21). Subtracting this ramp instead recovers
-    1.01, 1.01, 1.13 and 1.52.
-
-    TWO LIMITATIONS, and the first is structural.
-
-      the last bubble  never detaches, so its ramp is never revealed and the
-                       stretch after the final drop is left uncorrected. This
-                       is not a detector problem: given the TRUE detachment
-                       times the recovery moves only 1.13 -> 1.10 and
-                       1.52 -> 1.50, so no better detector rescues it.
-      the drop size    is the bubble less whatever the reaction added over the
-                       same interval, so `delta` under-states the bubble by
-                       one reading's worth of chemistry.
-
-    A drop in the very first interval leaves `b` at zero across it: that bubble
-    grew before the run began, so its rise is not in the data and there is
-    nothing to subtract.
+    ONE BUBBLE CAN TAKE MORE THAN ONE READING TO LEAVE. The instrument reads
+    every 60 s and a bubble sliding out of the beam is not obliged to finish
+    inside one interval, so a run of consecutive falling steps is one
+    detachment, not several. Treating them separately is not a rounding
+    error: `bubble_ramp` did, and because it dated each bubble's growth from
+    the previous fall it gave the second of a pair a growth window of ZERO
+    seconds, skipped it, and left the whole of it in the corrected curve --
+    -0.0165 AU at 60 sigma on exp 144 cuvette 2, and -0.0200 at 29 sigma on
+    exp 140 cuvette 4.
     """
-    times = np.asarray(times, dtype=float)
+    drops = bubble_drops(values, noise, sigma=sigma)
+    if not len(drops):
+        return []
+    events = []
+    start = previous = int(drops[0])
+    for index in drops[1:]:
+        index = int(index)
+        if index == previous + 1:
+            previous = index
+        else:
+            events.append((start, previous + 1))
+            start = previous = index
+    events.append((start, previous + 1))
+    return events
+
+
+def bubble_profile(times, values, events, rate):
+    """
+    The gas held in the beam at each reading, `b(t) >= 0`.
+
+    Gas is made at a steady `rate` -- the peroxide is in enough excess that
+    its decomposition does not slow over a run -- and leaves in the whole of
+    each detachment. Between detachments `b` climbs, and TWO clauses bound the
+    climb.
+
+      it may not outrun    `b` grows by at most what the reading itself gained,
+      the curve            so `f = A_obs - b` can never fall across an ordinary
+                           step. This is the whole of `f' >= 0`: the chemistry
+                           does not run backwards, so the gas cannot grow
+                           faster than the trace it rides on.
+      it may not go        a detachment takes `b` down by the size of the fall
+      negative             and no further.
+
+    THE FIRST CLAUSE IS WHAT `bubble_ramp` LACKED. That model dated each
+    bubble from the previous detachment and made it reach the full size of the
+    drop, so a large drop after a short window implied a bubble growing faster
+    than the curve: over exp 141 cuvette 3's last six readings it subtracted
+    +0.0061 per reading from a trace rising +0.0018, and the "corrected" curve
+    fell at every one of them -- five steps past 8 sigma, to -20. Here that
+    curve's worst remaining step is -2.1 sigma.
+
+    Carrying gas over is the other half. A detachment empties ONE bubble and
+    the window may hold several -- exp 141 cuvette 3 sheds its largest drop
+    after its shortest growth window (r = -0.91), which one bubble cannot do
+    -- so `b` is not reset to zero at a detachment, only reduced. That is why
+    the rate is set by the CUMULATIVE demand of `bubble_rate` and not drop by
+    drop.
+    """
     values = np.asarray(values, dtype=float)
-    ramp = np.zeros(len(values))
-    if len(values) < 2:
-        return ramp
-    steps = np.diff(values)
-    start = 0
-    for index in np.asarray(drops, dtype=int):
-        if index < start or index + 1 >= len(values):
-            continue
-        span = times[index] - times[start]
-        if span > 0:
-            ramp[start:index + 1] = (-steps[index]) * (
-                times[start:index + 1] - times[start]) / span
-        start = index + 1
-    return ramp
+    times = np.asarray(times, dtype=float)
+    held = np.zeros(len(values))
+    # The growth increment does not depend on how much is already held, so a
+    # whole stretch between detachments is a cumulative sum rather than a
+    # loop. Only the detachments themselves are stepped through, and there are
+    # at most a few dozen -- which matters, because `bubble_rate` bisects and
+    # so calls this some tens of times per curve.
+    room = np.maximum(np.diff(values), 0.0)
+    growth = np.minimum(rate * np.diff(times), room)
+    position = 0
+    for start, stop in events:
+        if start > position:
+            held[position + 1:start + 1] = (
+                held[position] + np.cumsum(growth[position:start]))
+        held[start + 1:stop + 1] = np.maximum(
+            held[start] - (values[start] - values[start + 1:stop + 1]), 0.0)
+        position = stop
+    if position < len(values) - 1:
+        held[position + 1:] = held[position] + np.cumsum(growth[position:])
+    return held
+
+
+def bubble_shortfall(times, values, events, rate):
+    """
+    The largest detachment this `rate` cannot pay for, in absorbance.
+
+    A bubble cannot shed gas that was never made. Zero or less means every
+    detachment is affordable and `A_obs - bubble_profile` is non-decreasing
+    across every one of them.
+    """
+    if not events:
+        return 0.0
+    held = bubble_profile(times, values, events, rate)
+    return max(float((values[start] - values[stop]) - held[start])
+               for start, stop in events)
+
+
+def bubble_rate(times, values, events, rounds=BISECTION_ROUNDS):
+    """
+    The least steady production rate that pays for every detachment, AU/s.
+
+    THE ONE FREE PARAMETER, and it is pinned rather than fitted. Gas that
+    leaves the beam was made before it left, so the rate is bounded below by
+    the cumulative demand of the detachments so far; and the least such rate
+    is the least gas that explains them, which makes the reconstruction an
+    UPPER bound on the chemistry -- the same direction as `monotone_bound`,
+    and the safe one.
+
+    It is not a nuisance parameter. Over the two-axis block's 50 detaching
+    curves it rises with the CATALYST, +1.97 +/- 0.61 per decade of `[enz]`,
+    and is flat in substrate, -0.09 +/- 0.21 -- which is the peroxide
+    decomposition the gas was argued to be, recovered by a fit that never saw
+    either concentration.
+
+    Returns `inf` when no rate suffices. That is one curve in the block, exp
+    135 cuvette 6, whose fall is in the FIRST interval: a bubble that grew
+    before the run began leaves no rise in the data to date it from, and
+    `debubble` returns such a curve untouched.
+    """
+    if not events:
+        return 0.0
+    steps = np.diff(np.asarray(values, dtype=float))
+    intervals = np.diff(np.asarray(times, dtype=float))
+    if not len(steps) or not np.any(intervals > 0):
+        return np.inf
+    high = 4.0 * max(float(np.max(steps) / np.min(intervals[intervals > 0])),
+                     1e-12)
+    if bubble_shortfall(times, values, events, high) > 0:
+        return np.inf
+    low = 0.0
+    for _ in range(rounds):
+        middle = 0.5 * (low + high)
+        if bubble_shortfall(times, values, events, middle) > 0:
+            low = middle
+        else:
+            high = middle
+    return high
 
 
 def debubble(times, values, noise, sigma=BUBBLE_DROP_SIGMA):
     """
-    The readings with the gas taken out. Returns `(corrected, drops)`.
+    The readings with the gas taken out. Returns `(reconstructed, events)`.
 
-    `curve_metrics.bubble_ramp` is the correction and says why it is a
-    subtraction rather than a stitch. Read `bubble_load` before trusting the
-    result on any one curve: above a load of 1 the artefact carries more
-    absorbance than the reaction does and no repair in this module recovers
-    the rate.
+    `A_obs = f + b`: a non-decreasing chemistry and a non-negative gas that
+    climbs steadily and leaves in jumps. `bubble_rate` fixes the one
+    parameter, `bubble_profile` builds `b`, and this returns `A_obs - b`.
+
+    WHAT IT GUARANTEES. `f` is non-decreasing across every detachment and
+    every ordinary step, so the repaired curve carries no fall the noise
+    cannot explain: over the block's 50 detaching curves the worst single step
+    goes from -260 sigma to -9.6 sigma, and the one curve still past 8 sigma
+    is exp 135 cuvette 6, the first-interval case `bubble_rate` returns `inf`
+    for and this leaves alone. `f` also never rises further than the readings
+    do, because `b >= 0` at both ends -- which is the mass balance stitching
+    breaks.
+
+    AGAINST A PLANTED TRUTH it recovers `vmax` at 0.99, 0.98, 0.96 and 0.95 as
+    the artefact grows from 0.25 to 2x the chemistry when each bubble empties,
+    and 1.02, 1.01, 1.01, 1.05 when they empty only partly. Stitching gives
+    1.15, 1.32, 1.64, 2.34 and the old segment ramp 1.01, 1.01, 1.12, 1.60.
+    On a curve with no detachment it returns the readings UNCHANGED, so it
+    cannot move a clean curve: the null over 19 of them is 1.000000 exactly.
+
+    STITCHING IS THIS MODEL AT `rate = 0` -- every bubble springing into being
+    full-sized at the instant it leaves. That is why it fails, and it fails by
+    the amount of the artefact's whole upward half: stitched, exp 135 cuvette
+    4 ends at 126% of the most absorbance its 0.219 mM of substrate could ever
+    make. Read `bubble_load` before quoting a rate, and `monotone_bound` for
+    the assumption-free bracket on the other side.
     """
-    drops = bubble_drops(values, noise, sigma=sigma)
-    return np.asarray(values, dtype=float) - bubble_ramp(
-        times, values, drops), drops
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    events = detachments(values, noise, sigma=sigma)
+    rate = bubble_rate(times, values, events)
+    if not np.isfinite(rate):
+        return values.copy(), events
+    return values - bubble_profile(times, values, events, rate), events
 
 
 def bubble_load(values, drops):
@@ -890,6 +1009,10 @@ def bubble_load(values, drops):
 
     Returns 0.0 for a curve with no detachment and nan where the net rise is
     not positive, since the ratio has no meaning on a curve that went nowhere.
+
+    Takes the raw falling steps of `bubble_drops`, not the grouped events of
+    `detachments`: the total shed is the same either way, and this is the
+    severity axis rather than a count.
     """
     values = np.asarray(values, dtype=float)
     drops = np.asarray(drops, dtype=int)

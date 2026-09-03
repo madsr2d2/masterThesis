@@ -8,6 +8,106 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-03 — the segment ramp was not a reconstruction, and has been replaced
+
+Asked by eye, again, and the objection was right: the *corrected* curves drawn
+on `two_axis/progress_curves.html` still had drops in them. Exp 141 cuvette 3
+was the example given, against exps 146.5 and 147.2, which came out smooth.
+
+**Two faults, and they are different faults.**
+
+`bubble_ramp` dated each bubble from the previous detachment and made it reach
+the full size of the drop that ended the interval. Where a large drop followed
+a short window that implies a bubble growing faster than the curve rises, which
+is impossible — the gas is *added* to the chemistry, so `b' > A'` means the
+chemistry ran backwards. Over exp 141 cuvette 3's readings 64 to 69 it
+subtracted **+0.0061 per reading from a trace rising +0.0018**, and the
+corrected curve fell at every one of them: five consecutive steps past 8σ, to
+−20σ. This was not a tuning problem. It was the model asserting something the
+data forbid.
+
+Second, `bubble_ramp` treated a fall spanning two readings as two bubbles. The
+second then got a growth window of `times[i] - times[i]` — **zero seconds** —
+which the `span > 0` guard skipped, so no ramp was subtracted for it at all and
+the whole drop survived into the corrected curve. Exp 144 cuvette 2 kept
+−0.0165 AU at **60σ**; exp 140 cuvette 4 kept −0.0200 at 29σ. The guard was
+there to avoid a division by zero and it silently turned into a skip.
+
+**What replaced it.** `A_obs = f + b`, `f` non-decreasing and `b ≥ 0`, gas made
+at a steady rate — the peroxide is in enough excess that its decomposition does
+not slow over a run — and leaving in whole detachments. Two clauses close it:
+the gas may not grow faster than the reading itself gained (which *is* `f' ≥ 0`,
+enforced locally rather than hoped for), and it cannot shed what was never made.
+That leaves one parameter, the production rate, pinned to the least value that
+pays for every detachment, so the answer is an upper bound on the chemistry —
+the same direction as `monotone_bound`. `curve_metrics.bubble_profile`,
+`bubble_rate`, `detachments`; `bubble_ramp` is deleted, not deprecated.
+
+Consecutive falls are now one detachment (`detachments`), and the release is
+spread across the readings it actually spans instead of being dumped on the
+first of them — which was a third fault, found while fixing the second, and
+worth naming because it left 144.2 unchanged at −59.9σ even after merging.
+
+**Evidence it is better, not merely different.**
+
+| | worst single fall, in the curve's own noise |
+|---|---|
+| the 50 detaching curves, as read | −260.4σ |
+| the same 50, rebuilt | −9.6σ |
+| the 60 that never bubbled | −5.8σ |
+
+Exp 141 cuvette 3 goes −109.9σ → −2.1σ, exp 144 cuvette 2 −59.9σ → −7.0σ.
+Exactly one repaired curve still carries a fall past 8σ and it is exp 135
+cuvette 6, whose fall is in the *first interval*: a bubble grown before the run
+began leaves no rise to date it from, `bubble_rate` returns `inf`, and the curve
+is returned untouched rather than guessed at. `scope.rebuild_smoothness`.
+
+Against planted sawtooths on the block's own clean curves, recovered `vmax` ÷
+true `vmax`, at 0.25/0.5/1/2× the chemistry — planted **both** ways, because
+`bubble_record(141, 3)` shows the bubbles do not empty completely:
+
+| planting | left alone | stitched | old ramp | rebuilt |
+|---|---|---|---|---|
+| each bubble empties | 1.12 / 1.24 / 1.58 / 2.26 | 1.15 / 1.32 / 1.64 / 2.34 | 1.01 / 1.01 / 1.12 / 1.60 | 0.99 / 0.98 / 0.96 / 0.95 |
+| each empties partly | 1.12 / 1.26 / 1.51 / 2.22 | 1.12 / 1.31 / 1.64 / 2.32 | 1.05 / 1.10 / 1.28 / 1.70 | 1.02 / 1.02 / 1.02 / 1.06 |
+
+**On a curve with no detachment it returns the readings unchanged** — bit for
+bit, not merely close — so it cannot move a clean curve, and 60 of the 110 live
+curves are clean. The old ramp had no such guarantee to state.
+`scope.bubble_recovery`.
+
+**An independent check that fell out of it.** The production rate is fitted
+from the timing and size of the detachments alone and never sees a
+concentration. It is **+1.203 ± 0.221 in peroxide**, 5.4σ from zero and within
+1σ of exactly first order, and −0.250 ± 0.094 in substrate. That is the
+catalysed decomposition of H₂O₂ measured a second way: `bubble_ladder` says
+detachments get *more common* with peroxide, this says the gas is made *faster*,
+in proportion. `scope.gas_rate_drivers`.
+
+**One published number moves, and the earlier claim was too strong.** The
+2026-09-03 entry below says no order moves under any repair. That was measured
+with a repair too weak to move one. The **substrate** order still moves under
+none — it is the one at risk, since a substrate-blind artefact is what would
+manufacture a flat substrate order. The **peroxide** order goes +0.794 → +0.666
+over all live curves and +0.871 → +0.758 over the strong runs, 1.2σ in both
+cases. Not significant, and it changes no conclusion, but it is real and it is
+in the direction an artefact made from peroxide requires. Do not quote "no
+order moves".
+
+One live curve loses a positive rate: exp 149 cuvette 4, netting 0.0064 AU with
+a load of 0.49, whose best local slope goes slightly negative once the gas is
+out. Exp 149 is a weak run, already outside `strong_runs` and outside every
+quoted number in `two_axis/`. A rate that does not survive having the gas
+removed was not a rate. It is reported, not excluded.
+
+**Still open.** `curve_dossier.backtrack` and `build_dossier.curve_backtrack`
+remain two measurements of this same artefact in two modules, neither imported
+by `scope`, neither named so as to say which is which. They escape
+`test_no_duplicate_definitions` only because the names differ. They belong in
+`curve_metrics` beside this machinery.
+
+---
+
 ## 2026-09-03 — the chop is O₂, and it may not be stitched
 
 Asked about by eye again -- exps 143.3, 140.4 and 144.2, which rise, fall by

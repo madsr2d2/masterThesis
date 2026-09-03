@@ -20,7 +20,8 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            QUANTISATION_SIGMA, acceleration, curve_noise,
                            initial_rate, line_fit, line_slope, peak_position,
                            OUTLIER_SIGMA, bubble_drops, bubble_load,
-                           bubble_ramp, debubble, isolated_outliers,
+                           bubble_profile, bubble_rate, bubble_shortfall,
+                           debubble, detachments, isolated_outliers,
                            monotone_bound,
                            local_outlier_z, model_residual, quadratic_rate,
                            segmented_fit, segment_breaks,
@@ -643,21 +644,28 @@ def test_the_bubble_correction():
     check("a curve with no bubble has no detachment",
           len(bubble_drops(chemistry, noise)) == 0)
 
+    events = detachments(spoilt, noise)
+    check("each planted detachment is one event, not several",
+          [start for start, _ in events] == list(edges),
+          f"{events}")
+
     corrected, _ = debubble(times, spoilt, noise)
-    # The last bubble never detaches, so only what precedes the final edge is
-    # recoverable -- that limit is the module's, not the test's.
-    upto = edges[-1] + 1
-    before = np.abs(spoilt[:upto] - chemistry[:upto]).max()
-    after = np.abs(corrected[:upto] - chemistry[:upto]).max()
+    before = np.abs(spoilt - chemistry).max()
+    after = np.abs(corrected - chemistry).max()
     check("the correction removes most of the planted artefact",
-          after < 0.15 * before, f"{after:.2e} against {before:.2e}")
-    # What is left is the documented limitation, not slack in the threshold: a
-    # drop measures the bubble LESS whatever the reaction added over the same
-    # interval, so each detachment under-subtracts by one reading's worth of
-    # chemistry and those accumulate. The residual has to sit inside that sum.
-    missed = float(np.diff(chemistry)[edges].sum())
-    check("and what is left is the chemistry inside each drop, no more",
-          after <= missed, f"{after:.2e} against {missed:.2e}")
+          after < 0.2 * before, f"{after:.2e} against {before:.2e}")
+
+    # THE PROPERTY THE OLD SEGMENT RAMP DID NOT HAVE, and the reason this
+    # module was rewritten: the repaired curve may not fall. `bubble_profile`
+    # lets the gas grow by at most what the reading itself gained, so
+    # `A_obs - b` is non-decreasing at every ordinary step, and pays for each
+    # detachment in full, so it is non-decreasing across those too.
+    check("the reconstruction is non-decreasing everywhere",
+          bool((np.diff(corrected) >= -1e-15).all()),
+          f"worst step {np.diff(corrected).min():+.2e}")
+    check("and the readings it was built from are not",
+          np.diff(spoilt).min() < -8 * noise,
+          f"worst step {np.diff(spoilt).min():+.2e}")
 
     # THE CASE AGAINST STITCHING, as an assertion rather than a caveat.
     stitched = _stitch(spoilt, found)
@@ -668,20 +676,59 @@ def test_the_bubble_correction():
     check("stitching is further from the truth than doing nothing",
           np.abs(stitched - chemistry).max()
           > np.abs(spoilt - chemistry).max())
-    check("subtracting the ramp is closer than either",
-          np.abs(corrected[:upto] - chemistry[:upto]).max()
-          < np.abs(spoilt[:upto] - chemistry[:upto]).max())
+    check("the reconstruction is closer than either", after < before
+          and after < np.abs(stitched - chemistry).max())
+    check("stitching IS this model at rate zero",
+          np.allclose(spoilt - bubble_profile(times, spoilt, events, 0.0)
+                      + np.cumsum(np.concatenate(
+                          [[0.0], -np.diff(spoilt) * np.isin(
+                              np.arange(len(times) - 1), found)])),
+                      stitched))
 
-    # The subtraction CONSERVES: a bubble starts and ends at nothing, so it
-    # cannot have moved the curve's net. That is the property stitching breaks.
-    check("the correction leaves the net rise alone",
-          abs((corrected[-1] - corrected[0]) - (spoilt[-1] - spoilt[0]))
-          < 1e-12)
+    # A bubble starts at nothing and ends at nothing or more, so the repair can
+    # only ever LOWER the net rise. This is the mass balance stitching breaks.
+    check("the correction never raises the net rise",
+          (corrected[-1] - corrected[0]) <= (spoilt[-1] - spoilt[0]) + 1e-12,
+          f"{corrected[-1] - corrected[0]:.4f} against "
+          f"{spoilt[-1] - spoilt[0]:.4f}")
+    check("and it corrects the tail the last bubble is still growing in",
+          (corrected[-1] - corrected[0]) < (spoilt[-1] - spoilt[0]) - 1e-6)
 
-    check("the ramp is never negative", bubble_ramp(times, spoilt, found).min()
-          >= 0.0)
-    check("a detachment in the first interval subtracts no ramp",
-          bubble_ramp(times, spoilt, np.array([0])).max() == 0.0)
+    held = bubble_profile(times, spoilt, events, bubble_rate(
+        times, spoilt, events))
+    check("the gas is never negative", held.min() >= 0.0)
+    check("the gas never outruns the curve it rides on",
+          bool((np.diff(held) <= np.maximum(np.diff(spoilt), 0.0)
+                + 1e-15).all()))
+    check("the rate pays for every detachment and no more",
+          abs(bubble_shortfall(times, spoilt, events,
+                               bubble_rate(times, spoilt, events))) < 1e-9)
+    check("a rate below it cannot pay",
+          bubble_shortfall(times, spoilt, events,
+                           0.5 * bubble_rate(times, spoilt, events)) > 0)
+
+    # A bubble that grew before the first reading leaves no rise to date it
+    # from, so no rate explains it and the curve is returned untouched.
+    early = chemistry.copy()
+    early[1:] -= 0.01
+    untouched, _ = debubble(times, early, noise)
+    check("a detachment in the first interval has no affordable rate",
+          not np.isfinite(bubble_rate(times, early, detachments(early, noise))))
+    check("and such a curve is returned unchanged",
+          np.array_equal(untouched, early))
+
+    # ONE BUBBLE, TWO READINGS. A fall spread over consecutive readings is one
+    # detachment; counting it as two gave the second a growth window of zero
+    # seconds and left the whole of it uncorrected.
+    slow = spoilt.copy()
+    slow[28:] -= 0.004
+    pair = detachments(slow, noise)
+    check("a fall over two readings is one detachment",
+          (26, 28) in pair, f"{pair}")
+    rebuilt, _ = debubble(times, slow, noise)
+    check("and it is corrected in full",
+          bool((np.diff(rebuilt) >= -1e-15).all()),
+          f"worst step {np.diff(rebuilt).min():+.2e}")
 
     load = bubble_load(spoilt, found)
     check("the load is the absorbance lost over the net rise",
@@ -692,6 +739,8 @@ def test_the_bubble_correction():
           bubble_load(chemistry, bubble_drops(chemistry, noise)) == 0.0)
     check("a curve that went nowhere has no load to report",
           not np.isfinite(bubble_load(np.zeros(20), np.array([], dtype=int))))
+    check("a clean curve is returned untouched, not merely close",
+          np.array_equal(debubble(times, chemistry, noise)[0], chemistry))
 
 
 def test_the_monotone_bound():

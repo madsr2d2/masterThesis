@@ -190,10 +190,20 @@ and carry no measurable rate: all four substrate rungs of exp 135, plus inner
 rungs of 138, 140, 141, 142 and 150. Nothing is excluded; they stay in the frame
 and on the curves page, but a residual computed against them is measuring gas.
 The other 97 are usable, and `curve_metrics.debubble` is the correction —
-**never a stitch**, which inflates by the whole sum of the drops and loses to
-doing nothing at every severity tested.
+**never a stitch**, which inflates by the whole sum of the drops and never beats
+doing nothing at any severity tested. Stitching *is* `debubble` with its one
+parameter set to zero.
 
-No order in `two_axis/` moves under any repair (`scope.bubble_sensitivity`).
+`debubble` splits the readings into a non-decreasing chemistry and a
+non-negative gas made at a steady rate, and recovers a planted `vmax` to within
+a tenth at every severity up to 2×. **On a curve with no detachment it returns
+the readings unchanged**, so it is safe to apply to a whole block rather than
+to a hand-picked subset — which is what a residual needs.
+
+The **substrate** order in `two_axis/` moves under no repair. The **peroxide**
+order does: +0.794 → +0.666 under the reconstruction, 1.2σ, and downward, which
+is what an artefact made from peroxide requires (`scope.bubble_sensitivity`).
+Neither reading is significant, but do not quote the older "no order moves".
 
 ### What stays outside the scope but must not be lost
 

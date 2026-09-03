@@ -394,11 +394,15 @@ def test_stitching_is_refused_on_the_real_curves():
           f"sample {int(balance.loc[balance.stitched.idxmax(), 'sample'])}")
     check("the subtraction leaves every curve inside it",
           int((balance.corrected > 1.0).sum()) == 0)
-    # It cannot do otherwise, and saying so here is the point: the artefact
-    # begins and ends at nothing, so it cannot have moved the net. That
-    # identity is exactly what stitching breaks.
-    check("because the subtraction conserves the net rise",
-          np.allclose(balance.raw, balance.corrected))
+    # It cannot do otherwise, and saying so here is the point: the gas starts
+    # at nothing and ends at nothing or more, so the repair can only ever
+    # LOWER the net rise. Stitching is the one direction the mass balance
+    # forbids, and it is the direction stitching always goes.
+    check("because the repair can only lower a curve, never raise it",
+          bool((balance.corrected <= balance.raw + 1e-12).all()),
+          f"worst {float((balance.corrected - balance.raw).max()):+.2e}")
+    check("and stitching only ever raises one",
+          bool((balance.stitched >= balance.raw - 1e-12).all()))
     # The curves stitching ruins are the ones that were still speeding up, so
     # the conversion it claims cannot be believed on its own terms either.
     worst = balance.nlargest(5, "stitched")
@@ -412,64 +416,121 @@ def test_the_correction_recovers_a_planted_rate():
     The recovery table, on real curves with a known truth.
 
     Donors are the block's own clean curves; the artefact is planted, so the
-    rate before it is the truth. Three claims: the subtraction beats leaving
-    the curve alone, stitching LOSES to leaving it alone at every severity, and
-    the correction is unbiased while the artefact is small.
+    rate before it is the truth. It is planted TWO WAYS, because the choice
+    between them is the whole difference between the segment ramp and the
+    model that replaced it: with each bubble emptying at its detachment, which
+    is what the ramp assumed, and with each emptying only partly, which is what
+    `bubble_record(141, 3)` says actually happens. A repair that only works
+    under its own assumption is not a repair.
     """
     print("\nrecovery of a planted rate")
-    generator = np.random.default_rng(7)
-    frame = scope.frame()
-    donors = [c for c in scope.curves()
-              if not len(curve_metrics.bubble_drops(
-                  np.asarray(c.absorbance, float), c.noise))
-              and float(np.ptp(np.asarray(c.absorbance, float))) > 0.02]
-    check("there are clean donor curves to plant into", len(donors) >= 10,
-          f"{len(donors)}")
+    for emptying in (True, False):
+        how = "emptying" if emptying else "partly emptying"
+        table = scope.bubble_recovery(emptying=emptying)
+        check(f"{how}: there are clean donor curves to plant into",
+              int(table.n.iloc[0]) >= 40, f"{int(table.n.iloc[0])} plantings")
+        for severity, row in table.iterrows():
+            check(f"{how}, {severity:g}x: stitching never beats leaving it "
+                  f"alone", row.stitched >= row.raw - 1e-9,
+                  f"{row.stitched:.4f} against {row.raw:.4f}")
+            if severity >= 0.5:
+                # At 0.25x with the bubbles emptying only partly the two are
+                # equal to four decimals: barely a drop clears the detector,
+                # so there is nothing for stitching to add back. From 0.5x on
+                # it is strictly worse.
+                check(f"{how}, {severity:g}x: and past the smallest artefact "
+                      f"it is strictly worse", row.stitched > row.raw,
+                      f"{row.stitched:.4f} against {row.raw:.4f}")
+            check(f"{how}, {severity:g}x: the reconstruction beats both",
+                  abs(row.rebuilt - 1) < abs(row.raw - 1)
+                  and abs(row.rebuilt - 1) < abs(row.stitched - 1),
+                  f"{row.rebuilt:.2f} against {row.raw:.2f} and "
+                  f"{row.stitched:.2f}")
+            # THE CLAIM THE SEGMENT RAMP COULD NOT MAKE. It held to 1.01 while
+            # the artefact was small and reached 1.60 by 2x; this stays inside
+            # a tenth at every severity, under both plantings.
+            check(f"{how}, {severity:g}x: and it is within a tenth of the "
+                  f"truth", abs(row.rebuilt - 1.0) < 0.10, f"{row.rebuilt:.2f}")
 
-    def recovered(severity):
-        raw, stitched, subtracted = [], [], []
-        for curve in donors:
-            times = np.asarray(curve.times, dtype=float)
-            values = np.asarray(curve.absorbance, dtype=float)
-            floor = scope.source_floor(curve.source)
-            truth = curve_metrics.peak_rate(times, values, floor=floor)[0]
-            if not np.isfinite(truth) or truth <= 0:
-                continue
-            for _ in range(4):
-                edges = np.sort(generator.choice(
-                    np.arange(5, len(times) - 5), size=5, replace=False))
-                rate = severity * (values[-1] - values[0]) / times[-1]
-                artefact = np.zeros(len(times))
-                start = 0
-                for edge in edges:
-                    artefact[start:edge + 1] = rate * (
-                        times[start:edge + 1] - times[start])
-                    start = edge + 1
-                artefact[start:] = rate * (times[start:] - times[start])
-                spoilt = values + artefact
-                drops = curve_metrics.bubble_drops(spoilt, curve.noise)
-                joined = spoilt.copy()
-                for index in drops:
-                    joined[index + 1:] -= np.diff(spoilt)[index]
-                fixed, _ = curve_metrics.debubble(times, spoilt, curve.noise)
-                for bag, series in ((raw, spoilt), (stitched, joined),
-                                    (subtracted, fixed)):
-                    bag.append(curve_metrics.peak_rate(
-                        times, series, floor=floor)[0] / truth)
-        return (float(np.median(raw)), float(np.median(stitched)),
-                float(np.median(subtracted)))
+    # A repair that moves a curve it was not needed on is a repair that has to
+    # be defended on every curve. This one is the identity there.
+    untouched = []
+    for curve in scope.curves():
+        values = np.asarray(curve.absorbance, dtype=float)
+        if len(curve_metrics.bubble_drops(values, curve.noise)):
+            continue
+        untouched.append(np.array_equal(curve_metrics.debubble(
+            np.asarray(curve.times, dtype=float), values, curve.noise)[0],
+            values))
+    check("and on a curve with no detachment it changes nothing at all",
+          all(untouched) and len(untouched) > 40,
+          f"{sum(untouched)} of {len(untouched)}")
 
-    for severity in (0.25, 0.5, 1.0):
-        raw, stitched, subtracted = recovered(severity)
-        check(f"at {severity:g}x the chemistry, stitching is worse than "
-              f"leaving it alone", stitched > raw,
-              f"{stitched:.2f} against {raw:.2f}")
-        check(f"at {severity:g}x, subtracting the ramp beats both",
-              subtracted < raw and subtracted < stitched,
-              f"{subtracted:.2f} against {raw:.2f} and {stitched:.2f}")
-        if severity <= 0.5:
-            check(f"and at {severity:g}x it is unbiased",
-                  abs(subtracted - 1.0) < 0.06, f"{subtracted:.2f}")
+
+def test_the_reconstruction_is_as_smooth_as_a_curve_that_never_bubbled():
+    """
+    The repaired curves have to meet the clean curves' standard, not merely
+    improve on where they started.
+
+    This is what the segment ramp failed. It left five consecutive steps past
+    8 sigma in exp 141 cuvette 3 -- it subtracted a ramp climbing +0.0061 a
+    reading from a trace rising +0.0018 -- and it left the second of a pair of
+    adjacent falls entirely uncorrected, -0.0165 at 60 sigma in exp 144
+    cuvette 2. Both are gone, and the test is against the curves that never
+    carried gas at all.
+    """
+    print("\nthe reconstruction against the curves that never bubbled")
+    table = scope.rebuild_smoothness()
+    repaired = table[~table.clean]
+    clean = table[table.clean]
+    check("there are both kinds to compare",
+          len(repaired) > 20 and len(clean) > 20,
+          f"{len(repaired)} repaired, {len(clean)} clean")
+    check("the readings carry falls no noise can explain",
+          float(repaired.raw_worst.min()) < -100,
+          f"{repaired.raw_worst.min():.1f} sigma")
+    check("the reconstructions do not",
+          float(repaired.rebuilt_worst.min()) > -12,
+          f"{repaired.rebuilt_worst.min():.1f} sigma")
+    survivors = repaired[repaired.rebuilt_worst < -scope.REBUILD_STEP_SIGMA]
+    check("exactly one repaired curve still carries one",
+          len(survivors) == 1, f"{len(survivors)}")
+    check("and it is the first-interval curve the model declines to touch",
+          [(int(r.experiment), int(r["sample"]))
+           for _, r in survivors.iterrows()] == [(135, 6)],
+          f"{[(int(r.experiment), int(r['sample'])) for _, r in survivors.iterrows()]}")
+    check("that curve is returned exactly as it was read",
+          not np.isfinite(float(scope.frame().set_index(
+              ["experiment", "sample"]).loc[(135, 6), "gas_rate"])))
+    # The two populations meet: the worst clean curve and the worst repaired
+    # one are the same size, so the repaired curves are no longer a class the
+    # eye can pick out.
+    check("the worst clean curve is the same size as the worst repaired one",
+          abs(float(clean.rebuilt_worst.min())
+              / float(repaired[repaired.rebuilt_worst
+                               > -scope.REBUILD_STEP_SIGMA]
+                      .rebuilt_worst.min())) > 0.5,
+          f"{clean.rebuilt_worst.min():.1f} against "
+          f"{repaired[repaired.rebuilt_worst > -scope.REBUILD_STEP_SIGMA].rebuilt_worst.min():.1f}")
+
+
+def test_the_gas_rate_belongs_to_the_peroxide():
+    """
+    `bubble_rate` never sees a concentration, so what it correlates with is a
+    prediction rather than a fit. It is first order in peroxide.
+    """
+    print("\nwhat the fitted gas rate depends on")
+    drivers = scope.gas_rate_drivers()
+    check("the gas rate is first order in peroxide",
+          abs(drivers["pooled_h2o2"] - 1.0) < 2 * drivers["pooled_stderr_h2o2"],
+          f"{drivers['pooled_h2o2']:+.3f} +/- "
+          f"{drivers['pooled_stderr_h2o2']:.3f}")
+    check("and that is not nothing -- it is excluded from zero",
+          drivers["pooled_h2o2"] > 3 * drivers["pooled_stderr_h2o2"],
+          f"{drivers['pooled_h2o2'] / drivers['pooled_stderr_h2o2']:.1f} sigma")
+    check("the substrate carries far less of it than the peroxide does",
+          abs(drivers["order_s0"]) < 0.5 * abs(drivers["pooled_h2o2"]),
+          f"{drivers['order_s0']:+.3f} against {drivers['pooled_h2o2']:+.3f}")
 
 
 def test_no_published_order_rests_on_the_gas():
@@ -477,28 +538,64 @@ def test_no_published_order_rests_on_the_gas():
     The reason the block's conclusions survive a defect this large.
 
     A substrate-blind, peroxide-driven additive artefact is exactly what would
-    manufacture the flat substrate order of section 2, so the orders have to be
-    read under every repair before that order can stand. They move by less than
-    their own standard errors, and the substrate order moves AWAY from zero.
+    manufacture the flat substrate order of section 2, so the orders have to
+    be read under every repair before that order can stand.
+
+    THE SUBSTRATE ORDER IS THE ONE AT RISK AND IT DOES NOT MOVE. The peroxide
+    order does: the reconstruction takes it from +0.794 to +0.666, which is
+    1.2 sigma of its own error and the largest shift any repair here produces.
+    That is not a failure of the repair, it is the repair working -- the gas
+    is made from peroxide, so an uncorrected artefact must inflate the
+    peroxide order, and taking the gas out must bring it down. It is reported
+    rather than asserted away, and it is not significant.
     """
     print("\nthe orders under each repair")
     table = scope.bubble_sensitivity()
     published = table.loc[("vmax", "all live")]
+
+    def shift(row, axis):
+        gap = abs(row[f"order_{axis}"] - published[f"order_{axis}"])
+        spread = float(np.hypot(row[f"stderr_{axis}"],
+                                published[f"stderr_{axis}"]))
+        return gap, spread, gap / spread
+
     for (treatment, subset), row in table.iterrows():
         if treatment == "vmax" and subset == "all live":
             continue
-        for axis in ("s0", "h2o2"):
-            gap = abs(row[f"order_{axis}"] - published[f"order_{axis}"])
-            spread = float(np.hypot(row[f"stderr_{axis}"],
-                                    published[f"stderr_{axis}"]))
-            check(f"{treatment} on {subset}: the {axis} order does not move",
-                  gap < spread, f"{gap:.3f} against {spread:.3f}")
+        gap, spread, sigma = shift(row, "s0")
+        check(f"{treatment} on {subset}: the substrate order does not move",
+              gap < spread, f"{gap:.3f} against {spread:.3f}")
+        gap, spread, sigma = shift(row, "h2o2")
+        check(f"{treatment} on {subset}: the peroxide order moves less than "
+              f"1.5 sigma", sigma < 1.5, f"{sigma:.1f} sigma")
+
+    corrected = table.loc[("vmax_corrected", "all live")]
+    check("the peroxide order comes DOWN under the reconstruction, as an "
+          "artefact made from peroxide requires",
+          corrected["order_h2o2"] < published["order_h2o2"],
+          f"{corrected['order_h2o2']:+.3f} against "
+          f"{published['order_h2o2']:+.3f}")
+    check("and it is the largest shift of the three repairs",
+          shift(corrected, "h2o2")[2]
+          > max(shift(table.loc[(t, "all live")], "h2o2")[2]
+                for t in ("vmax_monotone",)),
+          f"{shift(corrected, 'h2o2')[2]:.1f} sigma")
     check("the substrate order does not move toward zero under the bound",
           abs(table.loc[("vmax_monotone", "all live"), "order_s0"])
           >= abs(published["order_s0"]))
-    check("every treatment keeps all 110 live curves",
-          int(table.loc[("vmax_corrected", "all live"), "n"])
-          == int(published["n"]))
+
+    # ONE curve of 110 loses its rate to the repair, and it has to be named
+    # rather than counted: a rate that goes negative when the gas comes out
+    # had no rate to begin with.
+    lost = int(published["n"]) - int(corrected["n"])
+    check("at most one live curve loses a positive rate to the repair",
+          lost <= 1, f"{lost}")
+    data = scope.frame()
+    data = data[data.live & (data.vmax_corrected <= 0)]
+    check("and it is a weak run, outside every quoted number in the block",
+          set(data.experiment) <= set(scope.TWO_AXIS_BLOCK)
+          - set(scope.strong_runs()),
+          f"{[(int(r.experiment), int(r['sample'])) for _, r in data.iterrows()]}")
 
 
 def test_the_load_ceiling_flags_and_does_not_exclude():

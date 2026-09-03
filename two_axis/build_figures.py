@@ -423,8 +423,10 @@ def build_curves_page():
     AND IT DRAWS THE GAS. Fifty of these curves carry O₂ detachments, and until
     2026-09-03 this page showed a progress fit to the raw readings with nothing
     to say so — a fit to the bubble, presented as a fit to the reaction. Each
-    contaminated panel now carries the raw readings, the corrected series (§5,
+    contaminated panel now carries the raw readings, the reconstruction (§5,
     `curve_metrics.debubble`), a fit to EACH, and a rule at every detachment.
+    The rule is per DETACHMENT and not per falling reading, because one bubble
+    may take two readings to leave.
     The correction is drawn beside the readings rather than in place of them:
     `frame`'s `vmax`, `v0` and progress form are still measured on the raw
     curve, `vmax_corrected` sits beside them, and the reader decides which the
@@ -446,8 +448,8 @@ def build_curves_page():
         # did rather than asserting it in prose. Only where there is something
         # to correct: with no detachment the two series are identical and the
         # second line would be a decoration.
-        corrected, drops = curve_metrics.debubble(times, values, curve.noise)
-        chopped = len(drops) > 0
+        corrected, events = curve_metrics.debubble(times, values, curve.noise)
+        chopped = len(events) > 0
         axes, radius = progress_axes(times, values, limit=140,
                                      companion=corrected if chopped else None)
         if chopped:
@@ -464,8 +466,8 @@ def build_curves_page():
         if chopped:
             # Where the gas left, so the reader can see the correction is
             # anchored to the readings and not to a smoothing choice.
-            breakpoints(axes, [float(times[i]) for i in drops],
-                        [""] * len(drops), colour=GRID)
+            breakpoints(axes, [float(times[start]) for start, _ in events],
+                        [""] * len(events), colour=GRID)
         panels.append(panel(
             f"pH {row.pH:.2f} · [S] {row.s0:g} mM · [H₂O₂] {row.h2o2:g} mM"
             f"<span class='pill'>exp {int(row.experiment)}.{int(row.sample)}"
@@ -484,9 +486,9 @@ def build_curves_page():
             + ("" if row.experiment in strong
                else " · <strong>weak run</strong>")
             + ("" if not chopped else
-               f" · <span style='color:{CATEGORY[2]}'>{len(drops)} O₂ "
-               f"detachment" + ("s" if len(drops) > 1 else "") + ", load "
-               f"{row.bubble_load:.2f}, corrected v_max "
+               f" · <span style='color:{CATEGORY[2]}'>{len(events)} O₂ "
+               f"detachment" + ("s" if len(events) > 1 else "") + ", load "
+               f"{row.bubble_load:.2f}, rebuilt v_max "
                f"{row.vmax_corrected:.2e}</span>")
             + ("" if row.bubble_load <= scope.BUBBLE_LOAD_CEILING else
                " · <strong>NO MEASURABLE RATE</strong>")))

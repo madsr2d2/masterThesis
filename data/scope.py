@@ -31,7 +31,8 @@ import pandas as pd
 from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
                            INITIAL_WINDOW, LAG_THRESHOLD,
                            OUTLIER_SIGMA, acceleration, bubble_drops, bubble_load,
-                           burst_amplitude, debubble,
+                           bubble_rate,
+                           burst_amplitude, debubble, detachments,
                            initial_rate,
                            isolated_outliers, lag_time, local_outlier_z,
                            model_residual, monotone_bound, peak_position,
@@ -115,12 +116,16 @@ def frame(scope=TWO_AXIS_BLOCK):
         vmax, vmax_stderr, vmax_where = peak_rate(times, values, floor=floor)
         # THE GAS. O2 from the catalysed decomposition of the peroxide grows on
         # the window and detaches, so the readings carry a sawtooth that no
-        # kinetic form can hold. `debubble` subtracts the ramp each detachment
-        # reveals and `monotone_bound` brackets it from the assumption-free
-        # side; `bubble_load` says which of the two a curve is entitled to.
-        # curve_metrics.bubble_ramp has the case against stitching, which is
-        # the repair that suggests itself and the one that makes it worse.
-        corrected, drops = debubble(times, values, noise)
+        # kinetic form can hold. `debubble` splits the readings into a
+        # non-decreasing chemistry and a gas made at a steady rate, and
+        # `monotone_bound` brackets it from the assumption-free side;
+        # `bubble_load` says which of the two a curve is entitled to.
+        # curve_metrics.bubble_profile has the case against stitching, which
+        # is the repair that suggests itself and the one that makes it worse.
+        drops = bubble_drops(values, noise)
+        events = detachments(values, noise)
+        gas_rate = bubble_rate(times, values, events)
+        corrected, _ = debubble(times, values, noise)
         vmax_corrected, _, _ = peak_rate(times, corrected, floor=floor)
         vmax_monotone, _, _ = peak_rate(
             times, monotone_bound(values), floor=floor)
@@ -326,7 +331,9 @@ def frame(scope=TWO_AXIS_BLOCK):
             # artefact carries more absorbance than the reaction and no repair
             # here recovers the rate.
             "bubble_drops": int(len(drops)),
+            "bubble_events": int(len(events)),
             "bubble_load": bubble_load(values, drops),
+            "gas_rate": gas_rate,
             "vmax_corrected": vmax_corrected,
             "vmax_monotone": vmax_monotone,
             # vmax/v0: how many times over the reaction sped up. accel_z
@@ -1223,8 +1230,12 @@ def bubble_table(scope=TWO_AXIS_BLOCK, live_only=True):
     """
     Every curve's gas load, and what its rate looks like under each repair.
 
-    Columns: experiment, sample, s0, h2o2, bubble_drops, bubble_load, vmax,
-    vmax_corrected, vmax_monotone, repairable.
+    Columns: experiment, sample, s0, h2o2, e0, bubble_drops, bubble_events,
+    bubble_load, gas_rate, vmax, vmax_corrected, vmax_monotone, repairable.
+
+    `bubble_drops` counts falling READINGS and `bubble_events` the bubbles
+    that made them -- a fall may span two readings, and 50 detaching curves
+    carry 220 falls in 206 events.
 
     `repairable` is `bubble_load <= BUBBLE_LOAD_CEILING`. Read it before
     quoting a rate off any curve in this block; it is the flag the folder
@@ -1233,9 +1244,9 @@ def bubble_table(scope=TWO_AXIS_BLOCK, live_only=True):
     data = frame(scope)
     if live_only:
         data = data[data.live]
-    out = data[["experiment", "sample", "s0", "h2o2", "bubble_drops",
-                "bubble_load", "vmax", "vmax_corrected",
-                "vmax_monotone"]].copy()
+    out = data[["experiment", "sample", "s0", "h2o2", "e0", "bubble_drops",
+                "bubble_events", "bubble_load", "gas_rate", "vmax",
+                "vmax_corrected", "vmax_monotone"]].copy()
     out["repairable"] = out.bubble_load <= BUBBLE_LOAD_CEILING
     return out.sort_values("bubble_load", ascending=False).reset_index(
         drop=True)
@@ -1389,6 +1400,197 @@ def bubble_mass_balance(scope=TWO_AXIS_BLOCK):
     return pd.DataFrame(rows)
 
 
+# A step this far below zero, in units of the curve's own noise, is a fall the
+# noise cannot explain. It is the detector's own threshold, reused: a
+# reconstruction that still carries one has not removed the artefact it was
+# built for.
+# The severities the recovery table is reported at: the artefact's total rise
+# as a multiple of the chemistry's. 2.0 is past anything in the block and is
+# there because that is where the segment ramp broke.
+RECOVERY_SEVERITIES = (0.25, 0.5, 1.0, 2.0)
+
+# The seed the planting draws its detachment times from. Fixed so the table in
+# the document and the table the test asserts are the same table.
+RECOVERY_SEED = 7
+
+# How many plantings each donor curve carries at each severity.
+RECOVERY_REPEATS = 4
+
+
+def bubble_recovery(severities=RECOVERY_SEVERITIES, emptying=True,
+                    scope=TWO_AXIS_BLOCK, seed=RECOVERY_SEED,
+                    repeats=RECOVERY_REPEATS):
+    """
+    Recovered `vmax` over true `vmax`, for each repair, at a known truth.
+
+    The donors are the block's OWN clean curves, so the chemistry being
+    recovered is real chemistry with real noise; only the artefact is planted,
+    and the rate measured before planting is the truth. 1.00 is exact and
+    above 1.00 is a rate that the gas inflated.
+
+    `emptying` chooses the planting, and the choice is the argument. With
+    `True` each bubble leaves completely at its detachment, which is what
+    `bubble_ramp` assumed until 2026-09-03. With `False` each leaves only 40 to
+    100% of what it holds and the rest carries over, which is what
+    `bubble_record(141, 3)` shows -- a curve shedding its LARGEST drop after
+    its SHORTEST growth window cannot be one bubble emptying each time. A
+    repair has to survive both, and the segment ramp survived only the first:
+    1.01, 1.01, 1.12, 1.60 emptying, against 1.05, 1.10, 1.28, 1.70 not.
+
+    Columns: severity, raw, stitched, rebuilt, n.
+    """
+    generator = np.random.default_rng(seed)
+    donors = [c for c in curves(scope)
+              if not len(bubble_drops(np.asarray(c.absorbance, dtype=float),
+                                      c.noise))
+              and float(np.ptp(np.asarray(c.absorbance, dtype=float))) > 0.02]
+    rows = []
+    for severity in severities:
+        raw, stitched, rebuilt = [], [], []
+        for curve in donors:
+            times = np.asarray(curve.times, dtype=float)
+            values = np.asarray(curve.absorbance, dtype=float)
+            floor = source_floor(curve.source)
+            truth = peak_rate(times, values, floor=floor)[0]
+            if not np.isfinite(truth) or truth <= 0:
+                continue
+            for _ in range(repeats):
+                edges = np.sort(generator.choice(
+                    np.arange(5, len(times) - 5), size=5, replace=False))
+                rate = severity * (values[-1] - values[0]) / times[-1]
+                artefact = _planted_gas(times, edges, rate, emptying,
+                                        generator)
+                spoilt = values + artefact
+                drops = bubble_drops(spoilt, curve.noise)
+                joined = spoilt.copy()
+                for index in drops:
+                    joined[index + 1:] -= np.diff(spoilt)[index]
+                fixed, _ = debubble(times, spoilt, curve.noise)
+                for bag, series in ((raw, spoilt), (stitched, joined),
+                                    (rebuilt, fixed)):
+                    bag.append(peak_rate(times, series, floor=floor)[0] / truth)
+        rows.append({"severity": severity,
+                     "raw": float(np.median(raw)),
+                     "stitched": float(np.median(stitched)),
+                     "rebuilt": float(np.median(rebuilt)),
+                     "n": len(raw)})
+    return pd.DataFrame(rows).set_index("severity")
+
+
+def _planted_gas(times, edges, rate, emptying, generator):
+    """One planted artefact: gas made at `rate`, shed at each of `edges`."""
+    if emptying:
+        artefact = np.zeros(len(times))
+        start = 0
+        for edge in edges:
+            artefact[start:edge + 1] = rate * (
+                times[start:edge + 1] - times[start])
+            start = edge + 1
+        artefact[start:] = rate * (times[start:] - times[start])
+        return artefact
+    held = rate * (times - times[0])
+    released = np.zeros(len(times))
+    for edge in edges:
+        released[edge + 1:] += (held[edge] - released[edge]) * (
+            generator.uniform(0.4, 1.0))
+    return held - released
+
+
+REBUILD_STEP_SIGMA = BUBBLE_DROP_SIGMA
+
+
+def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
+                       live_only=True):
+    """
+    Does a repaired curve look like a curve that never bubbled?
+
+    THE TEST THE REPAIR HAS TO PASS, and the one the segment ramp failed. A
+    reconstruction is only a reconstruction if what comes out carries no fall
+    the noise cannot explain -- the curves that never bubbled set the standard,
+    and the repaired ones have to meet it rather than merely improve on where
+    they started.
+
+    One row per curve: experiment, sample, bubble_events, bubble_load,
+    raw_worst (the steepest single fall in the READINGS, in units of the
+    curve's own noise), rebuilt_worst (the same for the reconstruction), and
+    `clean` for the curves with no detachment at all.
+
+    Over the two-axis block the repaired curves' worst step goes from -260.4
+    sigma to -9.6 sigma, and the only one still past `sigma` is exp 135
+    cuvette 6 -- the first-interval detachment `debubble` returns untouched.
+    The curves that never bubbled reach -5.8, so one curve separates the two
+    populations and it is the one the model declines to touch.
+    """
+    keep = set()
+    if live_only:
+        data = frame(scope)
+        keep = set(zip(data[data.live].experiment, data[data.live]["sample"]))
+    rows = []
+    for curve in curves(scope):
+        if live_only and (curve.experiment, curve.sample) not in keep:
+            continue
+        times = np.asarray(curve.times, dtype=float)
+        values = np.asarray(curve.absorbance, dtype=float)
+        rebuilt, events = debubble(times, values, curve.noise)
+        steps = np.diff(values)
+        rows.append({
+            "experiment": curve.experiment,
+            "sample": curve.sample,
+            "bubble_events": len(events),
+            "bubble_load": bubble_load(values, bubble_drops(
+                values, curve.noise)),
+            "raw_worst": float(steps.min() / curve.noise),
+            "rebuilt_worst": float(np.diff(rebuilt).min() / curve.noise),
+            "clean": not len(events),
+        })
+    return pd.DataFrame(rows)
+
+
+def gas_rate_drivers(scope=TWO_AXIS_BLOCK):
+    """
+    What sets the rate `bubble_rate` fits -- and the check that it is O2.
+
+    THE FIT NEVER SEES A CONCENTRATION. `bubble_rate` is read off the timing
+    and size of the detachments alone, so its dependence on the composition is
+    a prediction the gas argument makes and this measures. If the gas is the
+    ketone-catalysed decomposition of the peroxide, the rate belongs to the
+    PEROXIDE and the catalyst, not to the alcohol.
+
+    IT IS FIRST ORDER IN PEROXIDE: +1.203 +/- 0.221 over the 49 curves that
+    carry a rate, which is the catalysed decomposition of H2O2 measured
+    without ever fitting a concentration to it. That is the strongest
+    independent support the gas argument has -- `bubble_ladder` shows the
+    drops get MORE COMMON with peroxide, and this shows the gas is made
+    FASTER, in proportion, which is a different measurement of the same claim.
+
+    The substrate carries -0.250 +/- 0.094 with one offset per experiment.
+    Read it as a weak negative and not as a null: it is 2.6 sigma, it is what
+    a substrate competing with the decomposition for the same catalyst would
+    give, and it is measured on a derived quantity over the high-peroxide
+    curves alone. What matters for the diagnosis is that it is not the
+    substrate order of a rate -- the alcohol is not what is turning into gas.
+
+    The peroxide is identified only BETWEEN runs here, so it is reported
+    pooled and carries the usual between-run caveat; the substrate moves
+    within runs and is read the way every other order in this module is.
+
+    Returns the `orders` dictionary, plus `n_pooled` and the pooled peroxide
+    coefficient for the axis the offsets cannot see.
+    """
+    data = frame(scope)
+    data = data[data.live & (data.bubble_events > 0)
+                & np.isfinite(data.gas_rate) & (data.gas_rate > 0)]
+    within = orders("gas_rate", scope=scope, frame=data)
+    pooled = orders("gas_rate", scope=scope, frame=data, within=False)
+    return {"order_s0": within["order_s0"], "stderr_s0": within["stderr_s0"],
+            "n": within["n"],
+            "pooled_s0": pooled["order_s0"],
+            "pooled_stderr_s0": pooled["stderr_s0"],
+            "pooled_h2o2": pooled["order_h2o2"],
+            "pooled_stderr_h2o2": pooled["stderr_h2o2"],
+            "n_pooled": pooled["n"]}
+
+
 BUBBLE_TREATMENTS = ("vmax", "vmax_corrected", "vmax_monotone")
 
 
@@ -1484,9 +1686,13 @@ def bubble_record(experiment, sample, sigma=BUBBLE_DROP_SIGMA):
     thing from the other end, rising +0.0472, +0.0558, +0.0647 and then falling
     to +0.0430, which a monotone chemistry under a single bubble cannot do.
     At least two bubbles were growing on different sites at once, and the trace
-    is their sum. That is why `debubble` is a bound and not a reconstruction:
-    it attributes each drop to growth since the previous drop, which is right
-    on average and wrong curve by curve.
+    is their sum. THAT IS WHY THE GAS CARRIES OVER. `bubble_profile` reduces
+    the held gas by a detachment instead of resetting it to zero, and
+    `bubble_rate` answers the cumulative demand of the drops so far rather
+    than each drop in turn -- because dating every bubble from the previous
+    detachment, which is what `bubble_ramp` did until 2026-09-03, has to
+    explain this curve's 0.0303 AU with 300 s of growth and can only do it by
+    subtracting a ramp steeper than the curve rises.
     """
     curve = {c.sample: c for c in curves_of(experiment)}[int(sample)]
     times = np.asarray(curve.times, dtype=float)

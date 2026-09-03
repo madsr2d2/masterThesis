@@ -235,20 +235,39 @@ Three things follow that are worth not re-deriving.
   of the ladder and cannot saturate at all at the bottom.
   **One curve is more than one bubble**: `bubble_record(141, 3)` sheds its
   LARGEST drop after its SHORTEST growth window (r = -0.91) and ends below
-  every earlier post-release level, so `debubble` is right on average and
-  wrong curve by curve -- always quote `monotone_bound` beside it.
+  every earlier post-release level. So THE GAS CARRIES OVER: a detachment
+  empties one bubble of several, and dating each bubble from the previous drop
+  cannot work.
   **Adding each step back is the one repair that must not be used**: a bubble
   that costs delta when it leaves contributed delta of rise while it grew, so
   stitching keeps the artefact's whole upward half -- it puts exp 135 cuvette 4
   at 1.26x the absorbance its own substrate could make, and against planted
-  sawtooths it LOSES TO DOING NOTHING at every severity (1.15/1.32/1.64 against
-  1.12/1.24/1.58). Subtract the ramp instead (`curve_metrics.debubble`, unbiased
-  to a load of 0.5) and quote the gap to `monotone_bound` as its systematic.
+  sawtooths it never beats DOING NOTHING (1.15/1.32/1.64/2.34 against
+  1.12/1.24/1.58/2.26). Stitching IS `debubble` with its rate set to zero.
+  **`curve_metrics.debubble` splits the readings into `f + b`** -- a
+  non-decreasing chemistry and a non-negative gas made at a steady rate that
+  may never outrun the curve it rides on and must pay for every detachment out
+  of gas already made. One parameter, `bubble_rate`, pinned to the least rate
+  that pays. It recovers a planted `vmax` to within a tenth at every severity
+  to 2x under both plantings (0.99/0.98/0.96/0.95 and 1.02/1.02/1.02/1.06), and
+  on a curve with no detachment it returns the readings UNCHANGED. Quote the
+  gap to `monotone_bound` as its systematic. Rewritten 2026-09-03: the segment
+  ramp it replaced subtracted a ramp steeper than the curve rises (five steps
+  past 8 sigma in 141.3) and skipped the second of two adjacent falls entirely
+  (-0.0165 at 60 sigma in 144.2).
+  **`rebuild_smoothness` is the test a repair has to pass**: the rebuilt curves'
+  worst fall is -9.6 sigma against -260.4 as read and -5.8 on the curves that
+  never bubbled. The ONE survivor is exp 135 cuvette 6, whose fall is in the
+  first interval -- no rate explains a bubble grown before the run, and
+  `debubble` returns that curve untouched.
+  **`gas_rate_drivers`**: the fitted rate is +1.203 +/- 0.221 in peroxide and
+  -0.250 +/- 0.094 in substrate, from a fit that never saw a concentration.
   **Read `bubble_load` before quoting a rate**: 13 of 110 live curves sit above
   1 and carry no measurable rate -- all four substrate rungs of exp 135, plus
-  inner rungs of 138, 140, 141, 142 and 150. They are FLAGGED, NOT EXCLUDED, and
-  no order moves under any repair (`bubble_sensitivity`, worst shift smaller
-  than the errors combined).
+  inner rungs of 138, 140, 141, 142 and 150. They are FLAGGED, NOT EXCLUDED.
+  The SUBSTRATE order moves under no repair, but the PEROXIDE order does --
+  +0.794 to +0.666, 1.2 sigma -- which is what an artefact made from peroxide
+  requires. Do not repeat the older claim that no order moves.
 - **The early rise is counted by the CATALYST, not the substrate.**
   `curve_metrics.burst_amplitude` reads it off the FITTED CURVE, because the
   two-phase solve trades amplitude between its exponentials without moving the

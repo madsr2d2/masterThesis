@@ -370,25 +370,109 @@ def main():
     doc.claim("and the worst one",
               f"**{(1 - (table.vmax_monotone / table.vmax).min()) * 100:.0f}%**")
 
+    for emptying in (True, False):
+        how = "emptying" if emptying else "partly emptying"
+        recovery = scope.bubble_recovery(emptying=emptying)
+        for severity, row in recovery.iterrows():
+            # Bold marks what the section argues: that stitching is worse than
+            # doing nothing, and that the reconstruction is close to the truth.
+            doc.claim(f"{how}, the recovery row at {severity:g}x",
+                      f"| {severity:g} | {row.raw:.2f} | "
+                      f"**{row.stitched:.2f}** | **{row.rebuilt:.2f}** |")
+        doc.check(f"{how}: stitching never beats leaving the curve alone",
+                  bool((recovery.stitched >= recovery.raw - 1e-9).all()))
+        doc.check(f"{how}: the reconstruction is within a tenth throughout",
+                  bool(((recovery.rebuilt - 1.0).abs() < 0.10).all()),
+                  f"worst {(recovery.rebuilt - 1.0).abs().max():.3f}")
+
+    smoothness = scope.rebuild_smoothness()
+    repaired = smoothness[~smoothness.clean]
+    clean = smoothness[smoothness.clean]
+    doc.claim("how many curves carry gas",
+              f"the {len(repaired)} detaching curves")
+    doc.claim("their worst fall as read",
+              f"| the {len(repaired)} detaching curves, as read | "
+              f"**{repaired.raw_worst.min():.1f}sigma** |")
+    doc.claim("their worst fall rebuilt",
+              f"| the same {len(repaired)}, rebuilt | "
+              f"**{repaired.rebuilt_worst.min():.1f}sigma** |")
+    doc.claim("and the clean curves' worst fall",
+              f"| the {len(clean)} that never bubbled | "
+              f"{clean.rebuilt_worst.min():.1f}sigma |")
+    survivors = repaired[repaired.rebuilt_worst < -scope.REBUILD_STEP_SIGMA]
+    doc.claim("how many repaired curves still carry one",
+              f"**Exactly one repaired curve still carries a fall past "
+              f"{scope.REBUILD_STEP_SIGMA:g}sigma**")
+    doc.check("and it is the first-interval curve",
+              [(int(r.experiment), int(r["sample"]))
+               for _, r in survivors.iterrows()] == [(135, 6)],
+              f"{[(int(r.experiment), int(r['sample'])) for _, r in survivors.iterrows()]}")
+    for experiment, sample in ((141, 3), (144, 2)):
+        row = smoothness[(smoothness.experiment == experiment)
+                         & (smoothness["sample"] == sample)].iloc[0]
+        doc.claim(f"exp {experiment} cuvette {sample}'s worst step",
+                  f"{row.raw_worst:.1f}sigma to {row.rebuilt_worst:.1f}sigma")
+
+    drivers = scope.gas_rate_drivers()
+    doc.claim("what the gas rate does with peroxide",
+              f"**first order in peroxide, {drivers['pooled_h2o2']:+.3f} +/- "
+              f"{drivers['pooled_stderr_h2o2']:.3f}**")
+    doc.claim("on how many curves", f"over the {drivers['n_pooled']} live curves")
+    doc.claim("how far that is from zero",
+              f"{drivers['pooled_h2o2'] / drivers['pooled_stderr_h2o2']:.1f}"
+              "sigma from zero")
+    doc.claim("and what it does with substrate",
+              f"{drivers['order_s0']:+.3f} +/- {drivers['stderr_s0']:.3f}")
+    doc.check("the gas rate is first order in peroxide",
+              abs(drivers["pooled_h2o2"] - 1.0)
+              < 2 * drivers["pooled_stderr_h2o2"])
+    doc.check("and the substrate carries far less of it",
+              abs(drivers["order_s0"]) < 0.5 * abs(drivers["pooled_h2o2"]))
+
     sensitivity = scope.bubble_sensitivity()
+    published = sensitivity.loc[("vmax", "all live")]
     for (treatment, subset), row in sensitivity.iterrows():
+        # The peroxide order under the reconstruction is the one number in the
+        # table the section argues for, so it is the one carrying the bold.
+        mark = "**" if treatment == "vmax_corrected" else ""
         doc.claim(f"{treatment} on {subset}: the order row",
                   f"| {int(row.n)} | {row.order_s0:+.3f} +/- "
-                  f"{row.stderr_s0:.3f} | {row.order_h2o2:+.3f} +/- "
-                  f"{row.stderr_h2o2:.3f} |")
-    published = sensitivity.loc[("vmax", "all live")]
+                  f"{row.stderr_s0:.3f} | {mark}{row.order_h2o2:+.3f} +/- "
+                  f"{row.stderr_h2o2:.3f}{mark} |")
     for (treatment, subset), row in sensitivity.iterrows():
         if (treatment, subset) == ("vmax", "all live"):
             continue
-        for axis in ("s0", "h2o2"):
-            gap = abs(row[f"order_{axis}"] - published[f"order_{axis}"])
-            spread = float(np.hypot(row[f"stderr_{axis}"],
-                                    published[f"stderr_{axis}"]))
-            doc.check(f"{treatment}/{subset}: the {axis} order does not move",
-                      gap < spread, f"{gap:.3f} against {spread:.3f}")
+        gap = abs(row["order_s0"] - published["order_s0"])
+        spread = float(np.hypot(row["stderr_s0"], published["stderr_s0"]))
+        doc.check(f"{treatment}/{subset}: the substrate order does not move",
+                  gap < spread, f"{gap:.3f} against {spread:.3f}")
+    corrected = sensitivity.loc[("vmax_corrected", "all live")]
+    peroxide_sigma = (abs(corrected["order_h2o2"] - published["order_h2o2"])
+                      / float(np.hypot(corrected["stderr_h2o2"],
+                                       published["stderr_h2o2"])))
+    doc.claim("how far the peroxide order moves",
+              f"a shift of {peroxide_sigma:.1f}sigma of its own error")
+    doc.check("the peroxide order comes down under the reconstruction",
+              corrected["order_h2o2"] < published["order_h2o2"],
+              f"{corrected['order_h2o2']:+.3f} against "
+              f"{published['order_h2o2']:+.3f}")
+    doc.check("and not by enough to matter", peroxide_sigma < 1.5,
+              f"{peroxide_sigma:.1f} sigma")
     doc.check("the substrate order moves away from zero, not toward it",
               abs(sensitivity.loc[("vmax_monotone", "all live"), "order_s0"])
               >= abs(published["order_s0"]))
+    lost = int(published["n"]) - int(corrected["n"])
+    doc.check("one live curve loses its rate to the repair", lost == 1,
+              f"{lost}")
+    weak = frame[frame.live & (frame.vmax_corrected <= 0)]
+    doc.claim("which curve loses its rate",
+              f"exp {int(weak.experiment.iloc[0])}\ncuvette "
+              f"{int(weak['sample'].iloc[0])}")
+    doc.claim("what it nets",
+              f"netting {weak.net.iloc[0]:.4f} AU with a load of "
+              f"{weak.bubble_load.iloc[0]:.2f}")
+    doc.check("and it is outside the strong runs",
+              int(weak.experiment.iloc[0]) not in set(scope.strong_runs()))
 
     doc.section("section 5: what the curves do")
     bands = scope.acceleration_by_ph()
