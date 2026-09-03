@@ -8,6 +8,93 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-03 — the two-axis block is also a pH ladder, and an order was being fabricated
+
+`two_axis/` is new: the folder exps 135-151 never had. Three things came out of
+building it that are corrections rather than results.
+
+### 1. `scope.orders` reported a fabricated order, and its own comment said why
+
+The identification guard tested whether a regressor moves **anywhere in the
+data**. With `within=True` the fit also carries one indicator per experiment, so
+the question it needed to ask was whether the regressor moves **inside a run**.
+An axis constant within every run but different between runs cleared the global
+test, was then absorbed by the indicators, and `lstsq` split the coefficient
+through the pseudo-inverse.
+
+This is the exact failure the guard was written to prevent — its comment records
+exps 127-131 returning +2.14 +/- 0.18 in an axis they hold constant — one level
+down, and it was live. Measuring the block's arms found it:
+`induction.ladder_arms` splits each run's L into an arm that ladders `[S]` at
+fixed `[H2O2]` and one that ladders `[H2O2]` at fixed `[S]`, and inside the
+peroxide arm the substrate is constant per run and differs only between runs
+(10.816 mM against exp 135's 8.759). The substrate order of `vmax` came back as
+
+    -6.094 +/- 0.078
+
+on 63 curves: tight, confident, and entirely manufactured. It now returns NaN.
+
+**Nothing published moves.** Every order quoted anywhere in this repository is
+measured over a block where both axes move within runs, and re-running
+`scope.order_table()` before and after the fix gives identical numbers to every
+digit. The guard is `scope._moves`, and the arm-wise orders it makes possible
+are `scope.arm_orders` — which is also the check that the joint fit's additivity
+assumption is not costing anything: worst disagreement 1.4 sigma of eight.
+
+### 2. Experiment number in this block is chronological, from the instrument
+
+`kinetics_io.parse_experiment_data` has always read `Date Collected` from the
+`.txt` export header; nothing had ever asked for it. `scope.run_dates` does.
+For exps 135-151 it gives 3 to 14 September 2010, strictly increasing with
+experiment number. The workbook records no date at all, so this is the only
+account of when a run happened, and it is written by the spectrophotometer.
+
+It earns its place immediately. The block's two fixed-composition pH ladders
+were run in **opposite directions** — exps 138-140 climb in pH as the days pass,
+exps 143-148 descend, correlations +0.75 and -0.74 against the schedule — so
+anything drifting monotonically over those twelve days enters their pH slopes
+with opposite signs. Both slopes are positive (+0.697 +/- 0.068 and
++0.522 +/- 0.047), which excludes a stock ageing, a lamp or a decomposing
+peroxide stock as the cause of the pH order without any assumption about what
+drifts or how fast. `scope.ph_schedule_control`.
+
+### 3. FITTING.md's acceleration table is a hand count and now has an accessor
+
+The table under "Why these" reads 44% of 39 curves above pH 9.0 against 12% of
+57 below, on a ">1.5x" criterion over a hand-picked "real signal" set.
+`scope.acceleration_by_ph` bands the same contrast with the module's own
+`accelerates` flag -- a slope difference past 3 sigma of the curve's own noise --
+over every live curve, and reads **27 of 42 against 23 of 68**, medians +1.17
+and +0.49. Both criteria give the same contrast in the same direction and the
+low band's median is identical; the shares differ because the 3 sigma test
+catches a curve that steepens by less than half again. FITTING.md now says so
+beside the table and points at the accessor. The last two rows of that table
+still have none and are still the hand count.
+
+### What the folder says
+
+Recorded here because two of its numbers bear on data quality rather than on
+chemistry.
+
+- `scope.ph_order` measures the pH axis with one offset per **cuvette**, which
+  is available only because exps 136-142 carry one composition set and exps
+  143-151 another, matched cuvette for cuvette inside each. The
+  pooled slope over the strong runs is **+0.554 +/- 0.040** on `vmax`. Over all
+  17 runs it is +0.400 +/- 0.034 and the two ladders disagree at 5 sigma instead
+  of 2 -- the weak runs **flatten** the ladder, because exps 149-151 sit at the
+  bottom of it and what they measure there is the cell's own wander. This is the
+  clearest demonstration so far of what `scope.AGREEMENT_FLOOR` is for.
+- `scope.hoo_consistency` moves [HOO-] two ways -- peroxide at fixed pH, pH at
+  fixed peroxide -- and the two orders part company at **3.4 sigma** on `vmax`
+  and 3.9 on `v0`, peroxide the stronger lever both times. A rate that were a
+  function of [HOO-] alone could not do that. The block cannot say whether it is
+  a second peroxide term (the perhydrate of `buffer/` 6, whose `[buf][H2O2]`
+  would look like `[H2O2]` here because `[buf]` is fixed) or saturation, and the
+  experiment that would separate them -- a run crossing `[buf]` with `[H2O2]` --
+  is the same one `buffer/` 6 ends on.
+
+---
+
 ## 2026-09-03 — `PRIMARY_SCOPE` becomes `TWO_AXIS_BLOCK`: the block did not change, its status did
 
 **Nothing about the data moved.** The same 17 experiments, the same 119 curves,

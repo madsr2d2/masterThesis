@@ -82,6 +82,30 @@ within_experiment_share("s0")                        # the number the block rest
 
 From the shell: `python data/scope.py` and `python data/scope.py --design`.
 
+### The two-axis block has a second design, and its own accessors
+
+Exps 136-142 carry one set of seven compositions and exps 143-151 another, so
+inside either set a cuvette is matched across runs and the block is a pH ladder
+as well as an L. `two_axis/` is the folder; these are the functions, all in
+`scope`:
+
+```python
+arm_orders()              # each order from the arm that moves only its axis
+ph_ladders(strong_runs()) # runs sharing a composition AND an enzyme loading
+ph_order("vmax", scope=strong_runs())   # one offset per CUVETTE, not per run
+ph_schedule_control()     # the two ladders walk pH in opposite directions
+hoo_consistency()         # move [HOO-] two ways; they disagree at 3.4 sigma
+run_dates()               # the instrument's own Date Collected
+acceleration_by_ph()      # the acceleration is high-pH, not long-run
+```
+
+Two cautions come with them. **Filter to `strong_runs()` before quoting a pH
+order** -- the weak runs sit at the bottom of the ladder and flatten it, from
++0.554 +/- 0.040 to +0.400 +/- 0.034. And **a regressor is identified only
+where the fit's offsets cannot absorb it**: `orders(within=True)` carries one
+indicator per experiment, so an axis constant inside every run returns NaN
+rather than a number (`scope._moves`, fixed 2026-09-03).
+
 ## If the quantity you need is missing
 
 Add it to `scope.py` (a selection or a derived column) or `curve_metrics.py`

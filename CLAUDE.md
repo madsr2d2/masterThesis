@@ -95,6 +95,7 @@ four files when the scoped figures are 100.0% / 94.1%.
 ```bash
 python data/validate_dataset.py --deep    # 0 errors expected
 python data/test_curve_metrics.py         # duplicate guard + the lag statistic
+python data/test_scope.py                 # the order machinery and the pH ladders
 python data/test_fit_kinetics.py          # selection, scope, parameter recovery
 python data/test_validator.py             # fault injection
 python data/test_slowdown.py              # the slowdown models and their regressions
@@ -171,6 +172,56 @@ light `SURFACE` its palette was validated against.
   only the catalysed half would show only the half that agrees. Each folder's
   `check_numbers.py` asserts one panel per live curve, so a page cannot lose
   one quietly.
+
+## The two-axis block
+
+`two_axis/` is exps 135-151. Two rules come out of building it.
+
+- **A regressor is identified only where the fit's own offsets cannot absorb
+  it.** `scope.orders` with `within=True` carries one indicator per experiment,
+  so an axis that is constant inside every run and differs only between them is
+  collinear with them -- and `scope._moves` now tests inside runs rather than
+  over the whole column. Before 2026-09-03 it tested the column, and the block's
+  peroxide arm (where `[S]` is fixed per run and differs only between runs) came
+  back with a substrate order of **-6.094 +/- 0.078** on 63 curves. Nothing
+  published moved, because every quoted order is measured where both axes move
+  within runs. Read the arms with `scope.arm_orders`, which is also the check
+  that the joint fit's additivity is free: worst gap 1.4 sigma of eight.
+- **The block is a pH ladder as well as an L**, and that is the design nobody
+  had used. Exps 136-142 carry one set of seven compositions and exps 143-151
+  another -- same substrate ladder, different peroxide levels -- so inside
+  either set `scope.ph_order` measures the pH axis with one offset per
+  **cuvette** -- the mirror of the per-experiment offset the concentration
+  orders use, and necessary because only 11.5% of the block's log[HOO-]
+  variance is within-run against 100.0% and 94.1% for the concentration axes.
+  A ladder is runs sharing a composition **and** an enzyme loading: `[enz]`
+  steps 0.014 to 0.069 mM between runs, exactly where pH does, and a cuvette
+  offset cannot absorb it.
+
+Three things follow that are worth not re-deriving.
+
+- **The pooled pH order is +0.554 +/- 0.040 on `vmax` -- a HALF order in
+  [HOO-]**, over the strong runs. Over all 17 it is +0.400 +/- 0.034 and the two
+  ladders disagree at 5 sigma instead of 2: the weak runs FLATTEN the ladder,
+  because exps 149-151 sit at its bottom and measure the cell's own wander.
+  Run `scope.strong_runs` before quoting anything from this block.
+- **The two ladders control each other for free.** They walk pH in opposite
+  directions against the schedule (+0.75 and -0.74), so a monotone drift over
+  the twelve days enters their slopes with opposite signs; both are positive.
+  `scope.ph_schedule_control`, and `scope.run_dates` for the instrument's own
+  `Date Collected`, which is the only record of when a run happened.
+- **[HOO-] is not the whole story.** `scope.hoo_consistency` moves it two ways
+  and the orders part at **3.4 sigma** on `vmax`, peroxide the stronger lever.
+  Either `[H2O2]` contributes beyond its hydroperoxide content -- the perhydrate
+  of `buffer/` 6 would, since `[buf]` is fixed here -- or the rate saturates.
+  The block cannot separate them: the L has NO INTERIOR POINT, so no cuvette
+  crosses `[S]` with `[H2O2]` and no run crosses `[buf]` with `[H2O2]`.
+
+And what it cannot do: no enzyme-free curve in the whole pyrophosphate cell; no
+windowed statistic across it (run length spans 9.6x); no induction analysis
+(`signal_control` fails at +0.619 +/- 0.228). **No mechanism fit has ever been
+run on it** -- `data/fits/` holds one, on BnOH/25 C/*phosphate*, sharing no
+experiment with the block.
 
 ## The temperature series
 

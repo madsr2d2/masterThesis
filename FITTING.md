@@ -72,6 +72,17 @@ early-window slope, on curves with real signal:
 | catalysed, rest of archive | 195 | 17 % | 0.89 |
 | **enzyme-free, anywhere** | 71 | **1 %** | 0.57 |
 
+**These four rows are a hand count and the first two now have an accessor.**
+`scope.acceleration_by_ph` bands the same contrast using the module's own
+`accelerates` flag — a slope difference past 3σ of the curve's own noise, not a
+ratio above 1.5× — over every live curve rather than a hand-picked "real
+signal" set. It reads **27 of 42 above pH 9.0 against 23 of 68 below**, medians
++1.17 and +0.49. The share is higher on both sides because the 3σ test catches
+a curve that steepens by less than half again, the low band's median is the
+same 0.49, and the contrast is the same one. Quote the accessor;
+`two_axis/` §5 does. The last two rows have no accessor yet and are still the
+hand count.
+
 So the induction phase requires catalyst *and* requires HOO⁻ — a constraint the
 mechanism has to meet, established without a fit.
 

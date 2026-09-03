@@ -619,6 +619,13 @@ def strong_runs(scope=TWO_AXIS_BLOCK, floor=AGREEMENT_FLOOR):
                         table.index[table.agreement >= floor]))
 
 
+def _moves(column, groups, within):
+    """Is this regressor identified alongside the fit's intercepts?"""
+    if not within:
+        return float(np.ptp(column)) > 0
+    return any(float(np.ptp(column[groups == g])) > 0 for g in np.unique(groups))
+
+
 def orders(parameter="v0", scope=TWO_AXIS_BLOCK, within=True, live_only=True,
            frame=None, floor=None):
     """
@@ -664,7 +671,18 @@ def orders(parameter="v0", scope=TWO_AXIS_BLOCK, within=True, live_only=True,
     # through the pseudo-inverse, and the number that comes back looks like a
     # measurement. Exps 127-131 hold [S] at 9.47 mM on every cuvette and
     # returned an order of +2.14 +- 0.18 in it before this guard existed.
-    identified = [float(np.ptp(column)) > 0 for column in columns]
+    #
+    # WITH OFFSETS, "DOES IT MOVE" MEANS "DOES IT MOVE INSIDE A RUN". Testing
+    # the whole column instead was the same failure one level down, and it was
+    # live until 2026-09-03: the two-axis block's L splits into an arm that
+    # ladders [S] at fixed [H2O2] and an arm that ladders [H2O2] at fixed [S]
+    # (induction.ladder_arms), and inside each arm the OTHER axis is constant
+    # per run and varies only between runs -- 73.4 against 35.2 mM, 10.816
+    # against 8.759. That clears a global ptp test, so the offsets absorbed it
+    # and the pseudo-inverse handed back a substrate order of -6.067 +- 0.075
+    # for the peroxide arm: tight, confident and meaningless.
+    identified = [_moves(column, data.experiment.to_numpy(), within)
+                  for column in columns]
     columns = [column for column, keep in zip(columns, identified) if keep]
     if within:
         # One indicator per experiment, and no separate intercept -- the
@@ -711,6 +729,318 @@ def order_table(scope=TWO_AXIS_BLOCK, parameters=ORDER_PARAMETERS):
                          **result})
     return pd.DataFrame(rows).set_index(["parameter", "fit"])
 
+
+
+
+# ---------------------------------------------------------------------------
+# The pH ladder inside the two-axis block.
+#
+# The block is usually described by what a run varies -- both concentration
+# axes, seven cuvettes, an L rather than a grid (induction.ladder_arms). That
+# describes ONE run. What the seventeen runs are to each other is a second
+# design, and it is the stronger one. The block holds only TWO composition sets
+# in sixteen runs: exps 136-142 and exps 143-151, which share the substrate
+# ladder exactly (0.216, 0.865, 3.028, 10.816 mM) and differ only in their four
+# peroxide levels. So inside either set a cuvette is matched one for one across
+# the runs of a pH ladder running 5.47 to 9.73.
+#
+# Which makes the pH axis measurable the way the concentration axes are. An
+# order in [HOO-] read across runs is normally hostage to everything else that
+# differs between them; here the cuvettes are matched one for one, so a per-
+# CUVETTE offset absorbs the composition exactly as a per-experiment offset
+# absorbs the day. log[HOO-] = log[H2O2] + f(pH), and with the cuvette's own
+# [H2O2] held in its offset what is left driving the regressor is f(pH) alone.
+#
+# The enzyme is what forces the split. It is not constant over the block --
+# 0.069, 0.034, 0.014 and 0.021 mM -- and it steps between runs, exactly where
+# pH does, so a per-cuvette offset cannot touch it. Exps 141 and 142 sit at
+# 0.014 mM against exps 136-140's 0.034 on the same composition and at the top
+# of that group's pH range, so pooling them would push a rate that scales with
+# enzyme downward precisely at high pH and bias the slope down with it. A
+# ladder is therefore runs sharing a composition AND a loading.
+PH_LADDER_MINIMUM = 3
+PH_AXIS = "hoo"
+
+
+def _composition(group):
+    """A run's cuvette set, as a hashable signature. Rounded, not exact."""
+    return tuple(sorted((round(float(s), 6), round(float(h), 6))
+                        for s, h in zip(group.s0, group.h2o2)))
+
+
+def ph_ladders(scope=TWO_AXIS_BLOCK, minimum=PH_LADDER_MINIMUM):
+    """
+    Groups of runs that share a composition and an enzyme loading, over pH.
+
+    Returns {label: DataFrame}, keyed by the loading, with `minimum` distinct
+    pH values required before a group counts as a ladder. Derived from the
+    frame -- no experiment number appears here -- so a run that stops matching
+    stops being in a ladder.
+    """
+    data = frame(scope).copy()
+    signatures = {experiment: _composition(group)
+                  for experiment, group in data.groupby("experiment")}
+    data["design"] = [signatures[e] for e in data.experiment]
+    found = {}
+    for (loading, _), group in data.groupby([data.e0.round(6), "design"],
+                                            sort=False):
+        if group.pH.nunique() >= minimum:
+            found[f"{loading:g} mM chemzyme"] = group.drop(columns="design")
+    return dict(sorted(found.items(),
+                       key=lambda item: -item[1].experiment.nunique()))
+
+
+def ph_order(parameter="vmax", scope=TWO_AXIS_BLOCK, axis=PH_AXIS,
+             minimum=PH_LADDER_MINIMUM, ladders=None):
+    """
+    d log(`parameter`) / d log[HOO-] at fixed composition, one offset per cuvette.
+
+    One row per ladder plus a pooled row carrying one offset per (ladder,
+    cuvette). The offsets are what make this a within-design measurement: the
+    cuvette is matched across every run of a ladder, so its substrate, its
+    peroxide and its position in the cell holder all sit in its own intercept
+    and the slope is read from pH alone.
+    """
+    groups = ph_ladders(scope, minimum) if ladders is None else ladders
+    tagged = {}
+    for label, group in groups.items():
+        group = group.copy()
+        # The offset key. Its cuvette, within its ladder: a cuvette of one
+        # ladder is not the same cuvette as its namesake in the other, which
+        # runs a different peroxide and a different enzyme.
+        group["cuvette"] = [f"{label}/{s}" for s in group["sample"]]
+        tagged[label] = group
+    rows = []
+    pooled = ([("pooled", pd.concat(tagged.values()))]
+              if len(tagged) > 1 else [])
+    for label, group in list(tagged.items()) + pooled:
+        live = group[group.live & (group[parameter] > 0)
+                     & np.isfinite(group[parameter]) & (group[axis] > 0)]
+        keys = list(live.cuvette)
+        if live.pH.nunique() < minimum or len(live) < minimum + 2:
+            continue
+        y = np.log(live[parameter].to_numpy(dtype=float))
+        x = np.log(live[axis].to_numpy(dtype=float))
+        cuvettes = sorted(set(keys))
+        design_matrix = np.column_stack(
+            [x] + [(np.array(keys) == key).astype(float) for key in cuvettes])
+        beta, *_ = np.linalg.lstsq(design_matrix, y, rcond=None)
+        residual = y - design_matrix @ beta
+        rank = int(np.linalg.matrix_rank(design_matrix))
+        variance = float(residual @ residual) / max(1, len(y) - rank)
+        covariance = variance * np.linalg.pinv(design_matrix.T @ design_matrix)
+        total = float(((y - y.mean()) ** 2).sum())
+        rows.append({"ladder": label,
+                     "runs": int(live.experiment.nunique()),
+                     "curves": int(len(live)),
+                     "cuvettes": len(cuvettes),
+                     "pH_low": float(live.pH.min()),
+                     "pH_high": float(live.pH.max()),
+                     "order": float(beta[0]),
+                     "stderr": float(np.sqrt(max(covariance[0, 0], 0.0))),
+                     "r2": float(1 - (residual @ residual) / total)
+                     if total > 0 else np.nan})
+    return pd.DataFrame(rows).set_index("ladder")
+
+
+ACCELERATION_SPLIT = 9.0
+
+
+def acceleration_by_ph(scope=TWO_AXIS_BLOCK, split=ACCELERATION_SPLIT):
+    """
+    The autocatalytic acceleration, banded either side of a pH.
+
+    The block's long runs are the ones that DECELERATE -- exps 138, 146 and
+    148-151 run eight hours because they are slow -- so "the acceleration
+    builds up over a long run" reads the design backwards. Banding by pH is the
+    statement that survives: what the acceleration tracks is [HOO-], and a run
+    at pH 9 shows it in an hour.
+
+    Live curves only. A dead curve's `accelerates` is its quantisation
+    staircase stepping late, which is why `design` bands the same way.
+    """
+    data = frame(scope)
+    live = data[data.live]
+    bands = np.where(live.pH >= split, f"pH >= {split:g}", f"pH < {split:g}")
+    table = (live.assign(band=bands).groupby("band")
+             .agg(curves=("live", "size"),
+                  accelerating=("accelerates", "sum"),
+                  median_late_over_early=("late_over_early", "median"))
+             .sort_index(ascending=False))
+    table["share"] = table.accelerating / table.curves
+    return table
+
+
+def run_dates(scope=TWO_AXIS_BLOCK):
+    """
+    When each run was collected, from the instrument's own export header.
+
+    An INDEPENDENT source, in the sense verify_instrument.py means it: the
+    workbook records no date at all, so this is the only account of when a run
+    happened and it is written by the spectrophotometer rather than by hand.
+    `kinetics_io.parse_experiment_data` already reads the field; nothing else
+    in the pipeline had asked for it.
+
+    Returns a frame indexed by experiment with `date` and `order`, the rank of
+    that date, so a caller can ask what tracks the schedule without assuming
+    experiment number is chronological. Over exps 135-151 it happens to be:
+    3 to 14 September 2010, strictly increasing.
+    """
+    import datetime
+
+    from kinetics_io import parse_experiment_data
+    from verify_instrument import export_path
+
+    rows = []
+    for experiment in sorted(int(e) for e in scope):
+        path = export_path(experiment)
+        parsed = parse_experiment_data(path) if path else None
+        text = (parsed or {}).get("date")
+        stamp = None
+        if text:
+            for pattern in ("%m/%d/%Y", "%d/%m/%Y", "%Y-%m-%d"):
+                try:
+                    stamp = datetime.datetime.strptime(text.strip(), pattern)
+                    break
+                except ValueError:
+                    continue
+        rows.append({"experiment": experiment, "date": stamp})
+    table = pd.DataFrame(rows).set_index("experiment")
+    table["order"] = table.date.rank(method="dense")
+    return table
+
+
+def ph_schedule_control(parameter="vmax", scope=None):
+    """
+    Could the pH order be the stock ageing instead? The two ladders answer it.
+
+    The pH ladders were not run in the same direction. Exps 136-140 climb
+    6.95 -> 9.22 over 3-4 September; exps 143-151 descend 9.73 -> 5.47 over
+    5-14 September. So pH correlates with the schedule POSITIVELY in one ladder
+    and NEGATIVELY in the other, and anything that drifts monotonically with
+    the schedule -- an enzyme stock losing activity over twelve days, a lamp,
+    a stock of peroxide decomposing -- enters the two ladders' pH slopes with
+    OPPOSITE signs.
+
+    That makes the control free and it needs no assumption about what drifts or
+    how fast. If both ladders return the same sign, no monotone schedule effect
+    produced it; the sign the two agree on is the sign of pH.
+
+    Returns the per-ladder slopes, each ladder's pH-against-schedule
+    correlation, and whether the signs agree.
+    """
+    scope = strong_runs() if scope is None else scope
+    schedule = run_dates(scope)
+    table = ph_order(parameter, scope=scope)
+    rows = []
+    for label, group in ph_ladders(scope).items():
+        if label not in table.index:
+            continue
+        runs = sorted(group.experiment.unique())
+        pH = [float(group.loc[group.experiment == e, "pH"].iloc[0])
+              for e in runs]
+        order = [float(schedule.loc[e, "order"]) for e in runs]
+        rows.append({"ladder": label,
+                     "runs": len(runs),
+                     "first": schedule.loc[runs[0], "date"],
+                     "last": schedule.loc[runs[-1], "date"],
+                     "pH_vs_schedule": float(np.corrcoef(pH, order)[0, 1]),
+                     "order": float(table.loc[label, "order"]),
+                     "stderr": float(table.loc[label, "stderr"])})
+    out = pd.DataFrame(rows).set_index("ladder")
+    signs = set(np.sign(out.order))
+    directions = set(np.sign(out.pH_vs_schedule))
+    return out, {"ladders": len(out),
+                 "opposed_schedules": len(directions) > 1,
+                 "orders_agree_in_sign": len(signs) == 1}
+
+
+def hoo_consistency(parameter="vmax", scope=None):
+    """
+    Is [HOO-] the reactant? Move it two ways and ask whether the order agrees.
+
+    THE ONE TEST ONLY THIS BLOCK CAN RUN. [HOO-] = [H2O2] * Ka / ([H+] + Ka),
+    so there are two independent levers on it, and the block moves both:
+
+      * WITHIN a run, at fixed pH, the peroxide arm ladders [H2O2] and [HOO-]
+        follows it proportionally. d ln v / d ln[HOO-] is then exactly the
+        peroxide order, measured against a per-experiment offset.
+      * BETWEEN runs, at matched composition, `ph_order` ladders pH while every
+        cuvette's [H2O2] stays put, measured against a per-cuvette offset.
+
+    Nothing is shared between the two: different contrast, different offsets,
+    different runs carrying the signal. If the hydroperoxide anion is what the
+    chemistry consumes, the two orders are the same number. If the rate
+    responded to pH through something else -- the buffer's speciation, the
+    catalyst's own ionisation, the substrate -- the pH route would carry that
+    too and the two would part.
+
+    Returns the two orders, their difference and its size in sigma. `scope`
+    defaults to `strong_runs()`, because a run whose own cuvettes do not
+    predict its own rates cannot carry either side (AGREEMENT_FLOOR).
+    """
+    from induction import ladder_arms
+    scope = strong_runs() if scope is None else scope
+    arm = ladder_arms(frame(scope))["peroxide arm"]
+    within = orders(parameter, frame=arm)
+    across = ph_order(parameter, scope=scope)
+    pooled = across.loc["pooled"] if "pooled" in across.index else across.iloc[0]
+    gap = float(within["order_h2o2"] - pooled.order)
+    spread = float(np.hypot(within["stderr_h2o2"], pooled.stderr))
+    # WHERE ON THE CURVE EACH CONTRAST SITS. A rate that saturates in [HOO-]
+    # has a local order that falls as [HOO-] rises, so two contrasts centred on
+    # different levels may differ without anything but saturation happening.
+    # Reporting the geometric mean of each is what lets a reader tell that
+    # explanation from the other one.
+    ladder = pd.concat(ph_ladders(scope).values())
+    centres = {}
+    for name, rows in (("within", arm), ("across", ladder)):
+        live = rows[rows.live & (rows.hoo > 0)]
+        centres[name] = float(np.exp(np.log(live.hoo.to_numpy(float)).mean()))
+    return {"parameter": parameter,
+            "within_hoo": centres["within"],
+            "across_hoo": centres["across"],
+            "within_order": float(within["order_h2o2"]),
+            "within_stderr": float(within["stderr_h2o2"]),
+            "within_curves": int(within["n"]),
+            "across_order": float(pooled.order),
+            "across_stderr": float(pooled.stderr),
+            "across_curves": int(pooled.curves),
+            "gap": gap,
+            "sigma": abs(gap) / spread if spread > 0 else np.nan}
+
+
+def arm_orders(scope=TWO_AXIS_BLOCK, parameters=ORDER_PARAMETERS):
+    """
+    Each order read from the arm that moves only its own axis.
+
+    The joint fit of `orders` reads both coefficients from all seven cuvettes
+    at once, which is right and is also an extrapolation: the L has no interior
+    point, so no cuvette moves both axes and the fit's separation of the two
+    rests on the model being additive in logs. Each arm holds the other axis
+    fixed within a run, so its slope needs no such assumption. Agreement
+    between the two is the check; it is not automatic.
+    """
+    from induction import ladder_arms
+    arms = ladder_arms(frame(scope))
+    axis_of = {"substrate arm": "s0", "peroxide arm": "h2o2"}
+    rows = []
+    for parameter in parameters:
+        joint = orders(parameter, scope)
+        for arm, table in arms.items():
+            axis = axis_of[arm]
+            alone = orders(parameter, frame=table)
+            rows.append({
+                "parameter": parameter, "arm": arm, "axis": axis,
+                "curves": alone["n"],
+                "arm_order": alone[f"order_{axis}"],
+                "arm_stderr": alone[f"stderr_{axis}"],
+                "joint_order": joint[f"order_{axis}"],
+                "joint_stderr": joint[f"stderr_{axis}"]})
+    table = pd.DataFrame(rows)
+    table["sigma"] = ((table.arm_order - table.joint_order).abs()
+                      / np.hypot(table.arm_stderr, table.joint_stderr))
+    return table.set_index(["parameter", "arm"])
 
 
 # ---------------------------------------------------------------------------

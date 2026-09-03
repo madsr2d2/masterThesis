@@ -39,6 +39,7 @@ data/buffer_role.py         what the buffer does: reagent, confound, candidate
 
 background_reaction/        the uncatalysed BnOH reaction, and its buffer order
 temperature_series/         exps 14-19: the only route to activation parameters
+two_axis/                   exps 135-151: both concentration axes, and a pH ladder
 product_fate/               why the 4OMe curves peak and fall, and BnOH's do not
 induction/                  what the induction period is, and what it is not
 buffer/                     the buffer as reagent, confound and candidate
@@ -61,6 +62,7 @@ python data/test_validator.py             # fault injection: corrupt, expect a c
 python data/test_solution_chemistry.py
 python data/test_curve_flags.py
 python data/test_kinetic_model.py
+python data/test_scope.py
 python data/test_fit_kinetics.py
 python data/build_manifest.py --write     # rebuild data/manifest.csv
 python data/build_dossier.py              # rebuild dossier.html

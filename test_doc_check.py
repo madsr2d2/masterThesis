@@ -200,7 +200,11 @@ def test_every_folder_runs_this_contract_and_no_other():
     folders = sorted(name for name in os.listdir(here)
                      if os.path.exists(os.path.join(here, name,
                                                     "check_numbers.py")))
-    check("all five analysis folders are present", len(folders) == 5,
+    # A count rather than a list, because a new folder is a normal event and a
+    # DISAPPEARED one is not. It went from five to six on 2026-09-03 when
+    # `two_axis/` was written; what the assertion is for is a folder that stops
+    # being checked at all.
+    check("every analysis folder is present", len(folders) >= 6,
           f"{folders}")
     for folder in folders:
         source = io.open(os.path.join(here, folder, "check_numbers.py"),
