@@ -1435,7 +1435,11 @@ def bubble_recovery(severities=RECOVERY_SEVERITIES, emptying=True,
     `bubble_record(141, 3)` shows -- a curve shedding its LARGEST drop after
     its SHORTEST growth window cannot be one bubble emptying each time. A
     repair has to survive both, and the segment ramp survived only the first:
-    1.01, 1.01, 1.12, 1.60 emptying, against 1.05, 1.10, 1.28, 1.70 not.
+    1.01, 1.01, 1.12, 1.60 emptying, against 1.05, 1.10, 1.28, 1.70 not. It
+    is also what `curve_metrics.bubble_ceiling` is measured rather than
+    assumed for: capping the stretches between detachments as well as the
+    tail costs 1.11 and 1.34 here at 1x and 2x, while changing nothing
+    under the emptying planting.
 
     Columns: severity, raw, stitched, rebuilt, n.
     """
@@ -1512,8 +1516,19 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
 
     One row per curve: experiment, sample, bubble_events, bubble_load,
     raw_worst (the steepest single fall in the READINGS, in units of the
-    curve's own noise), rebuilt_worst (the same for the reconstruction), and
-    `clean` for the curves with no detachment at all.
+    curve's own noise), rebuilt_worst (the same for the reconstruction),
+    `clean` for the curves with no detachment at all, and three columns for
+    the second way a repair can go wrong: gas_held (the most the profile ever
+    puts in the beam), biggest_bubble (the largest single detachment), and
+    rebuilt_net.
+
+    READ `gas_held` AGAINST `biggest_bubble`. A monotone reconstruction can
+    still be a wrong one -- until 2026-09-03 this table would have shown 12 of
+    49 curves holding more than twice their own largest bubble, one at 26.6x,
+    and three finishing BELOW ZERO, because the production rate was
+    extrapolated across hours in which nothing detached. Every one of those
+    curves passed the smoothness test above, which is why this is measured
+    separately: the fault was not roughness, it was level.
 
     Over the two-axis block the repaired curves' worst step goes from -260.4
     sigma to -9.6 sigma, and the only one still past `sigma` is exp 135
@@ -1542,6 +1557,11 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
             "raw_worst": float(steps.min() / curve.noise),
             "rebuilt_worst": float(np.diff(rebuilt).min() / curve.noise),
             "clean": not len(events),
+            "gas_held": float((values - rebuilt).max()),
+            "biggest_bubble": max(
+                (float(values[start] - values[stop])
+                 for start, stop in events), default=np.nan),
+            "rebuilt_net": float(rebuilt[-1] - rebuilt[0]),
         })
     return pd.DataFrame(rows)
 

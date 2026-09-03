@@ -134,8 +134,13 @@ sawtooths it never beats DOING NOTHING at any severity -- stitching IS
 
 Use `curve_metrics.debubble`. It splits the readings into `f + b`: a
 non-decreasing chemistry and a non-negative gas made at a steady rate, which
-may never outrun the curve it rides on and must pay for each detachment out of
-gas already made. `bubble_rate` pins the one parameter to the least rate that
+may never outrun the curve it rides on, must pay for each detachment out of gas
+already made, and after the LAST detachment may not exceed `bubble_ceiling` --
+the most the beam carried while detachments were still happening. That last
+clause is not decoration: without it a rate fixed by early drops is
+extrapolated across hours with none, and exp 149 cuvette 4 rebuilt to -0.0209
+against a raw rise of +0.0064. A MONOTONE RECONSTRUCTION CAN STILL BE THE WRONG
+ONE -- read `rebuild_smoothness`'s `gas_held` against `biggest_bubble`. `bubble_rate` pins the one parameter to the least rate that
 pays, so the result is an UPPER bound on the chemistry -- quote the gap to
 `monotone_bound` as its systematic. It recovers a planted `vmax` to within a
 tenth at every severity up to 2x whether the bubbles empty or only partly

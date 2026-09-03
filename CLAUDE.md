@@ -245,12 +245,23 @@ Three things follow that are worth not re-deriving.
   sawtooths it never beats DOING NOTHING (1.15/1.32/1.64/2.34 against
   1.12/1.24/1.58/2.26). Stitching IS `debubble` with its rate set to zero.
   **`curve_metrics.debubble` splits the readings into `f + b`** -- a
-  non-decreasing chemistry and a non-negative gas made at a steady rate that
-  may never outrun the curve it rides on and must pay for every detachment out
-  of gas already made. One parameter, `bubble_rate`, pinned to the least rate
-  that pays. It recovers a planted `vmax` to within a tenth at every severity
-  to 2x under both plantings (0.99/0.98/0.96/0.95 and 1.02/1.02/1.02/1.06), and
-  on a curve with no detachment it returns the readings UNCHANGED. Quote the
+  non-decreasing chemistry and a non-negative gas made at a steady rate. THREE
+  clauses: the gas may not outrun the curve it rides on (that IS `f' >= 0`), it
+  must pay for every detachment out of gas already made, and after the LAST
+  detachment it may not exceed `bubble_ceiling`, the most the beam carried
+  while detachments were still happening. One parameter, `bubble_rate`, pinned
+  to the least rate that pays. It recovers a planted `vmax` to within a tenth
+  at every severity to 2x under both plantings (1.00/0.99/0.97/0.97 and
+  1.02/1.02/1.03/1.08), and on a curve with no detachment it returns the
+  readings UNCHANGED.
+  **A MONOTONE RECONSTRUCTION CAN STILL BE THE WRONG ONE** -- pulling a curve
+  down by a smooth ramp leaves it smooth. Without the ceiling the rate was
+  extrapolated across hours with no detachment: exp 149 cuvette 4 sheds 0.0031
+  AU once and ended holding 0.0273, rebuilding to -0.0209 against a raw rise of
+  +0.0064. Twelve of 49 curves held more than twice their own largest bubble
+  and three finished below zero, and all of them passed the smoothness test.
+  Check `rebuild_smoothness`'s `gas_held` against `biggest_bubble`, not just
+  the step size. Quote the
   gap to `monotone_bound` as its systematic. Rewritten 2026-09-03: the segment
   ramp it replaced subtracted a ramp steeper than the curve rises (five steps
   past 8 sigma in 141.3) and skipped the second of two adjacent falls entirely
@@ -266,8 +277,9 @@ Three things follow that are worth not re-deriving.
   1 and carry no measurable rate -- all four substrate rungs of exp 135, plus
   inner rungs of 138, 140, 141, 142 and 150. They are FLAGGED, NOT EXCLUDED.
   The SUBSTRATE order moves under no repair, but the PEROXIDE order does --
-  +0.794 to +0.666, 1.2 sigma -- which is what an artefact made from peroxide
-  requires. Do not repeat the older claim that no order moves.
+  +0.794 to +0.688 over all live and +0.871 to +0.760 over the strong runs,
+  1.0 and 1.2 sigma -- which is what an artefact made from peroxide requires.
+  Do not repeat the older claim that no order moves.
 - **The early rise is counted by the CATALYST, not the substrate.**
   `curve_metrics.burst_amplitude` reads it off the FITTED CURVE, because the
   two-phase solve trades amplitude between its exponentials without moving the

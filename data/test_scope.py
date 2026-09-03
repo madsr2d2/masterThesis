@@ -514,6 +514,63 @@ def test_the_reconstruction_is_as_smooth_as_a_curve_that_never_bubbled():
           f"{repaired[repaired.rebuilt_worst > -scope.REBUILD_STEP_SIGMA].rebuilt_worst.min():.1f}")
 
 
+def test_the_gas_may_not_outlast_the_evidence():
+    """
+    A MONOTONE RECONSTRUCTION CAN STILL BE THE WRONG ONE.
+
+    The smoothness test above passes on a curve that has been dragged far too
+    low, because pulling a curve down by a smooth ramp leaves it smooth. That
+    is exactly what happened: the production rate is fixed by the detachments,
+    and where those are early and the run is long it was extrapolated across
+    hours in which nothing detached. Exp 149 cuvette 4 sheds 0.0031 AU once,
+    1920 s into an 8 h run, and the uncapped profile grew to 0.0273 over the
+    remaining 7.5 h -- 8.8x the largest bubble that curve ever shed -- taking
+    the reconstruction to -0.0209 against a raw rise of +0.0064. Twelve of 49
+    curves held more than twice their own largest bubble and three finished
+    below zero, and every one of them passed the smoothness test.
+
+    `bubble_ceiling` holds the tail to the most the beam carried while
+    detachments were still happening. This is the test that would have caught
+    it, and the three curves are named so it cannot come back quietly.
+    """
+    print("\nthe gas may not outlast the evidence for it")
+    table = scope.rebuild_smoothness()
+    repaired = table[~table.clean]
+    ratio = repaired.gas_held / repaired.biggest_bubble
+    check("no curve holds many times its own largest bubble",
+          float(ratio.max()) < 6.0, f"worst {ratio.max():.1f}x")
+    check("and the typical curve holds about one",
+          float(ratio.median()) < 2.0, f"median {ratio.median():.1f}x")
+    for experiment, sample in ((149, 4), (149, 5), (150, 1)):
+        row = table[(table.experiment == experiment)
+                    & (table["sample"] == sample)]
+        if not len(row):
+            continue
+        held = float(row.gas_held.iloc[0] / row.biggest_bubble.iloc[0])
+        check(f"exp {experiment} cuvette {sample} no longer runs away",
+              held < 6.0, f"{held:.1f}x its largest bubble")
+
+    # A reconstruction that ends below where it started has removed more than
+    # the curve ever rose. One curve is allowed to graze it and it has to be
+    # the one the load already flags.
+    negative = table[table.rebuilt_net < 0]
+    check("at most one curve rebuilds to a falling curve",
+          len(negative) <= 1, f"{len(negative)}")
+    for _, row in negative.iterrows():
+        check(f"and exp {int(row.experiment)} cuvette {int(row['sample'])} "
+              f"is flagged by its load",
+              row.bubble_load > scope.BUBBLE_LOAD_CEILING,
+              f"load {row.bubble_load:.2f}")
+        check("and it is zero within the curve's own noise",
+              abs(row.rebuilt_net) < 0.001, f"{row.rebuilt_net:+.4f}")
+
+    # The ceiling binds the TAIL and not the stretches between detachments.
+    # Capping those as well is the obvious simplification and it costs real
+    # accuracy where the beam genuinely accumulates.
+    check("every live curve still carries a rate after the repair",
+          int((scope.frame().query("live").vmax_corrected <= 0).sum()) == 0)
+
+
 def test_the_gas_rate_belongs_to_the_peroxide():
     """
     `bubble_rate` never sees a concentration, so what it correlates with is a

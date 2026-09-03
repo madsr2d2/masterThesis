@@ -450,8 +450,6 @@ def main():
     peroxide_sigma = (abs(corrected["order_h2o2"] - published["order_h2o2"])
                       / float(np.hypot(corrected["stderr_h2o2"],
                                        published["stderr_h2o2"])))
-    doc.claim("how far the peroxide order moves",
-              f"a shift of {peroxide_sigma:.1f}sigma of its own error")
     doc.check("the peroxide order comes down under the reconstruction",
               corrected["order_h2o2"] < published["order_h2o2"],
               f"{corrected['order_h2o2']:+.3f} against "
@@ -461,18 +459,41 @@ def main():
     doc.check("the substrate order moves away from zero, not toward it",
               abs(sensitivity.loc[("vmax_monotone", "all live"), "order_s0"])
               >= abs(published["order_s0"]))
-    lost = int(published["n"]) - int(corrected["n"])
-    doc.check("one live curve loses its rate to the repair", lost == 1,
-              f"{lost}")
-    weak = frame[frame.live & (frame.vmax_corrected <= 0)]
-    doc.claim("which curve loses its rate",
-              f"exp {int(weak.experiment.iloc[0])}\ncuvette "
-              f"{int(weak['sample'].iloc[0])}")
-    doc.claim("what it nets",
-              f"netting {weak.net.iloc[0]:.4f} AU with a load of "
-              f"{weak.bubble_load.iloc[0]:.2f}")
-    doc.check("and it is outside the strong runs",
-              int(weak.experiment.iloc[0]) not in set(scope.strong_runs()))
+    doc.check("every live curve still carries a rate after the repair",
+              int((frame[frame.live].vmax_corrected <= 0).sum()) == 0)
+    strong_published = scope.orders("vmax", scope=scope.strong_runs())
+    strong_rebuilt = scope.orders("vmax_corrected", scope=scope.strong_runs())
+    doc.claim("the peroxide order on the strong runs",
+              f"from {strong_published['order_h2o2']:+.3f} to "
+              f"{strong_rebuilt['order_h2o2']:+.3f}")
+    strong_sigma = (abs(strong_rebuilt["order_h2o2"]
+                        - strong_published["order_h2o2"])
+                    / float(np.hypot(strong_rebuilt["stderr_h2o2"],
+                                     strong_published["stderr_h2o2"])))
+    doc.claim("how far both shifts are",
+              f"which is {peroxide_sigma:.1f}sigma and {strong_sigma:.1f}sigma")
+    doc.check("the strong runs move the same way", strong_sigma < 1.5,
+              f"{strong_sigma:.1f} sigma")
+
+    doc.claim("what the worked tail curve sheds",
+              f"**{smoothness[(smoothness.experiment == 149) & (smoothness['sample'] == 4)].biggest_bubble.iloc[0]:.4f} AU once**")
+    ratio = repaired.gas_held / repaired.biggest_bubble
+    doc.claim("the worst curve's held gas after the ceiling",
+              f"no curve holds more than {ratio.max():.1f}x its own largest "
+              f"bubble")
+    doc.claim("and the typical one", f"the median is\n{ratio.median():.1f}x")
+    negative = smoothness[smoothness.rebuilt_net < 0]
+    doc.claim("the one curve that rebuilds below zero",
+              f"exp {int(negative.experiment.iloc[0])} cuvette "
+              f"{int(negative['sample'].iloc[0])}")
+    doc.claim("what it sheds and lands at",
+              f"sheds {negative.bubble_load.iloc[0]:.1f}x\n"
+              f"its own net rise and lands at {negative.rebuilt_net.iloc[0]:.4f} AU")
+    doc.check("only one curve rebuilds below zero", len(negative) == 1)
+    doc.check("and its load already flags it",
+              float(negative.bubble_load.iloc[0]) > scope.BUBBLE_LOAD_CEILING)
+    doc.check("no curve holds many times its own largest bubble",
+              float(ratio.max()) < 6.0, f"{ratio.max():.1f}x")
 
     doc.section("section 5: what the curves do")
     bands = scope.acceleration_by_ph()

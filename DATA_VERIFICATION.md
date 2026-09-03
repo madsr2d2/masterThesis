@@ -8,6 +8,67 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-03 — a smooth curve can still be the wrong curve: the gas needed a ceiling
+
+Asked by eye again, and again the objection was right: exps 149.1, 149.2 and
+149.4 came out **pulled far too low**. The entry below fixed the roughness and
+introduced this, and the smoothness test I wrote could not see it — **pulling a
+curve down by a smooth ramp leaves it smooth**. All twelve affected curves
+passed it.
+
+The production rate is fixed by the detachments. Where those are early and the
+run is long there is then nothing to stop it applying to hours of readings in
+which nothing detached. Exp 149 cuvette 4 sheds **0.0031 AU once**, 1920 s into
+an 8.0 h run, and over the remaining 7.5 h the profile grew to **0.0273** —
+8.8× the largest bubble that curve ever shed — taking the reconstruction to
+**−0.0209 against a raw rise of +0.0064**. Across the block 12 of 49 detaching
+curves held more than twice their own largest bubble, the worst at 26.6×, and
+three finished below zero.
+
+**A bubble detaches when it reaches a critical size**, so a long quiet stretch
+is evidence that nothing large was sitting there. `curve_metrics.bubble_ceiling`
+holds the gas after the *last* detachment to the most the beam carried while
+detachments were still happening — measured off the profile, not assumed.
+
+**The stretches between detachments are deliberately left alone.** There the
+beam is known to have held bubbles, because they left at both ends. Capping
+those as well is the obvious simplification and it was tried: it costs real
+accuracy where the beam genuinely accumulates more than any one drop reveals,
+taking the partly-emptying recovery from 1.03 and 1.08 to **1.11 and 1.34** at
+1× and 2×, and it made 13 curves inexplicable altogether. Fixing the ceiling at
+the largest single detachment does the same. The version that survived is the
+one measured from the evidenced stretch and applied only past it.
+
+| | before | after |
+|---|---|---|
+| worst held gas ÷ that curve's largest bubble | 26.6× | 4.7× |
+| curves holding more than 2× | 12 of 49 | 7 of 50 |
+| median | 1.4× | 1.2× |
+| reconstructions ending below zero | 3 | 1 |
+| exp 149 cuvette 4, rebuilt net (raw +0.0064) | −0.0209 | +0.0032 |
+
+Recovery against a planted truth is unharmed and slightly better: 1.00 / 0.99 /
+0.97 / 0.97 emptying and 1.02 / 1.02 / 1.03 / 1.08 partly emptying, at 0.25 to
+2× the chemistry. The smoothness numbers are unchanged (−9.6σ worst rebuilt
+against −260.4σ as read and −5.8σ on the curves that never bubbled), and every
+one of the 110 live curves now keeps a positive rate — exp 149 cuvette 4, which
+the entry below records as losing one, no longer does.
+
+The one reconstruction still ending below zero is exp 150 cuvette 1, which
+sheds **2.7× its own net rise** and lands at −0.0004 AU: zero within its own
+noise, and already flagged by `bubble_load > 1`. It is reported, not excluded.
+
+`data/test_scope.py::test_the_gas_may_not_outlast_the_evidence` is the test
+that would have caught this, and it names exps 149.4, 149.5 and 150.1 so the
+fault cannot come back quietly. **The lesson is the test, not the ceiling:**
+monotonicity was necessary and I had treated it as sufficient.
+
+The peroxide order shifts slightly less under the corrected repair — +0.794 to
+**+0.688** over all live curves and +0.871 to **+0.760** over the strong runs,
+1.0σ and 1.2σ. The direction and the reading are unchanged.
+
+---
+
 ## 2026-09-03 — the segment ramp was not a reconstruction, and has been replaced
 
 Asked by eye, again, and the objection was right: the *corrected* curves drawn

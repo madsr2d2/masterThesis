@@ -844,7 +844,43 @@ def detachments(values, noise, sigma=BUBBLE_DROP_SIGMA):
     return events
 
 
-def bubble_profile(times, values, events, rate):
+def bubble_ceiling(times, values, events, rate):
+    """
+    The most gas the beam may be holding after the last detachment.
+
+    WHERE THE EVIDENCE STOPS. Between two detachments the beam is known to
+    have held bubbles -- they left at both ends -- so the gas may accumulate
+    there as far as the detachments demand. After the LAST one nothing more
+    leaves, and a bubble detaches when it reaches a critical size, so a long
+    quiet tail is evidence that nothing large was sitting there. The
+    production rate is fixed by the detachments and says nothing about a
+    stretch that has none, and extrapolating it across one is how the tail
+    runs away: exp 149 cuvette 4 sheds 0.0031 AU once, 1920 s into a 8.0 h
+    run, and over the remaining 7.5 h an unbounded profile grows to 0.0273 --
+    8.8x the largest bubble that curve ever shed -- dragging the
+    reconstruction to -0.0209 against a raw rise of +0.0064. Twelve of the
+    block's 49 detaching curves held more than twice their own largest bubble
+    and three finished below zero.
+
+    So the tail is held to the most the beam carried while detachments were
+    still happening, which is measured off the profile rather than assumed.
+    THE STRETCHES BETWEEN DETACHMENTS ARE LEFT ALONE. Capping those as well
+    is the obvious simplification and it costs real accuracy: against
+    partly-emptying plantings, where the beam genuinely accumulates more than
+    any single drop reveals, it takes the recovery from 1.03 and 1.04 to 1.11
+    and 1.34 at 1x and 2x the chemistry.
+
+    Saturation costs the rate nothing: gas sitting at the ceiling is CONSTANT,
+    so it contributes no slope, and what it shifts is the level.
+    """
+    if not events or not np.isfinite(rate):
+        return np.inf
+    evidenced = events[-1][1]
+    return float(bubble_profile(times, values, events, rate,
+                                ceiling=np.inf)[:evidenced + 1].max())
+
+
+def bubble_profile(times, values, events, rate, ceiling=None):
     """
     The gas held in the beam at each reading, `b(t) >= 0`.
 
@@ -860,6 +896,12 @@ def bubble_profile(times, values, events, rate):
                            faster than the trace it rides on.
       it may not go        a detachment takes `b` down by the size of the fall
       negative             and no further.
+      it may not outlast   after the LAST detachment the gas is held to
+      the evidence         `bubble_ceiling`, the most the beam carried while
+                           detachments were still happening. A rate fixed by
+                           the drops says nothing about a stretch that has
+                           none, and extrapolating across one is how a long
+                           quiet tail runs away.
 
     THE FIRST CLAUSE IS WHAT `bubble_ramp` LACKED. That model dated each
     bubble from the previous detachment and made it reach the full size of the
@@ -884,8 +926,14 @@ def bubble_profile(times, values, events, rate):
     # loop. Only the detachments themselves are stepped through, and there are
     # at most a few dozen -- which matters, because `bubble_rate` bisects and
     # so calls this some tens of times per curve.
+    if ceiling is None:
+        ceiling = bubble_ceiling(times, values, events, rate)
     room = np.maximum(np.diff(values), 0.0)
     growth = np.minimum(rate * np.diff(times), room)
+    # `np.minimum(start + cumsum(growth), ceiling)` IS the saturating
+    # recursion, not an approximation of it: every increment is non-negative,
+    # so once the running sum passes the ceiling it stays past it, and
+    # clipping the sum gives the same answer as clipping at every step.
     position = 0
     for start, stop in events:
         if start > position:
@@ -895,7 +943,8 @@ def bubble_profile(times, values, events, rate):
             held[start] - (values[start] - values[start + 1:stop + 1]), 0.0)
         position = stop
     if position < len(values) - 1:
-        held[position + 1:] = held[position] + np.cumsum(growth[position:])
+        held[position + 1:] = np.minimum(
+            held[position] + np.cumsum(growth[position:]), ceiling)
     return held
 
 
@@ -909,7 +958,8 @@ def bubble_shortfall(times, values, events, rate):
     """
     if not events:
         return 0.0
-    held = bubble_profile(times, values, events, rate)
+    held = bubble_profile(times, values, events, rate,
+                          ceiling=np.inf)
     return max(float((values[start] - values[stop]) - held[start])
                for start, stop in events)
 
@@ -973,9 +1023,9 @@ def debubble(times, values, noise, sigma=BUBBLE_DROP_SIGMA):
     do, because `b >= 0` at both ends -- which is the mass balance stitching
     breaks.
 
-    AGAINST A PLANTED TRUTH it recovers `vmax` at 0.99, 0.98, 0.96 and 0.95 as
+    AGAINST A PLANTED TRUTH it recovers `vmax` at 1.00, 0.99, 0.97 and 0.97 as
     the artefact grows from 0.25 to 2x the chemistry when each bubble empties,
-    and 1.02, 1.01, 1.01, 1.05 when they empty only partly. Stitching gives
+    and 1.02, 1.02, 1.03, 1.08 when they empty only partly. Stitching gives
     1.15, 1.32, 1.64, 2.34 and the old segment ramp 1.01, 1.01, 1.12, 1.60.
     On a curve with no detachment it returns the readings UNCHANGED, so it
     cannot move a clean curve: the null over 19 of them is 1.000000 exactly.

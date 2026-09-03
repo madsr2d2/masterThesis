@@ -296,6 +296,9 @@ close the model:
   grows by at most what the reading itself gained, which is exactly `f' ≥ 0`.
 - **a bubble cannot shed gas that was never made.** The production rate is set
   to the least that pays for every detachment, so `b ≥ 0` throughout.
+- **the gas may not outlast the evidence for it.** After the *last* detachment
+  the beam is held to the most it carried while detachments were still
+  happening — `scope.rebuild_smoothness` and the section below.
 
 That leaves one free parameter, the production rate, and it is *pinned* rather
 than fitted — the least rate consistent with what was seen to leave, which
@@ -315,10 +318,10 @@ rest over, which is what one curve below actually does.
 
 | artefact ÷ chemistry | left alone | **stitched** | **rebuilt** |
 |---|---|---|---|
-| 0.25 | 1.12 | **1.15** | **0.99** |
-| 0.5 | 1.24 | **1.32** | **0.98** |
-| 1 | 1.58 | **1.64** | **0.96** |
-| 2 | 2.26 | **2.34** | **0.95** |
+| 0.25 | 1.12 | **1.15** | **1.00** |
+| 0.5 | 1.24 | **1.32** | **0.99** |
+| 1 | 1.58 | **1.64** | **0.97** |
+| 2 | 2.26 | **2.34** | **0.97** |
 
 *(each bubble empties; recovered `vmax` ÷ true `vmax`, 1.00 exact)*
 
@@ -326,8 +329,8 @@ rest over, which is what one curve below actually does.
 |---|---|---|---|
 | 0.25 | 1.12 | **1.12** | **1.02** |
 | 0.5 | 1.26 | **1.31** | **1.02** |
-| 1 | 1.51 | **1.64** | **1.02** |
-| 2 | 2.22 | **2.32** | **1.06** |
+| 1 | 1.51 | **1.64** | **1.03** |
+| 2 | 2.22 | **2.32** | **1.08** |
 
 *(each bubble empties only partly)*
 
@@ -374,6 +377,37 @@ before the run began leaves no rise in the data to date it from, no rate
 explains it, and `debubble` returns that curve untouched rather than guessing.
 One curve separates the two populations and it is the one the model declines to
 touch.
+
+### A smooth curve can still be the wrong curve
+
+Monotone is necessary and not sufficient, and the second fault found on this
+page was invisible to the test above: pulling a curve down by a smooth ramp
+leaves it smooth. The production rate is fixed by the detachments, and where
+those are early and the run is long it was extrapolated across hours in which
+nothing detached.
+
+Exp 149 cuvette 4 sheds **0.0031 AU once**, 1920 s into an 8 h run, and nothing
+else ever leaves. An unbounded profile keeps making gas at the rate that one
+detachment implies, so by the end it has **0.0273 AU** sitting in the beam —
+8.8× the largest bubble that curve ever shed — and the reconstruction reads
+**−0.0209 against a raw rise of +0.0064**. Twelve of the 49 detaching curves
+held more than twice their own largest bubble, one at 26.6×, and three finished
+below zero. All twelve passed the smoothness test.
+
+A bubble detaches when it reaches a critical size, so a long quiet stretch is
+evidence that nothing large was sitting there. `curve_metrics.bubble_ceiling`
+holds the tail to the most the beam carried while detachments were still
+happening — measured off the profile, not assumed. The stretches *between*
+detachments are left alone, because there the beam is known to have held
+bubbles: they left at both ends. Capping those as well is the obvious
+simplification and it costs real accuracy, taking the partly-emptying recovery
+from 1.03 and 1.08 to 1.11 and 1.34.
+
+Afterwards no curve holds more than 4.7× its own largest bubble, the median is
+1.2×, and one rebuilds to a net below zero: exp 150 cuvette 1, which sheds 2.7×
+its own net rise and lands at −0.0004 AU — zero within its noise, and already
+flagged by its load. `data/test_scope.py::test_the_gas_may_not_outlast_the_evidence`
+names the three curves so it cannot come back quietly.
 
 ### The rate the model fits is the peroxide decomposing
 
@@ -535,7 +569,7 @@ manufacture a flat substrate order. `scope.bubble_sensitivity`:
 | `vmax` from | n | order in [S] | order in [H₂O₂] |
 |---|---|---|---|
 | the readings | 110 | +0.091 ± 0.052 | +0.794 ± 0.077 |
-| the reconstruction | 109 | +0.076 ± 0.051 | **+0.666 ± 0.075** |
+| the reconstruction | 110 | +0.111 ± 0.051 | **+0.688 ± 0.076** |
 | the monotone bound | 110 | +0.141 ± 0.049 | +0.770 ± 0.072 |
 | readings, load ≤ 1 only | 97 | +0.139 ± 0.059 | +0.767 ± 0.086 |
 
@@ -545,20 +579,16 @@ estimates' errors combined every time — and under the monotone bound it moves
 since the artefact could only have flattened it. §2 stands.
 
 **The peroxide order does move.** The reconstruction takes it from +0.794 to
-+0.666, a shift of 1.2σ of its own error and the largest any repair here
-produces; on the strong runs alone it is +0.871 to +0.758, also 1.2σ. That is
-not the repair failing, it is the repair working: the gas is *made from
-peroxide*, so an uncorrected artefact has to inflate the apparent peroxide
-order, and taking the gas out has to bring it down. The shift is not
-significant and neither reading changes any conclusion in this document — but
-it is the one number here that the choice of repair visibly touches, and the
-earlier claim that *no* order moved was made with a repair too weak to move it.
++0.688, and on the strong runs alone from +0.871 to +0.760 — about 0.11 either
+way, which is 1.0σ and 1.2σ of the two estimates' errors combined and the
+largest shift any repair here produces. That is not the repair failing, it is
+the repair working: the gas is *made from peroxide*, so an uncorrected artefact
+has to inflate the apparent peroxide order, and taking the gas out has to bring
+it down. Neither reading changes any conclusion in this document — but it is
+the one number here that the choice of repair visibly touches, and the earlier
+claim that *no* order moved was made with a repair too weak to move it.
 
-One live curve of 110 loses a positive rate to the reconstruction: exp 149
-cuvette 4, netting 0.0064 AU with a load of 0.49, whose best local slope goes
-slightly negative once the gas is out. It is in the weak runs, which
-`scope.strong_runs` already excludes from every quoted number here. A rate that
-does not survive having the gas removed was not a rate.
+Every live curve still carries a rate after the repair.
 
 ### The acceleration is a high-pH effect, not a long-run one
 
