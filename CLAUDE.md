@@ -328,8 +328,10 @@ Three things follow that are worth not re-deriving.
   windows -- quote the range, not one window.
 
 And what it cannot do: no enzyme-free curve in the whole pyrophosphate cell; no
-windowed statistic across it (run length spans 9.6x); no induction analysis
-(`signal_control` fails at +0.619 +/- 0.228). **No mechanism fit has ever been
+windowed statistic across it (run length spans 9.6x); no LANDMARK induction
+analysis (`signal_control` fails at +0.619 +/- 0.228) -- but that closes a
+statistic and not the block, and `joint_clocks` asks the +1 rule through the
+progress fit's own time constants instead. **No mechanism fit has ever been
 run on it** -- `data/fits/` holds one, on BnOH/25 C/*phosphate*, sharing no
 experiment with the block.
 
@@ -383,12 +385,26 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   from `arrhenius`'s fitted `inverse_tau`, which is not windowed.
 - **A peroxide adduct constrains both orders at once.** `K + H2O2` in
   pre-equilibrium fixes `d ln v/d ln h - d ln tau/d ln h = 1` identically, for
-  every K and every h, so the two questions are one and
-  `joint_peroxide_order` asks it as one regression. Both blocks that can test
-  it fall short (2.6σ and 3.7σ), and the rate is not first order in peroxide
-  either -- `peroxide_saturation` rejects a = 1 at F = 32 on the two-axis
-  ladder. Do not assume "first order in H2O2": that is the *unsaturated* limit
-  of the scheme, not a consequence of it.
+  every K and every h, so the two questions are one and `joint_order` asks it as
+  one regression -- `joint_peroxide_order` and `joint_buffer_order` are that
+  function with the species filled in. Through the LANDMARK both blocks that
+  can test it fall short (2.6σ and 3.7σ), and the rate is not first order in
+  peroxide either -- `peroxide_saturation` rejects a = 1 at F = 32 on the
+  two-axis ladder. Do not assume "first order in H2O2": that is the
+  *unsaturated* limit of the scheme, not a consequence of it.
+- **The +1 does not belong to the landmark, and the clock decides who can be
+  asked.** `t_ind` is a rolling window a tenth of the run wide; `tau` and
+  `tau_slow` come from the progress fit and carry none, so a block that fails
+  `signal_control` or spans run lengths can still be asked through them.
+  `joint_clocks` runs every clock on an axis BESIDE ITS CONTROL AXIS, and the
+  control is the point: the +1 belongs to the activating species, so the
+  substrate axis must MISS it, and it does by 5.1σ to 7.7σ. On the two-axis
+  block the two routes disagree -- the peroxide axis falls 3.7σ short through
+  the landmark, 2.0σ and 0.3σ through the fitted clocks. **Conclude nothing
+  from that yet**: `tau_slow` is resolved on 25 of 110 live curves and the
+  estimate moves +0.50 to +0.92 across cuts. Pass `gate=` and not `floor=` for
+  a fitted clock -- a floor puts an unresolved constant ON the floor and calls
+  it the fastest curve in the block.
 - **That `+1` is not about H2O2.** It holds for ANY species held in excess that
   draws the catalyst into its active form, so it transfers to any axis the
   archive moves. On the BUFFER axis it is MET -- `joint_buffer_order` gives

@@ -662,7 +662,7 @@ The eight-hour runs are the *slow* ones — exps 138, 146 and 148–151 are long
 because they are slow, and they decelerate — so "the acceleration builds up
 over a long run" reads the design backwards. What it tracks is pH.
 
-### The block will not carry an induction analysis
+### The block will not carry a *landmark* induction analysis
 
 `induction.signal_control` regresses the landmark on each curve's own
 signal-to-noise. On the catalysed 4OMe block it passes; here it returns
@@ -674,6 +674,54 @@ The curve forms say the same from the other side. The block splits 56 two-phase
 against 54 one-phase, so `tau_fast` is τ₁ of one fit on half the curves and τ
 of another on the rest; and it splits 46 lag-first against 64 burst-first, so
 an induction time averaged over it would average two different things.
+
+### But the +1 rule does not need a landmark
+
+The constraint above is about a *statistic*, not about the block. A catalyst
+drawn into its active form by a species X held in excess gives
+
+    E + X ⇌ E*     1/τ = k_f[X] + k_r,     [E*]/E₀ = K[X]/(1 + K[X])
+
+so `d ln v/d ln[X] = 1/(1 + K[X])` and `d ln τ/d ln[X] = −K[X]/(1 + K[X])`, and
+their **difference is 1 for every K and every [X]** — a parameter-free
+prediction, and an *exact* one rather than a local slope. It says nothing about
+which clock τ is. Every use of it in this project has nonetheless gone through
+`t_ind`, and `t_ind` is the rolling window this block cannot use.
+
+`tau` and `tau_slow` come from the **progress fit**. They carry no window, so
+neither the 9.6× run-length span nor the failed signal control touches them, and
+the identity applies to them unchanged. `induction.joint_clocks` asks it through
+each clock in turn, as one regression rather than two differenced by hand — the
+two orders are fitted to the same curves on the same design, so their errors are
+correlated and a hand-difference would quote an error that is not theirs.
+
+| clock | window | curves | order in [H₂O₂] | from +1 | control, [S] |
+|---|---|---|---|---|---|
+| `t_ind` | a tenth of the run | 110 | +0.304 ± 0.188 | 3.7σ | 6.4σ |
+| `tau` | none, from the fit | 62 | +0.617 ± 0.196 | 2.0σ | 7.7σ |
+| `tau_slow` | none, from the fit | 25 | **+0.915 ± 0.261** | **0.3σ** | 5.5σ |
+
+*(all 110 live curves; the fitted clocks are gated on being resolved)*
+
+**The two routes disagree, and that is the result here.** Through the landmark
+the peroxide axis falls 3.7σ short of the +1; through the clocks that carry no
+window it falls 2.0σ and 0.3σ short. Over the strong runs alone `tau` gives
++0.724 ± 0.246 on 37 curves and `tau_slow` +0.497 ± 0.311 on 14.
+
+**The substrate axis is the control, and it is the reason any of this counts.**
+The +1 belongs to the species that draws the catalyst into its active form; the
+alcohol does not, and the clock carries no substrate order, so that axis must
+*miss*. It does, in every cut — by 5.1σ to 7.7σ. A reading of this table where
+both axes met +1 would be a regression that had stopped discriminating.
+
+**No conclusion is drawn from it, and the reason is the count.** `tau_slow` is
+resolved on 25 of 110 live curves and 14 of the 77 strong ones, and across
+those cuts the peroxide-axis estimate moves from **+0.50 to +0.92** — a range
+that contains both the adduct's prediction and a clear shortfall. What has
+changed is not the answer but the question's availability: the landmark's
+failure closed a statistic, not the block, and the route that stays open is the
+one the block's design actually supports. An enzyme-free arm, or enough
+resolved slow constants to halve that error, would settle it.
 
 ### How big is the early rise, and is it one turnover or many?
 
@@ -773,7 +821,9 @@ exists only across curves, which is why it takes a block to ask.
   them, which is what §4 runs into.
 - **Enzyme is confounded with pH** between the sub-series and constant within
   them, which is why §3 measures inside a ladder rather than across the block.
-- **No windowed statistic travels across it**, at 9.6x in run length.
+- **No windowed statistic travels across it**, at 9.6× in run length — which
+  closes the induction landmark and, with it, `induction/`'s results. It does
+  not close the +1 rule, which §5 asks through the progress fit instead.
 - **Thirteen curves carry no measurable rate**, their O₂ detachments having
   moved more absorbance than the reaction did (§5). They are flagged, drawn
   and counted; they are not excluded, and nothing here is read off one.

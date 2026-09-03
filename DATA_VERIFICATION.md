@@ -8,6 +8,68 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-03 — the +1 rule does not belong to the landmark
+
+Asked why the two-axis block's analysis reads only `vmax` when
+`temperature_series/` reads a great deal more. The answer is that
+`temperature_series/` takes its timescale from `arrhenius`'s fitted
+`inverse_tau` — a **fit** parameter — while every use of the +1 rule in this
+project has gone through `t_ind`, a **rolling window** a tenth of the run wide.
+That window is what this block cannot use: run length spans 9.6× and
+`signal_control` fails at +0.619 ± 0.228.
+
+The identity does not care. `E + X ⇌ E*` fixes `d ln v/d ln[X] − d ln τ/d ln[X]
+= 1` for every K and every [X], for **any** clock of the activation step.
+`tau` and `tau_slow` come from the progress fit and carry no window, so the
+question is available through them.
+
+`induction.joint_order` now takes any clock and any axis, and
+`induction.joint_clocks` runs each beside its **control axis** — the +1 belongs
+to the activating species, so the substrate axis must miss it, and a table where
+both axes met +1 would be a regression that had stopped discriminating.
+
+| clock | curves | order in [H₂O₂] | from +1 | control, [S] |
+|---|---|---|---|---|
+| `t_ind` (windowed) | 110 | +0.304 ± 0.188 | 3.7σ | 6.4σ |
+| `tau` | 62 | +0.617 ± 0.196 | 2.0σ | 7.7σ |
+| `tau_slow` | 25 | +0.915 ± 0.261 | 0.3σ | 5.5σ |
+
+**Nothing is concluded from this.** `tau_slow` is resolved on 25 of 110 live
+curves and 14 of 77 strong ones, and the peroxide-axis estimate moves +0.50 to
++0.92 across those cuts — a range holding both the adduct's prediction and a
+clear shortfall. What changed is that the question can be asked at all.
+
+### Three copies became one, and the third was never going to be written
+
+`joint_peroxide_order` and `joint_buffer_order` were two copies of one
+regression differing only in their filters and their minimum. They escaped
+`test_no_duplicate_definitions` because the names differ. Both now delegate to
+`joint_order`, and **all 31 configurations were captured before the refactor and
+reproduce bit-for-bit** — worst disagreement 0.000e+00.
+`test_the_two_named_orders_are_the_general_one` asserts each wrapper equals the
+general call it claims to be, which is what stops a third copy.
+
+### A test that was never called, and the floor it was tripping over
+
+`test_the_joint_buffer_order_reads_back_its_own_scheme` was defined but **absent
+from the runner**, so the planted-recovery test behind `+1.094 ± 0.150` — the
+strongest thing this archive says about what E → E* runs on — had never run.
+Registering it failed immediately: at K = 0.1 /mM the fixture's planted τ falls
+to 19 s, under the 60 s `INDUCTION_FLOOR`, and the clip biases the joint order
+**down** to +0.743.
+
+That is the floor, not the regression, and the peroxide fixture already guarded
+against it with a larger baseline. The buffer fixture now takes the same
+parameter and the bias is asserted deliberately rather than tripped over.
+
+**The archive's own buffer ladder is clear of the floor**, which is the thing
+that mattered: its shortest induction is 120 s, twice the floor, and
+`joint_buffer_order` returns +1.094 ± 0.150 unchanged for every floor from 1 s
+to 120 s. Only at 300 s — where clipping starts — does it fall to +0.728. No
+published number is affected.
+
+---
+
 ## 2026-09-03 — only gas that was watched to leave is subtracted
 
 Asked by eye a fourth time, and against the *level* rather than the shape: exp

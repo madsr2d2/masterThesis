@@ -571,6 +571,67 @@ def main():
               f"{int(signs.lag_first.sum())} lag-first against "
               f"{int((~signs.lag_first).sum())} burst-first")
 
+    # The +1 rule through every clock, beside its control axis. The landmark
+    # row is the one section 5 says is closed; the fitted rows are the ones the
+    # block's design still supports, and the CONTROL is what makes any of them
+    # mean anything -- an axis whose species does not activate the catalyst has
+    # to miss the +1.
+    clocks = induction.joint_clocks(induction_table)
+    strong_clocks = induction.joint_clocks(
+        induction_table[induction_table.experiment.isin(scope.strong_runs())])
+    windows = {"t_ind": "a tenth of the run", "tau": "none, from the fit",
+               "tau_slow": "none, from the fit"}
+    for clock, window in windows.items():
+        axis = clocks.loc[(clock, "axis")]
+        control = clocks.loc[(clock, "control")]
+        # Only the clock the section argues from carries the emphasis.
+        mark = "**" if clock == "tau_slow" else ""
+        doc.claim(f"{clock}: the joint-order row",
+                  f"| `{clock}` | {window} | {int(axis.curves)} | "
+                  f"{mark}{axis.order:+.3f} +/- {axis.stderr:.3f}{mark} | "
+                  f"{mark}{axis.sigma:.1f}sigma{mark} | "
+                  f"{control.sigma:.1f}sigma |")
+        doc.check(f"{clock}: the substrate axis misses the +1",
+                  control.sigma > 3.0, f"{control.sigma:.1f} sigma")
+    doc.check("the landmark route falls furthest short of the +1",
+              clocks.loc[("t_ind", "axis"), "sigma"]
+              > clocks.loc[("tau", "axis"), "sigma"]
+              > clocks.loc[("tau_slow", "axis"), "sigma"])
+    doc.check("and only the landmark is windowed",
+              bool(clocks.xs("axis", level="role").windowed.sum() == 1))
+    doc.claim("how far the landmark falls short",
+              f"the peroxide axis falls "
+              f"{clocks.loc[('t_ind', 'axis'), 'sigma']:.1f}sigma short")
+    doc.claim("and how far the unwindowed clocks do",
+              f"it falls {clocks.loc[('tau', 'axis'), 'sigma']:.1f}sigma and "
+              f"{clocks.loc[('tau_slow', 'axis'), 'sigma']:.1f}sigma short")
+    doc.claim("the strong-run reading of tau",
+              f"+{strong_clocks.loc[('tau', 'axis'), 'order']:.3f} +/- "
+              f"{strong_clocks.loc[('tau', 'axis'), 'stderr']:.3f} on "
+              f"{int(strong_clocks.loc[('tau', 'axis'), 'curves'])} curves")
+    doc.claim("and of tau_slow",
+              f"+{strong_clocks.loc[('tau_slow', 'axis'), 'order']:.3f} +/- "
+              f"{strong_clocks.loc[('tau_slow', 'axis'), 'stderr']:.3f} on "
+              f"{int(strong_clocks.loc[('tau_slow', 'axis'), 'curves'])}")
+    # Over BOTH cuts, because the sentence says the control misses in every
+    # one of them and a range taken from a single cut would not check that.
+    misses = pd.concat([clocks.xs("control", level="role").sigma,
+                        strong_clocks.xs("control", level="role").sigma])
+    doc.claim("how far the control axis misses by",
+              f"by {misses.min():.1f}sigma to {misses.max():.1f}sigma")
+    doc.check("and the control misses the +1 in every cut",
+              bool((misses > 3.0).all()), f"weakest {misses.min():.1f} sigma")
+    doc.claim("how many curves carry a resolved tau_slow",
+              f"resolved on {int(clocks.loc[('tau_slow', 'axis'), 'curves'])} "
+              f"of {int(frame.live.sum())} live curves and "
+              f"{int(strong_clocks.loc[('tau_slow', 'axis'), 'curves'])} of "
+              f"the {int(scope.orders('vmax', scope=scope.strong_runs())['n'])}"
+              " strong ones")
+    span = [clocks.loc[("tau_slow", "axis"), "order"],
+            strong_clocks.loc[("tau_slow", "axis"), "order"]]
+    doc.claim("the range the estimate moves over",
+              f"**+{min(span):.2f} to +{max(span):.2f}**")
+
     doc.section("section 5: the burst amplitude")
     bursts = scope.burst_table()
     bounded = bursts[bursts.burst_bounded]

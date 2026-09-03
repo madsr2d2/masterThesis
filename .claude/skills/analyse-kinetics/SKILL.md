@@ -101,6 +101,7 @@ burst_table()             # the early rise, and it in units of catalyst
 burst_drivers()           # its orders in [S] and [H2O2], within runs
 enzyme_pair()             # the block's one lever on [enz]: exps 140 vs 141
 enzyme_pair_sensitivity() # and the window it is read at, swept
+joint_clocks(table)       # the +1 rule through every clock, beside its control
 bubble_table()            # every curve's O2 load, and its rate under each repair
 bubble_ladder()           # detachments against [H2O2]: the evidence
 bubble_turnover_control() # and that peroxide alone does not do it
@@ -169,6 +170,19 @@ exp 135 cuvette 6, has its fall in the FIRST interval -- a bubble grown before
 the run leaves no rise to date it from, and that curve is returned untouched.
 `gas_rate_drivers` is the independent check on the diagnosis: the fitted rate
 is +1.389 +/- 0.251 in peroxide, from a fit that never saw a concentration.
+
+**The landmark's failure closes a statistic, not the block.** `signal_control`
+fails here (+0.619 +/- 0.228) and run length spans 9.6x, so `t_ind` -- a
+rolling window a tenth of the run wide -- cannot be used and `induction/`'s
+results do not transfer. The +1 rule of a pre-equilibrium activation does not
+depend on that statistic: it holds for ANY clock of the activation step, and
+`tau`/`tau_slow` come from the progress fit and carry no window.
+`induction.joint_clocks` asks it through each in turn BESIDE ITS CONTROL AXIS,
+because the +1 belongs to the activating species and the substrate axis must
+miss it. Pass `gate=` and never `floor=` for a fitted clock. On this block the
+two routes disagree -- 3.7 sigma short through the landmark, 2.0 and 0.3 through
+the clocks -- and nothing is concluded from it yet, because `tau_slow` is
+resolved on 25 of 110 curves and the estimate moves +0.50 to +0.92 across cuts.
 
 **Read `bubble_load` before quoting a rate off this block.** Thirteen of 110
 live curves sit above 1 and carry no measurable rate -- all four substrate rungs
