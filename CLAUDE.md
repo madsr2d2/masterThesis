@@ -233,6 +233,14 @@ Three things follow that are worth not re-deriving.
   against 23 rises. `solution_chemistry.oxygen_budget` kills the "too small to
   see" objection -- the solution saturates on 1.5% of the peroxide at the top
   of the ladder and cannot saturate at all at the bottom.
+  **THE GAS IS A REACTION, NOT ONLY AN ARTEFACT.** It is the catalysed
+  disproportionation of the peroxide and it is `MECHANISM.md` **S4**, a fourth
+  competing sink alongside S1-S3: an unproductive, catalyst-dependent drain on
+  the oxidant, fastest where the productive chemistry is strongest, and one no
+  rate constant in the seven steps accounts for. WHERE it sits in the cycle is
+  open -- KP shedding O2, KP + H2O2, or KD reduced before it can oxidise --
+  and the archive cannot separate them, because no run moves the productive and
+  unproductive routes against each other. `COMPUTATIONAL.md` C10.
   **One curve is more than one bubble**: `bubble_record(141, 3)` sheds its
   LARGEST drop after its SHORTEST growth window (r = -0.91) and ends below
   every earlier post-release level. So THE GAS CARRIES OVER: a detachment

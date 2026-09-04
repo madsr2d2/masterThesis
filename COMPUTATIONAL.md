@@ -47,6 +47,7 @@ see the note on vibronic intensity below.
 | [C7](#c7--what-the-catalyst-is-doing-during-the-induction-period) | hydration equilibrium and dehydration barrier of the active-site ketone in water | **PENDING** | what the induction period is — the one step in the cycle with a measured barrier and no assignment |
 | [C8](#c8--is-the-perhydrate-on-the-activation-path-or-off-it) | free-energy profile K + H₂O₂ ⇌ KP → KD, and the KP resting fraction | **PENDING** | whether the peroxide adduct is the catalyst waking up or the state it has to leave |
 | [C9](#c9--is-the-buffer-carrying-the-peroxide) | ΔG° of phosphate perhydrate formation, and the same for pyrophosphate | **PENDING** | whether the buffer's kinetic role can be to deliver the oxygen rather than to be a base |
+| [C10](#c10--where-the-catalyst-destroys-the-peroxide) | barriers for O₂ release from KP, from KP + H₂O₂, and from KD + H₂O₂ | **PENDING** | where `MECHANISM.md` S4 sits in the cycle — whether the peroxide sink shares step 4's intermediate |
 
 ---
 
@@ -385,6 +386,20 @@ every log floor from 1 s to 300 s. Separately, **the rate is not first order in
 peroxide either**: on the 63-curve two-axis ladder over 2.45–163 mM the free
 power is a = 0.654 and a = 1 is rejected at **F = 32**.
 
+**The shortfall is smaller through a clock that carries no window (2026-09-04),
+and that weakens this task's premise without removing it.** `t_ind` is a rolling
+window a tenth of the run wide, and on exps 135–151 `signal_control` fails, so
+the landmark there is partly measuring the spectrophotometer. `tau` and
+`tau_slow` come from the progress fit instead and are subject to the same
+identity; asked of the O₂-corrected curves they fall **1.9σ and 1.4σ** short of
++1 rather than 3.7, with the substrate control missing by 4.2–8.5σ as it must
+(`induction.joint_clocks`). Two consequences for C8. The measured shortfall that
+motivates the trap reading is **route-dependent**, so a calculation that lands
+on a modest K no longer has a 3.7σ discrepancy to explain, only a 1.4σ one. And
+`tau_slow` is resolved on 32 of 110 curves with the estimate moving +0.67 to
++0.85 across cuts, so this is not yet strong enough to overturn the trap reading
+either. **Compute the profile; the measurement will not settle it alone.**
+
 Inverting the trap form `d ln τ/d ln h = +Kh/(1 + Kh)` for K, and reading the
 same constant off the rates through the saturating fit:
 
@@ -504,6 +519,64 @@ prediction that **pyrophosphate ≫ phosphate** as a buffer catalyst at matched 
 and matched peroxide, which `buffer/` §5 shows the archive cannot ask because
 each buffer was used at its own pH range and the two candidate cells share no
 peroxide value.
+
+---
+
+## C10 — where the catalyst destroys the peroxide
+
+**Status: PENDING.** Specced 2026-09-04, not started.
+
+### What it decides
+
+`MECHANISM.md` S4 establishes that the chemzyme catalyses
+`2 H₂O₂ → 2 H₂O + O₂`. The evidence is kinetic and unambiguous about *whether*:
+the gas needs turnover (the reference cuvette holds the same peroxide, omits
+only the enzyme, and does not bubble), and its production rate is
+**+1.389 ± 0.251 in [H₂O₂] against −0.307 ± 0.103 in [S]** from a fit that never
+saw a concentration. It is silent about *where*, and the archive cannot become
+less silent: the rate is first order in peroxide under every branch below, and
+**no run moves the productive and unproductive routes against each other**.
+
+The three branches differ in what they predict for the rest of the cycle:
+
+| branch | consequence if true |
+|---|---|
+| `KP → K + O₂ + H₂O` | the sink shares step 4's pre-equilibrium and saturation, competes with step 5 for the same KP, and cannot be suppressed without suppressing the catalysis |
+| `KP + H₂O₂ → K + O₂ + 2 H₂O` | second order in peroxide overall; the sink is tunable by dilution while the productive route is not |
+| `KD + H₂O₂ → K + O₂ + H₂O` | the dioxirane is reduced before it can oxidise; the sink competes with step 7 and scales with turnover, not with the resting state |
+
+The third is the one that would matter most for the thesis's headline: it would
+make the peroxide sink a **measure of wasted dioxirane**, and the observed
+−0.307 substrate order would follow directly, since substrate intercepts KD
+before peroxide can.
+
+### What to compute
+
+At one level and one solvation model, consistent with C7 and C8 so the numbers
+compose:
+
+1. ΔG‡ for `KP → K + O₂ + H₂O` (retro-perhydration with O–O scission).
+2. ΔG‡ for `KP + H₂O₂ → K + O₂ + 2 H₂O`.
+3. ΔG‡ for `KD + H₂O₂ → K + O₂ + H₂O`.
+4. For scale, ΔG‡ for step 5 (`KP + S → K + A`) and step 7 (`KD + S → K + A`)
+   at the same level — the sink only matters relative to the route it steals
+   from, and C6 already needs (4)'s second half.
+
+### How it would be scored
+
+The measured gas rate is **first order in peroxide and weakly negative in
+substrate**. Branch 1 predicts an order approaching zero in peroxide once KP
+saturates, which the two-axis ladder's own saturation (`a = 0.654`, C8) says is
+partly reached — so branch 1 sits least comfortably with +1.389 unless the
+perhydrate is far from saturated. Branches 2 and 3 both give first order
+cleanly. Branch 3 additionally predicts the negative substrate order without a
+further assumption. **A calculation that puts (3) well below (1) and (2) would
+be the first mechanistic account of the substrate order in the gas rate.**
+
+### What it does not need
+
+An enzyme-free comparison: there is none to make. The gas is absent without the
+catalyst, which is the one thing about S4 that is already settled.
 
 ---
 

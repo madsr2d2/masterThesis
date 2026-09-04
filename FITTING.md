@@ -195,15 +195,40 @@ doing nothing at any severity tested. Stitching *is* `debubble` with its one
 parameter set to zero.
 
 `debubble` splits the readings into a non-decreasing chemistry and a
-non-negative gas made at a steady rate, and recovers a planted `vmax` to within
-a tenth at every severity up to 2×. **On a curve with no detachment it returns
-the readings unchanged**, so it is safe to apply to a whole block rather than
-to a hand-picked subset — which is what a residual needs.
+non-negative gas made at a steady rate that may hold no more than the
+detachments still to come. **On a curve with no detachment it returns the
+readings unchanged**, so it is safe to apply to a whole block rather than to a
+hand-picked subset — which is what a residual needs.
+
+**Its recovery has two halves and a fit should know which one it is in.**
+Against sawtooths planted into the block's own clean curves, on a planting whose
+run stops making gas at its last release the repair is exact — worst 0.07 across
+every severity to 2× under both plantings. On one still producing at the last
+reading it KEEPS the bubble that never detached, and the recovered `vmax` runs
+to 1.65 at 2×. Only gas that was watched to leave is subtracted, so the
+reconstruction is an upper bound on the chemistry in the same direction as
+`monotone_bound`; `curve_metrics.quiet_tail` says which curves are at risk of
+the second reading. `scope.bubble_recovery(ends_holding=...)` is both.
 
 The **substrate** order in `two_axis/` moves under no repair. The **peroxide**
-order does: +0.794 → +0.692 under the reconstruction, 0.9σ, and downward, which
+order does: +0.794 → +0.700 under the reconstruction, 0.9σ, and downward, which
 is what an artefact made from peroxide requires (`scope.bubble_sensitivity`).
 Neither reading is significant, but do not quote the older "no order moves".
+
+**The clocks are corrected too, and were not until 2026-09-04.** `frame` carries
+`tau_corrected`, `tau_slow_corrected` and their resolved flags beside the raw
+pair, fitted to the rebuilt series by the same two functions. A fit that reads a
+time constant off this block should take the corrected one: the gas is made from
+peroxide, so on a peroxide axis it inflates the rate's order and shortens the
+apparent clock at once, and 40% of the curves with a resolved `tau_slow` carry
+detachments. A clean curve's corrected clock is its raw clock exactly.
+
+**And the gas is a reaction the model does not have.** It is the catalysed
+disproportionation of the peroxide — `MECHANISM.md` S4, added 2026-09-03 — so
+`[H2O2]` is being consumed by a route that makes no product and that no rate
+constant here accounts for. The fitted block is phosphate and shows far less of
+it than pyrophosphate does, but any fit that eventually reaches exps 135–151
+will need the sink or will absorb it into `k0`.
 
 ### What stays outside the scope but must not be lost
 

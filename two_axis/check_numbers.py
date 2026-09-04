@@ -30,6 +30,12 @@ DOCUMENT = os.path.join(HERE, "ANALYSIS.md")
 # two copies, and this project has had a number go stale in one file while the
 # other stayed right, so both are checked from here.
 MECHANISM_DOC = os.path.join(os.path.dirname(HERE), "MECHANISM.md")
+# FITTING.md quotes this folder's gas numbers too, for a fitter deciding what to
+# trust. Nothing checked them until 2026-09-04 and two had gone stale: the
+# peroxide order still read +0.692 from before `unreleased_gas`, and the
+# recovery still claimed "within a tenth at every severity", which the third
+# clause made untrue in one direction. Both are checked from here now.
+FITTING_DOC = os.path.join(os.path.dirname(HERE), "FITTING.md")
 
 
 def main():
@@ -703,6 +709,28 @@ def main():
     doc.claim("the saturation F in MECHANISM.md",
               f"rejects `a = 1` at F = {saturation['first_order_f']:.0f}",
               document=MECHANISM_DOC)
+
+    # ---- the same results as FITTING.md states them ------------------------
+    published = sensitivity.loc[("vmax", "all live")]
+    corrected_row = sensitivity.loc[("vmax_corrected", "all live")]
+    doc.claim("the peroxide order's move, in FITTING.md",
+              f"+{published.order_h2o2:.3f} -> "
+              f"+{corrected_row.order_h2o2:.3f} under the reconstruction",
+              document=FITTING_DOC)
+    shed_worst = max(
+        float((scope.bubble_recovery(emptying=emptying,
+                                     ends_holding=False).rebuilt - 1.0)
+              .abs().max())
+        for emptying in (True, False))
+    doc.claim("the recovery on gas that left, in FITTING.md",
+              f"worst {shed_worst:.2f} across", document=FITTING_DOC)
+    holding = scope.bubble_recovery(emptying=True).rebuilt
+    doc.claim("and what it keeps, in FITTING.md",
+              f"runs to {holding.max():.2f} at 2x", document=FITTING_DOC)
+    # The superseded value, asserted ABSENT -- a stale number is only caught by
+    # checking the new one if the old one was replaced rather than duplicated.
+    doc.claim("the superseded peroxide order is gone from FITTING.md",
+              "+0.692", present=False, document=FITTING_DOC)
 
     doc.section("section 5: the burst amplitude")
     bursts = scope.burst_table()

@@ -1114,6 +1114,34 @@ signal starvation at the top rung were both excluded rather than assumed
 
 ## Open questions
 
+- **Does the perhydrate shed the O2, or does something else?** S4 establishes
+  that the catalyst destroys H2O2 and that the destruction needs turnover. It
+  does not establish *where in the cycle*. If KP collapses to `K + O2 + H2O`,
+  the sink shares step 4's pre-equilibrium and its saturation, competes with
+  step 5 for the same intermediate, and the two should scale together across
+  the peroxide axis. If instead a second peroxide attacks KP, or the dioxirane
+  KD is reduced by H2O2, the sink has its own concentration dependence and can
+  be tuned independently. **This archive cannot separate them**: the gas rate is
+  measured from detachment timing alone, it is first order in peroxide either
+  way, and there is no run in which the productive and unproductive routes are
+  moved against each other. `COMPUTATIONAL.md` C10 is the calculation that
+  would; the experiment would be a peroxide ladder with O2 evolution measured
+  directly rather than inferred from scattering.
+- **Which species draws the catalyst into its active form — buffer, peroxide,
+  or neither?** The pre-equilibrium constraint above is met on the buffer axis
+  (+1.094 +/- 0.150) and not met on the peroxide axis (1.4 to 1.9 sigma short
+  through the unwindowed clocks, 3.7 through the landmark). Taken at face value
+  that says the buffer, not H2O2, is what E -> E* runs on -- which would make
+  step 4 the wrong entry point and put a buffer adduct or a general-base
+  deprotonation ahead of it. Three things stop that being a conclusion. The
+  buffer result is **eight curves**. Every buffer order in this project is an
+  order in TOTAL buffer, so it cannot name the acid, the base, or a perhydrate
+  of either. And `induction.peroxide_crossing` reports that of 88 runs, 53 step
+  `[buf]`, 20 step `[H2O2]`, and **0 step both** -- so no run in the archive
+  separates a buffer term from a `[buf][H2O2]` term, which is exactly the
+  difference between a general base and a buffer perhydrate delivering the
+  oxygen. **The missing experiment is a two-dimensional buffer x peroxide grid
+  at fixed pH**, and it is cheap.
 - **What does the absorbance actually measure?** This is now the single most
   consequential open question, ahead of any mechanistic detail. The structural
   analysis shows the mechanism predicts a decelerating aldehyde curve and an
