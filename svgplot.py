@@ -6,7 +6,9 @@ without pixelating, and survives being emailed or committed. This module draws;
 it never computes a measurement. Every number that reaches a figure comes from
 `scope`, `curve_metrics` or `summary_kinetics`.
 """
+import hashlib
 import html
+
 import numpy as np
 
 PALETTE = ["#2f6fb0", "#c0522a", "#3f8a5a", "#8a5aa8", "#b08a2f",
@@ -200,9 +202,26 @@ class Axes:
         # the frame -- the burst fan on the curves where v0 is unbounded runs
         # to 28x the line rate -- should visibly run off the top, not be drawn
         # across the axis labels.
-        clip = f"clip{id(self)}"
-        out.append(f"<defs><clipPath id='{clip}'><rect x='{x0}' y='{y1}' "
-                   f"width='{x1 - x0}' height='{y0 - y1}'/></clipPath></defs>")
+        # THE ID NAMES THE REGION, NOT THE OBJECT. It was `id(self)` until
+        # 2026-09-04 -- a memory address, which CPython reuses the moment a
+        # panel's Axes is freed, so a page of many figures drew far fewer
+        # distinct ids than it had clips. `two_axis/progress_curves.html` had
+        # 119 clipPaths sharing 5 ids. Ids are DOCUMENT-scoped in HTML, so
+        # `url(#c)` resolves to the FIRST clipPath of that name on the page,
+        # not to the one beside the marks -- and on five of the six index
+        # pages the collisions bound one id to conflicting rectangles, which
+        # clips a figure's marks to a DIFFERENT figure's plot area and deletes
+        # whatever falls outside it. Silently: the mark is in the file.
+        # Hashing the geometry fixes both halves. Two clips of the same region
+        # may still share an id, which is what we want -- the referent is
+        # identical, so resolving to the first is correct -- and two clips of
+        # different regions can no longer collide. It is also deterministic,
+        # so a rebuild that changes nothing now produces a byte-identical
+        # page; with an address in the markup no such check could ever pass.
+        rect = (f"<rect x='{x0}' y='{y1}' "
+                f"width='{x1 - x0}' height='{y0 - y1}'/>")
+        clip = "clip" + hashlib.blake2s(rect.encode(), digest_size=6).hexdigest()
+        out.append(f"<defs><clipPath id='{clip}'>{rect}</clipPath></defs>")
         out.append(f"<g clip-path='url(#{clip})'>")
         out.extend(self.parts)
         out.append("</g>")
@@ -290,6 +309,41 @@ def page(title, body, subtitle=""):
             f"<div class='wrap'><h1>{esc(title)}</h1>"
             + (f"<p class='lede'>{subtitle}</p>" if subtitle else "")
             + body + "</div></body></html>")
+
+
+def colliding_clips(html_text):
+    """
+    Every clip id on the page that names more than one rectangle.
+
+    SVG ids are DOCUMENT-scoped, so `clip-path='url(#c)'` resolves to the FIRST
+    clipPath called `c` anywhere on the page -- not to the one sitting three
+    lines above the marks that reference it. Bind one id to two different
+    rectangles and a figure's marks are clipped to a DIFFERENT figure's plot
+    area, and whatever falls outside that rectangle is gone from the rendered
+    page while remaining present in the file.
+
+    That happened, on five of the six index pages, for as long as the pages
+    existed. The id was `id(self)` -- a CPython memory address, reused the
+    moment a panel's Axes is freed -- so `two_axis/progress_curves.html` drew
+    119 clipPaths under 5 distinct ids. `clipped_marks` could not see it: it
+    reads each figure's OWN first clipPath, which is the one the browser
+    ignores.
+
+    Two clips of the same region sharing an id is fine and is not reported --
+    the referent is identical, so resolving to the first is correct.
+
+    Returns a list of (clip id, [rects]) for the conflicts, empty when clean.
+    Pass the rendered HTML of a whole page.
+    """
+    import collections
+    import re
+    regions = collections.defaultdict(list)
+    for cid, rect in re.findall(r"<clipPath id='([^']+)'><rect ([^/]*)/>",
+                                html_text):
+        rect = rect.strip()
+        if rect not in regions[cid]:
+            regions[cid].append(rect)
+    return [(cid, rects) for cid, rects in regions.items() if len(rects) > 1]
 
 
 def clipped_marks(html_text):

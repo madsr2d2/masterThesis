@@ -222,15 +222,23 @@ def write_pages(directory, pages):
     `pages` maps a file name to its content. Returns an exit code, non-zero if
     anything was clipped, so a builder can be run as a gate.
     """
-    from svgplot import clipped_marks
-    clipped_total = 0
+    from svgplot import clipped_marks, colliding_clips
+    faults = 0
     for name, content in pages.items():
         path = os.path.join(directory, name)
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(content)
         clipped = clipped_marks(content)
-        clipped_total += len(clipped)
+        # The same failure one level up: a clip id bound to two rectangles
+        # sends a figure's marks through another figure's frame, and the marks
+        # it drops are invisible in exactly the way a clipped mark is. See
+        # svgplot.colliding_clips -- this was live on five of the six index
+        # pages, and `clipped_marks` is structurally unable to see it.
+        colliding = colliding_clips(content)
+        faults += len(clipped) + len(colliding)
         print(f"wrote {path}  ({len(content) / 1024:.0f} kB)  "
               f"{len(clipped)} clipped marks"
-              + ("" if not clipped else f"  {clipped[:4]}"))
-    return 1 if clipped_total else 0
+              + ("" if not clipped else f"  {clipped[:4]}")
+              + ("" if not colliding
+                 else f"  {len(colliding)} COLLIDING CLIP IDS {colliding[:2]}"))
+    return 1 if faults else 0

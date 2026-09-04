@@ -108,6 +108,14 @@ python data/test_buffer_role.py           # the species test, planted both ways
 python test_doc_check.py                  # the contract every check_numbers runs on
 ```
 
+Or all of it, which is what `python run_gates.py` is for -- 20 gates in about
+4 minutes, non-zero if any fails, `--all` to add the slow optimiser suite and
+`--only two_axis` to narrow. **It DISCOVERS the gates rather than listing
+them.** The list above named 9 and the repository has 20: `test_curve_flags`,
+`test_curve_screen`, `test_kinetic_model`, `test_read_rre`,
+`test_solution_chemistry` and `test_summary_kinetics` were in the tree and in
+no documented suite. A hardcoded list is a list that drifts.
+
 And each analysis folder's own `check_numbers.py`, which re-derives every number
 in its `ANALYSIS.md` from the modules. About twenty seconds each.
 
@@ -149,8 +157,21 @@ test_no_duplicate_definitions` globbed `data/*.py` alone until 2026-09-02, and
 the drift simply moved to where it could not see -- five copies of the document
 contract, five palettes, and `_table` meaning a memoised frame in two folders
 and an HTML renderer in a third. It now covers `data/`, the repository root and
-every folder's `build_figures.py` and `check_numbers.py`: 55 modules. When it
-fires, DELETE one copy and import the other. Rename only when the two are
+every folder's `build_figures.py` and `check_numbers.py`: 58 modules. When it
+fires, DELETE one copy and import the other.
+
+**It reads only functions and classes.** `_defined_names` collects
+`FunctionDef`, `AsyncFunctionDef` and `ClassDef` and no assignments, so NO
+CONSTANT HAS EVER BEEN COVERED -- which is the whole category the rule exists
+for. 27 constants are defined in more than one of the 58 modules and several
+have diverged: `INDUCTION_FLOOR` is `60.0` seconds in `induction` and `1/300`
+of a run in `slowdown`; `LADDER_MINIMUM` is `2.0` in `scope` and `np.log(2.0)`
+in its test; `BURST_COLOUR` is `#12856a` in `curve_dossier` and `#7a4bb8` in
+`background_reaction/build_figures.py`, which is also a colour declared in a
+folder. `temperature_series/build_figures.py` imported five names from
+`figure_kit` and redeclared all five underneath, shadowing the import -- the
+2026-09-02 palette drift, still live in one folder on 2026-09-04. Check a
+constant by hand until the guard covers them. Rename only when the two are
 genuinely different things that shared a name, and then the new name has to say
 which one it is.
 
@@ -169,6 +190,19 @@ light `SURFACE` its palette was validated against.
   broken for a commit because it was rebuilt with its output piped away, and
   the "page is byte-identical" check then passed for the wrong reason: the
   crash meant the file was never written at all.
+- **A clip id names the REGION, not the object.** SVG ids are DOCUMENT-scoped,
+  so `clip-path='url(#c)'` resolves to the FIRST clipPath of that name on the
+  page -- not the one emitted beside the marks. `svgplot` named them
+  `f"clip{id(self)}"` until 2026-09-04, and CPython reuses an address the
+  moment a panel's `Axes` is freed, so `two_axis/progress_curves.html` drew 119
+  clipPaths under 5 ids and FIVE OF THE SIX index pages bound one id to
+  conflicting rectangles -- clipping a figure's marks to another figure's plot
+  area and deleting whatever fell outside, silently, on the published page.
+  `clipped_marks` cannot see this: it reads each figure's own first clipPath,
+  which is the one the browser ignores. The id is now a hash of the rectangle,
+  `svgplot.colliding_clips` is the check, and `write_pages` runs it. It also
+  makes the build DETERMINISTIC -- with an address in the markup, the
+  "page is byte-identical" check could never have passed.
 - **`write_pages` reports clipped marks at build time**, which two of the five
   folders did and three did not. A mark outside the axis limits vanishes
   silently and the figure still looks finished, so the build has to say so.

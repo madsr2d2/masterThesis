@@ -19,3 +19,11 @@ figures/
 
 # local interpreter
 .venv/
+
+# ORCA per-geometry-step restart guesses. An excited-state optimisation writes
+# one TDDFT guess per step, ~2 MB each; 156 of them were tracked and came to
+# 311 MB, six sevenths of the repository. They are scratch that ORCA rereads
+# within a single run, not results -- the converged .gbw, .out, .xyz and .hess
+# are what the calculation produced, and those are still tracked. Removed from
+# the tree on 2026-09-04; still in history, so a clone still pays for them.
+*_D[0-9][0-9][0-9][0-9][0-9].TDDFTGuess.gbw

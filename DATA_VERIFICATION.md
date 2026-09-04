@@ -8,6 +8,121 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-04 — Five index pages clipped a figure's marks to another figure's frame
+
+Asked for a cleanup of a repository that had grown bloated, with slow tests as
+the symptom. The tests were the entry point; the clip bug is what the cleanup
+found, and it is the one that had been altering published pages.
+
+### The bug
+
+`svgplot.Axes.render` named its clip region `f"clip{id(self)}"` — a CPython
+memory address. An address is reused the moment the object is freed, and every
+panel builds an `Axes`, renders it and drops it, so a page of many figures drew
+far fewer distinct ids than it had clips:
+
+| page | clipPaths | distinct ids |
+|---|---|---|
+| `induction/progress_curves.html` | 196 | 7 |
+| `two_axis/progress_curves.html` | 119 | 5 |
+| `product_fate/progress_curves.html` | 92 | 8 |
+| `temperature_series/index.html` | 15 | 11 |
+
+**SVG ids are document-scoped**, so `clip-path='url(#c)'` resolves to the first
+clipPath called `c` anywhere on the page, not to the one emitted beside the
+marks that reference it. Where two colliding clips had the *same* rectangle
+this is harmless — the referent is identical. Where they had different
+rectangles, a figure's marks were clipped to a different figure's plot area,
+and everything outside it was **absent from the rendered page while present in
+the file**.
+
+That was live on **five of the six `index.html` pages**: `temperature_series`
+bound four ids to eight different rectangles, `induction` two to five, and
+`background_reaction`, `buffer` and `product_fate` one each. The narrowest
+mismatch on `temperature_series/index.html` sent a figure whose plot area is
+`x=64 width=476` through a rectangle of `x=58 width=312`.
+
+`clipped_marks` is structurally unable to see it: it reads each figure's own
+first clipPath, which is exactly the one the browser ignores.
+
+### The fix, and the guard
+
+The id is now `blake2s` of the rectangle itself, so it **names the region
+rather than the object**. Two clips of one region may still share an id, which
+is correct; two clips of different regions can no longer collide. All six
+folders rebuild with **0 conflicting ids**.
+
+`svgplot.colliding_clips` is the new check and `figure_kit.write_pages` runs it
+beside `clipped_marks` and exits non-zero on either — the same argument that
+put the clip report at build time in the first place: a mark that vanishes
+silently has to be reported by the build. Planted back, the old
+`id(self)` makes `temperature_series/build_figures.py` print
+`5 COLLIDING CLIP IDS` and exit 1.
+
+### A second thing this buys
+
+The addresses made every build unreproducible: rebuilding a folder that had
+changed in no other way produced a different file, so the "page is
+byte-identical" check `CLAUDE.md` describes could never have passed for any
+folder that draws a clip. All twelve pages now rebuild byte-identical. That is
+also how this was found — `temperature_series`' committed pages did not
+reproduce from their committed source, and the only difference was the ids.
+
+### `temperature_series/build_figures.py` was drawing from its own palette
+
+Found in the same pass. The folder imports `RUNGS`, `TEMPERATURES`, `CATEGORY`,
+`SURFACE` and `FIT_WIDTH` from `figure_kit` and then **redeclared all five**,
+shadowing the import. The values still agreed, so nothing was wrong on the
+page; the hazard is that a change to `figure_kit` would have reached every
+folder but this one and nothing would have said so. This is the drift
+`CLAUDE.md` records as fixed on 2026-09-02, still present in one folder. The
+copies are deleted; the import stands.
+
+It survived because **`test_no_duplicate_definitions` reads only functions and
+classes**. `_defined_names` collects `ast.FunctionDef`, `ast.AsyncFunctionDef`
+and `ast.ClassDef` and no assignments — so no constant has ever been covered,
+which is the whole category the guard's own docstring cites (five palettes, a
+`TEMPERATURES` ramp that differed between folders). A scan of the 58 guarded
+modules finds 27 constants defined in more than one, and these have actually
+diverged:
+
+| name | modules | values |
+|---|---|---|
+| `INDUCTION_FLOOR` | `induction`, `slowdown` | `60.0` s against `1/300` of a run — different units |
+| `LADDER_MINIMUM` | `scope`, `test_fit_kinetics` | `2.0` against `np.log(2.0)` |
+| `MINIMUM_POINTS` | `curve_screen`, `build_dossier` | 8 against 20 |
+| `BURST_COLOUR` | `curve_dossier`, `background_reaction/build_figures` | `#12856a` against `#7a4bb8` — and a colour declared in a folder |
+| `PALETTE` | `svgplot`, `build_dossier`, `curve_dossier` | identical, three copies |
+
+Not yet acted on, and none of it moves a published number — recorded here so
+the next pass has the list.
+
+### And the cleanup the question started from
+
+`scope.frame` was not memoised. `two_axis/check_numbers.py` asked for the same
+two blocks 79 times and spent 282 of its 290 seconds rebuilding frames it
+already had; `background_reaction/check_numbers.py` asked 123 times over 10
+scopes. Memoised, with callers getting a copy, the six folder checkers fall
+from about 18 minutes together to about 2.
+
+`run_gates.py` runs every gate in one command and **discovers them rather than
+listing them** — `CLAUDE.md`'s list named 9 and the repository has 20, so
+`test_curve_flags`, `test_curve_screen`, `test_kinetic_model`, `test_read_rre`,
+`test_solution_chemistry` and `test_summary_kinetics` were in the tree and in
+no documented suite.
+
+156 ORCA per-geometry-step restart guesses (`*_D#####.TDDFTGuess.gbw`, 311 MB,
+six sevenths of the repository) are removed from the tree and gitignored. They
+are scratch a single run rereads, not results; the converged `.gbw`, `.out`,
+`.xyz` and `.hess` are untouched. History keeps them, so this reclaims the
+working tree and not the clone.
+
+`data/plot_orders.py` is deleted: no importer, no mention in any document, and
+a second unguarded matplotlib rendering path for orders that the folder
+documents now assert under `check_numbers`. It still ran.
+
+---
+
 ## 2026-09-04 — the gas survey: S4 generalises, and two of its supports do not
 
 Asked: *how can we be sure it is the chemzyme ketone catalysing the
