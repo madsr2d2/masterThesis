@@ -10,6 +10,7 @@ against had already happened twice.
 """
 import os
 import sys
+import time
 
 import numpy as np
 import pandas as pd
@@ -1151,7 +1152,54 @@ def test_the_turnover_control_is_confounded_with_ph():
                     for r in confound.reference]).all()))
 
 
+def test_the_memoised_frame_hands_out_a_copy():
+    """
+    `frame` is memoised, and a memoised frame that handed out the cached object
+    would be one in-place edit from a silent wrong answer -- this frame is
+    passed into five folders, and `check_numbers` runs drop and filter on it.
+
+    The cache is what makes the checkers tractable at all: every row costs a
+    progress fit and a debubble, and `two_axis/check_numbers.py` asks for the
+    same two scopes 79 times. Before the cache that run spent 282 of its 290
+    seconds rebuilding frames it already had.
+    """
+    print("\nthe memoised frame")
+    first = scope.frame(scope.TWO_AXIS_BLOCK)
+    second = scope.frame(scope.TWO_AXIS_BLOCK)
+    check("two calls agree", bool(first.equals(second)))
+    check("and are not the same object", first is not second)
+
+    # The failure this guards: a caller mutates, the next caller inherits it.
+    # The baseline is taken as a plain array, not as `first.vmax` -- without
+    # the copy `first` is the cached object too, so a frame compared against
+    # its own alias agrees no matter what was done to it.
+    rows, columns = first.shape
+    baseline = np.asarray(first.vmax, dtype=float).copy()
+    second.drop(second.index[0], inplace=True)
+    second["vmax"] = 0.0
+    third = scope.frame(scope.TWO_AXIS_BLOCK)
+    check("a caller's drop does not reach the next caller",
+          third.shape == (rows, columns), f"{third.shape} against {(rows, columns)}")
+    check("nor does a caller's overwrite",
+          third.shape[0] == len(baseline)
+          and bool(np.array_equal(np.asarray(third.vmax, dtype=float), baseline,
+                                  equal_nan=True)))
+
+    # And the cache is keyed on the scope, not shared across scopes.
+    other = scope.frame(scope.TEMPERATURE_SERIES)
+    check("a second scope gets its own frame",
+          set(other.experiment) == set(scope.TEMPERATURE_SERIES)
+          and set(first.experiment) != set(other.experiment))
+
+    # It has to actually be a cache, or the checkers go back to 290 seconds.
+    warm = time.time()
+    scope.frame(scope.TWO_AXIS_BLOCK)
+    check("and the second build is served from the cache",
+          time.time() - warm < 0.5, f"{time.time() - warm:.3f}s")
+
+
 if __name__ == "__main__":
+    test_the_memoised_frame_hands_out_a_copy()
     test_an_axis_the_offsets_absorb_is_not_reported()
     test_the_block_still_measures_both_axes()
     test_each_arm_agrees_with_the_joint_fit()
