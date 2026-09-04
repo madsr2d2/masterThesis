@@ -39,6 +39,20 @@ PH_RAMP = ["#6295c3", "#0c2f4d"]
 # colour-vision deficiency separation and contrast in both light and dark.
 CATEGORY = ["#2f6fb0", "#c0522a", "#8a5aa8"]
 
+# The forms a progress curve can earn, drawn together on one panel and so
+# needing four clearly separated hues rather than four steps of a ramp. Not
+# CATEGORY, which is a validated trio. The first attempt used #3f8a5a for the
+# quadratic and #12856a for the burst -- both green-teal, and indistinguishable
+# on the page. Declared here and not in the folder that draws them, because
+# NEVER DECLARE A COLOUR IN A FOLDER: `background_reaction/build_figures.py`
+# held all five until 2026-09-04, one of them under a name `curve_dossier` also
+# used, for a different colour.
+WINDOW_COLOUR = "#2f6fb0"      # the 20% window line          -- blue
+QUAD_COLOUR = "#c25e00"        # the whole-curve quadratic    -- amber (headline)
+BURST_COLOUR = "#7a4bb8"       # the burst/lag form           -- purple
+WHOLE_COLOUR = "#3f8a5a"       # straight line, whole curve   -- green
+OUTLIER_COLOUR = "#c0392b"     # ring round a suspect reading -- red
+
 # Figures sit on a fixed light surface whatever the page theme, so the ramps'
 # contrast is deterministic. A sequential ramp cannot clear 3:1 against a white
 # AND a near-black surface at once -- it needs the lightness range the contrast

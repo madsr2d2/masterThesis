@@ -31,25 +31,13 @@ from figure_kit import (CATEGORY, FIT_WIDTH, RUNGS, SURFACE,
                         TEMPERATURES, breakpoints, fig, panel,
                         progress_overlay, styled, write_pages)
 
-# ORDERED VARIABLES GET SEQUENTIAL RAMPS, not categorical hues. Substrate rung
-# and temperature are both ordinal, so a light-to-dark single hue carries the
-# order; cycling categorical hues over them would throw that away. Every step
-# clears 3:1 against the figure surface below, and every line is direct-labelled
-# as well, so identity is never colour alone.
-RUNGS = ["#6295c3", "#3d729f", "#1e5079", "#0c2f4d"]
-TEMPERATURES = ["#7fa9cd", "#5d8fba", "#3c74a4", "#255a8a", "#12406b", "#062a4b"]
-# The one genuinely categorical set: three unordered things (three enzyme
-# hypotheses, three fitted parameters). Validated for colour-vision deficiency
-# separation and contrast in both light and dark.
-CATEGORY = ["#2f6fb0", "#c0522a", "#8a5aa8"]
-# Figures sit on a fixed light surface whatever the page theme, so the ramps'
-# contrast is deterministic. A sequential ramp cannot clear 3:1 against a white
-# AND a near-black surface at once -- it needs the lightness range that the
-# contrast rule would spend.
-SURFACE = "#fbfbfa"
-# Narrower than the smallest mark diameter used on a progress panel, so the
-# fit never covers a reading whole. See build_curves_page.
-FIT_WIDTH = 1.5
+# RUNGS, TEMPERATURES, CATEGORY, SURFACE and FIT_WIDTH come from figure_kit
+# above and are NOT redeclared here. Byte-identical copies of all five sat on
+# this line until 2026-09-04, shadowing the import -- so this folder drew from
+# its own palette, and a change to figure_kit would have reached every folder
+# but this one, silently. The values happened to still agree; the hazard was
+# that nothing would have said if they stopped. figure_kit carries the
+# reasoning for each.
 
 
 

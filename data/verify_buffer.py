@@ -65,7 +65,10 @@ CUVETTE_SPREAD = 1e-6         # a stock must be identical across cuvettes
 # experiment -> (sheet, first row (1-based), column (0-based), stock in mol/L).
 SHEET_ARITHMETIC = {14: ("Sheet1", 27, 15, 0.1)}
 
-FILENAME_MOLARITY = re.compile(r"[_ ](\d+(?:[.,]\d+)?)\s*M[_.]", re.IGNORECASE)
+# NOT build_manifest.FILENAME_MOLARITY, a looser pattern for the same job --
+# this one anchors on the separators either side. They shared the bare name
+# until 2026-09-04 and were never the same regex.
+BUFFER_FILENAME_MOLARITY = re.compile(r"[_ ](\d+(?:[.,]\d+)?)\s*M[_.]", re.IGNORECASE)
 
 # How far down the sheet the header's own buffer block can sit.
 HEADER_DEPTH = 14
@@ -116,7 +119,7 @@ def header_stock(sheet):
 
 def filename_stock_mM(filename):
     """Returns the stock a filename declares, in mM, or None."""
-    match = FILENAME_MOLARITY.search(str(filename))
+    match = BUFFER_FILENAME_MOLARITY.search(str(filename))
     if match is None:
         return None
     return float(match.group(1).replace(",", ".")) * 1000.0

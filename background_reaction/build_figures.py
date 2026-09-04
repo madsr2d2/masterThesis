@@ -36,7 +36,9 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, OUTLIER_SIGMA,
 from fit_dataset import source_floor
 from summary_kinetics import BURST_V0_HALFWIDTH, fit_burst_bounded
 from svgplot import ACCENT, GRID, INK, MUTED, PALETTE, Axes, esc, page
-from figure_kit import (decimated, fig, panel, styled,
+from figure_kit import (BURST_COLOUR, OUTLIER_COLOUR, QUAD_COLOUR,
+                        WHOLE_COLOUR, WINDOW_COLOUR,
+                        decimated, fig, panel, styled,
                         write_pages)
 
 # The estimator the headline numbers are quoted on, and the two reported
@@ -177,14 +179,10 @@ def figure_buffer_order():
 
 
 # --- the progress curves, with every fit drawn -----------------------------
-# Four forms are drawn on every panel, so they need four clearly separated
-# hues. The first attempt used #3f8a5a for the quadratic and #12856a for the
-# burst -- both green-teal, and indistinguishable on the page.
-WINDOW_COLOUR = "#2f6fb0"      # the 20% window line          -- blue
-QUAD_COLOUR = "#c25e00"        # the whole-curve quadratic    -- amber (headline)
-BURST_COLOUR = "#7a4bb8"       # the burst/lag form           -- purple
-WHOLE_COLOUR = "#3f8a5a"       # straight line, whole curve   -- green
-OUTLIER_COLOUR = "#c0392b"     # ring round a suspect reading -- red
+# The four form colours come from figure_kit, imported above. They were
+# declared here until 2026-09-04, which is a colour declared in a folder --
+# and BURST_COLOUR was a name `data/curve_dossier.py` also used, for a
+# different colour, where nothing could see the collision.
 
 
 def curve_panel(curve, width=330, height=210):

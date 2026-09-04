@@ -51,7 +51,10 @@ warnings.filterwarnings("ignore")
 
 DATASET_PATH = "data/experiment_data.csv"
 MANIFEST_PATH = "data/manifest.csv"
-RELATIVE_TOLERANCE = 1e-4
+# NOT recompute_concentrations.RELATIVE_TOLERANCE, which is 1e-3. This check
+# compares a number against the arithmetic that produced it, so it can afford
+# a decade more; that one compares two independent recomputes.
+DILUTION_TOLERANCE = 1e-4
 
 
 def _number(value):
@@ -153,7 +156,7 @@ def check_internal(block):
         return None, None, None
     implied = np.array(implied)
     spread = (implied.max() - implied.min()) / max(abs(implied.mean()), 1e-12)
-    return spread <= RELATIVE_TOLERANCE, float(implied.mean()), float(spread)
+    return spread <= DILUTION_TOLERANCE, float(implied.mean()), float(spread)
 
 
 def analyse(dataset_path=DATASET_PATH, manifest_path=MANIFEST_PATH):

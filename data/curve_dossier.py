@@ -47,11 +47,19 @@ DATASET_PATH = "data/experiment_data.csv"
 CURVE_DIRECTORY = "data/data"
 OUTPUT_DIRECTORY = "dossier"
 
-PALETTE = ["#2f6fb0", "#c0522a", "#3f8a5a", "#8a5aa8", "#b08a2f",
-           "#4a8a9a", "#a83f5a", "#6a6a6a", "#5a7a3f"]
+# NOT svgplot.PALETTE, which is EIGHT colours and diverges from this one from
+# its sixth on (#4a9ab0/#a03a5a/#6a7a3a against #4a8a9a/#a83f5a/#6a6a6a). Both
+# were called PALETTE, in three modules, until 2026-09-04. This is the nine
+# the two dossier pages cycle over their cuvettes; `build_dossier` imports it
+# from here rather than keeping the third copy.
+DOSSIER_PALETTE = ["#2f6fb0", "#c0522a", "#3f8a5a", "#8a5aa8", "#b08a2f",
+                   "#4a8a9a", "#a83f5a", "#6a6a6a", "#5a7a3f"]
 
 LINE_COLOUR = "#d0342c"    # the straight line v0 comes from
-BURST_COLOUR = "#12856a"   # the burst/lag form, shown but never used for a rate
+# NOT figure_kit.BURST_COLOUR, which is the purple the analysis folders
+# draw this form in. This page is a different set of marks on a different
+# ground and picked teal; the two shared the bare name until 2026-09-04.
+DOSSIER_BURST_COLOUR = "#12856a"  # the burst/lag form, never used for a rate
 
 # A downward excursion larger than this many noise sigma is a curve going
 # backwards, not a curve wobbling. Seven curves in the dataset move 0.03-0.10 AU
@@ -296,7 +304,8 @@ def verdicts(row, block):
 
 # --- page ------------------------------------------------------------------
 
-STYLE = """
+# NOT build_dossier.STYLE, which is a different sheet for a different page.
+CURVE_DOSSIER_STYLE = """
 :root{--ink:#1b1e23;--dim:#5d646e;--faint:#8a919b;--rule:#d8dce2;--bg:#ffffff;
       --panel:#f6f7f9;--bad:#b3261e;--weak:#8a5a00;--shape:#2f5fa0;--excl:#6a3d9a;
       --power:#3f7a6a;}
@@ -373,7 +382,7 @@ def render(number, rows, curves_by_sample):
     longest = max(r["duration"] for r in rows)
 
     def colour(index):
-        return PALETTE[index % len(PALETTE)]
+        return DOSSIER_PALETTE[index % len(DOSSIER_PALETTE)]
 
     # --- overlay of every cuvette
     overlay = []
@@ -395,7 +404,7 @@ def render(number, rows, curves_by_sample):
         burst = row["burst"]
         if np.isfinite(burst.tau):
             layers.append(dict(x=times, y=burst.predict(times),
-                               colour=BURST_COLOUR, label=""))
+                               colour=DOSSIER_BURST_COLOUR, label=""))
         layers.append(dict(x=fit_x, y=fit_y, colour=LINE_COLOUR, dash=True, label=""))
         panel = svg_chart(
             layers, width=250, height=150, legend=False,
@@ -543,7 +552,7 @@ v<sub>0</sub> = v<sub>ss</sub> &minus; B/&tau; diverges.{{caveat}}</p>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Experiment {number} curves</title>
-<style>{STYLE}</style></head><body><div class="wrap">
+<style>{CURVE_DOSSIER_STYLE}</style></head><body><div class="wrap">
 <h1>{title}</h1>
 <p class="sub"><b>{len(rows)}</b> cuvettes &middot; <b>{total_points:,}</b> points &middot;
 longest run <b>{longest / 60:.0f}</b> min &middot;
@@ -559,7 +568,7 @@ longest run <b>{longest / 60:.0f}</b> min &middot;
 fitted to the first {INITIAL_WINDOW:.0%} of the run &mdash; the one that produces
 v<sub>0</sub>. If it does not lie along the start of the curve, the rate for that
 cuvette is not trustworthy.
-<b style="color:{BURST_COLOUR}">Solid green</b> is the burst/lag form
+<b style="color:{DOSSIER_BURST_COLOUR}">Solid green</b> is the burst/lag form
 A = c + v<sub>ss</sub>t &minus; B(1 &minus; e<sup>&minus;t/&tau;</sup>) fitted to the
 <em>whole</em> curve. It is shown as a description of shape only &mdash; no rate on
 this page comes from it, for the reason set out under the table below.</p>

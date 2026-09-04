@@ -94,8 +94,34 @@ diverged:
 | `BURST_COLOUR` | `curve_dossier`, `background_reaction/build_figures` | `#12856a` against `#7a4bb8` — and a colour declared in a folder |
 | `PALETTE` | `svgplot`, `build_dossier`, `curve_dossier` | identical, three copies |
 
-Not yet acted on, and none of it moves a published number — recorded here so
-the next pass has the list.
+**All of it is now acted on**, and none of it moved a published number: all
+twelve pages rebuild byte-identical and every gate stays green.
+
+The guard is widened to constants. Three shapes are skipped structurally — a
+leading `_`, `X = X` (a re-export, not a copy), and lowercase module state —
+and `PERMITTED_DUPLICATE_CONSTANTS` holds the rest, each a module's own
+location or harness state (`HERE`, `FAILURES`, `DATASET_PATH`, `DOCUMENT`) and
+never a measurement, a threshold or a colour. Put the shadowed palette back and
+it fails with `RUNGS in figure_kit:29, temperature_series/build_figures:41`.
+
+Where the two were genuinely different things, the new name says which:
+`INDUCTION_GRID_FLOOR`/`INDUCTION_GRID_CAP`, `DOSSIER_MINIMUM_POINTS`,
+`DILUTION_TOLERANCE`, `BUFFER_FILENAME_MOLARITY`, `DOSSIER_PALETTE`,
+`DOSSIER_BURST_COLOUR`, `REVIEW_STYLE`/`CURVE_DOSSIER_STYLE`. Where one was a
+copy, it is deleted and imported: `build_dossier` takes `ABSORBANCE_QUANTUM`
+and `QUANTISATION_SIGMA` from `curve_metrics` rather than recomputing the noise
+floor beside it, `build_dossier` takes the dossier palette from
+`curve_dossier`, and `test_fit_kinetics` takes its ladder bar from
+`scope.LADDER_MINIMUM` rather than restating `np.log(2.0)` — a test that
+restates the code's threshold is a test that agrees with itself.
+
+`background_reaction/build_figures.py`'s five form colours move into
+`figure_kit`, where colours belong. **Correction:** the commit of earlier today
+said the `temperature_series` shadow copies were deleted in it. They were not —
+the edit was made, then undone by a `git checkout` during the investigation of
+why that folder's pages did not reproduce, and the commit went out with the
+claim standing. They are deleted now, and the folder's pages rebuild
+byte-identical, which is the proof the copies had not yet diverged.
 
 ### And the cleanup the question started from
 

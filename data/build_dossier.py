@@ -59,8 +59,8 @@ MANIFEST_PATH = "data/manifest.csv"
 DATASET_PATH = "data/experiment_data.csv"
 SHEET_DIR = "data/data"
 
-PALETTE = ["#2f6fb0", "#c0522a", "#3f8a5a", "#8a5aa8", "#b08a2f",
-           "#4a8a9a", "#a83f5a", "#6a6a6a", "#5a7a3f"]
+# The dossier palette lives in curve_dossier; see the note there.
+from curve_dossier import DOSSIER_PALETTE
 
 
 # --- reading the sheet ----------------------------------------------------
@@ -262,8 +262,10 @@ def curve_index():
 # The instrument writes absorbance to three decimals, so a curve that is
 # genuinely still has first differences of exactly zero and any spread-based
 # noise estimate collapses. Floor every estimate at the quantisation sigma.
-ABSORBANCE_QUANTUM = 0.001
-QUANTISATION_SIGMA = ABSORBANCE_QUANTUM / np.sqrt(12)
+# Imported, not recomputed. Both sat here as a second independent derivation
+# until 2026-09-04 -- the noise floor is the one constant in this project that
+# has already been wrong once, and two copies of it is how that happens again.
+from curve_metrics import ABSORBANCE_QUANTUM, QUANTISATION_SIGMA
 
 # A net change smaller than this is reported as flat regardless of its
 # significance: below it the curve carries no usable rate, whether or not the
@@ -278,7 +280,11 @@ BACKTRACK_FRACTION = 0.5
 # How many sigma a rise or fall must clear to count as real rather than drift.
 SIGNIFICANCE_SIGMA = 5.0
 
-MINIMUM_POINTS = 20
+# NOT curve_screen.MINIMUM_POINTS, which is 8 and decides ELIGIBILITY. This
+# is the length below which this page calls a curve short. The two shared
+# the bare name until 2026-09-04, and curve_screen's own comment already
+# said they were different numbers for different questions.
+DOSSIER_MINIMUM_POINTS = 20
 
 
 def curve_backtrack(values, window=5):
@@ -351,7 +357,7 @@ def curve_findings(row):
                          f"backtracks {backtrack:.3f} AU against a net of "
                          f"{net:+.3f}"))
 
-    if row["points"] < MINIMUM_POINTS:
+    if row["points"] < DOSSIER_MINIMUM_POINTS:
         findings.append(("defect", f"only {row['points']} points"))
     return findings
 
@@ -369,7 +375,7 @@ def plot_curves(diagnostics):
     for index, row in diagnostics.iterrows():
         flagged = bool(curve_defects(row))
         axis.plot(np.asarray(row["time"]) / 60.0, row["values"],
-                  color=PALETTE[index % len(PALETTE)],
+                  color=DOSSIER_PALETTE[index % len(DOSSIER_PALETTE)],
                   linestyle="--" if flagged else "-",
                   linewidth=1.1 if flagged else 1.5,
                   alpha=0.75 if flagged else 1.0,
@@ -662,7 +668,8 @@ def render_experiment(number, manifest, dataset, summary=None):
 """
 
 
-STYLE = """
+# NOT curve_dossier.CURVE_DOSSIER_STYLE, a different sheet for a different page.
+REVIEW_STYLE = """
 /* Palette grounded in the subject: a UV spectrophotometer readout on lab
    paper. Neutrals carry a cool bias toward the 285 nm accent rather than
    sitting at pure grey; the warn hue is the burnt orange of a flagged trace. */
@@ -864,7 +871,7 @@ def build(experiments=None, out_path="dossier.html",
         for label, value, detail in index_rows) + "</tbody></table>"
     page = f"""<title>Kinetics Experiment Dossier</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap">
-<style>{STYLE}</style>
+<style>{REVIEW_STYLE}</style>
 <div class="wrap">
 <h1>Experiment review dossier</h1>
 <p class="lede">Every source of truth for each experiment, side by side. The

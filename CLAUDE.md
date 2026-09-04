@@ -163,18 +163,32 @@ and an HTML renderer in a third. It now covers `data/`, the repository root and
 every folder's `build_figures.py` and `check_numbers.py`: 58 modules. When it
 fires, DELETE one copy and import the other.
 
-**It reads only functions and classes.** `_defined_names` collects
-`FunctionDef`, `AsyncFunctionDef` and `ClassDef` and no assignments, so NO
-CONSTANT HAS EVER BEEN COVERED -- which is the whole category the rule exists
-for. 27 constants are defined in more than one of the 58 modules and several
-have diverged: `INDUCTION_FLOOR` is `60.0` seconds in `induction` and `1/300`
-of a run in `slowdown`; `LADDER_MINIMUM` is `2.0` in `scope` and `np.log(2.0)`
-in its test; `BURST_COLOUR` is `#12856a` in `curve_dossier` and `#7a4bb8` in
-`background_reaction/build_figures.py`, which is also a colour declared in a
-folder. `temperature_series/build_figures.py` imported five names from
-`figure_kit` and redeclared all five underneath, shadowing the import -- the
-2026-09-02 palette drift, still live in one folder on 2026-09-04. Check a
-constant by hand until the guard covers them. Rename only when the two are
+**It reads CONSTANTS as well, since 2026-09-04.** It read only functions and
+classes until then -- so no constant had ever been covered, which is the whole
+category the rule exists for: the five palettes and the `TEMPERATURES` ramp are
+all constants. 27 were defined in more than one of the 58 modules and five had
+genuinely diverged. `temperature_series/build_figures.py` imported five names
+from `figure_kit` and redeclared all five underneath, shadowing the import --
+the 2026-09-02 palette drift, still live in one folder two days later.
+`BURST_COLOUR` was `#12856a` in `curve_dossier` and `#7a4bb8` in
+`background_reaction/build_figures.py`, which was also a colour declared in a
+folder; `INDUCTION_FLOOR` was `60.0` SECONDS in `induction` and `1/300` of a
+RUN in `slowdown`; `PALETTE` was three copies of which `svgplot`'s had eight
+colours and the dossiers' nine.
+
+Three shapes are skipped structurally rather than by name: a leading `_`
+(private to its module), `X = X` (a re-export of an imported name, not a copy),
+and lowercase module state. `PERMITTED_DUPLICATE_CONSTANTS` holds the rest --
+each a module's own LOCATION or HARNESS STATE (`HERE`, `FAILURES`,
+`DATASET_PATH`, `DOCUMENT`), never a measurement, a threshold or a colour.
+**Where two constants are genuinely different things, the new name says which
+one it is** -- `INDUCTION_GRID_FLOOR`, `DOSSIER_MINIMUM_POINTS`,
+`DILUTION_TOLERANCE`, `BUFFER_FILENAME_MOLARITY`, `DOSSIER_PALETTE`,
+`DOSSIER_BURST_COLOUR`, `REVIEW_STYLE`/`CURVE_DOSSIER_STYLE` -- and where one
+was simply a copy, it is deleted and imported: `build_dossier` now takes
+`ABSORBANCE_QUANTUM` and `QUANTISATION_SIGMA` from `curve_metrics` instead of
+recomputing the noise floor, and `test_fit_kinetics` takes its ladder bar from
+`scope.LADDER_MINIMUM` instead of restating it. Rename only when the two are
 genuinely different things that shared a name, and then the new name has to say
 which one it is.
 

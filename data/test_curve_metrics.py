@@ -55,6 +55,20 @@ PERMITTED_DUPLICATES = {
     "test_regressions", "build_index", "build_curves_page",
 }
 
+# Constants every module is allowed to define for itself. Each is a module's
+# own LOCATION or its own HARNESS STATE, not a shared quantity: they carry the
+# same value in every module that has one, and a module that stopped agreeing
+# would fail loudly on the next read rather than drift quietly. Nothing here
+# is a measurement, a threshold or a colour -- those must be imported.
+PERMITTED_DUPLICATE_CONSTANTS = {
+    "FAILURES",                       # each test module's own failure list
+    "HERE", "REPOSITORY",             # each module's own path bootstrap
+    "DOCUMENT", "MECHANISM_DOC",      # each folder's own document
+    "DATASET_PATH", "MANIFEST_PATH",  # where the dataset is, stated per script
+    "SHEET_DIR", "EXPORT_DIR", "CURVE_DIRECTORY",
+    "TOLERANCE",                      # each verify script's own agreement bar
+}
+
 REPOSITORY = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -77,11 +91,42 @@ def _guarded_files():
 
 
 def _defined_names(path):
-    """Top-level functions and classes a module defines, by name."""
+    """
+    Top-level functions, classes AND CONSTANTS a module defines, by name.
+
+    Constants were not covered until 2026-09-04, which is the whole category
+    the guard exists for: the five palettes and the `TEMPERATURES` ramp that
+    differed between folders are all constants, and one of those shadowings
+    was still live in `temperature_series/build_figures.py` on the day this
+    was widened. 27 constants were defined in more than one of the 58 modules
+    and five had genuinely diverged.
+
+    Three shapes are skipped, structurally rather than by name:
+
+      - anything starting with `_`, which is private to its module;
+      - `X = X`, which is a RE-EXPORT of an imported name and not a copy;
+      - names that are not constant-shaped (lowercase module state).
+    """
     tree = ast.parse(open(path).read())
-    return {node.name: node.lineno for node in tree.body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
-                                 ast.ClassDef))}
+    found = {node.name: node.lineno for node in tree.body
+             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                  ast.ClassDef))}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                and isinstance(node.targets[0], ast.Name):
+            name, value = node.targets[0].id, node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            name, value = node.target.id, node.value
+        else:
+            continue
+        if name.startswith("_") or not (name.isupper() or name[0].isupper()):
+            continue
+        if isinstance(value, ast.Name) and value.id == name:
+            continue
+        if name in PERMITTED_DUPLICATE_CONSTANTS:
+            continue
+        found.setdefault(name, node.lineno)
+    return found
 
 
 def _duplicate_names(files, root=None):
@@ -126,6 +171,38 @@ def test_the_duplicate_guard_catches_a_planted_duplicate():
         check("a permitted name is not caught", "main" not in found)
         check("one module alone is not a duplicate",
               not _duplicate_names([first], root=root))
+
+        # CONSTANTS, which the guard did not see at all until 2026-09-04 --
+        # and which are the whole category it exists for. A diverged palette
+        # is a constant; so was the `TEMPERATURES` ramp.
+        third = os.path.join(root, "three.py")
+        fourth = os.path.join(root, "four.py")
+        open(third, "w").write('BURST_COLOUR = "#12856a"\n'
+                               'DATASET_PATH = "data/experiment_data.csv"\n'
+                               '_PRIVATE = 1\n'
+                               'lowercase_state = 2\n')
+        open(fourth, "w").write('BURST_COLOUR = "#7a4bb8"\n'
+                                'DATASET_PATH = "data/experiment_data.csv"\n'
+                                '_PRIVATE = 1\n'
+                                'lowercase_state = 2\n'
+                                'from x import BURST_COLOUR as _\n')
+        found = _duplicate_names([third, fourth], root=root)
+        check("a constant defined in two modules is caught",
+              "BURST_COLOUR" in found, f"{found}")
+        check("a permitted per-module path is not",
+              "DATASET_PATH" not in found)
+        check("nor is a private name", "_PRIVATE" not in found)
+        check("nor is lowercase module state", "lowercase_state" not in found)
+
+        # `X = X` is a re-export of an imported name, not a second copy.
+        fifth = os.path.join(root, "five.py")
+        open(fifth, "w").write('from curve_metrics import QUANTISATION_SIGMA\n'
+                               'QUANTISATION_SIGMA = QUANTISATION_SIGMA\n')
+        sixth = os.path.join(root, "six.py")
+        open(sixth, "w").write('QUANTISATION_SIGMA = 0.000288\n')
+        check("a re-export is not a duplicate of the thing it re-exports",
+              "QUANTISATION_SIGMA" not in _duplicate_names([fifth, sixth],
+                                                           root=root))
 
 
 def test_every_test_is_actually_run():
@@ -235,6 +312,13 @@ def test_no_duplicate_definitions():
     for required in ("data/curve_metrics.py", "figure_kit.py", "doc_check.py",
                      "buffer/build_figures.py", "buffer/check_numbers.py"):
         check(f"the guard covers {required}", required in covered)
+    # And that it still reads CONSTANTS, not only functions and classes. It
+    # read only the latter until 2026-09-04, so a narrowing back would be
+    # invisible: every folder would pass while a palette drifted.
+    names = _defined_names(os.path.join(REPOSITORY, "figure_kit.py"))
+    check("and it reads constants, not only functions and classes",
+          {"RUNGS", "TEMPERATURES", "CATEGORY", "SURFACE"} <= set(names),
+          f"missing {{'RUNGS','TEMPERATURES','CATEGORY','SURFACE'}} - {set(names)}")
 
 
 def test_lag_statistic():

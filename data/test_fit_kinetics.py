@@ -23,6 +23,7 @@ from fit_dataset import (BASELINE_POINTS, TWO_AXIS_BLOCK, TWO_AXIS_GROUP,
 from fit_kinetics import (BOUNDS, FAILURE_RESIDUAL, INITIAL, STAGE_ONE,
                           STAGE_TWO, fit_group, residuals, sequential_fit)
 from kinetic_model import Conditions, RateConstants, observable, simulate
+import scope
 from read_rre import RRE_SIGMA
 
 FAILURES = []
@@ -55,7 +56,11 @@ EXPECTED_BLOCK_EXPERIMENTS = 17
 # 6.9x in peroxide, while outside it every single run holds one of the two
 # axes exactly constant. The bar could sit anywhere between 1x and 6.9x
 # without changing which runs qualify.
-LADDER_MINIMUM = np.log(2.0)
+# scope's, in logs -- NOT a second copy of the bar. It was a bare
+# `np.log(2.0)` here until 2026-09-04, so a change to `scope.LADDER_MINIMUM`
+# would have moved the code's bar and left the test asserting against the old
+# one, which is a test that agrees with itself.
+LADDER_MINIMUM_LOG = np.log(scope.LADDER_MINIMUM)
 BLOCK_SUBSTRATE_LADDER = np.log(39.9)   # the weakest substrate ladder in the block is 40.0x
 BLOCK_PEROXIDE_LADDER = np.log(6.8)     # the weakest peroxide ladder in the block
 
@@ -365,8 +370,8 @@ def _two_axis_runs(curves):
     for curve in curves:
         by_experiment.setdefault(curve.experiment, []).append(curve)
     return {experiment for experiment, group in by_experiment.items()
-            if _ladder_spread(group, "s0") >= LADDER_MINIMUM
-            and _ladder_spread(group, "h2o2") >= LADDER_MINIMUM}
+            if _ladder_spread(group, "s0") >= LADDER_MINIMUM_LOG
+            and _ladder_spread(group, "h2o2") >= LADDER_MINIMUM_LOG}
 
 
 def test_two_axis_block():

@@ -84,8 +84,11 @@ import scope
 # comparison is between RESIDUALS, and a residual surface is flat near its
 # minimum where a parameter is not.
 SLOWDOWN_GRID = 40
-INDUCTION_FLOOR = 1 / 300.0     # grid start, as a fraction of the run
-INDUCTION_CAP = 2.0             # grid end, as a multiple of the run
+# NOT induction.INDUCTION_FLOOR, which is a landmark floor of 60 SECONDS.
+# These two are the ends of THIS module's tau grid, in units of the run's
+# own length, and shared the bare name until 2026-09-04.
+INDUCTION_GRID_FLOOR = 1 / 300.0   # grid start, as a fraction of the run
+INDUCTION_GRID_CAP = 2.0           # grid end, as a multiple of the run
 # The inhibition model's second axis is dimensionless: u = v/Ki has units of
 # 1/time, so u * (run length) says how far into inhibition the run reaches.
 # Below 1e-3 the model is a straight line and Ki is unidentifiable; above 1e3
@@ -235,8 +238,8 @@ def fit_slowdown(times, values, name, points=SLOWDOWN_GRID, decay=None):
     if span <= 0 or len(times) < SLOWDOWN_PARAMETERS + 4:
         return blank
 
-    induction = np.logspace(np.log10(span * INDUCTION_FLOOR),
-                            np.log10(span * INDUCTION_CAP), points)
+    induction = np.logspace(np.log10(span * INDUCTION_GRID_FLOOR),
+                            np.log10(span * INDUCTION_GRID_CAP), points)
     if decay is not None:
         second = np.array([float(decay)])
     elif name == "inhibition":
@@ -247,8 +250,8 @@ def fit_slowdown(times, values, name, points=SLOWDOWN_GRID, decay=None):
         # range as the induction, so neither process is given a head start.
         # The 1.03 offset keeps k off 1/tau exactly, where _sink_shape divides
         # by zero; the grid is logarithmic so the shift is invisible.
-        second = 1.0 / (np.logspace(np.log10(span * INDUCTION_FLOOR),
-                                    np.log10(span * INDUCTION_CAP),
+        second = 1.0 / (np.logspace(np.log10(span * INDUCTION_GRID_FLOOR),
+                                    np.log10(span * INDUCTION_GRID_CAP),
                                     points) * 1.03)
     first, decay, offset, amplitude, cost = _profile(
         times, values, _SHAPES[name], induction, second)
