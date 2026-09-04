@@ -4,6 +4,7 @@ Every gate in the repository, in one command.
     python run_gates.py              # the routine suite
     python run_gates.py --all        # including the slow optimiser suite
     python run_gates.py --only two_axis induction
+    python run_gates.py --jobs 1     # serially, when a failure needs reading
 
 CLAUDE.md listed nine commands and then said "and each analysis folder's own
 check_numbers.py", which is six more. Fifteen commands run by hand is a suite
@@ -13,14 +14,22 @@ THE GATES ARE DISCOVERED, NOT LISTED. A hardcoded list is a list that drifts:
 a new `test_*.py` would be written, committed, and never run by anybody, which
 is the same failure `test_curve_metrics.test_every_test_is_run` exists to catch
 one level down. So this globs, and `test_the_runner_finds_every_gate` in
-`data/test_scope.py` fails if the glob comes back with fewer gates than the
+`data/test_curve_metrics.py` fails if the glob comes back with fewer gates than the
 repository has files matching -- a widened glob that silently matched nothing
 would otherwise pass by finding nothing to complain about.
+
+GATES RUN IN PARALLEL because they are independent processes: every gate reads
+the dataset and the built pages, and the only three that write anything
+(`test_validator`, `test_doc_check`, `test_curve_metrics`) write into their own
+`tempfile` directories. Nothing here builds a page -- `build_figures.py` is not
+a gate -- so no two gates can race on a file. `--jobs 1` when a failure needs
+reading in order.
 
 Exit status is the point: non-zero if ANY gate fails, so this is usable as one
 line in a pre-commit hook or a CI step.
 """
 import argparse
+import concurrent.futures
 import glob
 import os
 import subprocess
@@ -73,6 +82,11 @@ def main():
                         help="include the slow optimiser suite")
     parser.add_argument("--only", nargs="+", metavar="NAME",
                         help="run only gates whose path contains one of these")
+    # Each gate is single-threaded except where numpy's BLAS widens, so this is
+    # bounded by cores rather than by the gate count; past about 8 the slowest
+    # gate is the wall time anyway and more jobs only add contention.
+    parser.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1),
+                        metavar="N", help="gates to run at once (default: %(default)s)")
     args = parser.parse_args()
 
     gates = gate_paths(include_slow=args.all)
@@ -83,18 +97,28 @@ def main():
 
     failed = []
     started = time.time()
-    for path in gates:
-        argv = ("--deep",) if path.endswith("validate_dataset.py") else ()
-        elapsed, status, output = run_gate(path, argv)
-        last = [line for line in output.strip().splitlines() if line.strip()]
-        print(f"  {'pass' if not status else 'FAIL'}  {elapsed:6.1f}s  "
-              f"{path:<38} {last[-1].strip() if last else ''}")
-        if status:
-            failed.append(path)
-            print("\n".join("        " + line for line in last[-25:]) + "\n")
+    # Threads, not processes: each one only waits on a subprocess. The slowest
+    # gate sets the wall time, so the order they finish in is the order they
+    # are reported -- deliberately, so a long run shows progress.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        pending = {pool.submit(run_gate, path,
+                               ("--deep",) if path.endswith("validate_dataset.py")
+                               else ()): path
+                   for path in gates}
+        for future in concurrent.futures.as_completed(pending):
+            path = pending[future]
+            elapsed, status, output = future.result()
+            last = [line for line in output.strip().splitlines() if line.strip()]
+            print(f"  {'pass' if not status else 'FAIL'}  {elapsed:6.1f}s  "
+                  f"{path:<38} {last[-1].strip() if last else ''}", flush=True)
+            if status:
+                failed.append(path)
+                print("\n".join("        " + line for line in last[-25:]) + "\n",
+                      flush=True)
 
-    print(f"\n{len(gates)} gates in {time.time() - started:.0f}s, "
-          f"{len(failed)} failed" + (f": {', '.join(failed)}" if failed else ""))
+    print(f"\n{len(gates)} gates in {time.time() - started:.0f}s on "
+          f"{args.jobs} jobs, {len(failed)} failed"
+          + (f": {', '.join(sorted(failed))}" if failed else ""))
     if not args.all:
         print(f"(--all adds {', '.join(SLOW_GATES)})")
     return 1 if failed else 0

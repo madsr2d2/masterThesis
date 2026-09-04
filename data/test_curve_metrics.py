@@ -167,6 +167,51 @@ def test_every_test_is_actually_run():
           not dead, "; ".join(dead))
 
 
+def test_the_runner_finds_every_gate():
+    """
+    `run_gates.py` must discover every gate the repository actually has.
+
+    It globs rather than listing, for the reason `test_every_test_is_run`
+    exists one level down: a hardcoded list is a list that drifts, and the
+    gate left off it is never run by anybody. CLAUDE.md's list named 9 and the
+    repository has 20 -- `test_curve_flags`, `test_curve_screen`,
+    `test_kinetic_model`, `test_read_rre`, `test_solution_chemistry` and
+    `test_summary_kinetics` were in the tree and in no documented suite.
+
+    A glob that silently stopped matching would otherwise pass by finding
+    nothing to complain about, so this counts the files independently and
+    requires the runner to have found all of them.
+    """
+    print("\nthe gate runner finds every gate")
+    sys.path.insert(0, REPOSITORY)
+    import run_gates
+
+    found = set(run_gates.gate_paths(include_slow=True))
+    expected = {"data/validate_dataset.py"}
+    for pattern in ("test_*.py", os.path.join("data", "test_*.py"),
+                    os.path.join("*", "check_numbers.py")):
+        expected |= {os.path.relpath(p, REPOSITORY)
+                     for p in glob.glob(os.path.join(REPOSITORY, pattern))}
+    check(f"the runner finds all {len(expected)} gates",
+          found == expected, f"missing {sorted(expected - found)}; "
+                             f"extra {sorted(found - expected)}")
+    check("and there are enough of them for the glob to be working",
+          len(found) >= 20, f"{len(found)} gates")
+    check("this module is one of them",
+          "data/test_curve_metrics.py" in found)
+    check("every folder's check_numbers is one of them",
+          sum(1 for g in found if g.endswith("check_numbers.py")) == 6)
+
+    # The slow suite is excluded from the routine run but must still EXIST --
+    # `gate_paths` raises if it does not, so an optimiser suite cannot go
+    # missing the way an unlisted gate would.
+    routine = set(run_gates.gate_paths(include_slow=False))
+    check("the slow suite is held back from the routine run",
+          set(run_gates.SLOW_GATES) and not (routine & set(run_gates.SLOW_GATES)))
+    check("but it is still required to exist",
+          set(run_gates.SLOW_GATES) <= found)
+
+
 def test_no_duplicate_definitions():
     """
     No name may be defined at top level in two modules, anywhere in the repo.
@@ -978,6 +1023,7 @@ def test_the_bubble_the_run_never_shed():
 
 if __name__ == "__main__":
     test_every_test_is_actually_run()
+    test_the_runner_finds_every_gate()
     test_no_duplicate_definitions()
     test_the_duplicate_guard_catches_a_planted_duplicate()
     test_lag_statistic()

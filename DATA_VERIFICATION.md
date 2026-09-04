@@ -109,7 +109,29 @@ from about 18 minutes together to about 2.
 listing them** — `CLAUDE.md`'s list named 9 and the repository has 20, so
 `test_curve_flags`, `test_curve_screen`, `test_kinetic_model`, `test_read_rre`,
 `test_solution_chemistry` and `test_summary_kinetics` were in the tree and in
-no documented suite.
+no documented suite. `test_the_runner_finds_every_gate` counts the files
+independently and fails if the glob comes back short, because a glob that
+silently stopped matching would otherwise pass by finding nothing to complain
+about; both fault paths are planted.
+
+The gates run in parallel — they are independent processes, nothing in the
+list builds a page, and the only three that write use `tempfile`. **The whole
+routine suite is 42 s**, from about 18 minutes when this session started.
+
+`summary_kinetics.within_experiment_variation` took its per-experiment mean
+with `groupby(...).transform(lambda v: ...)`, which puts pandas on its
+`_transform_general` path and builds a Series per group. It is called once per
+axis per regression and `profile_km` runs about 12 000 regressions, so it was
+70% of `test_curve_screen` — the slowest gate in the repository at 46.7 s. The
+values are already logged before the call, so the mean of the logs is what both
+forms compute; done with `bincount` it is **bit-identical on all five blocks
+(14 values, worst difference 0.000e+00)** and the gate is 14.5 s.
+
+`data/test_fit_kinetics.py` is left alone at 9 minutes. Its cost is
+`test_parameter_recovery` (355 s) and `test_stage_two_recovery` (197 s), which
+run the optimiser against planted constants — that is the thing under test, and
+the only ways to speed it up trade away the power of the one gate that
+validates the fitting engine. It stays behind `--all`.
 
 156 ORCA per-geometry-step restart guesses (`*_D#####.TDDFTGuess.gbw`, 311 MB,
 six sevenths of the repository) are removed from the tree and gitignored. They

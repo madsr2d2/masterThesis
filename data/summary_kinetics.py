@@ -1044,13 +1044,22 @@ def within_experiment_variation(frame, axes=DESIGN_AXES):
     contrast. This is how much of each axis is left to pay with, and it is the
     number that decides whether an order from the offset model is real.
     """
+    # The per-experiment mean is taken with bincount rather than
+    # `groupby(...).transform(lambda ...)`. A lambda puts pandas on its
+    # `_transform_general` path, which builds a Series per group; this is
+    # called once per axis per regression and `profile_km` runs ~12000
+    # regressions, which was 70% of `test_curve_screen`'s runtime and made it
+    # the slowest gate in the repository. The quantity is identical -- the
+    # values are already logged, so the mean of the logs is what both compute.
+    experiments = frame["experiment"].to_numpy()
+    _, index = np.unique(experiments, return_inverse=True)
+    counts = np.bincount(index)
     surviving = {}
     for axis in axes:
         values = np.log10(frame[axis].to_numpy(dtype=float))
         if not np.all(np.isfinite(values)) or np.var(values) <= 0:
             continue
-        means = frame.groupby("experiment")[axis].transform(
-            lambda v: np.log10(v.astype(float)).mean()).to_numpy()
+        means = (np.bincount(index, weights=values) / counts)[index]
         surviving[axis] = float(np.var(values - means) / np.var(values))
     return surviving
 

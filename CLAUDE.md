@@ -100,7 +100,7 @@ four files when the scoped figures are 100.0% / 94.1%.
 python data/validate_dataset.py --deep    # 0 errors expected
 python data/test_curve_metrics.py         # duplicate guard + the lag statistic
 python data/test_scope.py                 # the order machinery and the pH ladders
-python data/test_fit_kinetics.py          # selection, scope, parameter recovery
+python data/test_fit_kinetics.py          # selection, scope, parameter recovery (9 min)
 python data/test_validator.py             # fault injection
 python data/test_slowdown.py              # the slowdown models and their regressions
 python data/test_induction.py             # the induction landmark and its controls
@@ -108,9 +108,12 @@ python data/test_buffer_role.py           # the species test, planted both ways
 python test_doc_check.py                  # the contract every check_numbers runs on
 ```
 
-Or all of it, which is what `python run_gates.py` is for -- 20 gates in about
-4 minutes, non-zero if any fails, `--all` to add the slow optimiser suite and
-`--only two_axis` to narrow. **It DISCOVERS the gates rather than listing
+Or all of it, which is what `python run_gates.py` is for -- **20 gates in about
+40 seconds**, non-zero if any fails, `--all` to add the slow optimiser suite
+(9 minutes, and it IS the wall time), `--only two_axis` to narrow and
+`--jobs 1` when a failure needs reading in order. Gates run in PARALLEL because
+they are independent processes: nothing here builds a page, and the only three
+that write anything write into their own `tempfile` directories. **It DISCOVERS the gates rather than listing
 them.** The list above named 9 and the repository has 20: `test_curve_flags`,
 `test_curve_screen`, `test_kinetic_model`, `test_read_rre`,
 `test_solution_chemistry` and `test_summary_kinetics` were in the tree and in
