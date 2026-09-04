@@ -52,7 +52,11 @@ is defined at top level in two modules.
 
 Readings come from the instrument's own `.rre` where one exists and from the
 `.txt` export otherwise; `Curve.source` says which, and the floor differs by a
-factor of 1096 between them. Never floor a noise **or a residual variance** at
+factor of 1096 between them. **All 402 curves are `.rre` today** — the last 32,
+exps 2-32, arrived when `read_rre` stopped matching only `rate<n>.rre` — so
+nothing in the archive currently sits on the export's floor. The rule below
+still stands, because the DEFAULT is the export's and a returning `.txt` curve
+would be silent. Never floor a noise **or a residual variance** at
 `QUANTISATION_SIGMA` without checking the source: call
 `fit_dataset.source_floor(curve.source)` and pass the result. Everything in
 `curve_metrics` that floors takes the value as an argument, and the default is
@@ -223,14 +227,20 @@ Three things follow that are worth not re-deriving.
   decomposition of the peroxide: `bubble_ladder` (0 of 7 curves below 5 mM
   detach, 5 of 5 above 80 mM, monotone across six bands),
   `bubble_turnover_control` (exps 136 and 137 sit at 73.4 mM with NONE, being
-  the two weakest runs there) and `bubble_synchrony` (17 coincidences over 357
-  cuvette pairs against 16.0 expected, so it is not the instrument).
+  the two weakest runs there -- but read its pH confound below before quoting
+  it) and `bubble_synchrony` (17 coincidences over 357 cuvette pairs against
+  16.0 expected, so it is not the instrument).
   **The bubble is in the SAMPLE beam and it SCATTERS**, so absorbance climbs
   while it grows and drops when it goes. The reference omits only the enzyme,
   so it holds the same peroxide and would bubble too if the gas came from
-  peroxide standing in solution -- it needs turnover, which only the sample
-  has. `bubble_step_asymmetry` is the shape half: 122 falls beyond 20 sigma
-  against 23 rises. `solution_chemistry.oxygen_budget` kills the "too small to
+  peroxide standing in solution. `bubble_step_asymmetry` is the measurement:
+  122 falls beyond 20 sigma against 23 rises, so the gas is in the cuvette that
+  holds the enzyme and EVERY RUN IS ITS OWN +/- ENZYME CONTROL. Do not use
+  `bubble_turnover_control` for this -- it is CONFOUNDED WITH pH (exps 136 and
+  137 sit at pH 6.95 and 7.53, and `turnover_control_confound` prices their
+  silence at 0.68 and 1.48 expected events from pH alone), and do not use the
+  archive's enzyme-free runs either: `gas_enzyme_control` puts the whole set at
+  about ONE expected event. `solution_chemistry.oxygen_budget` kills the "too small to
   see" objection -- the solution saturates on 1.5% of the peroxide at the top
   of the ladder and cannot saturate at all at the bottom.
   **THE GAS IS A REACTION, NOT ONLY AN ARTEFACT.** It is the catalysed
@@ -241,6 +251,29 @@ Three things follow that are worth not re-deriving.
   open -- KP shedding O2, KP + H2O2, or KD reduced before it can oxidise --
   and the archive cannot separate them, because no run moves the productive and
   unproductive routes against each other. `COMPUTATIONAL.md` C10.
+  **IT IS NOT A PROPERTY OF THE BLOCK, AND pH IS THE TRIGGER RATHER THAN
+  PEROXIDE.** `scope.gas_curves` runs the same test over all 402 curves of 88
+  experiments, keeping the ones that did NOT bubble because those are the
+  control. It appears with BOTH substrates -- 20 of 58 4OMe against 22 of 68
+  BnOH, catalysed, above 40 mM and pH 8, in three buffers
+  (`gas_substrate_control`), which is the prediction S4 makes since a catalyst
+  decomposing peroxide involves no alcohol. And the archive's median [H2O2] is
+  82.5 mM with 278 of 402 curves above 80, of which only 28 chop: inside every
+  buffer the rate climbs with pH from a hard floor of ZERO detachments in 270
+  hours below pH 7.5, over 23 experiments (`gas_survey`). Use `archive()` or
+  `parse_scope("archive")` for the widest scope; nothing else in the project
+  needs it.
+  **THE KETONE IS NOT ESTABLISHED AS THE CATALYST, AND THE GAS IS NOT
+  ESTABLISHED AS O2.** The beam asymmetry says the gas forms where the enzyme
+  is; it does not say what in that cuvette does it, and a cyclodextrin or a
+  trace transition metal would give the same peroxide order and the same pH
+  rise. Nothing in this project has ever measured the gas -- no headspace, no
+  manometry, no electrode. CO2 is close to excluded on a pKa argument (pKa1
+  6.35, so above pH 8 it is bicarbonate and stays in solution, and the gas gets
+  MORE common as pH rises, which is backwards for carbonate). Say "a
+  non-condensable gas, made in the enzyme-containing cuvette, first order in
+  peroxide and rising steeply with pH" and quote O2 as the reading, not the
+  finding.
   **One curve is more than one bubble**: `bubble_record(141, 3)` sheds its
   LARGEST drop after its SHORTEST growth window (r = -0.91) and ends below
   every earlier post-release level. So THE GAS CARRIES OVER: a detachment

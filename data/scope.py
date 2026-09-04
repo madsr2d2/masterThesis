@@ -23,6 +23,7 @@ point of the module.
     python data/scope.py              # print the summary
     python data/scope.py --design     # the per-experiment design table
 """
+import functools
 import itertools
 
 import numpy as np
@@ -1336,8 +1337,19 @@ def bubble_turnover_control(scope=TWO_AXIS_BLOCK):
     cuvette, every run at 73.4 mM would chop; exps 136 and 137 sit there and
     carry none, and they are the block's two weakest runs on
     `concentration_agreement` (0.25 and 0.21) with median rates thirty times
-    below exp 140's. So the gas needs TURNOVER as well as peroxide, which is
-    what makes it the ketone-catalysed decomposition rather than the peroxide.
+    below exp 140's.
+
+    IT IS CONFOUNDED WITH pH, AND THE CONFOUND IS ENOUGH ON ITS OWN. Those two
+    runs also sit at pH 6.95 and 7.53, third and fifth lowest in the block, and
+    `gas_survey` finds ZERO detachments anywhere in the archive below pH 7.5 --
+    270 hours of catalysed, high-peroxide running, across 23 experiments. `turnover_control_confound` prices their silence at first
+    order in [HOO-] from a matched-peroxide run: 0.68 and 1.48 events expected,
+    zero seen. So this table does NOT show the gas needs turnover; pH alone
+    predicts the same zero, and until 2026-09-04 this docstring said otherwise.
+
+    What carries the catalyst claim instead is `bubble_step_asymmetry`, where a
+    catalysed run's reference cuvette omits only the enzyme and the archive's
+    large steps are 122 falls against 23 rises. See `gas_enzyme_control`.
 
     One row per run, sorted by the peroxide it reaches: top_h2o2, drops,
     agreement, median_rate. Read the two runs that sit at the block's own top
@@ -1362,6 +1374,297 @@ def bubble_turnover_control(scope=TWO_AXIS_BLOCK):
     return pd.DataFrame(rows).set_index("experiment").sort_values(
         "top_h2o2", ascending=False)
 
+
+# THE GAS SURVEY: the same detachment test, run over the WHOLE archive.
+#
+# Every claim about the O2 was measured inside exps 135-151 until 2026-09-04,
+# and the obvious question had never been asked -- if the chemzyme decomposes
+# the peroxide, the gas should appear wherever the peroxide is high and the pH
+# is sufficient, whatever the substrate. It does, and the survey also shows
+# that peroxide is NOT the trigger the block made it look like.
+#
+# `GAS_SURVEY_PEROXIDE` is the floor a curve must reach to enter the survey.
+# 40 mM is where the two-axis block's own ladder has already turned on (5 of 5
+# curves above 80 mM detach, 0 of 7 below 5) and it keeps 358 of the archive's
+# 402 curves, so it costs almost nothing and removes the dilute tail that would
+# otherwise dominate a per-hour rate with runs that could not bubble at all.
+GAS_SURVEY_PEROXIDE = 40.0
+
+# The pH bands the survey reports in. The lower edge is set by the archive
+# rather than by chemistry: NOTHING detaches below 7.5 anywhere, and the split
+# at 8.5 puts pyrophosphate's two populated bands either side of its own rise.
+GAS_SURVEY_PH_BANDS = (0.0, 7.5, 8.5, 14.0)
+
+# The pH a curve must reach before an enzyme-free run says anything about the
+# catalyst. Below it the pH answer swamps the enzyme answer -- 0 events in 270
+# hours of CATALYSED running below 7.5 -- so an enzyme-free zero there is not
+# evidence of anything.
+GAS_SURVEY_CONTROL_PH = 8.0
+
+
+def archive():
+    """
+    Every experiment the dataset holds. THE WIDEST SCOPE.
+
+    One question needs it -- whether the O2 of `two_axis/` 5 is a property of
+    that block or of the chemistry -- and the answer only means something if
+    the runs that DO NOT bubble are in the denominator. Everything else in this
+    module names a narrower block on purpose.
+    """
+    all_curves, _ = build_curves()
+    return frozenset(int(curve.experiment) for curve in all_curves)
+
+
+def gas_curves(scope=None):
+    """
+    One row per curve in the archive: what was in it, and what left the beam.
+
+    THE PRIMITIVE THE SURVEY GROUPS. Deliberately NOT built on `frame`: the
+    survey asks whether a curve bubbled, which needs the readings and the
+    composition and none of the progress fits, and running 402 curves through
+    `frame` to count detachments would cost minutes to answer a question that
+    costs seconds.
+
+    NOTHING IS FILTERED OUT, and that includes the curves `frame` would call
+    dead. A run with no reaction is not a nuisance here, it is the control:
+    the whole point is which conditions fail to make gas.
+
+    Columns: experiment, sample, substrate, buffer, pH, temperature, s0, h2o2,
+    e0, hoo, points, hours (the run's own length, as exposure), detachments
+    (grouped events, not falling readings) and first_s, the time of the first
+    one.
+    """
+    return _gas_curves(scope).copy()
+
+
+@functools.lru_cache(maxsize=8)
+def _gas_curves(scope):
+    """
+    `gas_curves`'s work, memoised on the scope.
+
+    It reads every curve in the dataset, and four functions in this module ask
+    for the same table, so without this a `check_numbers` run pays for six
+    loads of the archive. Callers get a copy: an lru_cache handing out a shared
+    DataFrame is one `.drop(inplace=True)` from a silent wrong answer.
+    """
+    all_curves, _ = build_curves()
+    if scope is not None:
+        all_curves = in_block(all_curves, scope)
+    rows = []
+    for curve in sorted(all_curves, key=lambda c: (c.experiment, c.sample)):
+        times = np.asarray(curve.times, dtype=float)
+        values = np.asarray(curve.absorbance, dtype=float)
+        events = detachments(values, curve.noise)
+        rows.append({
+            "experiment": int(curve.experiment),
+            "sample": int(curve.sample),
+            "substrate": curve.substrate,
+            "buffer": curve.buffer,
+            "pH": float(curve.pH),
+            "temperature": float(curve.temperature),
+            "s0": float(curve.conditions.s0),
+            "h2o2": float(curve.conditions.h2o2),
+            "e0": float(curve.conditions.e0),
+            "hoo": float(curve.conditions.hoo),
+            "points": len(times),
+            "hours": float(times[-1] - times[0]) / 3600.0,
+            "detachments": len(events),
+            "first_s": float(times[events[0][0]]) if events else np.nan,
+        })
+    return pd.DataFrame(rows)
+
+
+def gas_survey(table=None, peroxide=GAS_SURVEY_PEROXIDE,
+               bands=GAS_SURVEY_PH_BANDS, catalysed=True):
+    """
+    Where in the archive the gas appears: buffer against pH, per hour of run.
+
+    THE ARCHIVE IS NOT A LOW-PEROXIDE ARCHIVE, which is what the two-axis
+    block's ladder made it easy to forget. Median [H2O2] over all 402 curves is
+    82.5 mM and 278 of them sit above 80; if peroxide alone made the gas, most
+    of the archive would chop, and only 28 of those 278 do. Restricting to
+    >= `peroxide` mM and grouping by buffer, the discriminator is pH, and it is
+    the same story inside every buffer:
+
+        phosphate       0 events in 250.8 h below pH 7.5 (80 curves, 20 exps)
+        pyrophosphate   0 in 18.9 h below 7.5, 1.36/h at 7.5-8.5, 3.55 above
+        boric           0 in 2.9 h at 7.5-8.5, 0.55/h above
+
+    ZERO DETACHMENTS IN 270 HOURS of catalysed, high-peroxide running below
+    pH 7.5 is the strongest single statement this archive makes about the gas,
+    and it is what a reaction consuming HOO- predicts. It is also what makes
+    `bubble_turnover_control` weak: see `turnover_control_confound`.
+
+    Rows are (buffer, pH band); columns curves, detaching, experiments, hours,
+    events and per_hour. `catalysed` selects `e0 > 0`; pass False for the
+    enzyme-free side, though `gas_enzyme_control` is what actually reads it.
+    """
+    table = gas_curves() if table is None else table
+    table = table[table.h2o2 >= peroxide]
+    table = table[(table.e0 > 0) if catalysed else (table.e0 == 0)]
+    if table.empty:
+        return pd.DataFrame()
+    band = pd.cut(table.pH, list(bands))
+    out = table.groupby([table.buffer, band], observed=True).agg(
+        curves=("detachments", "size"),
+        detaching=("detachments", lambda s: int((s > 0).sum())),
+        experiments=("experiment", "nunique"),
+        hours=("hours", "sum"),
+        events=("detachments", "sum"))
+    out["per_hour"] = out.events / out.hours
+    out.index.names = ["buffer", "pH"]
+    return out
+
+
+def gas_substrate_control(table=None, peroxide=GAS_SURVEY_PEROXIDE,
+                          ph=GAS_SURVEY_CONTROL_PH):
+    """
+    Does the gas care which alcohol is in the cuvette? It does not.
+
+    THE PREDICTION S4 MAKES AND THE BLOCK CANNOT TEST. Exps 135-151 are all
+    BnOH, so a decomposition of the peroxide by the catalyst -- which involves
+    no alcohol at all -- should show up just as well in the 4OMe runs, and
+    until this was run nobody had looked. Catalysed, >= `peroxide` mM,
+    pH >= `ph`: 20 of 58 4OMe curves detach against 22 of 68 BnOH, in three
+    buffers, at temperatures the block does not hold.
+
+    That is the gas argument's generality, and it is also what excludes the
+    substrate as the carbon source for any CO2 reading of the chop -- together
+    with `gas_rate_drivers`, where the fitted rate is NEGATIVE in substrate.
+
+    Rows are substrates; columns curves, detaching, experiments, buffers,
+    hours, events, per_hour.
+    """
+    table = gas_curves() if table is None else table
+    table = table[(table.h2o2 >= peroxide) & (table.pH >= ph)
+                  & (table.e0 > 0)]
+    if table.empty:
+        return pd.DataFrame()
+    out = table.groupby("substrate").agg(
+        curves=("detachments", "size"),
+        detaching=("detachments", lambda s: int((s > 0).sum())),
+        experiments=("experiment", "nunique"),
+        buffers=("buffer", "nunique"),
+        hours=("hours", "sum"),
+        events=("detachments", "sum"))
+    out["per_hour"] = out.events / out.hours
+    return out
+
+
+def gas_enzyme_control(table=None, peroxide=GAS_SURVEY_PEROXIDE,
+                       ph=GAS_SURVEY_CONTROL_PH):
+    """
+    The +/- enzyme comparison the archive can actually make -- AND IT DECIDES
+    NOTHING.
+
+    THIS FUNCTION EXISTS TO SHOW ITS OWN WEAKNESS. The gas is claimed to need
+    the catalyst, and the direct test is the archive's enzyme-free runs at the
+    same peroxide: exps 65, 67, 69 and 70 hold 16 curves at 122.4 mM and
+    pH >= 8, none of which detach. That reads like a control and is not one.
+    They are SHORT -- 5.5 h between them -- and the rate has to come from
+    somewhere, so it comes from the same buffer's own catalysed runs, where
+    phosphate manages 0.11 events/h. Expected across all of them: about ONE
+    event. Observing zero is p = 0.4.
+
+    USE THE POOLED CATALYSED RATE AND YOU GET THE WRONG ANSWER: it is
+    dominated by pyrophosphate, which runs five times faster than phosphate, and
+    it turns one expected event into five. That is why this is matched per
+    buffer and why `expected` is the column to read, never `curves`.
+
+    What carries the catalyst claim instead is `bubble_step_asymmetry`. Every
+    run is double-beam and a catalysed run's reference cuvette omits ONLY the
+    enzyme (`verify_enzyme.py` checks that structurally, 53/14 with no
+    overlap), so the reference holds the same peroxide, substrate, buffer and
+    pH. A bubble there would push absorbance UP as it grew and drop it sharply
+    on release; the archive gives 122 falls beyond 20 sigma against 23 rises.
+    The gas forms in the cuvette that has the enzyme, and every run is its own
+    matched control.
+
+    Rows are buffers; columns free_curves, free_hours, free_events,
+    catalysed_per_hour, expected and poisson -- the chance of seeing no event
+    if the enzyme made no difference.
+    """
+    table = gas_curves() if table is None else table
+    table = table[(table.h2o2 >= peroxide) & (table.pH >= ph)]
+    rows = []
+    for buffer, group in table.groupby("buffer"):
+        free = group[group.e0 == 0]
+        catalysed = group[group.e0 > 0]
+        if free.empty or catalysed.empty or catalysed.hours.sum() <= 0:
+            continue
+        rate = float(catalysed.detachments.sum() / catalysed.hours.sum())
+        expected = float(free.hours.sum() * rate)
+        rows.append({
+            "buffer": buffer,
+            "free_curves": len(free),
+            "free_hours": float(free.hours.sum()),
+            "free_events": int(free.detachments.sum()),
+            "catalysed_per_hour": rate,
+            "expected": expected,
+            "poisson": float(np.exp(-expected)),
+        })
+    return pd.DataFrame(rows).set_index("buffer")
+
+
+def turnover_control_confound(scope=TWO_AXIS_BLOCK, control=None):
+    """
+    `bubble_turnover_control` is confounded with pH, and this is by how much.
+
+    THE CONTROL SAYS: exps 136 and 137 sit at the block's top peroxide, 73.4
+    mM, and carry no detachment at all, so the gas needs TURNOVER as well as
+    peroxide. THE CONFOUND IS: they also sit at pH 6.95 and 7.53, the third and
+    fifth lowest in the block, and `gas_survey` finds ZERO detachments anywhere
+    in the archive below pH 7.5 regardless of turnover.
+
+    So the question is whether their zero needs turnover to explain it, and it
+    does not. Scaling the matched-peroxide run exp 138 (73.4 mM, pH 8.16, 0.50
+    events/h) by first order in [HOO-] -- the shallowest pH dependence the
+    survey supports -- predicts 0.68 and 1.48 events over their own run
+    lengths. Zero is what pH alone predicts, so the control adds nothing to it.
+
+    THE RUNS COME FROM `bubble_turnover_control` ITSELF, not from a second
+    selection here, so the two cannot drift apart: whatever that control calls
+    a zero-drop run at top peroxide is what this prices. It reads `drops` over
+    the LIVE curves and this counts grouped detachments over all of them, so a
+    run can be quiet there and carry an event here; the column to read is
+    `expected` against `events`, per run.
+
+    Pass `control` to reuse a `bubble_turnover_control` frame you already have;
+    it costs a `frame` build otherwise, and `check_numbers` needs both.
+
+    Rows are those runs; columns pH, top_h2o2, hours, events, expected (at the
+    reference run's rate, scaled by pH), reference, reference_pH and
+    reference_per_hour.
+    """
+    table = gas_curves(scope)
+    if table.empty:
+        return pd.DataFrame()
+    runs = table.groupby("experiment").agg(
+        pH=("pH", "median"), top_h2o2=("h2o2", "max"),
+        hours=("hours", "sum"), events=("detachments", "sum"))
+    control = bubble_turnover_control(scope) if control is None else control
+    quiet = runs.loc[[experiment for experiment in control[
+        control.drops == 0].index if experiment in runs.index]]
+    rows = []
+    for experiment, run in quiet.iterrows():
+        matched = runs[(runs.top_h2o2 == run.top_h2o2) & (runs.events > 0)
+                       & (runs.hours > 0) & (runs.index != experiment)]
+        if matched.empty:
+            continue
+        reference = matched.loc[(matched.pH - run.pH).abs().idxmin()]
+        rate = float(reference.events / reference.hours)
+        rows.append({
+            "experiment": int(experiment),
+            "pH": float(run.pH),
+            "top_h2o2": float(run.top_h2o2),
+            "hours": float(run.hours),
+            "events": int(run.events),
+            "expected": rate * 10.0 ** (run.pH - reference.pH) * run.hours,
+            "reference": int(reference.name),
+            "reference_pH": float(reference.pH),
+            "reference_per_hour": rate,
+        })
+    return pd.DataFrame(rows).set_index("experiment")
 
 def bubble_synchrony(scope=TWO_AXIS_BLOCK):
     """
@@ -2891,6 +3194,10 @@ def parse_scope(text):
     than quietly returning an empty scope -- an empty scope produces an empty
     frame, and an empty frame is a table of zeroes that looks like a result.
     """
+    if text == "archive":
+        # Not in NAMED_SCOPES because it is not a constant: it is whatever the
+        # dataset holds, and reading it costs a load of every curve.
+        return archive()
     if text in NAMED_SCOPES:
         return frozenset(NAMED_SCOPES[text])
     experiments = set()

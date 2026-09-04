@@ -528,14 +528,28 @@ peroxide value.
 
 ### What it decides
 
-`MECHANISM.md` S4 establishes that the chemzyme catalyses
-`2 H₂O₂ → 2 H₂O + O₂`. The evidence is kinetic and unambiguous about *whether*:
-the gas needs turnover (the reference cuvette holds the same peroxide, omits
-only the enzyme, and does not bubble), and its production rate is
-**+1.389 ± 0.251 in [H₂O₂] against −0.307 ± 0.103 in [S]** from a fit that never
-saw a concentration. It is silent about *where*, and the archive cannot become
-less silent: the rate is first order in peroxide under every branch below, and
-**no run moves the productive and unproductive routes against each other**.
+`MECHANISM.md` S4 establishes that something in the enzyme-containing cuvette
+catalyses `2 H₂O₂ → 2 H₂O + O₂`. The evidence is kinetic: the gas forms in the
+sample beam and not the reference, which omits only the enzyme (122 falls
+beyond 20σ against 23 rises); its production rate is **+1.389 ± 0.251 in
+[H₂O₂] against −0.307 ± 0.103 in [S]** from a fit that never saw a
+concentration; and across the whole archive it appears with both substrates in
+three buffers, with a hard floor of zero detachments below pH 7.5. It is silent
+about *where*, and the archive cannot become less silent: the rate is first
+order in peroxide under every branch below, and **no run moves the productive
+and unproductive routes against each other**.
+
+**This task assumes the ketone is the catalyst, and that assumption is not
+measured.** The cyclodextrin scaffold or a trace transition metal carried in
+with the enzyme stock would each give a catalase-like decomposition with the
+same peroxide order and the same pH dependence, and the archive holds no run
+with cyclodextrin alone, ketone alone, or a chelator added
+(`MECHANISM.md`, open questions). If the sink turns out to be metal-catalysed
+it is **not** in the catalytic cycle at all and none of the three branches
+below applies — so a cheap EDTA control is worth more than this calculation
+and should precede it. What the calculation is still worth in the meantime:
+branch barriers that all come out prohibitive would themselves be evidence for
+the metal reading.
 
 The three branches differ in what they predict for the rest of the cycle:
 
@@ -575,8 +589,12 @@ be the first mechanistic account of the substrate order in the gas rate.**
 
 ### What it does not need
 
-An enzyme-free comparison: there is none to make. The gas is absent without the
-catalyst, which is the one thing about S4 that is already settled.
+An enzyme-free comparison from the archive. There is one in principle — 16
+enzyme-free curves at matched peroxide and pH, none of which bubble — but it is
+worth **about one expected event** against its own buffers' catalysed rates
+(`scope.gas_enzyme_control`), so it decides nothing and no branch here should
+be scored against it. The catalyst-dependence rests on the beam asymmetry
+instead, and that is settled.
 
 ---
 

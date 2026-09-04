@@ -264,8 +264,17 @@ say so and no two of them could be arranged by the same accident.
 **But peroxide alone will not do it.** Exps 136 and 137 sit at the same 73.4 mM
 as exps 138–142 and carry **no detachment at all**, and they are the two weakest
 runs at that peroxide — `concentration_agreement` 0.25 and 0.21 against 0.83 to
-0.97. The gas needs turnover as well as peroxide, which is what makes it the
-*catalysed* decomposition. `scope.bubble_turnover_control`.
+0.97. `scope.bubble_turnover_control`.
+
+**That control is confounded with pH, and this document read it too strongly
+until 2026-09-04.** Those two runs also sit at **pH 6.95 and 7.53**, third and
+fifth lowest in the block, and across the whole archive *nothing* detaches below
+pH 7.5 — 270 hours of catalysed, high-peroxide running over 23
+experiments (`scope.gas_survey`). Priced at first order in [HOO⁻] from exp 138,
+which carries the same 73.4 mM at pH 8.16, their silence is worth **0.68 and
+1.48 expected events** against zero seen (`scope.turnover_control_confound`).
+pH alone predicts the same zero, so this pair does **not** establish that the
+gas needs turnover. What does is the beam asymmetry below.
 
 **And it is not the instrument.** A lamp, a shutter or the carousel would take
 all seven cuvettes of a run at the same reading. Over the block's 357 cuvette
@@ -589,11 +598,15 @@ where 73 mM H₂O₂ contributes only a few hundredths of an AU across the entir
 millimetres — and a bubble that size does not sit still for ten minutes.
 Scattering has no such ceiling.
 
-**The gas is made where the catalyst is.** Both cuvettes hold 73.4 mM H₂O₂, so
-peroxide standing in solution would bubble both beams alike. It does not:
-detachments need **turnover**, and exps 136 and 137 sit at that same peroxide
-with none at all, being the block's two weakest runs. Turnover happens only in
-the sample cuvette. This argument needs no wavelength and no optics.
+**The gas is made where the catalyst is, and this is the ± enzyme control the
+block otherwise lacks.** Both cuvettes hold the same peroxide, substrate,
+buffer and pH and differ only in the enzyme, so peroxide standing in solution
+would bubble both beams alike and the shape would be symmetric. It is not — see
+the asymmetry below. Every run is therefore its own matched control, which is
+worth more than the archive's four enzyme-free runs: those are short, and
+against their own buffers' catalysed rates the whole enzyme-free set is worth
+about **one expected event**, so their zero decides nothing
+(`scope.gas_enzyme_control`). This argument needs no wavelength and no optics.
 
 **And the large steps are lopsided the right way.** `scope.bubble_step_asymmetry`
 over the block's **28827** steps finds **23 rises** beyond 20σ against
@@ -601,6 +614,16 @@ over the block's **28827** steps finds **23 rises** beyond 20σ against
 largest rise (+57σ). Sample-beam events dominate, and the minority of sudden
 rises is what a stray reference-beam bubble — or one sliding *into* the sample
 beam — would contribute.
+
+**What that does and does not establish.** It puts the gas in the cuvette that
+holds the enzyme, which is the catalyst-dependence S4 needs. It does **not**
+identify the catalyst as the chemzyme's *ketone*: anything arriving with the
+enzyme stock would do the same job — the cyclodextrin scaffold, or a trace
+transition metal, which is catalase-like and would show exactly this pH
+profile. The archive holds no run with the cyclodextrin alone, the ketone
+alone, or a chelator added, so the attribution to the ketone is a hypothesis
+consistent with the data and not a result. `MECHANISM.md` S4,
+`COMPUTATIONAL.md` C10.
 
 ### The gas budget makes this unavoidable, not lucky
 
@@ -618,15 +641,77 @@ half the peroxide, and water at 25 °C holds only **1.25 mM** O₂:
 Past saturation every further mM of O₂ is **24.45 µL of gas per mL of
 solution**. One percent of net decomposition beyond that point is millimetres
 of bubble in a 1 cm cuvette. Given a ketone known to decompose peroxide to O₂
-(`MECHANISM.md` refs 34–35), a curve at 73 mM that did *not* chop would be the
-thing needing explanation — and exps 136 and 137, which don't, are exactly the
-runs that barely turn over.
+(`MECHANISM.md` refs 34–35), a curve at 73 mM and high pH that did *not* chop
+would be the thing needing explanation.
 
 The bottom row is the other half of the ladder in §5's first table, and it is
 emphatic: at 2.4 mM, decomposing **all** of the peroxide would still leave the
 solution able to dissolve every molecule of O₂ it made. A bubble there is not
 merely unlikely, it is unavailable — which is why **no curve below 5 mM carries
 a detachment at all**.
+
+### The gas is not a property of this block — the archive says so
+
+Every claim above was measured inside exps 135–151, and the prediction S4 makes
+reaches further: a catalyst that decomposes the peroxide involves **no alcohol
+at all**, so the gas should appear wherever the peroxide is high and the pH
+sufficient, whatever the substrate. `scope.gas_curves` runs the same detachment
+test over all **402 curves of 88 experiments**, keeping the ones that did not
+bubble, because those are the control.
+
+**It appears with both substrates** (`scope.gas_substrate_control`, catalysed,
+≥ 40 mM, pH ≥ 8):
+
+| substrate | curves | detaching | experiments | buffers | events/h |
+|---|---|---|---|---|---|
+| 4OMe-BnOH | 58 | **20** | 16 | 3 | 0.72 |
+| BnOH | 68 | **22** | 17 | 3 | 1.05 |
+
+So the chop is not benzyl alcohol's business and not this block's.
+
+**And peroxide is not the trigger this block made it look like.** The archive's
+median [H₂O₂] is **82.5 mM** and **278 of 402** curves sit above 80 — if
+peroxide alone did it, most of the archive would chop, and only **28 of those
+278** do. The discriminator is pH, and it holds *inside each buffer*
+(`scope.gas_survey`, catalysed, ≥ 40 mM, detachment events per hour of run):
+
+| buffer | pH ≤ 7.5 | 7.5–8.5 | > 8.5 |
+|---|---|---|---|
+| phosphate | **0 in 250.8 h** (80 curves, 20 exps) | 0 in 33.1 h | 0.251 |
+| pyrophosphate | 0 in 18.9 h | 1.357 | 3.548 |
+| boric | — | 0 in 2.9 h | 0.551 |
+
+**Zero detachments in 270 hours of catalysed, high-peroxide running below
+pH 7.5**, over 23 experiments, is the strongest single statement this archive
+makes about the gas,
+and it is what a reaction consuming HOO⁻ predicts. It is also what leaves the
+turnover control above with nothing to add.
+
+### Is it O₂? Nothing in this archive measures the gas
+
+There is **no headspace analysis, no manometry and no oxygen electrode**
+anywhere in this project. The identification is an inference, and it is worth
+stating what carries it.
+
+*For O₂:* the budget above; the fitted production rate is **first order in
+peroxide, +1.389 ± 0.251**, from a fit that never saw a concentration
+(`scope.gas_rate_drivers`); and the same fit puts it **negative in substrate**,
+−0.307 ± 0.103.
+
+*Against CO₂ — and this is the stronger half:* CO₂ generated in solution at
+these pH values **is not volatile**. H₂CO₃/HCO₃⁻ has pKa₁ 6.35, so above pH 8
+essentially all dissolved inorganic carbon is bicarbonate and stays in
+solution. And the gas becomes *more* common as pH rises, which is precisely
+backwards for carbonate, which is driven out of solution by acid. That also
+disposes of the one CO₂ route the composition cannot exclude — oxidative
+degradation of the cyclodextrin itself, which would be enzyme-, peroxide- and
+pH-dependent like the real thing, but would still be captured as bicarbonate at
+pH 9.
+
+So the defensible statement is: **a non-condensable gas, made in the
+enzyme-containing cuvette, at a rate first order in peroxide and rising steeply
+with pH.** O₂ is by a distance the best candidate and CO₂ is close to excluded;
+neither has been measured.
 
 ### One curve, read detachment by detachment
 

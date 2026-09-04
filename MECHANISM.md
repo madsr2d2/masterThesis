@@ -618,11 +618,43 @@ against the mechanism.
   `two_axis/ANALYSIS.md` section 5 carries the identification; three things make
   it this reaction rather than any other.
 
-  **It needs turnover, not just peroxide.** The reference cuvette omits only
-  the enzyme and holds the same H2O2, so if the gas came from peroxide standing
-  in solution the reference would bubble too and the difference would cancel.
-  It does not. The two weakest runs at 73.4 mM peroxide shed nothing while
-  stronger runs at the same peroxide shed freely (`bubble_turnover_control`).
+  **It needs the catalyst, and the double-beam layout is what says so.** The
+  reference cuvette of a catalysed run omits only the enzyme -- same peroxide,
+  substrate, buffer and pH, verified structurally across the archive by
+  `verify_enzyme.py` -- so if the gas came from peroxide standing in solution
+  the reference would bubble too and the difference would cancel. It does not:
+  the archive's large steps run **122 falls beyond 20 sigma against 23 rises**
+  (`bubble_step_asymmetry`), which puts the gas in the cuvette that holds the
+  enzyme. Every run is therefore its own matched +/- enzyme control.
+
+  Two weaker arguments were carrying this until 2026-09-04 and should not be
+  quoted for it again. `bubble_turnover_control` -- the two weakest runs at
+  73.4 mM shedding nothing -- is **confounded with pH**: those runs sit at pH
+  6.95 and 7.53, and pH alone predicts their zero
+  (`turnover_control_confound`). And the archive's four enzyme-free runs are
+  too short to say anything: matched to their own buffers' catalysed rates they
+  are worth about **one expected event** (`gas_enzyme_control`).
+
+  **What that does NOT establish is that the KETONE is the catalyst.** Anything
+  arriving with the enzyme stock would do the same job -- the cyclodextrin
+  scaffold, or a trace transition metal, which is catalase-like and would show
+  exactly this pH dependence. The archive holds no run with the cyclodextrin
+  alone, the ketone alone, or a chelator added. The attribution to the ketone
+  rests on the literature precedent (refs 34-35) and on the coincidence of
+  conditions with the productive chemistry, not on a measurement here.
+  `COMPUTATIONAL.md` C10.
+
+  **It is not a property of one block, and pH is the trigger rather than
+  peroxide.** The same detachment test over all **402 curves of 88
+  experiments** (`scope.gas_curves`) finds the gas with **both substrates** --
+  20 of 58 4OMe curves against 22 of 68 BnOH, catalysed, above 40 mM and pH 8,
+  in three buffers (`gas_substrate_control`). That is the prediction S4 makes,
+  since a catalyst decomposing peroxide involves no alcohol at all. Meanwhile
+  the archive's median [H2O2] is 82.5 mM and 278 of 402 curves sit above 80,
+  yet only 28 of those chop: what separates them is pH, and inside every buffer
+  the rate climbs with it from a hard floor of **zero detachments in 270 hours
+  below pH 7.5** (`gas_survey`). A reaction consuming HOO- is what that
+  describes.
 
   **It is made from the peroxide and not from the alcohol.** The production rate
   is fitted from the timing and size of the detachments alone -- the fit never
@@ -636,6 +668,20 @@ against the mechanism.
   detach, 5 of 5 above 80 mM, monotone across six bands (`bubble_ladder`), and
   17 coincidences over 357 cuvette pairs against 16.0 expected, so it is the
   chemistry and not the lamp (`bubble_synchrony`).
+
+  **THE GAS HAS NEVER BEEN MEASURED.** There is no headspace analysis, no
+  manometry and no oxygen electrode anywhere in this project, so "O2" is an
+  inference. What supports it: the budget below; first order in peroxide and
+  negative in substrate. What excludes the obvious alternative is a pKa
+  argument rather than a measurement -- CO2 generated at these pH values is not
+  volatile, since H2CO3/HCO3- has pKa1 6.35 and above pH 8 essentially all
+  dissolved inorganic carbon is bicarbonate. The gas also becomes MORE common
+  as pH rises, which is backwards for carbonate, and that disposes of the one
+  CO2 route the composition cannot otherwise exclude -- oxidative degradation
+  of the cyclodextrin itself, which would carry the same three signatures but
+  would still be captured as bicarbonate at pH 9. The defensible statement is
+  a non-condensable gas, made in the enzyme-containing cuvette, first order in
+  peroxide and rising steeply with pH.
 
   **Why it matters mechanistically, beyond the artefact.** It is an
   unproductive, catalyst-dependent drain on H2O2 that runs fastest at exactly
@@ -1114,9 +1160,23 @@ signal starvation at the top rung were both excluded rather than assumed
 
 ## Open questions
 
+- **Is the ketone the catalyst that destroys the peroxide, or something else
+  in the stock?** S4 establishes that the gas forms in the cuvette that holds
+  the enzyme -- the double-beam layout makes every run a matched control, and
+  the large steps run 122 falls against 23 rises. It does not establish *what
+  in that cuvette* is responsible. The cyclodextrin scaffold, or a trace
+  transition metal carried in with the stock, would each give a catalase-like
+  decomposition with the same first-order peroxide dependence and the same
+  steep rise with pH. Three cheap experiments separate them, none of which the
+  archive holds: **cyclodextrin without the ketone**, **the ketone without the
+  cyclodextrin**, and **the full chemzyme with a chelator (EDTA)**, all at high
+  peroxide and pH 9. Until one is run, "the chemzyme's ketone catalyses the
+  disproportionation" is the best available reading of the data and not a
+  measured fact -- and neither is the identity of the gas, which nothing in
+  this project has measured. An oxygen electrode settles both halves at once.
 - **Does the perhydrate shed the O2, or does something else?** S4 establishes
-  that the catalyst destroys H2O2 and that the destruction needs turnover. It
-  does not establish *where in the cycle*. If KP collapses to `K + O2 + H2O`,
+  that the catalyst destroys H2O2. It does not establish *where in the
+  cycle*. If KP collapses to `K + O2 + H2O`,
   the sink shares step 4's pre-equilibrium and its saturation, competes with
   step 5 for the same intermediate, and the two should scale together across
   the peroxide axis. If instead a second peroxide attacks KP, or the dioxirane

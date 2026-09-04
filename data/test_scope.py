@@ -1016,6 +1016,141 @@ def test_the_bubble_that_never_left():
               f"{gap:.3f} against {orders[f'stderr_{axis}'].min():.3f}")
 
 
+def test_the_gas_is_not_a_property_of_one_block():
+    """
+    Every claim about the O2 was measured inside exps 135-151, and the
+    prediction S4 makes reaches further than that: a catalyst that decomposes
+    the peroxide involves no alcohol, so the gas should appear wherever the
+    peroxide is high and the pH is sufficient, whatever the substrate.
+
+    It does. It also shows that peroxide is not the trigger the block made it
+    look like -- the archive's median [H2O2] is 82.5 mM and most of it does NOT
+    chop -- and that `bubble_turnover_control` is confounded with pH.
+    """
+    print("\nthe gas is not a property of one block")
+    table = scope.gas_curves()
+    check("the survey sees the whole archive",
+          len(table) > 390 and table.experiment.nunique() > 80,
+          f"{len(table)} curves over {table.experiment.nunique()} experiments")
+    check("and it keeps the curves that did not bubble",
+          int((table.detachments == 0).sum()) > 300,
+          f"{int((table.detachments == 0).sum())} quiet curves")
+
+    # THE SUBSTRATE CONTROL, and the point of the whole survey: the two-axis
+    # block is all BnOH, so this is the first test of whether the gas is the
+    # alcohol's business. It is not.
+    substrates = scope.gas_substrate_control(table)
+    check("both substrates make the gas", len(substrates) == 2,
+          f"{list(substrates.index)}")
+    check("and neither is a rounding error against the other",
+          bool((substrates.detaching >= 15).all()),
+          ", ".join(f"{name} {int(row.detaching)}/{int(row.curves)}"
+                    for name, row in substrates.iterrows()))
+    check("in more than one buffer each",
+          bool((substrates.buffers > 1).all()))
+
+    # THE ARCHIVE IS NOT LOW-PEROXIDE, which is what made the block's ladder
+    # look like the whole story.
+    high = table[table.h2o2 >= 80]
+    check("most of the archive sits above 80 mM peroxide",
+          len(high) > len(table) / 2, f"{len(high)} of {len(table)}")
+    check("and most of THAT does not chop",
+          int((high.detachments > 0).sum()) < len(high) / 4,
+          f"{int((high.detachments > 0).sum())} of {len(high)}")
+
+    # THE pH FLOOR, inside each buffer rather than pooled across them.
+    survey = scope.gas_survey(table)
+    low = survey[survey.index.get_level_values("pH").map(
+        lambda band: band.right <= 7.5)]
+    check("nothing detaches below pH 7.5, in any buffer",
+          int(low.events.sum()) == 0,
+          f"{int(low.events.sum())} events in {low.hours.sum():.0f} h")
+    check("and that is not for want of looking",
+          float(low.hours.sum()) > 200 and int(low.curves.sum()) > 80,
+          f"{low.hours.sum():.0f} h over {int(low.curves.sum())} curves")
+    for buffer, group in survey.groupby("buffer"):
+        if len(group) < 2:
+            continue
+        check(f"{buffer}: the rate rises with pH",
+              bool(group.per_hour.is_monotonic_increasing),
+              ", ".join(f"{rate:.2f}" for rate in group.per_hour))
+
+
+def test_the_enzyme_control_is_too_small_to_decide_anything():
+    """
+    The gas is claimed to need the catalyst, and the archive's direct test --
+    enzyme-free runs at the same peroxide and pH -- looks like a control and is
+    not one. This asserts that it is not, so nobody quotes it as one.
+
+    Matched to its OWN buffer's catalysed rate, the whole enzyme-free set is
+    worth about one expected event. The pooled rate would say five, because it
+    is dominated by pyrophosphate; that is the error this function's `expected`
+    column exists to prevent.
+    """
+    print("\nthe enzyme control is too small to decide anything")
+    table = scope.gas_curves()
+    control = scope.gas_enzyme_control(table)
+    check("there are enzyme-free curves at matched peroxide and pH",
+          int(control.free_curves.sum()) >= 16,
+          f"{int(control.free_curves.sum())} curves")
+    check("none of them detaches", int(control.free_events.sum()) == 0)
+    check("AND THAT MEANS NOTHING: about one event was expected",
+          control.expected.sum() < 2.0,
+          f"{control.expected.sum():.2f} expected, "
+          f"p = {float(np.exp(-control.expected.sum())):.2f}")
+
+    # The pooled rate is the trap, and it is a factor of several.
+    pooled = scope.gas_survey(table)
+    rate = float(pooled.events.sum() / pooled.hours.sum())
+    free_hours = float(control.free_hours.sum())
+    check("pooling the buffers would overstate it several times over",
+          rate * free_hours > 2 * control.expected.sum(),
+          f"{rate * free_hours:.1f} against {control.expected.sum():.2f}")
+
+    # WHAT ACTUALLY CARRIES THE CLAIM. The reference cuvette of a catalysed run
+    # omits only the enzyme, so a bubble there would raise absorbance as it
+    # grew and drop it sharply on release. The archive is one-sided.
+    steps = scope.bubble_step_asymmetry()
+    check("the large steps are falls, so the gas is in the sample beam",
+          steps["falls"] > 4 * steps["rises"],
+          f"{steps['falls']} falls against {steps['rises']} rises")
+
+
+def test_the_turnover_control_is_confounded_with_ph():
+    """
+    `bubble_turnover_control` reads exps 136 and 137 -- top peroxide, no
+    detachment -- as showing the gas needs turnover. They also sit at pH 6.95
+    and 7.53, and the survey finds nothing detaching below 7.5 anywhere.
+
+    This asserts the confound rather than the conclusion: scaled from a
+    matched-peroxide run by first order in [HOO-], pH alone predicts fewer than
+    two events over both runs, so their zero needs no turnover to explain it.
+    """
+    print("\nthe turnover control is confounded with pH")
+    confound = scope.turnover_control_confound()
+    quiet = scope.bubble_turnover_control()
+    named = set(quiet[quiet.drops == 0].index)
+    check("the confound prices every run the control names",
+          named == set(confound.index),
+          f"{sorted(named)} against {sorted(confound.index)}")
+    check("those runs sit at the bottom of the block's pH ladder",
+          bool((confound.pH <= confound.pH.max()).all()
+               and confound.pH.max() < 7.6),
+          ", ".join(f"{int(e)} at pH {row.pH:.2f}"
+                    for e, row in confound.iterrows()))
+    check("no run is priced against itself",
+          bool((confound.reference != confound.index).all()))
+    top = confound[confound.top_h2o2 == confound.top_h2o2.max()]
+    check("and pH alone already predicts the top-peroxide pair's zero",
+          float(top.expected.sum()) < 2.5 and int(top.events.sum()) == 0,
+          f"{top.expected.sum():.2f} events expected, "
+          f"{int(top.events.sum())} seen")
+    check("each is scaled from a run at its own peroxide",
+          bool((confound.top_h2o2.values
+                == [float(scope.gas_curves((int(r),)).h2o2.max())
+                    for r in confound.reference]).all()))
+
+
 if __name__ == "__main__":
     test_an_axis_the_offsets_absorb_is_not_reported()
     test_the_block_still_measures_both_axes()
@@ -1041,5 +1176,8 @@ if __name__ == "__main__":
     test_the_gas_rate_belongs_to_the_peroxide()
     test_the_clocks_are_corrected_like_the_rate()
     test_the_bubble_that_never_left()
+    test_the_gas_is_not_a_property_of_one_block()
+    test_the_enzyme_control_is_too_small_to_decide_anything()
+    test_the_turnover_control_is_confounded_with_ph()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)

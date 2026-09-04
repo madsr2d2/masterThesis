@@ -8,6 +8,111 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-04 — the gas survey: S4 generalises, and two of its supports do not
+
+Asked: *how can we be sure it is the chemzyme ketone catalysing the
+disproportionation? If it were, the effect should appear in every experiment at
+high H2O2 and sufficient pH, regardless of substrate — and we only see it at
+high H2O2 loading, right?*
+
+The prediction was right and had never been tested. Testing it confirmed S4's
+generality and **broke two of the three arguments S4's catalyst-dependence
+rested on**.
+
+### The survey
+
+`scope.gas_curves` runs the same detachment test over all **402 curves of 88
+experiments**, keeping the curves that did not bubble because those are the
+control. It is deliberately not built on `frame`: it needs the readings and the
+composition and none of the progress fits.
+
+**It appears with both substrates** — 20 of 58 4OMe-BnOH curves against 22 of 68
+BnOH, catalysed, ≥ 40 mM, pH ≥ 8, in three buffers and at temperatures the
+two-axis block does not hold (`gas_substrate_control`). A catalyst that
+decomposes peroxide involves no alcohol at all, so this is what S4 predicts, and
+the chop is not a two-axis-block artefact.
+
+### But peroxide is not the trigger the block made it look like
+
+The archive is **not** a low-peroxide archive: median [H2O2] is **82.5 mM** and
+**278 of 402** curves sit above 80 mM. If peroxide alone made the gas most of
+the archive would chop, and only **28 of those 278** do. The discriminator is
+pH, and it holds inside each buffer separately (`gas_survey`, catalysed,
+≥ 40 mM, events per hour of run):
+
+| buffer | pH ≤ 7.5 | 7.5–8.5 | > 8.5 |
+|---|---|---|---|
+| phosphate | **0 in 250.8 h** (80 curves, 20 exps) | 0 in 33.1 h | 0.251 |
+| pyrophosphate | 0 in 18.9 h | 1.357 | 3.548 |
+| boric | — | 0 in 2.9 h | 0.551 |
+
+**Zero detachments in 270 hours of catalysed, high-peroxide running below
+pH 7.5, over 23 experiments.** That is the strongest single statement the
+archive makes about the gas and it is what a reaction consuming HOO⁻ predicts.
+
+### What that breaks
+
+**`bubble_turnover_control` is confounded with pH.** It read exps 136 and 137 —
+top peroxide, no detachment, the block's two weakest runs — as showing the gas
+needs turnover. They also sit at **pH 6.95 and 7.53**, third and fifth lowest in
+the block, where nothing detaches anywhere in the archive regardless of
+turnover. `turnover_control_confound` prices their silence from the
+matched-peroxide run exp 138 (73.4 mM, pH 8.16, 0.50 events/h) at first order in
+[HOO⁻]: **0.68 and 1.48 expected events, zero seen.** pH alone predicts the same
+zero, so the control adds nothing. Its docstring, `two_axis/ANALYSIS.md` § 5,
+`CLAUDE.md` and `MECHANISM.md` S4 all asserted the turnover reading and have
+been corrected.
+
+**The direct ± enzyme control decides nothing.** Sixteen enzyme-free curves at
+122.4 mM and pH ≥ 8 carry no detachment, which reads like a control and is not
+one: they are short — 5.5 h between them — and matched to their **own buffers'**
+catalysed rates they are worth about **one expected event** (p ≈ 0.4).
+`gas_enzyme_control` reports `expected`, per buffer, precisely so this is not
+quoted again. Using the pooled catalysed rate instead gives 2.6 and is wrong,
+because it is dominated by pyrophosphate, which runs five times faster than
+phosphate.
+
+### What survives, and it is the strongest of the three
+
+**The beam asymmetry.** Every run is double-beam and a catalysed run's reference
+cuvette omits **only the enzyme** — same peroxide, substrate, buffer and pH,
+verified structurally across the archive by `verify_enzyme.py` (53/14, no
+overlap). A bubble growing in the reference would raise ΔA and drop it sharply
+on release; the archive gives **122 falls beyond 20σ against 23 rises**
+(`bubble_step_asymmetry`). The gas forms in the cuvette that holds the enzyme,
+and **every run is its own matched ± enzyme control** — worth far more than the
+four enzyme-free runs.
+
+### Two things now stated as unproven
+
+**The ketone is not established as the catalyst.** Anything arriving with the
+enzyme stock would do the same job: the cyclodextrin scaffold, or a trace
+transition metal, which is catalase-like and would show exactly this pH
+dependence. The archive holds no run with cyclodextrin alone, ketone alone, or a
+chelator added. `MECHANISM.md` open questions now names the three experiments
+that would separate them, and `COMPUTATIONAL.md` C10 records that a cheap EDTA
+control is worth more than the calculation and should precede it.
+
+**The gas has never been measured.** No headspace analysis, no manometry, no
+oxygen electrode anywhere in this project. O2 is an inference from the budget,
+the peroxide order and the pH dependence. CO2 is close to excluded, but on a
+pKa argument rather than a measurement: pKa1 6.35 means that above pH 8
+essentially all dissolved inorganic carbon is bicarbonate and stays in solution,
+and the gas becomes *more* common as pH rises, which is backwards for carbonate.
+That also disposes of oxidative degradation of the cyclodextrin itself, the one
+CO2 route the composition cannot exclude. The defensible statement is **a
+non-condensable gas, made in the enzyme-containing cuvette, first order in
+peroxide and rising steeply with pH**.
+
+### Found while doing it
+
+`CLAUDE.md` and the `analyse-kinetics` skill both said only exps 2–32 remain on
+the 0.001 AU `.txt` export and no `.rre` survives for them. **All 402 curves are
+`.rre`** — the last 32 arrived when `read_rre` stopped matching only
+`rate<n>.rre`, which `data/test_read_rre.py` asserts. Corrected in both, with
+the note that the rule still stands because the *default* floor in
+`curve_metrics` is the export's and a returning `.txt` curve would be silent.
+
 ## 2026-09-04 — a run can end still holding a bubble, and that is a bracket
 
 Asked, of the reconstruction: *some curves may be too pathological to correct —

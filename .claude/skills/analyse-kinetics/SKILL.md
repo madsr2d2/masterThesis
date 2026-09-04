@@ -41,9 +41,13 @@ if a duplicate reappears.
 
 That archive figure is now **37.6%** (151/402), not because the statistic
 changed but because the readings did: since 2026-08-31 they come from the
-instrument's own `.rre` files rather than the 0.001 AU `.txt` exports. All 119
-curves of the two-axis block are `.rre`; only exps 2–32 are still on the export, and no
-`.rre` survives for them.
+instrument's own `.rre` files rather than the 0.001 AU `.txt` exports.
+**Every one of the 402 curves is now `.rre`** — the last 32, exps 2–32, came in
+when `read_rre` stopped matching only `rate<n>.rre`
+(`data/test_read_rre.py`). So `source` is `rre` throughout and the export's
+floor no longer binds anywhere; keep passing `source_floor(curve.source)` all
+the same, because the default in `curve_metrics` is still the export's and a
+single `.txt` curve returning would be silent.
 
 Use `curve.noise`, never a fresh `curve_noise(values)` — the floor depends on
 `curve.source` and `frame()` already applies the right one. **If you call

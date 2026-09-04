@@ -249,6 +249,26 @@ def main():
               float(quiet.agreement.max())
               < float(top[top.drops > 0].agreement.min()))
 
+    # THE CONFOUND, priced. The control above says peroxide alone will not do
+    # it; the survey says pH alone already explains the same zero.
+    confound = scope.turnover_control_confound(control=runs)
+    pair = confound[np.isclose(confound.top_h2o2, 73.424)]
+    doc.claim("the pH the quiet runs sit at",
+              "**pH " + " and ".join(f"{v:.2f}" for v in sorted(pair.pH))
+              + "**")
+    doc.claim("what pH alone predicts for them",
+              "**"
+              + " and\n".join(f"{v:.2f}" for v in
+                               pair.sort_values("pH").expected)
+              + " expected events**")
+    doc.claim("the run they are priced against",
+              f"exp {int(pair.reference.iloc[0])}, which carries the same "
+              f"{pair.top_h2o2.iloc[0]:.1f} mM at pH "
+              f"{pair.reference_pH.iloc[0]:.2f}")
+    doc.check("pH alone already predicts the quiet pair's zero",
+              float(pair.expected.sum()) < 2.5 and int(pair.events.sum()) == 0,
+              f"{pair.expected.sum():.2f} expected, {int(pair.events.sum())} seen")
+
     together = scope.bubble_synchrony()
     doc.claim("the cuvette pairs", f"{together['pairs']} cuvette pairs")
     doc.claim("coincident detachments",
@@ -557,6 +577,59 @@ def main():
               "rate",
               bool((terminal.nlargest(4, "terminal_load").bubble_load
                     > scope.BUBBLE_LOAD_CEILING).sum() >= 2))
+
+    # THE ARCHIVE-WIDE SURVEY. Every gas claim in this document is measured
+    # inside 135-151; these are the ones that are not, and they are what says
+    # the gas belongs to the chemistry rather than to the block.
+    survey_curves = scope.gas_curves()
+    doc.claim("how much of the archive the survey sees",
+              f"**{len(survey_curves)} curves of "
+              f"{survey_curves.experiment.nunique()} experiments**")
+    substrates = scope.gas_substrate_control(survey_curves)
+    for name, row in substrates.iterrows():
+        doc.claim(f"the substrate row for {name}",
+                  f"| {name} | {int(row.curves)} | **{int(row.detaching)}** | "
+                  f"{int(row.experiments)} | {int(row.buffers)} | "
+                  f"{row.per_hour:.2f} |")
+    doc.check("both substrates make the gas",
+              bool((substrates.detaching >= 15).all()),
+              ", ".join(f"{n} {int(r.detaching)}/{int(r.curves)}"
+                        for n, r in substrates.iterrows()))
+    doc.claim("the archive's median peroxide",
+              f"median [H2O2] is **{survey_curves.h2o2.median():.1f} mM**")
+    above = survey_curves[survey_curves.h2o2 >= 80]
+    doc.claim("how much of it sits high",
+              f"**{len(above)} of {len(survey_curves)}** curves sit above 80")
+    doc.claim("and how little of that chops",
+              f"only **{int((above.detachments > 0).sum())} of those\n"
+              f"{len(above)}** do")
+    survey = scope.gas_survey(survey_curves)
+    for (buffer, band), row in survey.iterrows():
+        doc.claim(f"the survey row for {buffer} {band}",
+                  f"{row.per_hour:.3f}" if row.events else
+                  f"0 in {row.hours:.1f} h")
+    low = survey[survey.index.get_level_values("pH").map(
+        lambda band: band.right <= 7.5)]
+    doc.claim("the low-pH exclusion",
+              f"**Zero detachments in {low.hours.sum():.0f} hours of "
+              "catalysed, high-peroxide running below\npH 7.5**")
+    doc.check("and it really is zero", int(low.events.sum()) == 0)
+    phosphate_low = low.xs("Phosphate", level="buffer").iloc[0]
+    doc.claim("the phosphate cell that carries most of it",
+              f"({int(phosphate_low.curves)} curves, "
+              f"{int(phosphate_low.experiments)} exps)")
+    doc.claim("how many experiments the whole exclusion covers",
+              f"over {int(low.experiments.sum())} experiments")
+
+    # AND THE CONTROL THAT DECIDES NOTHING, asserted as deciding nothing.
+    enzyme = scope.gas_enzyme_control(survey_curves)
+    doc.claim("what the enzyme-free set is worth",
+              "about **one expected event**")
+    doc.check("the enzyme-free curves really do carry none",
+              int(enzyme.free_events.sum()) == 0)
+    doc.check("and about one event was expected of them",
+              enzyme.expected.sum() < 2.0,
+              f"{enzyme.expected.sum():.2f} expected")
 
     drivers = scope.gas_rate_drivers()
     doc.claim("what the gas rate does with peroxide",
