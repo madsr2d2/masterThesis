@@ -609,6 +609,48 @@ against the mechanism.
   target for the oxidant makes it a worse **hydride acceptor**, and the 4OMe
   curves show no autocatalysis while the BnOH curves do. `COMPUTATIONAL.md` C5
   and C6 are the two calculations that would confirm the pair of signs.
+- **S4. `2 H2O2 -> 2 H2O + O2`, catalysed.** *(Found 2026-09-03; the last of
+  these sinks to be identified and the only one whose product leaves the
+  solution.)* Many BnOH pyrophosphate curves rise, fall by more in one 60 s
+  reading than the reaction moves in five, and resume. Absorbance that goes
+  away was never product: it is an O2 bubble in the SAMPLE beam, scattering
+  light out of the aperture while it grows and releasing it when it detaches.
+  `two_axis/ANALYSIS.md` section 5 carries the identification; three things make
+  it this reaction rather than any other.
+
+  **It needs turnover, not just peroxide.** The reference cuvette omits only
+  the enzyme and holds the same H2O2, so if the gas came from peroxide standing
+  in solution the reference would bubble too and the difference would cancel.
+  It does not. The two weakest runs at 73.4 mM peroxide shed nothing while
+  stronger runs at the same peroxide shed freely (`bubble_turnover_control`).
+
+  **It is made from the peroxide and not from the alcohol.** The production rate
+  is fitted from the timing and size of the detachments alone -- the fit never
+  sees a concentration -- and comes out **+1.389 +/- 0.251 in [H2O2]** against
+  **-0.307 +/- 0.103 in [S]** (`scope.gas_rate_drivers`). First order in
+  peroxide, weakly negative in substrate: a catalase-like disproportionation
+  competing with the productive cycle for the same oxidant, and one the alcohol
+  slows rather than feeds.
+
+  **The detachments track peroxide across the block**: 0 of 7 curves below 5 mM
+  detach, 5 of 5 above 80 mM, monotone across six bands (`bubble_ladder`), and
+  17 coincidences over 357 cuvette pairs against 16.0 expected, so it is the
+  chemistry and not the lamp (`bubble_synchrony`).
+
+  **Why it matters mechanistically, beyond the artefact.** It is an
+  unproductive, catalyst-dependent drain on H2O2 that runs fastest at exactly
+  the high-peroxide, high-pH conditions where the productive chemistry is
+  strongest -- so it competes with step 4 for the oxidant and works against any
+  enhancement being visible. It is not in the seven steps above and no rate
+  constant here accounts for it. Whether it proceeds through the same perhydrate
+  KP (a Criegee-type collapse expelling O2 rather than oxidising S) or through a
+  separate path is not established by anything in this archive, and the
+  distinction matters: the first would make the sink share step 4's
+  pre-equilibrium and its saturation, the second would not. `solution_chemistry.
+  oxygen_budget` disposes of the "too small to see" objection -- the solution
+  saturates on 1.5% of the peroxide at the top of the ladder and cannot saturate
+  at all at the bottom.
+
 - **S3. Radical-chain autoxidation.** Benzoylperoxy radicals from aerobic
   benzaldehyde autoxidation abstract H from benzyl alcohol (Sankar et al., item
   21 — 2% benzyl alcohol suffices to suppress benzaldehyde autoxidation at room
@@ -967,6 +1009,66 @@ against log[H2O2] — one effect, not two, since the two axes move together, and
 weak enough that it constrains little. What survives is that the active oxidant
 must be *assembled* before it works, on a timescale set by something other than
 how much substrate has been consumed.
+
+### What draws the catalyst into its active form
+
+*(Added 2026-09-04.)* Step 4 puts the catalyst into a **pre-equilibrium with a
+species held in excess**, and that shape makes a prediction with no free
+parameters. For `E + X ⇌ E*` with X in excess,
+
+    1/τ = k_f[X] + k_r,     [E*]/E₀ = K[X]/(1 + K[X])
+
+so `d ln v/d ln[X] = 1/(1 + K[X])` and `d ln τ/d ln[X] = −K[X]/(1 + K[X])`, and
+their **difference is exactly 1 for every K and every [X]**. It is not a fact
+about H₂O₂: it holds for *any* species that draws the catalyst into its active
+form, so it can be asked of any axis the archive moves.
+`induction.joint_order` asks it as one regression rather than two differenced by
+hand, since the two orders come off the same curves on the same design.
+
+**On the buffer axis it is met: +1.094 ± 0.150.** Read through a landmark with a
+window in seconds common to both runs and one free level per run
+(`induction.joint_buffer_order`, eight curves of exps 32 and 34). Eight curves
+is a weak test — but it is a weak test of a parameter-free prediction, which is
+not the same as no test, and its planted-recovery check reads back the scheme it
+is built from. **This is the strongest statement the archive makes about what
+E → E\* runs on**, and it points at the buffer rather than at the peroxide.
+
+**On the peroxide axis it falls short, and how far depends on the clock.** The
+induction landmark is a rolling window a tenth of the run wide, so on the
+two-axis block — run length spanning 9.6× — it is not comparable between runs,
+and `signal_control` fails there at +0.619 ± 0.228. `tau` and `tau_slow` come
+from the progress fit instead, carry no window, and are subject to the same
+identity. Both sides of the ratio are read off the O₂-corrected curves (S4
+above), which matters here because the gas is made *from* peroxide and would
+otherwise inflate the rate's order and shorten the clock, flattering the +1:
+
+| clock | curves | order in [H₂O₂] | from +1 | control, [S] |
+|---|---|---|---|---|
+| `t_ind`, windowed | 110 | +0.304 ± 0.188 | 3.7σ | 6.4σ |
+| `tau`, from the fit | 65 | +0.707 ± 0.158 | 1.9σ | 8.5σ |
+| `tau_slow`, from the fit | 32 | +0.669 ± 0.242 | 1.4σ | 6.0σ |
+
+**The substrate axis is the control and it must miss**, because the alcohol is
+not the activating species and the clock carries no substrate order. It misses
+by 4.2σ to 8.5σ in every cut. A reading where both axes met +1 would be a
+regression that had stopped discriminating rather than a mechanism.
+
+**Nothing is concluded from the peroxide column.** `tau_slow` is resolved on 32
+of 110 live curves and 20 of the 77 strong ones, and across cuts the estimate
+moves +0.67 to +0.85 — short of +1 everywhere and nowhere by enough to reject
+it. What the two axes together say is that *something* in excess activates the
+catalyst, that the buffer meets the constraint where the peroxide does not, and
+that the archive cannot yet choose between them: `induction.peroxide_crossing`
+finds that of 88 runs, 53 step `[buf]`, 20 step `[H2O2]` and **0 step both**.
+
+Two consequences for this document. The rate is **not** first order in H₂O₂ —
+`peroxide_saturation` rejects `a = 1` at F = 41 on the two-axis ladder — so step
+4's pre-equilibrium is saturating, and "first order in H₂O₂" is the
+*unsaturated* limit of the scheme rather than a consequence of it. And every
+buffer order here is an order in **total** buffer: at one pH the acid, the base
+and the total are proportional, so no titration can name the species, and
+`buffer/ANALYSIS.md` records that the two-pH test the archive does hold excludes
+nothing (+1.06 ± 0.77 against 1.76 for general base and 0.52 for general acid).
 
 ### The +/− chemzyme controls
 

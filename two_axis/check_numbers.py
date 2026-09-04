@@ -25,6 +25,11 @@ import solution_chemistry
 from doc_check import Checker
 
 DOCUMENT = os.path.join(HERE, "ANALYSIS.md")
+# MECHANISM.md carries this folder's gas and clock results too -- S4 and "What
+# draws the catalyst into its active form". A figure quoted in two documents is
+# two copies, and this project has had a number go stale in one file while the
+# other stayed right, so both are checked from here.
+MECHANISM_DOC = os.path.join(os.path.dirname(HERE), "MECHANISM.md")
 
 
 def main():
@@ -663,6 +668,41 @@ def main():
             strong_clocks.loc[("tau_slow_corrected", "axis"), "order"]]
     doc.claim("the range the estimate moves over",
               f"**+{min(span):.2f} to +{max(span):.2f}**")
+
+    # ---- the same results as MECHANISM.md states them ----------------------
+    doc.claim("S4: the gas rate's peroxide order in MECHANISM.md",
+              f"**+{drivers['pooled_h2o2']:.3f} +/- "
+              f"{drivers['pooled_stderr_h2o2']:.3f} in [H2O2]**",
+              document=MECHANISM_DOC)
+    doc.claim("S4: and its substrate order there",
+              f"**{drivers['order_s0']:+.3f} +/- {drivers['stderr_s0']:.3f} "
+              "in [S]**", document=MECHANISM_DOC)
+    for clock, window in windows.items():
+        axis = clocks.loc[(clock, "axis")]
+        control = clocks.loc[(clock, "control")]
+        label = "`t_ind`, windowed" if clock == "t_ind" \
+            else f"`{clock.replace('_corrected', '')}`, from the fit"
+        doc.claim(f"{clock}: the joint-order row in MECHANISM.md",
+                  f"| {label} | {int(axis.curves)} | "
+                  f"{axis.order:+.3f} +/- {axis.stderr:.3f} | "
+                  f"{axis.sigma:.1f}sigma | {control.sigma:.1f}sigma |",
+                  document=MECHANISM_DOC)
+    doc.claim("the control's range in MECHANISM.md",
+              f"by {misses.min():.1f}sigma to {misses.max():.1f}sigma",
+              document=MECHANISM_DOC)
+    doc.claim("the resolved counts in MECHANISM.md",
+              f"resolved on {int(clocks.loc[('tau_slow_corrected', 'axis'), 'curves'])}"
+              f" of {int(frame.live.sum())} live curves and "
+              f"{int(strong_clocks.loc[('tau_slow_corrected', 'axis'), 'curves'])}"
+              f" of the {int(scope.orders('vmax', scope=scope.strong_runs())['n'])}"
+              " strong ones", document=MECHANISM_DOC)
+    doc.claim("the estimate's range in MECHANISM.md",
+              f"moves +{min(span):.2f} to +{max(span):.2f}",
+              document=MECHANISM_DOC)
+    saturation = induction.peroxide_saturation(frame, parameter="vmax_corrected")
+    doc.claim("the saturation F in MECHANISM.md",
+              f"rejects `a = 1` at F = {saturation['first_order_f']:.0f}",
+              document=MECHANISM_DOC)
 
     doc.section("section 5: the burst amplitude")
     bursts = scope.burst_table()
