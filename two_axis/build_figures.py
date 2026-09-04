@@ -463,16 +463,38 @@ def build_curves_page():
             progress_overlay(axes, times, corrected, colour=CATEGORY[2],
                              mark_radius=radius)
         progress_overlay(axes, times, values, mark_radius=radius)
-        marks, labels = [], []
+        # EVERY PARAMETER THE PANEL IS READ FOR, DRAWN WHERE IT IS READ. One
+        # rule per landmark, each in the colour of the series it belongs to:
+        # `v_max` on the readings in blue, `v_max` on the reconstruction in the
+        # correction's own purple -- the gas moves WHERE the rate peaks as well
+        # as how high, on 19 of the 110 live curves by more than a reading --
+        # and the progress fit's clock in the rust of the fit it comes from.
+        # tau is the clock `induction.joint_clocks` asks the +1 rule through,
+        # so a page that draws v_max and not tau shows half of what section 6
+        # is read off.
         if np.isfinite(row.vmax_time_s) and row.vmax_time_s > 0:
-            marks.append(float(row.vmax_time_s))
-            labels.append("v_max")
-        breakpoints(axes, marks, labels, colour=CATEGORY[0])
+            breakpoints(axes, [float(row.vmax_time_s)], ["v_max"],
+                        colour=CATEGORY[0])
+        if (chopped and np.isfinite(row.vmax_corrected_time_s)
+                and abs(row.vmax_corrected_time_s - row.vmax_time_s) > 1.0):
+            breakpoints(axes, [float(row.vmax_corrected_time_s)],
+                        ["v_max*"], colour=CATEGORY[2], row=1)
+        clock = (row.tau_corrected if chopped else row.tau)
+        resolved = (row.tau_resolved_corrected if chopped else row.tau_resolved)
+        if resolved and np.isfinite(clock) and 0 < clock < times[-1]:
+            breakpoints(axes, [float(clock)], ["τ"], colour=CATEGORY[1],
+                        row=2)
         if chopped:
             # Where the gas left, so the reader can see the correction is
-            # anchored to the readings and not to a smoothing choice.
-            breakpoints(axes, [float(times[start]) for start, _ in events],
-                        [""] * len(events), colour=GRID)
+            # anchored to the readings and not to a smoothing choice -- and
+            # the LAST one labelled where the run ended still holding a
+            # bubble, because everything after it is uncorrected by
+            # construction and that is the panel's own systematic (§5).
+            edges = [float(times[start]) for start, _ in events]
+            held = row.terminal_gas > 0
+            breakpoints(axes, edges,
+                        [""] * (len(edges) - 1) + ["gas held" if held else ""],
+                        colour=GRID, row=3)
         panels.append(panel(
             f"pH {row.pH:.2f} · [S] {row.s0:g} mM · [H₂O₂] {row.h2o2:g} mM"
             f"<span class='pill'>exp {int(row.experiment)}.{int(row.sample)}"
@@ -541,6 +563,9 @@ def build_index():
     gas = scope.bubble_table()
     beyond_count = int((~gas.repairable).sum())
     sensitivity = scope.bubble_sensitivity()
+    terminal = scope.terminal_bubbles()
+    holding_curve = terminal[(terminal.experiment == 140)
+                             & (terminal["sample"] == 4)].iloc[0]
     recovery = "1.15, 1.32 and 1.64 against 1.12, 1.24 and 1.58" 
     _, pair_verdict = scope.enzyme_pair()
     sweep = scope.enzyme_pair_sensitivity()
@@ -596,6 +621,19 @@ block is named for. What has not been written down is that they are also a
 and exps 143–151 another, matched cuvette for cuvette — and that second design
 is the stronger one. This folder is what the block says when both are
 used.</p>
+<p class='lede'><strong>Which curves each number is read from.</strong> Forty-six
+of these 119 curves carry O₂ bubbles that grow in the beam and detach
+(<a href='#gas'>section 5</a>), so it matters, and there is no single answer.
+Sections 2, 3 and 4 are read from the <strong>readings</strong>, with section 5
+giving what every one of their orders becomes under each repair — the substrate
+order moves by less than its own error and the peroxide order moves by
+{abs(sensitivity.loc[('vmax', 'all live'), 'order_h2o2'] - sensitivity.loc[('vmax_corrected', 'all live'), 'order_h2o2']):.2f}.
+Section 6 is read from the <strong>reconstruction</strong>, both sides of it:
+<code>vmax_corrected</code> and the clocks refitted to the rebuilt curve, because
+the gas is made from peroxide and on a peroxide axis it pushes the rate and the
+clock the same way. <a href='progress_curves.html'>progress_curves.html</a> draws
+both series on every contaminated panel with <code>v_max</code> marked on each,
+so nothing here rests on a correction the reader cannot see.</p>
 {hero}
 
 <h2>1 · What the block is</h2>
@@ -691,7 +729,7 @@ saturation predicts. A 1.5× difference in level is a thin thing to hang
 0.2 of an order on; a run crossing [buf] with [H₂O₂] would settle it, and the
 archive has none.</p>
 
-<h2>5 · What the curves do</h2>
+<h2 id='gas'>5 · What the curves do</h2>
 {figure_gas_ladder()}
 <p>Many of these curves rise, fall by more in one 60 s reading than the reaction
 moves in five, resume at the new level and do it again. <strong>Absorbance that
@@ -713,8 +751,37 @@ sawtooths planted into the block's own clean curves stitching recovers
 Subtracting the ramp each detachment reveals is unbiased while the artefact is
 the smaller half. Of 110 live curves, <strong>{beyond_count} sit above a load
 of 1</strong> and carry no measurable rate; they are flagged, drawn here and in
-the counts, and <em>not</em> excluded. No order in this document moves under any
-repair.</p>
+the counts, and <em>not</em> excluded.</p>
+<p><strong>The substrate order does not move under any repair</strong> — by less
+than the two estimates' errors combined every time, and under the monotone bound
+it moves <em>away</em> from zero, which is the direction that matters because a
+substrate-blind artefact could only have flattened it. <strong>The peroxide
+order does move</strong>:
+{sensitivity.loc[('vmax', 'all live'), 'order_h2o2']:+.3f} on the readings
+against {sensitivity.loc[('vmax_corrected', 'all live'), 'order_h2o2']:+.3f} on
+the reconstruction, which is the repair working rather than failing — the gas is
+<em>made from</em> peroxide, so leaving it in has to inflate the apparent
+peroxide order.</p>
+<p><strong>And a run can end still holding a bubble.</strong> Only gas the run
+was watched to shed is subtracted, so a recording that stopped mid-bubble keeps
+the whole of it and the reconstruction lies back on the readings from the last
+detachment onward. <code>scope.terminal_bubbles</code> bounds what that leaves
+in: <strong>{len(terminal)} of the 110 live curves</strong> could still be
+carrying gas at their last reading,
+{int((terminal.terminal_load > 0.2).sum())} of them more than a fifth of
+everything they rose. It is a bracket and not a further repair — charging the
+whole of every tail to gas moves the substrate order by
+{abs(sensitivity.loc[('vmax_terminal', 'all live'), 'order_s0'] - sensitivity.loc[('vmax_corrected', 'all live'), 'order_s0']):.3f}
+and the peroxide order by
+{abs(sensitivity.loc[('vmax_terminal', 'all live'), 'order_h2o2'] - sensitivity.loc[('vmax_corrected', 'all live'), 'order_h2o2']):.3f},
+both inside their own errors, so <strong>no order in this document lives inside
+the bracket</strong>. Which curves genuinely ended mid-bubble is a separate
+question, and <code>curve_metrics.tail_excess</code> is the evidence: exp 140
+cuvette 4's tail climbs {holding_curve.tail_excess:.1e} AU/s faster than the
+body it was corrected against, {holding_curve.tail_excess / holding_curve.gas_rate:.0%}
+of its own fitted gas rate, while exp 149 cuvette 4's climbs <em>slower</em> —
+one ended mid-bubble and the other stopped making gas hours before the
+recording did.</p>
 {figure_acceleration_against_ph()}
 <p>The acceleration is a <strong>high-pH</strong> phenomenon, not a long-run
 one: {int(bands.loc['pH >= 9', 'accelerating'])} of

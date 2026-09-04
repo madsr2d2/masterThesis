@@ -268,6 +268,21 @@ Three things follow that are worth not re-deriving.
   gap between them IS the systematic, and `curve_metrics.quiet_tail` says which
   curves could be paying it. On a curve with no detachment `debubble` returns
   the readings UNCHANGED.
+  **THE BUBBLE THAT NEVER LEFT IS BRACKETED, NOT EXCLUDED.** That price is now
+  per curve. `curve_metrics.terminal_gas` bounds what the beam may still hold
+  at the last reading -- the fitted rate over the quiet tail, capped by what the
+  tail rose -- and `scope.terminal_bubbles` is the table: 38 of 110 live curves
+  carry one, 13 above a fifth of their rise. The bound CANNOT tell a run that
+  ended mid-bubble from one that stopped making gas, because it asks the rate
+  and not the readings; `curve_metrics.tail_excess` can, and it is the tail's
+  slope minus the body's. Exp 140.4 runs +4.4e-05 AU/s faster, 0.83 of its own
+  gas rate; exp 149.4 runs SLOWER, and 7 of the 8 curves past two shedding
+  intervals do. It is ONE-SIDED -- an accelerating curve ends steeper with no
+  gas in it and a decelerating one hides a bubble, both planted -- so a positive
+  excess is evidence, a negative one is not. `vmax_terminal` is the far end of
+  the bracket and NOTHING published lives inside it: +0.016 in substrate and
+  -0.005 in peroxide against errors of 0.047 and 0.071. The two curves it bites
+  hardest on, 140.4 and 142.4, are already `bubble_load` > 1.
   **A MONOTONE RECONSTRUCTION CAN STILL BE THE WRONG ONE** -- pulling a curve
   down by a smooth ramp leaves it smooth. Three faults hid behind that, and all
   three were found by eye, not by a test.

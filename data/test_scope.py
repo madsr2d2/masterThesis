@@ -956,6 +956,66 @@ def test_the_worked_curve_carries_more_than_one_bubble():
           f"{record["lost"].sum():.4f} against {values[-1] - values[0]:.4f}")
 
 
+def test_the_bubble_that_never_left():
+    """
+    A run can stop shedding because it stopped making gas, or because the
+    recording stopped first, and `unreleased_gas` treats both the same way --
+    it subtracts nothing after the last detachment. That is right for the
+    first and wrong for the second, and the second is what the eye catches on
+    exp 140 cuvette 4: a reconstruction corrected down for 3180 s and then
+    handed back to the readings for its last 600, climbing at 6.8e-05 AU/s
+    where the body it was corrected against climbed at 2.4e-05.
+
+    `terminal_gas` bounds what is left in and `tail_excess` says whether the
+    bound is credible. Neither corrects anything: the point of the pair is
+    that `vmax_corrected` and `vmax_terminal` bracket the rate, and the block
+    reports nothing that lives inside the bracket.
+    """
+    print("\nthe bubble that never left")
+    table = scope.terminal_bubbles()
+    check("some curves end holding gas", 20 < len(table) < 60,
+          f"{len(table)} of the block's live curves")
+    check("the bound never exceeds the curve's own rise",
+          bool((table.terminal_load <= 1.0).all()),
+          f"worst {table.terminal_load.max():.2f}")
+    check("and it never raises a rate",
+          bool((table.vmax_shift <= 1.0 + 1e-12).all()),
+          f"worst {table.vmax_shift.max():.6f}")
+
+    # THE TWO CURVES THAT LOOK THE SAME AND ARE NOT. Both end without
+    # shedding; one was still making gas and the other had stopped hours
+    # earlier, and only the tail's own slope separates them.
+    holding = table[(table.experiment == 140) & (table["sample"] == 4)].iloc[0]
+    stopped = table[(table.experiment == 149) & (table["sample"] == 4)].iloc[0]
+    check("the run that ended mid-bubble has a faster tail",
+          holding.tail_excess > 0.5 * holding.gas_rate,
+          f"{holding.tail_excess:.2e} against a rate of "
+          f"{holding.gas_rate:.2e}")
+    check("the run that stopped making gas has a slower one",
+          stopped.tail_excess < 0,
+          f"{stopped.tail_excess:+.2e}")
+    check("and it is the one the quiet tail already pointed at",
+          stopped.quiet_tail > 10 > 1 > holding.quiet_tail,
+          f"{stopped.quiet_tail:.1f} against {holding.quiet_tail:.1f}")
+
+    # A LONG SILENCE MEANS THE GAS STOPPED, and this is that claim as a
+    # measurement rather than an assumption: past two shedding intervals the
+    # tails do not run fast.
+    late = table[table.quiet_tail > 2]
+    check("every curve past two shedding intervals but one has a slower tail",
+          int((late.tail_excess < 0).sum()) >= len(late) - 1,
+          f"{int((late.tail_excess < 0).sum())} of {len(late)}")
+
+    # AND NOTHING PUBLISHED LIVES IN THE BRACKET.
+    orders = scope.bubble_sensitivity().loc[
+        [("vmax_corrected", "all live"), ("vmax_terminal", "all live")]]
+    for axis in ("s0", "h2o2"):
+        gap = abs(orders[f"order_{axis}"].diff().iloc[-1])
+        check(f"charging the whole tail to gas leaves the {axis} order alone",
+              gap < orders[f"stderr_{axis}"].min(),
+              f"{gap:.3f} against {orders[f'stderr_{axis}'].min():.3f}")
+
+
 if __name__ == "__main__":
     test_an_axis_the_offsets_absorb_is_not_reported()
     test_the_block_still_measures_both_axes()
@@ -980,5 +1040,6 @@ if __name__ == "__main__":
     test_the_gas_may_not_outlast_the_evidence()
     test_the_gas_rate_belongs_to_the_peroxide()
     test_the_clocks_are_corrected_like_the_rate()
+    test_the_bubble_that_never_left()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)

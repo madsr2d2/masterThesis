@@ -38,7 +38,8 @@ from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
                            model_residual, monotone_bound, peak_position,
                            peak_rate,
                            quadratic_rate, quiet_tail, segmented_fit,
-                           segment_selection,
+                           segment_selection, tail_excess,
+                           terminal_gas,
                            SEGMENT_RATIO_STEEP,
                            whole_slope)
 from fit_dataset import (TWO_AXIS_BLOCK, TWO_AXIS_GROUP, build_curves,
@@ -127,7 +128,8 @@ def frame(scope=TWO_AXIS_BLOCK):
         events = detachments(values, noise)
         gas_rate = bubble_rate(times, values, events)
         corrected, _ = debubble(times, values, noise)
-        vmax_corrected, _, _ = peak_rate(times, corrected, floor=floor)
+        vmax_corrected, _, vmax_corrected_where = peak_rate(
+            times, corrected, floor=floor)
         # THE CLOCKS GET THE SAME TREATMENT AS THE RATE. `vmax_corrected` sat
         # beside `vmax` from the start while `tau` and `tau_slow` were fitted to
         # the readings alone, so any question asked of a time constant was asked
@@ -142,6 +144,15 @@ def frame(scope=TWO_AXIS_BLOCK):
         burst_fixed = fit_burst_bounded(times, corrected, noise_floor=floor)
         vmax_monotone, _, _ = peak_rate(
             times, monotone_bound(values), floor=floor)
+        # AND THE BUBBLE THAT NEVER LEFT. `debubble` subtracts only gas the run
+        # was watched to shed, so a run still growing a bubble at its last
+        # reading keeps the whole of it -- `curve_metrics.terminal_gas` is how
+        # much that is, read off the tail's own excess slope, and
+        # `vmax_terminal` is the rate with all of it charged to gas. It is the
+        # far side of a bracket and not a better estimate: an accelerating
+        # curve ends steeper than it began for reasons that are not gas.
+        held, stripped = terminal_gas(times, corrected, events, gas_rate)
+        vmax_terminal, _, _ = peak_rate(times, stripped, floor=floor)
         # Three more rate estimators, so that "does this conclusion depend on
         # how the rate was measured" is a groupby rather than an argument.
         # v0 uses the first 20% of the run, v0_whole every point with no bend
@@ -359,7 +370,21 @@ def frame(scope=TWO_AXIS_BLOCK):
             "bubble_load": bubble_load(values, drops),
             "gas_rate": gas_rate,
             "vmax_corrected": vmax_corrected,
+            # WHERE the corrected rate peaks, in seconds, so a curves page can
+            # draw it. The gas moves the peak as well as its height: on 19 of
+            # the block's 110 live curves the two sit more than a reading
+            # apart.
+            "vmax_corrected_time_s": vmax_corrected_where * float(
+                times[-1] - times[0]),
             "vmax_monotone": vmax_monotone,
+            "vmax_terminal": vmax_terminal,
+            "terminal_gas": held,
+            "terminal_load": held / net if net > 0 else np.nan,
+            "tail_excess": tail_excess(times, corrected, events, floor=floor),
+            # How long the run went on after its last detachment, in its own
+            # shedding intervals. A long silence means the gas stopped, so this
+            # is the first thing to read beside `terminal_gas`'s bound.
+            "quiet_tail": quiet_tail(times, events),
             # vmax/v0: how many times over the reaction sped up. accel_z
             # says whether the speed-up is real, this says how big it is --
             # z also carries the curve's noise and length, so z alone is not
@@ -1645,6 +1670,59 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
     return pd.DataFrame(rows)
 
 
+def terminal_bubbles(scope=TWO_AXIS_BLOCK, live_only=True):
+    """
+    The curves that ended still holding gas, and what keeping it costs.
+
+    THE QUESTION IS "CAN THESE CURVES BE CORRECTED, OR MUST THEY GO", and the
+    answer this table gives is neither: they are corrected as far as the
+    readings license, the rest is a stated bracket, and no curve is dropped
+    for it. `debubble` subtracts only gas the run was watched to shed, so a
+    run whose recording stopped mid-bubble hands that stretch back to the
+    readings untouched -- exp 140 cuvette 4 is the one the eye catches, a
+    reconstruction climbing at 2.4e-05 AU/s for 3180 s and then at 6.8e-05
+    over its last 600.
+
+    `curve_metrics.terminal_gas` is the bound -- what the fitted rate would
+    have made since the last detachment, capped by what the tail rose -- and
+    `curve_metrics.tail_excess` is the evidence for whether the bound is
+    credible on a given curve. 38 of the block's 110 live curves are charged
+    anything at all, 13 of them more than a fifth of their net rise, and exp
+    149 cuvette 4 the most at 64%.
+
+    THE TWO ANSWER THE QUESTION DIFFERENTLY, and that is the point. Exp 140
+    cuvette 4 and exp 149 cuvette 4 both end without shedding, so both carry a
+    bound; but 140.4's tail runs 4.4e-05 AU/s faster than the body it was
+    corrected against, which is 83% of its own fitted gas rate, while 149.4's
+    runs SLOWER. One ended mid-bubble and the other stopped making gas hours
+    before the recording did. Of the 24 curves whose excess is positive the
+    median is 1.15 of their own fitted rate; the negative ones are where
+    `unreleased_gas` is simply right.
+
+    NOTHING IS EXCLUDED FOR IT. `vmax_corrected` calls the whole tail
+    chemistry and `vmax_terminal` calls it all gas, and over the block the two
+    differ by 0.016 in the substrate order and 0.005 in peroxide against
+    standard errors of 0.05 and 0.07 (`bubble_sensitivity`). The curves that
+    carry a wide bracket are already the ones `bubble_load` flags: 140.4 at
+    1.24 and 142.4 at 2.96 carry no rate under any repair, which they did
+    before this table existed.
+
+    Columns: experiment, sample, bubble_load, terminal_gas, terminal_load (as
+    a fraction of the curve's net rise), tail_excess, gas_rate,
+    vmax_corrected, vmax_terminal, quiet_tail and vmax_shift, sorted by
+    terminal_load.
+    """
+    data = frame(scope)
+    if live_only:
+        data = data[data.live]
+    out = data[["experiment", "sample", "bubble_load", "terminal_gas",
+                "terminal_load", "tail_excess", "quiet_tail", "gas_rate",
+                "vmax_corrected", "vmax_terminal"]].copy()
+    out["vmax_shift"] = out.vmax_terminal / out.vmax_corrected
+    out = out[out.terminal_gas > 0]
+    return out.sort_values("terminal_load", ascending=False).reset_index(
+        drop=True)
+
 def gas_rate_drivers(scope=TWO_AXIS_BLOCK):
     """
     What sets the rate `bubble_rate` fits -- and the check that it is O2.
@@ -1690,7 +1768,8 @@ def gas_rate_drivers(scope=TWO_AXIS_BLOCK):
             "n_pooled": pooled["n"]}
 
 
-BUBBLE_TREATMENTS = ("vmax", "vmax_corrected", "vmax_monotone")
+BUBBLE_TREATMENTS = ("vmax", "vmax_corrected", "vmax_monotone",
+                     "vmax_terminal")
 
 
 def bubble_sensitivity(scope=TWO_AXIS_BLOCK, treatments=BUBBLE_TREATMENTS,

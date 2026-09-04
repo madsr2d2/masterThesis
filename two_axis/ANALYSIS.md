@@ -469,6 +469,69 @@ it, and on this block the tails are long.
 `data/test_scope.py::test_the_gas_may_not_outlast_the_evidence` names the curves
 so it cannot come back quietly.
 
+### The bubble that never left, and what keeping it costs
+
+The clause above has a price, and it is visible on the page opposite rather
+than only in a recovery table. A run that was still growing a bubble when the
+recording stopped is handed its tail back untouched, so the reconstruction can
+climb at one rate for hours and then, from the last detachment onward, at
+another. **Exp 140 cuvette 4 is the one the eye catches**: corrected down for
+3180 s, then lying on its own readings for the last 600, over which it rises
+faster than at any earlier point in the run.
+
+`scope.terminal_bubbles` measures what is left in. The bound is what the fitted
+rate would have made since the last detachment, capped by what the tail
+actually rose — gas may not be taken off faster than the trace climbed
+(`curve_metrics.terminal_gas`). **Thirty-eight of the 110 live curves** carry
+one, **13** of them more than a fifth of everything they rose.
+
+| curve | load | bound, AU | of its rise | tail excess, AU/s | ÷ its own gas rate |
+|---|---|---|---|---|---|
+| 149.4 | 0.49 | 0.0041 | **64%** | −4.9e-07 | −0.18 |
+| 135.4 | 8.67 | 0.0179 | 51% | +1.4e-05 | 0.27 |
+| 140.4 | 1.24 | 0.0322 | 32% | +4.4e-05 | **0.83** |
+| 142.4 | 2.96 | 0.0128 | 32% | +3.4e-05 | 0.75 |
+| 142.2 | 1.27 | 0.0118 | 16% | +3.0e-05 | **1.08** |
+
+**The bound alone cannot tell the two endings apart**, because it asks the
+fitted rate and not the readings — it charges a run that stopped making gas
+exactly as it charges one that ended mid-bubble, which is planted in
+`test_curve_metrics`. The tail's own slope can. A run still growing a bubble
+hands back a stretch **steeper** than the body it was corrected against, and a
+run that stopped hands back one that is not: exp 140 cuvette 4's tail runs
+4.4e-05 AU/s faster, which is 83% of that curve's own fitted gas rate, while
+exp 149 cuvette 4's runs **slower**. Of the 24 curves with a positive excess
+the median is **1.15** of their own rate — the statistic recovers the gas rate
+it never saw. And the long silences line up with the quiet ones: of the **8**
+curves that ran more than two shedding intervals without a detachment, **7**
+come back negative, which is `unreleased_gas` being simply right on them.
+
+`curve_metrics.tail_excess`, and it is **one-sided**. A curve's own curvature
+is in it: 51 of these 110 accelerate past 3σ and an accelerating curve ends
+steeper than it began with no gas in it at all, while a decelerating one hides
+a bubble it is still growing — both are planted. So a positive excess is
+evidence that gas is still being made; a negative one is not evidence that it
+is not.
+
+**So this is a bracket and not a further repair.** `vmax_corrected` calls the
+whole tail chemistry and `vmax_terminal` calls the whole of it gas, and the
+answer to "are these curves too pathological to correct" is that the question
+is already settled elsewhere: the two orders move by **+0.016** in substrate
+and **−0.005** in peroxide across the whole bracket, against their own standard
+errors of 0.047 and 0.071, so **nothing this document reports lives inside it**.
+Exps 140.4 and 142.4 — the two the bracket bites hardest on — sit at loads of
+1.24 and 2.96 and already carry no rate under any repair. **No curve is
+excluded for ending mid-bubble**, and none needs to be.
+
+One thing the pair does say about the older statistic: **`bubble_load` is not a
+complete severity axis.** It divides the absorbance that *left* by the curve's
+rise, so it is blind by construction to gas that never left. **4 curves the
+load calls unbiased** carry a bracket wider than 5% of their own rate with a
+positive tail excess to support it, the two widest being 145.4 and 140.5 at
+loads of 0.34 and 0.28, whose `v_max` falls to 0.73× and 0.78×. They are not
+excluded either, and nothing rests on them individually; but a curve read one
+at a time should be read with both numbers.
+
 ### The rate the model fits is the peroxide decomposing
 
 The production rate is read off the timing and size of the detachments alone —
@@ -632,6 +695,7 @@ manufacture a flat substrate order. `scope.bubble_sensitivity`:
 | the readings | 110 | +0.091 ± 0.052 | +0.794 ± 0.077 |
 | the reconstruction | 110 | +0.093 ± 0.047 | **+0.700 ± 0.070** |
 | the monotone bound | 110 | +0.141 ± 0.049 | +0.770 ± 0.072 |
+| the reconstruction, terminal bubble charged to gas | 110 | +0.110 ± 0.051 | +0.696 ± 0.077 |
 | readings, load ≤ 1 only | 97 | +0.139 ± 0.059 | +0.767 ± 0.086 |
 
 **The substrate order does not move** under any repair — by less than the two

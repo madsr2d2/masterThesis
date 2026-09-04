@@ -118,7 +118,7 @@ def progress_overlay(axes, times, values, colour=ACCENT, width=FIT_WIDTH,
     return progress
 
 
-def breakpoints(axes, where, labels=None, colour=MUTED):
+def breakpoints(axes, where, labels=None, colour=MUTED, row=0):
     """
     EVERY landmark the curve earned, labelled, not just the first.
 
@@ -127,6 +127,13 @@ def breakpoints(axes, where, labels=None, colour=MUTED):
     curves went unnoticed until it was seen by eye on a page like this. The
     same drawing serves an induction landmark or a window edge; `labels`
     defaults to the ordinal.
+
+    `row` drops the LABELS one line, leaving the rules where they are. A panel
+    that marks several different parameters calls this once per parameter, in
+    each one's own colour, and two landmarks a minute apart would otherwise
+    write their names on top of each other -- which is the failure mode of
+    drawing more than one thing and the reason a panel used to draw only
+    `v_max`.
     """
     for index, cut in enumerate(where):
         x = axes._fx(cut)
@@ -136,7 +143,7 @@ def breakpoints(axes, where, labels=None, colour=MUTED):
             f"stroke='{colour}' stroke-width='1.1' "
             f"stroke-dasharray='3 3' fill='none'/>")
         text = f"{index + 1}" if labels is None else labels[index]
-        axes.note(x + 3, axes.top + 10, text, colour, size=9.5)
+        axes.note(x + 3, axes.top + 10 + 11 * row, text, colour, size=9.5)
 
 
 def progress_axes(times, values, width=340, height=210, limit=None,

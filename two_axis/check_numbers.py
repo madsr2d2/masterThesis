@@ -489,6 +489,75 @@ def main():
     doc.check("every long quiet tail ends on its readings",
               float(quiet.gas_at_end.abs().max()) == 0.0)
 
+    # THE BUBBLE THAT NEVER LEFT. The third clause's price, per curve: the
+    # bound on what is still in the beam, and the tail slope that says whether
+    # the bound is credible on that curve.
+    terminal = scope.terminal_bubbles()
+    doc.claim("how many curves end holding gas",
+              f"**Thirty-eight of the {int(frame.live.sum())} live curves**")
+    doc.claim("and how many of them carry a fifth of their rise",
+              f"**{int((terminal.terminal_load > 0.2).sum())}** of them more "
+              "than a fifth")
+    for experiment, sample in ((149, 4), (135, 4), (140, 4), (142, 4),
+                               (142, 2)):
+        row = terminal[(terminal.experiment == experiment)
+                       & (terminal["sample"] == sample)].iloc[0]
+        share = f"{row.terminal_load * 100:.0f}%"
+        doc.claim(f"the terminal-bubble row for {experiment}.{sample}",
+                  f"| {experiment}.{sample} | {row.bubble_load:.2f} | "
+                  f"{row.terminal_gas:.4f} | "
+                  + ("**64%**" if share == "64%" else share)
+                  + f" | {row.tail_excess:+.1e} | "
+                  + ("**0.83**" if experiment == 140 else
+                     "**1.08**" if (experiment, sample) == (142, 2) else
+                     f"{row.tail_excess / row.gas_rate:.2f}") + " |")
+    holding = terminal[(terminal.experiment == 140)
+                       & (terminal["sample"] == 4)].iloc[0]
+    stopped = terminal[(terminal.experiment == 149)
+                       & (terminal["sample"] == 4)].iloc[0]
+    doc.claim("how much faster the mid-bubble tail runs",
+              f"{holding.tail_excess:.1e} AU/s faster")
+    doc.claim("and what share of that curve's own gas rate that is",
+              f"which is {holding.tail_excess / holding.gas_rate:.0%} of that "
+              "curve's own fitted gas rate")
+    positive = terminal[terminal.tail_excess > 0]
+    doc.claim("how many tails run fast and by how much",
+              f"the {len(positive)} curves with a positive excess the median "
+              f"is **{float((positive.tail_excess / positive.gas_rate).median()):.2f}**")
+    late = terminal[terminal.quiet_tail > 2]
+    doc.claim("the long silences",
+              f"the **{len(late)}**\ncurves that ran more than two shedding "
+              f"intervals without a detachment, **{int((late.tail_excess < 0).sum())}**\n"
+              "come back negative")
+    doc.check("the run that ended mid-bubble has the faster tail",
+              holding.tail_excess > 0 > stopped.tail_excess,
+              f"{holding.tail_excess:+.1e} against {stopped.tail_excess:+.1e}")
+    doc.check("the bound never raises a rate",
+              bool((terminal.vmax_shift <= 1.0 + 1e-12).all()))
+    doc.check("and never exceeds the curve's own rise",
+              bool((terminal.terminal_load <= 1.0).all()))
+    blind = terminal[(terminal.bubble_load <= scope.BUBBLE_LOAD_CEILING)
+                     & (terminal.tail_excess > 0)
+                     & (terminal.vmax_shift < 0.95)]
+    doc.claim("how many curves the load calls unbiased and the bracket does not",
+              f"**{len(blind)} curves the load calls unbiased**")
+    worst_two = blind.nsmallest(2, "vmax_shift")
+    doc.claim("and what the bracket does to the two worst of them",
+              f"falls to {worst_two.vmax_shift.iloc[0]:.2f}x and "
+              f"{worst_two.vmax_shift.iloc[1]:.2f}x")
+    doc.claim("which curves those are",
+              "being "
+              + " and ".join(
+                  f"{int(row.experiment)}.{int(row['sample'])}"
+                  for _, row in worst_two.iterrows())
+              + " at loads of "
+              + " and ".join(f"{row.bubble_load:.2f}"
+                             for _, row in worst_two.iterrows()))
+    doc.check("the two curves the bracket bites hardest on already carry no "
+              "rate",
+              bool((terminal.nlargest(4, "terminal_load").bubble_load
+                    > scope.BUBBLE_LOAD_CEILING).sum() >= 2))
+
     drivers = scope.gas_rate_drivers()
     doc.claim("what the gas rate does with peroxide",
               f"**first order in peroxide, {drivers['pooled_h2o2']:+.3f} +/- "
@@ -550,6 +619,21 @@ def main():
               f"which is {peroxide_sigma:.1f}sigma and {strong_sigma:.1f}sigma")
     doc.check("the strong runs move the same way", strong_sigma < 1.5,
               f"{strong_sigma:.1f} sigma")
+    # AND THE BRACKET THE TERMINAL BUBBLE OPENS, on both axes, against the
+    # errors the block already quotes.
+    bracketed = sensitivity.loc[("vmax_terminal", "all live")]
+    doc.claim("what the bracket costs the substrate order",
+              f"**{bracketed['order_s0'] - corrected['order_s0']:+.3f}** in "
+              "substrate")
+    doc.claim("and what it costs the peroxide order",
+              f"**{bracketed['order_h2o2'] - corrected['order_h2o2']:+.3f}** "
+              "in peroxide")
+    for axis in ("s0", "h2o2"):
+        doc.check(f"the {axis} order does not live inside the bracket",
+                  abs(bracketed[f"order_{axis}"] - corrected[f"order_{axis}"])
+                  < corrected[f"stderr_{axis}"],
+                  f"{abs(bracketed[f'order_{axis}'] - corrected[f'order_{axis}']):.3f}"
+                  f" against {corrected[f'stderr_{axis}']:.3f}")
 
 
     doc.section("section 5: what the curves do")
@@ -867,6 +951,30 @@ def main():
     doc.check("and the curves with no measurable rate say so on the page",
               page.count("NO MEASURABLE RATE") == len(beyond),
               f"{page.count('NO MEASURABLE RATE')} against {len(beyond)}")
+    # EVERY PARAMETER THE PANEL IS READ FOR IS DRAWN WHERE IT IS READ. The page
+    # marked `v_max` on the readings and nothing else, so the corrected rate --
+    # which section 6 is entirely read off -- was asserted in the caption and
+    # invisible in the drawing, as was the clock the +1 rule goes through.
+    moved = frame[(frame.bubble_events > 0)
+                  & ((frame.vmax_corrected_time_s
+                      - frame.vmax_time_s).abs() > 1.0)]
+    doc.check("the corrected rate is marked wherever it moved",
+              page.count(">v_max*<") == len(moved),
+              f"{page.count('>v_max*<')} against {len(moved)}")
+    # The same predicate the panel draws on: resolved, positive, and inside the
+    # axis, since a clock longer than its own run has nowhere to be drawn.
+    clock = np.where(frame.bubble_events > 0, frame.tau_corrected, frame.tau)
+    clocked = frame[np.where(frame.bubble_events > 0,
+                             frame.tau_resolved_corrected, frame.tau_resolved)
+                    & np.isfinite(clock) & (clock > 0)
+                    & (clock < frame.duration_s)]
+    doc.check("and the progress fit's clock is marked wherever it resolved",
+              page.count(">τ<") == len(clocked),
+              f"{page.count('>τ<')} against {len(clocked)}")
+    held = frame[frame.terminal_gas > 0]
+    doc.check("and every run that ended holding gas says so on its own panel",
+              page.count(">gas held<") == len(held),
+              f"{page.count('>gas held<')} against {len(held)}")
     # The counts the preamble quotes are over EVERY curve the page draws, not
     # over the live ones section 5 reports -- the page draws the dead curves
     # too, and one of them carries a load past the ceiling.

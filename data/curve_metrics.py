@@ -1130,6 +1130,104 @@ def debubble(times, values, noise, sigma=BUBBLE_DROP_SIGMA):
     return values - bubble_profile(times, values, events, rate), events
 
 
+# The fewest readings after the last detachment that a tail slope may be read
+# from. Two points define a line through any pair of noise excursions; three
+# is the least that can disagree with one.
+TERMINAL_TAIL_POINTS = 3
+
+
+def terminal_gas(times, rebuilt, events, rate):
+    """
+    The most gas the run could still be holding at its last reading, and the
+    curve with that much taken off: `(held, stripped)`.
+
+    THE PRICE OF THE THIRD CLAUSE, BOUNDED. `unreleased_gas` subtracts only
+    gas the run was watched to shed, so a run still growing a bubble when the
+    recording stopped keeps the whole of it and `debubble` hands that stretch
+    back to the readings untouched. This is how much that could be: what the
+    fitted `rate` would have made since the last detachment, capped by what
+    the tail actually rose, since gas may not be taken off faster than the
+    trace climbed.
+
+    IT IS THE FAR END OF A BRACKET, NOT A CORRECTION. Carrying the rate across
+    a quiet tail is the extrapolation the readings refuse -- it is what put
+    exp 149 cuvette 4 at -0.0209 against a raw rise of +0.0064 -- and nothing
+    here reinstates it: `debubble` is unchanged, `vmax_corrected` still calls
+    the whole tail chemistry, and this says what it would cost if the whole
+    tail were gas instead. `tail_excess` is the evidence for which of the two
+    a given curve is, and the two answers are far apart: exp 140 cuvette 4's
+    tail runs 4.4e-05 AU/s faster than the body it was corrected against,
+    which is the fitted gas rate to 18%, while exp 149 cuvette 4's runs
+    SLOWER, so its bound is wide and not credible and exp 140 cuvette 4's is
+    both.
+
+    `rate` may be non-finite -- `bubble_rate` returns `inf` for a fall in the
+    first interval -- and then nothing is removed, as in `debubble`.
+    """
+    rebuilt = np.asarray(rebuilt, dtype=float)
+    times = np.asarray(times, dtype=float)
+    if not events or not np.isfinite(rate):
+        return 0.0, rebuilt.copy()
+    stop = events[-1][1]
+    span = float(times[-1] - times[stop])
+    if span <= 0:
+        return 0.0, rebuilt.copy()
+    held = min(rate * span, max(float(rebuilt[-1] - rebuilt[stop]), 0.0))
+    if held <= 0:
+        return 0.0, rebuilt.copy()
+    ramp = np.zeros(len(times))
+    ramp[stop:] = np.minimum(rate * (times[stop:] - times[stop]), held)
+    return float(held), rebuilt - ramp
+
+
+def tail_excess(times, rebuilt, events, floor=QUANTISATION_SIGMA,
+                minimum=TERMINAL_TAIL_POINTS):
+    """
+    How much faster the quiet tail climbs than the body it follows, AU/s.
+
+    THE EVIDENCE FOR WHETHER THE RUN WAS STILL MAKING GAS, and the only thing
+    in this module that can tell exp 140 cuvette 4 from exp 149 cuvette 4.
+    Both end without shedding; one ended mid-bubble and the other stopped
+    making gas hours earlier, and `terminal_gas` alone cannot see the
+    difference because it asks the fitted rate rather than the readings.
+
+    A run still growing a bubble hands `debubble` a tail it does not correct,
+    so the reconstruction jumps: exp 140 cuvette 4 climbs at 2.4e-05 AU/s for
+    3180 s and then at 6.8e-05 over its last 600, an excess of 4.4e-05 against
+    a fitted gas rate of 5.4e-05. A run that stopped shedding because it
+    stopped making gas has a tail that is SLOWER, and over the two-axis block
+    every curve but one that ran more than two shedding intervals without a
+    detachment comes back negative -- 149.4, 149.3, 149.2, 150.1, 148.2,
+    146.1 and 146.3 among them, which is the list the eye picked out of the
+    reconstruction this replaced.
+
+    IT IS ONE-SIDED, AND NOT A CORRECTION, because a curve's own curvature is
+    in it. Hold the chemistry fixed and the excess IS the gas rate -- two
+    plantings differing only by the bubble that never left are 0.90 of the
+    planted rate apart. Across different curves it is not: 51 of the block's
+    110 live curves accelerate past 3 sigma, and an accelerating curve ends
+    steeper than it began with no gas in it at all, while a decelerating one
+    hides a bubble it is still growing -- both are planted in
+    `test_curve_metrics`. So a POSITIVE excess is evidence that gas is still
+    being made; a negative one is not evidence that it is not, and leaves
+    `terminal_gas`'s bound standing but uncredited. Read it beside that bound,
+    never as the size of anything.
+
+    NaN with no detachment, or with fewer than `minimum` readings after the
+    last one.
+    """
+    rebuilt = np.asarray(rebuilt, dtype=float)
+    times = np.asarray(times, dtype=float)
+    if not events:
+        return np.nan
+    stop = events[-1][1]
+    if len(times) - stop < minimum or stop < minimum:
+        return np.nan
+    body = line_fit(times[:stop + 1], rebuilt[:stop + 1], floor=floor)[1]
+    tail = line_fit(times[stop:], rebuilt[stop:], floor=floor)[1]
+    return float(tail - body)
+
+
 def bubble_load(values, drops):
     """
     Absorbance lost to detachments, divided by the curve's net rise.

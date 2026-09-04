@@ -8,6 +8,88 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-04 — a run can end still holding a bubble, and that is a bracket
+
+Asked, of the reconstruction: *some curves may be too pathological to correct —
+140.4 and 142.2, where the bubble has not left the light path at the end of the
+run. Can we fix these or do we need to exclude them?*
+
+**Neither.** They are corrected as far as the readings license, what is left is
+now measured per curve, and no curve is excluded for it.
+
+### What was actually wrong
+
+The third clause of `bubble_profile` (`unreleased_gas`, added 2026-09-03)
+subtracts only gas the run was watched to shed, so a recording that stopped
+mid-bubble keeps the whole of that bubble and the reconstruction lies back **on**
+the readings from the last detachment onward. That is right for a run that
+stopped making gas and wrong for one that ended mid-bubble, and until today the
+package could not tell them apart — the price was stated once, block-wide, as
+the gap between `bubble_recovery(ends_holding=True)` and `(False)`.
+
+It is visible on the curves page. Exp 140 cuvette 4's reconstruction climbs at
+2.4e-05 AU/s for 3180 s and then, over its last 600, at **6.8e-05** — faster than
+at any earlier point in the run, because that stretch is uncorrected by
+construction.
+
+### Two new measurements, and neither of them is a correction
+
+`curve_metrics.terminal_gas` bounds what is left in: the fitted rate over the
+quiet tail, capped by what the tail rose, since gas may not be taken off faster
+than the trace climbed. **38 of the 110 live curves** carry a bound and **13**
+are above a fifth of their net rise, the largest exp 149.4 at **64%**.
+
+The bound alone cannot tell the two endings apart — it asks the rate, not the
+readings, and charges both. `curve_metrics.tail_excess` can: the tail's slope
+minus the body's. Exp 140.4's tail runs **+4.4e-05 AU/s** faster, **0.83** of
+that curve's own fitted gas rate; exp 149.4's runs *slower*, and **7 of the 8**
+curves that ran more than two shedding intervals without a detachment come back
+negative — which is `unreleased_gas` being simply right on them. Over the 24
+curves with a positive excess the median is **1.15** of their own rate: a
+statistic that never saw a detachment recovering the rate fitted from them.
+
+It is **one-sided**, and that is planted rather than argued. 51 of these 110
+curves accelerate past 3σ, and an accelerating curve ends steeper than it began
+with no gas in it at all; a decelerating one hides a bubble it is still growing.
+`test_curve_metrics` plants both. So a positive excess is evidence gas is still
+being made; a negative one is not evidence that it is not.
+
+### Why nothing is excluded
+
+`vmax_corrected` calls the whole tail chemistry, `vmax_terminal` calls the whole
+of it gas, and the block's orders move by **+0.016** in substrate and **−0.005**
+in peroxide across that bracket, against their own standard errors of 0.047 and
+0.071. **No order this project reports lives inside it.** And the two curves the
+bracket bites hardest on are the two named in the question: exps 140.4 and 142.4
+sit at `bubble_load` 1.24 and 2.96, already above the ceiling, already carrying
+no rate under any repair. `scope.terminal_bubbles`.
+
+`debubble` is unchanged. Nothing that was published moved.
+
+### Found while doing it
+
+`two_axis/index.html` still said **"No order in this document moves under any
+repair"** — untrue since the peroxide order was shown to move on 2026-09-03, and
+unguarded because `check_numbers` had claims on `ANALYSIS.md` and none on the
+built page's prose. Corrected, and the sensitivity table's numbers are now
+generated into the page from `bubble_sensitivity` rather than typed.
+
+The page also said nothing about **which curves each number is read from**,
+which is not a detail here: sections 2–4 are read from the readings with section
+5 giving the sensitivity, and section 6 from the reconstruction on both sides of
+its ratio. The lede now says so.
+
+### The panels now draw what they are read for
+
+`progress_curves.html` marked `v_max` on the readings and nothing else, so the
+corrected rate — which section 6 rests on entirely — was asserted in the caption
+and invisible in the drawing. Each panel now marks `v_max` on the readings,
+`v_max*` on the reconstruction where the two differ (**19 of 110** curves move
+the peak by more than one reading), `τ` from the progress fit where it resolved,
+and the last detachment labelled *gas held* where the run ended still holding
+one. `figure_kit.breakpoints` gained a `row` argument so four labels do not
+write over each other.
+
 ## 2026-09-04 — the clock was never corrected for the gas, only the rate
 
 Asked, of the +1 result written up the day before: *are we using the curves

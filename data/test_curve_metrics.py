@@ -23,7 +23,8 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            bubble_profile, bubble_rate, bubble_shortfall,
                            local_outlier_z, OUTLIER_SIGMA,
                            debubble, detachments, isolated_outliers,
-                           monotone_bound,
+                           monotone_bound, tail_excess,
+                           terminal_gas,
                            local_outlier_z, model_residual, quadratic_rate,
                            segmented_fit, segment_breaks,
                            segment_selection, _segment_errors,
@@ -897,6 +898,84 @@ def test_the_monotone_bound():
           np.allclose(monotone_bound(chemistry), chemistry))
 
 
+def test_the_bubble_the_run_never_shed():
+    print("\nthe bubble the run never shed")
+    times = np.arange(0, 3600, 60.0)
+    noise = 1e-4
+    chemistry = 0.08 * (1 - np.exp(-times / 1200.0))
+    edges = np.array([12, 26, 41, 44])
+    rate = 1.0 * chemistry[-1] / times[-1]
+
+    # STILL MAKING GAS WHEN THE RECORDING STOPS. `debubble` hands the tail
+    # back to the readings, so what it leaves behind is exactly the bubble
+    # that never detached -- and this bounds it.
+    spoilt, artefact = _sawtooth(times, chemistry, edges, rate=rate)
+    corrected, events = debubble(times, spoilt, noise)
+    planted = float(artefact[-1])
+    held, stripped = terminal_gas(times, corrected, events,
+                                  bubble_rate(times, spoilt, events))
+    check("the terminal bubble is bounded from above",
+          held >= planted - 1e-12,
+          f"{held:.4f} against a planted {planted:.4f}")
+    check("and not by more than half again",
+          held < 1.5 * planted, f"{held:.4f} against {planted:.4f}")
+    check("taking it off brings the tail back towards the chemistry",
+          np.abs(stripped[edges[-1] + 1:] - chemistry[edges[-1] + 1:]).max()
+          < 0.5 * np.abs(corrected[edges[-1] + 1:]
+                         - chemistry[edges[-1] + 1:]).max(),
+          f"{np.abs(stripped[edges[-1] + 1:] - chemistry[edges[-1] + 1:]).max():.2e}"
+          f" against {np.abs(corrected[edges[-1] + 1:] - chemistry[edges[-1] + 1:]).max():.2e}")
+    check("the strip never lifts the curve",
+          bool((stripped <= corrected + 1e-15).all()))
+    check("and never takes off more than the tail rose",
+          held <= corrected[-1] - corrected[events[-1][1]] + 1e-15)
+    check("a curve with no detachment is untouched",
+          terminal_gas(times, chemistry, [], 0.0)[0] == 0.0)
+    check("and so is one whose rate could not be pinned",
+          terminal_gas(times, corrected, events, np.inf)[0] == 0.0)
+
+    # THE BOUND CANNOT TELL THE TWO ENDINGS APART -- it asks the fitted rate,
+    # not the readings -- so it charges the run that stopped making gas too.
+    # That is why it is a bracket and not a repair, and why `tail_excess`
+    # exists.
+    shed, _ = _sawtooth(times, chemistry, edges, rate=rate,
+                        ends_holding=False)
+    shed_fixed, shed_events = debubble(times, shed, noise)
+    quiet, _ = terminal_gas(times, shed_fixed, shed_events,
+                            bubble_rate(times, shed, shed_events))
+    check("a run that stopped making gas is charged all the same",
+          quiet > 0.0, f"{quiet:.4f} where the truth is 0")
+
+    # AND THIS IS WHAT SEPARATES THEM. The two plantings are the same
+    # chemistry and differ only by the bubble that never left, so the gap
+    # between their tail excesses IS the gas rate -- to 10% of it here.
+    holding = tail_excess(times, corrected, events)
+    stopped = tail_excess(times, shed_fixed, shed_events)
+    check("the gap between the two endings measures the gas rate",
+          0.7 * rate < holding - stopped < 1.3 * rate,
+          f"{holding - stopped:.3e} against a planted {rate:.3e}")
+
+    # A ONE-SIDED TEST, AND THE PLANTING SAYS WHICH SIDE. This chemistry
+    # DECELERATES, so its tail is flatter than its body whether or not a
+    # bubble is growing in it, and the run that is still making gas reads
+    # negative all the same. A negative excess is therefore not evidence that
+    # the run stopped -- it is the absence of evidence that it did not, which
+    # leaves `terminal_gas`'s bound standing and uncredited. The error runs
+    # towards keeping the readings, which is the direction the whole model
+    # errs in.
+    check("a decelerating curve hides a bubble it is still growing",
+          holding < 0, f"{holding:+.2e} with gas still being made")
+    speeding = 0.02 * (np.exp(times / 1800.0) - 1.0)
+    fast, _ = _sawtooth(times, speeding, edges, rate=rate, ends_holding=False)
+    fast_fixed, fast_events = debubble(times, fast, noise)
+    check("and an accelerating one shows a bubble that is not there",
+          tail_excess(times, fast_fixed, fast_events) > 0,
+          f"{tail_excess(times, fast_fixed, fast_events):+.2e} with no gas "
+          f"in the tail")
+    check("neither statistic exists without a detachment",
+          np.isnan(tail_excess(times, chemistry, [])))
+
+
 if __name__ == "__main__":
     test_every_test_is_actually_run()
     test_no_duplicate_definitions()
@@ -913,5 +992,6 @@ if __name__ == "__main__":
     test_the_bubble_correction()
     test_the_excursion_test_on_planted_spikes()
     test_the_monotone_bound()
+    test_the_bubble_the_run_never_shed()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)
