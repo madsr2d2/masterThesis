@@ -97,7 +97,21 @@ def frame(scope=TWO_AXIS_BLOCK):
     Reach for this before writing a loop over `curves()`. The columns are named
     for what they are, so a question like "does the substrate order hold at low
     peroxide" is a groupby on this frame rather than a new script.
+
+    MEMOISED, and callers get a COPY. Every row costs a progress fit and a
+    debubble, so one build of the two-axis block is about four seconds -- and
+    `two_axis/check_numbers.py` asked for the same two blocks 79 times, paying
+    282 seconds of a 290 second run to rebuild frames it already had. The copy
+    is not optional: an lru_cache handing out a shared DataFrame is one
+    in-place edit from a silent wrong answer, and this frame is passed into
+    five folders. Same reasoning as `_gas_curves`.
     """
+    return _frame(scope).copy()
+
+
+@functools.lru_cache(maxsize=16)
+def _frame(scope):
+    """`frame`'s work, memoised on the scope. Call `frame`, not this."""
     rows = []
     for curve in curves(scope):
         times = np.asarray(curve.times, dtype=float)

@@ -109,7 +109,16 @@ python test_doc_check.py                  # the contract every check_numbers run
 ```
 
 And each analysis folder's own `check_numbers.py`, which re-derives every number
-in its `ANALYSIS.md` from the modules. About a minute each.
+in its `ANALYSIS.md` from the modules. About twenty seconds each.
+
+`scope.frame` is MEMOISED and hands out a COPY (`scope._frame` is the cache).
+Every row of it costs a progress fit and a debubble, so one build of the
+two-axis block is about four seconds -- and the checkers ask for the same few
+blocks over and over: `two_axis` called it 79 times over 2 distinct scopes,
+`background_reaction` 123 times over 10. Unmemoised, those two runs were 290 s
+and 465 s against 18 s and 25 s now. The copy is not optional: an lru_cache
+handing out a shared DataFrame is one in-place edit from a silent wrong answer,
+and this frame is passed into five folders. `_gas_curves` is the same pattern.
 
 Units: concentrations mM, time s.
 
