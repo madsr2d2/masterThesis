@@ -8,6 +8,47 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-04 — `data/Mads` is the worked archive, not the delivered one
+
+Found while asking whether `Mads-20241207T151327Z-001.zip` (13 MB, tracked) was
+a redundant copy of `data/Mads` and could be deleted in the cleanup. **It is
+not redundant and must not be deleted**: it is the only pristine record of what
+was delivered, and the working copy has moved.
+
+Extracted and compared file by file: **716 files in the zip against 717 in the
+repository, 67 of them differing**, one directory present only in the zip
+(`done/Boric acid buffer BnOH/data in single spredsheet`) and one file only in
+the repository (`Variable Temperature/…t014….ods`). Git shows the `.xls` files
+were modified in two early commits, with LibreOffice `.~lock.*` files committed
+alongside and later removed — so the working sheets were opened and re-saved.
+
+Comparing cell by cell rather than byte by byte, **almost all of it is the
+re-save and not an edit**: 13 files have identical contents in a different
+container, and of the rest the differences are last-bit float representation
+(`0.7999999999999999 → 0.8`, `0.13261097661960594 → …97`) or added columns with
+every original cell unchanged.
+
+**One file carries real edits.** `mads_t057…CO3…with_E.xls`, sheet `Sheet1`:
+
+| cell | delivered | in the repository |
+|---|---|---|
+| `[0,0]` | `57.0` | `'jjjj'` |
+| `[19,8]` | `0.00046930973640592414` | *(blank)* |
+| `[19,9]` | `0.46930973640592416` | *(blank)* |
+
+A stray keystroke over the experiment number and two computed values deleted.
+**Nothing published depends on it**: exp 57 is already excluded, with a
+`KNOWN_EXCLUSIONS` ruling of 2026-08-30 that its `[sub]` is not recoverable
+because the workbook was copied from t056, and `scope.archive()` holds 88
+experiments not including it.
+
+So no correction is needed and none is made. What changes is the description:
+`CLAUDE.md` and `movedata.py` both call `data/Mads` "the archive as delivered",
+and it is the archive as **worked** — re-saved, extended, and in one excluded
+experiment edited. The delivered archive is the zip, which is why it stays.
+
+---
+
 ## 2026-09-04 — Five index pages clipped a figure's marks to another figure's frame
 
 Asked for a cleanup of a repository that had grown bloated, with slow tests as

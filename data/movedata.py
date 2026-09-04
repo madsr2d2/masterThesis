@@ -1,9 +1,13 @@
 """
 One-off utility that built data/data from the delivered archive.
 
+NOTE: data/Mads is the WORKED archive, not the delivered one -- 67 of its
+717 files differ from Mads-20241207T151327Z-001.zip, which is the pristine
+delivery. See DATA_VERIFICATION.md, 2026-09-04.
+
 data/data holds a flat copy of every instrument export (.txt) and recipe
-workbook the pipeline reads; data/Mads holds the archive as delivered, in
-the experimenter's own folder structure. This is the script that flattened
+workbook the pipeline reads; data/Mads holds that archive in the
+experimenter's own folder structure. This is the script that flattened
 the first into the second, keeping the mapping reproducible rather than a
 manual step nobody recorded.
 

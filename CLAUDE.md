@@ -38,6 +38,15 @@ The block is **not** the hand-sorted `data/Mads/good data BnOH/` folder, which
 also holds an excluded run, a run from a different cell, and a sheet with no
 instrument data.
 
+**`data/Mads` is the WORKED archive, not the delivered one.** It is what the
+pipeline reads (`read_rre.ARCHIVE_DIR`), and 67 of its 717 files differ from
+the delivery: mostly a LibreOffice re-save (last-bit floats, added columns,
+every original cell intact), but `mads_t057…CO3…with_E.xls` has `'jjjj'` typed
+over its experiment number and two computed cells blanked. Nothing published
+depends on that -- exp 57 is already excluded -- but the delivered archive is
+`Mads-20241207T151327Z-001.zip`, which is the ONLY pristine copy and is tracked
+for that reason. Do not delete it as a duplicate; it is not one.
+
 For any analysis of the kinetics data, invoke the **`analyse-kinetics`** skill.
 
 ## Do not re-derive measurements
