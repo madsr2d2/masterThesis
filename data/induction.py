@@ -768,11 +768,22 @@ def joint_peroxide_order(table, floor=INDUCTION_FLOOR):
 # The clocks `joint_order` can be asked for, and the flag that says a fitted
 # one was actually pinned. `t_ind` is the landmark and carries a floor; the
 # other two come from the progress fit and carry a gate instead.
-JOINT_CLOCKS = (("t_ind", None), ("tau", "tau_resolved"),
-                ("tau_slow", "tau_slow_resolved"))
+#
+# THE DEFAULTS ARE THE REBUILT ONES, and on a peroxide axis that is not a
+# detail. The O2 is made from peroxide, so leaving it in inflates the rate's
+# peroxide order AND shortens the apparent clock, and both push
+# `d ln v - d ln tau` towards the +1 this function tests. Asked of the readings
+# the two-axis block's `tau_slow` row sits 0.3 sigma from +1; asked of the
+# rebuilt curves it sits 1.4. `JOINT_CLOCKS_RAW` is the uncorrected set, kept
+# so the difference can be shown rather than asserted.
+JOINT_CLOCKS_RAW = (("t_ind", None), ("tau", "tau_resolved"),
+                    ("tau_slow", "tau_slow_resolved"))
+JOINT_CLOCKS = (("t_ind", None),
+                ("tau_corrected", "tau_resolved_corrected"),
+                ("tau_slow_corrected", "tau_slow_resolved_corrected"))
 
 
-def joint_clocks(table, axis="h2o2", control="s0", rate="vmax",
+def joint_clocks(table, axis="h2o2", control="s0", rate="vmax_corrected",
                  clocks=JOINT_CLOCKS, floor=INDUCTION_FLOOR):
     """
     The +1 constraint on one axis, through every clock, beside its control.
@@ -792,9 +803,14 @@ def joint_clocks(table, axis="h2o2", control="s0", rate="vmax",
     this table where both axes meet +1 is a regression that has stopped
     discriminating rather than a mechanism.
 
-    `rate` is `vmax` for the fitted clocks and `v_peak` for the landmark, which
-    is the pairing each was defined with; the landmark's floor applies to it
-    alone.
+    `rate` is the fitted clocks' partner and `v_peak` the landmark's, which is
+    the pairing each was defined with; the landmark's floor applies to it alone.
+
+    THE LANDMARK ROW IS NOT GAS-CORRECTED and cannot be from this table --
+    `t_ind` and `v_peak` are read off the curve as it stands. That row is the
+    one the two-axis block rejects on other grounds anyway (`signal_control`),
+    so it is carried as the comparator it is rather than repaired; do not read
+    the gap between it and the fitted rows as though the two were like for like.
     """
     import pandas as pd
 

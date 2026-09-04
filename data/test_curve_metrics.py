@@ -127,6 +127,45 @@ def test_the_duplicate_guard_catches_a_planted_duplicate():
               not _duplicate_names([first], root=root))
 
 
+def test_every_test_is_actually_run():
+    """
+    A test that is defined but never called is worse than no test at all.
+
+    It reads as coverage, it survives review, and it reports nothing. Six of
+    them were found on 2026-09-04, five of them written in the days before
+    while building the O2 correction: the suite said "0 failures" and had
+    skipped every check on the repair it was there to guard. The sixth,
+    `test_the_joint_buffer_order_reads_back_its_own_scheme`, had never run at
+    all -- it was the planted-recovery test behind `+1.094 +/- 0.150`, and when
+    it was finally called it failed.
+
+    So the runner is checked rather than trusted. Every `test_*` defined at top
+    level in a test module must be CALLED somewhere in that same module, which
+    is what a `__main__` block does. This cannot be done by importing and
+    running them -- that is the suite itself -- so it reads the source.
+    """
+    print("\nevery test is actually run")
+    modules = sorted(glob.glob(os.path.join(REPOSITORY, "data", "test_*.py"))
+                     + glob.glob(os.path.join(REPOSITORY, "test_*.py")))
+    check("there are test modules to check", len(modules) >= 6,
+          f"{len(modules)} modules")
+    dead = []
+    total = 0
+    for path in modules:
+        tree = ast.parse(open(path, encoding="utf-8").read())
+        defined = [node.name for node in tree.body
+                   if isinstance(node, ast.FunctionDef)
+                   and node.name.startswith("test_")]
+        called = {node.func.id for node in ast.walk(tree)
+                  if isinstance(node, ast.Call)
+                  and isinstance(node.func, ast.Name)}
+        total += len(defined)
+        dead += [f"{os.path.basename(path)}::{name}"
+                 for name in defined if name not in called]
+    check(f"every one of the {total} tests defined is called by its runner",
+          not dead, "; ".join(dead))
+
+
 def test_no_duplicate_definitions():
     """
     No name may be defined at top level in two modules, anywhere in the repo.
@@ -859,6 +898,7 @@ def test_the_monotone_bound():
 
 
 if __name__ == "__main__":
+    test_every_test_is_actually_run()
     test_no_duplicate_definitions()
     test_the_duplicate_guard_catches_a_planted_duplicate()
     test_lag_statistic()
@@ -871,6 +911,7 @@ if __name__ == "__main__":
     test_segmented_fit()
     test_two_breakpoints()
     test_the_bubble_correction()
+    test_the_excursion_test_on_planted_spikes()
     test_the_monotone_bound()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

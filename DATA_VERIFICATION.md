@@ -8,6 +8,64 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-04 — the clock was never corrected for the gas, only the rate
+
+Asked, of the +1 result written up the day before: *are we using the curves
+corrected for gas bubbles here?* **No** — and on a peroxide axis that is the
+one place it could not be ignored.
+
+`vmax_corrected` has sat beside `vmax` since the repair was built, and
+`joint_clocks` was reading `vmax`. Worse, `tau` and `tau_slow` come from
+`summary_kinetics.fit_progress` and `fit_burst_bounded` run on `values` — the
+readings — and **no corrected progress fit existed anywhere in the package**.
+So both sides of `d ln v − d ln τ` were being read off curves with the O₂ still
+in them, and **40% of the curves carrying a resolved `tau_slow` carry
+detachments** (10 of 25; 6 of 14 on the strong runs).
+
+That is not a wash. `gas_rate_drivers` puts the gas at **+1.389 ± 0.251 in
+peroxide** — it is made *from* peroxide — so on this axis it inflates the rate's
+order and shortens the apparent clock, and **both push `d ln v − d ln τ` towards
+the +1 being tested**. The result written up on 2026-09-03 was flattered by the
+artefact it was measured through.
+
+| cut | clock | readings | rebuilt |
+|---|---|---|---|
+| all live | `tau` | +0.617 ± 0.196 (2.0σ), n=62 | +0.707 ± 0.158 (1.9σ), n=65 |
+| all live | `tau_slow` | +0.915 ± 0.261 (**0.3σ**), n=25 | +0.669 ± 0.242 (1.4σ), n=32 |
+| strong | `tau` | +0.724 ± 0.246 (1.1σ), n=37 | +0.768 ± 0.180 (1.3σ), n=40 |
+| strong | `tau_slow` | +0.497 ± 0.311 (1.6σ), n=14 | +0.850 ± 0.283 (0.5σ), n=20 |
+
+`scope.frame` now carries `tau_corrected`, `tau_slow_corrected`,
+`phases_corrected` and the two resolved flags, fitted to the rebuilt series by
+the same two functions; `induction.joint_clocks` **defaults** to them paired
+with `vmax_corrected`, and `JOINT_CLOCKS_RAW` is kept so the difference can be
+shown rather than asserted. It costs 0.8 s on `frame()`.
+
+Three things worth keeping.
+
+- **The null holds exactly.** `debubble` returns a clean curve unchanged, so a
+  clean curve's corrected clock is its raw clock bit-for-bit — 65 of 65, form
+  included. `test_the_clocks_are_corrected_like_the_rate` asserts it.
+- **The repair buys resolution rather than costing it**: `tau` 62 → 65 curves
+  and `tau_slow` 25 → 32, with smaller errors on both. The artefact was part of
+  what those fits could not pin.
+- **The control survives the repair.** The substrate axis still misses the +1 by
+  4.2σ to 8.5σ. A repair that had bought its result by breaking the control
+  would be worth nothing, so that is asserted too.
+
+The document's range is now **+0.67 to +0.85** across four cuts — short of +1
+everywhere and nowhere by enough to reject it, where the uncorrected reading
+spanned +0.50 to +0.92 and touched +1 at 0.3σ. **The conclusion is unchanged
+because there was none**; what moved is the number that would have been quoted.
+
+**The `t_ind` row is still uncorrected and cannot be from this table** — the
+landmark and `v_peak` are read off the curve as it stands. It is the comparator
+this block rejects on other grounds (`signal_control`), so it is carried as
+that rather than repaired, and the docstring says not to read the gap between
+it and the fitted rows as like-for-like.
+
+---
+
 ## 2026-09-03 — the +1 rule does not belong to the landmark
 
 Asked why the two-axis block's analysis reads only `vmax` when

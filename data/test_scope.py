@@ -553,10 +553,21 @@ def test_the_excursion_test_on_the_curve_that_forced_it():
 
     Its two "detachments" are 9.3 and 8.2 sigma and neither is gas. The first
     falls 0.00206 AU and the NEXT READING climbs 0.00222 straight back; the
-    second falls off a reading that is an isolated spike. Between them they
-    set a production rate of 6.2e-6 AU/s, and the repair then removed 0.0097
-    AU from a curve that rose 0.0262 -- turning a real early rise into a flat
-    line, while staying perfectly monotone and passing every test there was.
+    second falls off a reading that is an isolated spike. Between them they set
+    a production rate the curve has no business carrying, and the repair then
+    flattened a real early rise while staying perfectly monotone and passing
+    every test there was.
+
+    HOW MUCH IT REFUSES DEPENDS ON THE OTHER CLAUSE, and this test was written
+    before that clause existed. When the fault was found on 2026-09-03 the two
+    falls licensed removing 0.0097 AU from a curve that rose 0.0262 -- a third
+    of it -- because the tail rule then in force let the rate run to the end of
+    the run. Under `unreleased_gas` they license 0.0021 AU, which is still
+    9.3 sigma of this curve's noise and 16% of everything it rises before the
+    second of them. The two clauses cover different halves of one fault; NEITHER
+    NUMBER IS GAS, and the assertion below is against the stretch the excursions
+    sit in rather than against the whole curve, because that is the part they
+    would have flattened.
     """
     print("\na fall that comes straight back is not gas")
     curve = {c.sample: c for c in scope.curves_of(149)}[5]
@@ -578,14 +589,22 @@ def test_the_excursion_test_on_the_curve_that_forced_it():
     check("so the curve is returned exactly as it was read",
           np.array_equal(rebuilt, values))
 
-    # WITHOUT the test, the repair takes a third of the curve.
+    # WITHOUT the test, the repair eats the early rise.
     unfiltered = curve_metrics.detachments(values, curve.noise,
                                            recovery=np.inf)
     rate = curve_metrics.bubble_rate(times, values, unfiltered)
     held = curve_metrics.bubble_profile(times, values, unfiltered, rate)
-    check("and that is not a small correction it is refusing",
-          held.max() / float(values[-1] - values[0]) > 0.3,
-          f"{held.max():.4f} AU off a rise of {values[-1] - values[0]:.4f}")
+    check("and what it refuses is real absorbance, not a rounding",
+          held.max() / curve.noise > 5.0,
+          f"{held.max():.4f} AU, {held.max() / curve.noise:.1f} sigma of noise")
+    # Against the stretch the two excursions sit in, which is what they would
+    # have flattened -- not against the whole curve, most of which is after
+    # them and which `unreleased_gas` now protects on its own.
+    early = float(values[unfiltered[-1][1]] - values[0])
+    check("and it is a large part of the rise it would have flattened",
+          held.max() / early > 0.1,
+          f"{held.max():.4f} AU against {early:.4f} risen by reading "
+          f"{unfiltered[-1][1]}")
 
     # The one-sided shape of the test matters: local_outlier_z cannot do this,
     # because its window spans the fall and a genuine step flags itself.
@@ -680,6 +699,70 @@ def test_the_gas_may_not_outlast_the_evidence():
 
     check("every live curve still carries a rate after the repair",
           int((scope.frame().query("live").vmax_corrected <= 0).sum()) == 0)
+
+
+def test_the_clocks_are_corrected_like_the_rate():
+    """
+    `vmax_corrected` sat beside `vmax` from the start; the clocks did not.
+
+    So every question asked of a time constant was asked of a curve with the O2
+    still in it, and 40% of the curves carrying a resolved `tau_slow` carry
+    detachments. That is not a wash on a peroxide axis: the gas is MADE from
+    peroxide, so it inflates the rate's peroxide order and shortens the
+    apparent clock, and both push `d ln v - d ln tau` towards the +1 that
+    `induction.joint_clocks` tests. Asked of the readings the block's
+    `tau_slow` row sat 0.3 sigma from +1; asked of the rebuilt curves, 1.4.
+
+    The null is what makes the columns safe to use: `debubble` returns a clean
+    curve unchanged, so a clean curve's corrected clock must be its raw clock
+    EXACTLY, not merely close.
+    """
+    print("\nthe clocks are corrected like the rate")
+    data = scope.frame()
+    live = data[data.live]
+    clean = live[live.bubble_events == 0]
+    check("there are clean curves to check the null on", len(clean) > 40,
+          f"{len(clean)} of {len(live)}")
+    check("a clean curve's fast clock is untouched, exactly",
+          bool((clean.tau == clean.tau_corrected).all()),
+          f"{int((clean.tau == clean.tau_corrected).sum())} of {len(clean)}")
+    check("and so is its slow one",
+          bool((clean.tau_slow.fillna(-1.0)
+                == clean.tau_slow_corrected.fillna(-1.0)).all()))
+    check("and the form it earned does not change either",
+          bool((clean.phases == clean.phases_corrected).all()))
+
+    # Taking the gas out does not cost resolution -- it buys some, because the
+    # artefact was what some of those fits could not pin.
+    for raw, fixed in (("tau_resolved", "tau_resolved_corrected"),
+                       ("tau_slow_resolved", "tau_slow_resolved_corrected")):
+        check(f"{fixed} resolves at least as many curves as {raw}",
+              int(live[fixed].sum()) >= int(live[raw].sum()),
+              f"{int(live[fixed].sum())} against {int(live[raw].sum())}")
+
+    # And the accessor has to DEFAULT to them, or the correction is optional in
+    # exactly the place it matters most.
+    names = [clock for clock, _ in induction.JOINT_CLOCKS]
+    check("joint_clocks asks the rebuilt clocks by default",
+          names == ["t_ind", "tau_corrected", "tau_slow_corrected"], f"{names}")
+    signature = induction.joint_clocks.__defaults__
+    check("and pairs them with the rebuilt rate",
+          "vmax_corrected" in signature, f"{signature}")
+
+    table = induction.induction_table(scope.TWO_AXIS_BLOCK)
+    fixed = induction.joint_clocks(table)
+    raw = induction.joint_clocks(table, rate="vmax",
+                                 clocks=induction.JOINT_CLOCKS_RAW)
+    check("the correction moves the peroxide axis by more than a rounding",
+          abs(float(fixed.loc[("tau_slow_corrected", "axis"), "order"])
+              - float(raw.loc[("tau_slow", "axis"), "order"])) > 0.1,
+          f"{fixed.loc[('tau_slow_corrected', 'axis'), 'order']:+.3f} against "
+          f"{raw.loc[('tau_slow', 'axis'), 'order']:+.3f}")
+    # The control has to keep working under the repair, or the repair has
+    # bought a result by breaking the thing that made it meaningful.
+    check("and the substrate control still misses the +1 under it",
+          bool((fixed.xs("control", level="role").sigma > 3.0).all()),
+          f"weakest {fixed.xs('control', level='role').sigma.min():.1f} sigma")
 
 
 def test_the_gas_rate_belongs_to_the_peroxide():
@@ -892,5 +975,10 @@ if __name__ == "__main__":
     test_the_load_ceiling_flags_and_does_not_exclude()
     test_the_large_steps_say_which_beam_the_gas_is_in()
     test_the_worked_curve_carries_more_than_one_bubble()
+    test_every_detachment_is_corrected_and_nothing_else_is()
+    test_the_excursion_test_on_the_curve_that_forced_it()
+    test_the_gas_may_not_outlast_the_evidence()
+    test_the_gas_rate_belongs_to_the_peroxide()
+    test_the_clocks_are_corrected_like_the_rate()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)

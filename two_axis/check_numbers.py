@@ -579,15 +579,21 @@ def main():
     clocks = induction.joint_clocks(induction_table)
     strong_clocks = induction.joint_clocks(
         induction_table[induction_table.experiment.isin(scope.strong_runs())])
-    windows = {"t_ind": "a tenth of the run", "tau": "none, from the fit",
-               "tau_slow": "none, from the fit"}
+    # And the same table off the READINGS, because the section argues that the
+    # difference between them matters on a peroxide axis.
+    raw_clocks = induction.joint_clocks(induction_table, rate="vmax",
+                                        clocks=induction.JOINT_CLOCKS_RAW)
+    windows = {"t_ind": "a tenth of the run",
+               "tau_corrected": "none, from the fit",
+               "tau_slow_corrected": "none, from the fit"}
     for clock, window in windows.items():
         axis = clocks.loc[(clock, "axis")]
         control = clocks.loc[(clock, "control")]
         # Only the clock the section argues from carries the emphasis.
-        mark = "**" if clock == "tau_slow" else ""
+        mark = "**" if clock == "tau_slow_corrected" else ""
         doc.claim(f"{clock}: the joint-order row",
-                  f"| `{clock}` | {window} | {int(axis.curves)} | "
+                  f"| `{clock.replace('_corrected', '')}` | {window} | "
+                  f"{int(axis.curves)} | "
                   f"{mark}{axis.order:+.3f} +/- {axis.stderr:.3f}{mark} | "
                   f"{mark}{axis.sigma:.1f}sigma{mark} | "
                   f"{control.sigma:.1f}sigma |")
@@ -595,24 +601,25 @@ def main():
                   control.sigma > 3.0, f"{control.sigma:.1f} sigma")
     doc.check("the landmark route falls furthest short of the +1",
               clocks.loc[("t_ind", "axis"), "sigma"]
-              > clocks.loc[("tau", "axis"), "sigma"]
-              > clocks.loc[("tau_slow", "axis"), "sigma"])
+              > clocks.loc[("tau_corrected", "axis"), "sigma"]
+              > clocks.loc[("tau_slow_corrected", "axis"), "sigma"])
     doc.check("and only the landmark is windowed",
               bool(clocks.xs("axis", level="role").windowed.sum() == 1))
     doc.claim("how far the landmark falls short",
               f"the peroxide axis falls "
               f"{clocks.loc[('t_ind', 'axis'), 'sigma']:.1f}sigma short")
     doc.claim("and how far the unwindowed clocks do",
-              f"it falls {clocks.loc[('tau', 'axis'), 'sigma']:.1f}sigma and "
-              f"{clocks.loc[('tau_slow', 'axis'), 'sigma']:.1f}sigma short")
+              f"it falls {clocks.loc[('tau_corrected', 'axis'), 'sigma']:.1f}sigma "
+              f"and {clocks.loc[('tau_slow_corrected', 'axis'), 'sigma']:.1f}"
+              "sigma short")
     doc.claim("the strong-run reading of tau",
-              f"+{strong_clocks.loc[('tau', 'axis'), 'order']:.3f} +/- "
-              f"{strong_clocks.loc[('tau', 'axis'), 'stderr']:.3f} on "
-              f"{int(strong_clocks.loc[('tau', 'axis'), 'curves'])} curves")
+              f"+{strong_clocks.loc[('tau_corrected', 'axis'), 'order']:.3f} +/- "
+              f"{strong_clocks.loc[('tau_corrected', 'axis'), 'stderr']:.3f} on "
+              f"{int(strong_clocks.loc[('tau_corrected', 'axis'), 'curves'])} curves")
     doc.claim("and of tau_slow",
-              f"+{strong_clocks.loc[('tau_slow', 'axis'), 'order']:.3f} +/- "
-              f"{strong_clocks.loc[('tau_slow', 'axis'), 'stderr']:.3f} on "
-              f"{int(strong_clocks.loc[('tau_slow', 'axis'), 'curves'])}")
+              f"+{strong_clocks.loc[('tau_slow_corrected', 'axis'), 'order']:.3f} +/- "
+              f"{strong_clocks.loc[('tau_slow_corrected', 'axis'), 'stderr']:.3f} on "
+              f"{int(strong_clocks.loc[('tau_slow_corrected', 'axis'), 'curves'])}")
     # Over BOTH cuts, because the sentence says the control misses in every
     # one of them and a range taken from a single cut would not check that.
     misses = pd.concat([clocks.xs("control", level="role").sigma,
@@ -622,13 +629,38 @@ def main():
     doc.check("and the control misses the +1 in every cut",
               bool((misses > 3.0).all()), f"weakest {misses.min():.1f} sigma")
     doc.claim("how many curves carry a resolved tau_slow",
-              f"resolved on {int(clocks.loc[('tau_slow', 'axis'), 'curves'])} "
+              f"resolved on {int(clocks.loc[('tau_slow_corrected', 'axis'), 'curves'])} "
               f"of {int(frame.live.sum())} live curves and "
-              f"{int(strong_clocks.loc[('tau_slow', 'axis'), 'curves'])} of "
+              f"{int(strong_clocks.loc[('tau_slow_corrected', 'axis'), 'curves'])} of "
               f"the {int(scope.orders('vmax', scope=scope.strong_runs())['n'])}"
               " strong ones")
-    span = [clocks.loc[("tau_slow", "axis"), "order"],
-            strong_clocks.loc[("tau_slow", "axis"), "order"]]
+    doc.claim("what the readings say against the rebuilt curves",
+              f"sits {raw_clocks.loc[('tau_slow', 'axis'), 'sigma']:.1f}sigma "
+              f"from +1; asked of the rebuilt curves, "
+              f"{clocks.loc[('tau_slow_corrected', 'axis'), 'sigma']:.1f}sigma")
+    doc.claim("what the correction does to the resolved counts",
+              f"{int(raw_clocks.loc[('tau', 'axis'), 'curves'])} to "
+              f"{int(clocks.loc[('tau_corrected', 'axis'), 'curves'])} curves "
+              f"for `tau` and "
+              f"{int(raw_clocks.loc[('tau_slow', 'axis'), 'curves'])} to "
+              f"{int(clocks.loc[('tau_slow_corrected', 'axis'), 'curves'])} "
+              "for `tau_slow`")
+    doc.check("the repair costs no resolution on either clock",
+              clocks.loc[("tau_corrected", "axis"), "curves"]
+              >= raw_clocks.loc[("tau", "axis"), "curves"]
+              and clocks.loc[("tau_slow_corrected", "axis"), "curves"]
+              >= raw_clocks.loc[("tau_slow", "axis"), "curves"])
+    doc.check("and it tightens both errors",
+              clocks.loc[("tau_corrected", "axis"), "stderr"]
+              < raw_clocks.loc[("tau", "axis"), "stderr"]
+              and clocks.loc[("tau_slow_corrected", "axis"), "stderr"]
+              < raw_clocks.loc[("tau_slow", "axis"), "stderr"])
+    doc.check("the landmark row is the same either way, being uncorrected",
+              abs(clocks.loc[("t_ind", "axis"), "order"]
+                  - raw_clocks.loc[("t_ind", "axis"), "order"]) < 1e-12)
+
+    span = [clocks.loc[("tau_slow_corrected", "axis"), "order"],
+            strong_clocks.loc[("tau_slow_corrected", "axis"), "order"]]
     doc.claim("the range the estimate moves over",
               f"**+{min(span):.2f} to +{max(span):.2f}**")
 

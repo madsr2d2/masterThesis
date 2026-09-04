@@ -180,9 +180,17 @@ depend on that statistic: it holds for ANY clock of the activation step, and
 `induction.joint_clocks` asks it through each in turn BESIDE ITS CONTROL AXIS,
 because the +1 belongs to the activating species and the substrate axis must
 miss it. Pass `gate=` and never `floor=` for a fitted clock. On this block the
-two routes disagree -- 3.7 sigma short through the landmark, 2.0 and 0.3 through
+two routes disagree -- 3.7 sigma short through the landmark, 1.9 and 1.4 through
 the clocks -- and nothing is concluded from it yet, because `tau_slow` is
-resolved on 25 of 110 curves and the estimate moves +0.50 to +0.92 across cuts.
+resolved on 32 of 110 curves and the estimate moves +0.67 to +0.85 across cuts.
+
+**Both sides of that ratio come off the REBUILT curves.** `frame` carries
+`tau_corrected` and `tau_slow_corrected` beside `tau` and `tau_slow`, and
+`joint_clocks` defaults to them with `vmax_corrected`. The gas is made from
+peroxide, so on a peroxide axis leaving it in inflates the rate's order and
+shortens the clock, both flattering the +1: the `tau_slow` row sat 0.3 sigma
+from +1 on the readings and sits 1.4 on the rebuilt curves. A clean curve's
+corrected clock is its raw clock EXACTLY (65 of 65).
 
 **Read `bubble_load` before quoting a rate off this block.** Thirteen of 110
 live curves sit above 1 and carry no measurable rate -- all four substrate rungs

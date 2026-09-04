@@ -398,13 +398,26 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   `signal_control` or spans run lengths can still be asked through them.
   `joint_clocks` runs every clock on an axis BESIDE ITS CONTROL AXIS, and the
   control is the point: the +1 belongs to the activating species, so the
-  substrate axis must MISS it, and it does by 5.1σ to 7.7σ. On the two-axis
+  substrate axis must MISS it, and it does by 4.2σ to 8.5σ. On the two-axis
   block the two routes disagree -- the peroxide axis falls 3.7σ short through
-  the landmark, 2.0σ and 0.3σ through the fitted clocks. **Conclude nothing
-  from that yet**: `tau_slow` is resolved on 25 of 110 live curves and the
-  estimate moves +0.50 to +0.92 across cuts. Pass `gate=` and not `floor=` for
+  the landmark, 1.9σ and 1.4σ through the fitted clocks. **Conclude nothing
+  from that yet**: `tau_slow` is resolved on 32 of 110 live curves and the
+  estimate moves +0.67 to +0.85 across cuts. Pass `gate=` and not `floor=` for
   a fitted clock -- a floor puts an unresolved constant ON the floor and calls
   it the fastest curve in the block.
+- **CORRECT THE CLOCK, NOT JUST THE RATE.** `vmax_corrected` sat beside `vmax`
+  from the start while `tau` and `tau_slow` were fitted to the readings alone,
+  so until 2026-09-04 every question asked of a time constant was asked of a
+  curve with the O2 still in it -- and 40% of the curves with a resolved
+  `tau_slow` carry detachments. On a peroxide axis that is not a wash: the gas
+  is MADE from peroxide, so it inflates the rate's order AND shortens the
+  apparent clock, both pushing `d ln v - d ln tau` towards the +1 under test.
+  Asked of the readings the block's `tau_slow` row sat 0.3σ from +1; asked of
+  the rebuilt curves, 1.4σ. `frame` now carries `tau_corrected`,
+  `tau_slow_corrected` and their resolved flags, `joint_clocks` DEFAULTS to
+  them, and `JOINT_CLOCKS_RAW` is kept so the difference can be shown. The
+  repair costs no resolution -- it buys some (62 to 65 and 25 to 32 curves),
+  because the artefact was what those fits could not pin.
 - **That `+1` is not about H2O2.** It holds for ANY species held in excess that
   draws the catalyst into its active form, so it transfers to any axis the
   archive moves. On the BUFFER axis it is MET -- `joint_buffer_order` gives

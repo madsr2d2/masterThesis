@@ -128,6 +128,18 @@ def frame(scope=TWO_AXIS_BLOCK):
         gas_rate = bubble_rate(times, values, events)
         corrected, _ = debubble(times, values, noise)
         vmax_corrected, _, _ = peak_rate(times, corrected, floor=floor)
+        # THE CLOCKS GET THE SAME TREATMENT AS THE RATE. `vmax_corrected` sat
+        # beside `vmax` from the start while `tau` and `tau_slow` were fitted to
+        # the readings alone, so any question asked of a time constant was asked
+        # of a curve with the O2 still in it -- and 40% of the curves carrying a
+        # resolved `tau_slow` carry detachments. The gas is made FROM peroxide
+        # (`gas_rate_drivers`, +1.389 +/- 0.251), so on a peroxide axis it is
+        # not a wash: it inflates the rate's order and shortens the apparent
+        # clock, both of which push `d ln v - d ln tau` towards the +1 that
+        # `induction.joint_clocks` tests. Fitting the same two forms to the
+        # rebuilt series costs 8 ms a curve and removes the excuse.
+        progress_fixed = fit_progress(times, corrected)
+        burst_fixed = fit_burst_bounded(times, corrected, noise_floor=floor)
         vmax_monotone, _, _ = peak_rate(
             times, monotone_bound(values), floor=floor)
         # Three more rate estimators, so that "does this conclusion depend on
@@ -316,6 +328,17 @@ def frame(scope=TWO_AXIS_BLOCK):
             "v0_quad_resid": v0_quad_resid,
             "tau": burst.tau,
             "tau_resolved": bool(burst.tau_resolved),
+            # The same two clocks off the rebuilt curve. On a curve with no
+            # detachment `debubble` returns the readings unchanged, so these
+            # are identical to their raw counterparts on 65 of the 110 live.
+            "tau_corrected": burst_fixed.tau,
+            "tau_resolved_corrected": bool(burst_fixed.tau_resolved),
+            "tau_slow_corrected": float(
+                progress_fixed.two.tau2 if progress_fixed.phases == 2
+                else np.nan),
+            "tau_slow_resolved_corrected": bool(
+                progress_fixed.phases == 2 and progress_fixed.two.resolved),
+            "phases_corrected": int(progress_fixed.phases),
             "outliers": len(isolated),
             "outliers_in_runs": len(in_runs),
             "first_point_z": first_z,

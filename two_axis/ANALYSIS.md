@@ -695,29 +695,40 @@ each clock in turn, as one regression rather than two differenced by hand — th
 two orders are fitted to the same curves on the same design, so their errors are
 correlated and a hand-difference would quote an error that is not theirs.
 
+**Both sides of the ratio are read off the rebuilt curves** (§5), and on this
+axis that is not housekeeping. The O₂ is *made from peroxide*, so leaving it in
+inflates the rate's peroxide order and shortens the apparent clock, and both
+push `d ln v − d ln τ` towards the +1 being tested. Asked of the readings the
+`tau_slow` row sits 0.3σ from +1; asked of the rebuilt curves, 1.4σ. Taking the
+gas out costs no resolution either — it buys some, because the artefact was what
+some of those fits could not pin: 62 to 65 curves for `tau` and 25 to 32 for
+`tau_slow`, with smaller errors throughout.
+
 | clock | window | curves | order in [H₂O₂] | from +1 | control, [S] |
 |---|---|---|---|---|---|
 | `t_ind` | a tenth of the run | 110 | +0.304 ± 0.188 | 3.7σ | 6.4σ |
-| `tau` | none, from the fit | 62 | +0.617 ± 0.196 | 2.0σ | 7.7σ |
-| `tau_slow` | none, from the fit | 25 | **+0.915 ± 0.261** | **0.3σ** | 5.5σ |
+| `tau` | none, from the fit | 65 | +0.707 ± 0.158 | 1.9σ | 8.5σ |
+| `tau_slow` | none, from the fit | 32 | **+0.669 ± 0.242** | **1.4σ** | 6.0σ |
 
-*(all 110 live curves; the fitted clocks are gated on being resolved)*
+*(all 110 live curves, rebuilt; the fitted clocks are gated on being resolved.
+The `t_ind` row is **not** gas-corrected and cannot be — it is the comparator
+this block rejects on other grounds, not a like-for-like line.)*
 
 **The two routes disagree, and that is the result here.** Through the landmark
 the peroxide axis falls 3.7σ short of the +1; through the clocks that carry no
-window it falls 2.0σ and 0.3σ short. Over the strong runs alone `tau` gives
-+0.724 ± 0.246 on 37 curves and `tau_slow` +0.497 ± 0.311 on 14.
+window it falls 1.9σ and 1.4σ short. Over the strong runs alone `tau` gives
++0.768 ± 0.180 on 40 curves and `tau_slow` +0.850 ± 0.283 on 20.
 
 **The substrate axis is the control, and it is the reason any of this counts.**
 The +1 belongs to the species that draws the catalyst into its active form; the
 alcohol does not, and the clock carries no substrate order, so that axis must
-*miss*. It does, in every cut — by 5.1σ to 7.7σ. A reading of this table where
+*miss*. It does, in every cut — by 4.2σ to 8.5σ. A reading of this table where
 both axes met +1 would be a regression that had stopped discriminating.
 
 **No conclusion is drawn from it, and the reason is the count.** `tau_slow` is
-resolved on 25 of 110 live curves and 14 of the 77 strong ones, and across
-those cuts the peroxide-axis estimate moves from **+0.50 to +0.92** — a range
-that contains both the adduct's prediction and a clear shortfall. What has
+resolved on 32 of 110 live curves and 20 of the 77 strong ones, and across
+those cuts the peroxide-axis estimate moves from **+0.67 to +0.85** — short of
++1 everywhere, but nowhere by enough to reject it. What has
 changed is not the answer but the question's availability: the landmark's
 failure closed a statistic, not the block, and the route that stays open is the
 one the block's design actually supports. An enzyme-free arm, or enough
