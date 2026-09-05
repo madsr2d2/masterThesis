@@ -602,6 +602,25 @@ def main():
                   " / ".join(f"{rows.loc[e].clock:.0f} s" for e in pair))
         doc.claim(f"pair {pair}: the depths",
                   " / ".join(f"{rows.loc[e].depth:.3f}" for e in pair))
+    for pair in scope.SUBSTRATE_PAIRS:
+        rows = induction.matched_pair(pair)["table"]
+        doc.claim(f"pair {pair}: the lag-first counts",
+                  " of 4 against ".join(str(int(rows.loc[e].lag_first))
+                                        for e in pair) + " of 4")
+    conditions = catalysed[catalysed.live].groupby("substrate").agg(
+        enzyme=("e0", "median"), signal=("net", "median"), pH=("pH", "median"))
+    both = archive[archive.live & archive.differential].groupby("substrate").agg(
+        enzyme=("e0", "median"), signal=("net", "median"), pH=("pH", "median"))
+    doc.claim("what separates the two catalysed blocks",
+              f"median `[enz]` {both.loc['4OMe-BnOH'].enzyme:.3f} against "
+              f"{both.loc['BnOH'].enzyme:.3f} mM, median signal "
+              f"{both.loc['4OMe-BnOH'].signal:.3f}\nagainst "
+              f"{both.loc['BnOH'].signal:.3f} AU, median pH "
+              f"{both.loc['4OMe-BnOH'].pH:.1f} against {both.loc['BnOH'].pH:.1f}")
+    doc.check("the enzyme loadings really differ by an order of magnitude",
+              both.loc["4OMe-BnOH"].enzyme / both.loc["BnOH"].enzyme > 8,
+              f"{both.loc['4OMe-BnOH'].enzyme / both.loc['BnOH'].enzyme:.1f}x")
+
     enzyme = induction.matched_pair(scope.ENZYME_PAIRS[1])["table"]
     doc.claim("the enzyme pair's clock ratio",
               f"{enzyme.loc[140].clock / enzyme.loc[141].clock:.1f}x")

@@ -72,6 +72,11 @@ autocatalytic kinetics):
 
    - it **needs the catalyst** — 10 of 49 enzyme-free 4OMe curves show any lag
      at all, median depth 0.000, against 109 of 147 catalysed;
+   - it is a property of the **catalyst and not of the alcohol**: the catalysed
+     blocks look very different archive-wide (109 of 147 against 77 of 164), and
+     at the two conditions the archive matches across the substrate they agree
+     inside the replicate floor. What separates the two blocks is `[enz]`
+     (median 0.241 against 0.024 mM), signal and pH, not the substituent;
    - it is **not waiting for product** — the clock regressed on the curve's own
      rate gives `+0.245 ± 0.127` over 147 curves where a product threshold
      needs `−1`, and the BnOH block agrees at `+0.897 ± 0.178`;

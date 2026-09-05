@@ -850,6 +850,19 @@ window, and the bar is §7c's replicate floor — **1.25× on the clock**.
 | **catalyst**, BnOH boric pH 8.51 | 59 (0.028) / 60 (0.014) | 0 s / 0 s | 0.000 / 0.000 | neither has a lag |
 | **catalyst**, two-axis | 140 (0.034) / 141 (0.014) | 913 s / 517 s | 0.618 / 0.162 | 1.8×, and the wrong way |
 
+**The substrate pairs look like a null and are not.** §7b's table has 109 of
+147 catalysed 4OMe curves carrying a lag against 77 of 164 catalysed BnOH ones,
+and the obvious reading is that the induction is bigger on the 4-methoxy
+substrate. The two matched pairs say it is not the substrate: at pH 9.01 the two
+give **2 of 4 against 1 of 4** lag-first, and at pH 9.70 they give **4 of 4
+against 3 of 4**, with depths of 0.054/0.000 and 0.217/0.250 — inside the
+replicate floor on both. **What separates the two catalysed blocks is their
+conditions**, and they are not close: median `[enz]` 0.241 against 0.025 mM,
+median signal 0.129 against 0.029 AU, median pH 7.5 against 8.5. So the archive-wide contrast is a
+conditions contrast, the pairs are what shows it, and **the activation is a
+property of the catalyst rather than of the alcohol** — which is what an
+activation step upstream of turnover has to be.
+
 **The catalyst pair is the one that matters and the archive spends it badly.** A
 unimolecular activation of the catalyst predicts the clock does *not* depend on
 how much catalyst there is — the one prediction of the activation reading that a
@@ -874,7 +887,7 @@ Collecting the rows that survive their own controls:
 | `[buf]`, 4OMe, unconfounded axis | −0.20 ± 0.30 |
 | `[H2O2]` | **not identifiable** — it is the signal, in every block that moves it |
 | buffer salt | not measured — one pair, neither run has a lag |
-| substrate | not measured — two pairs, one inside the replicate floor |
+| substrate | **no effect**, at two matched pairs — the archive-wide contrast is conditions |
 | `[enz]` | not measured, and the one pair points the wrong way |
 
 **Three of the seven are measured, three are not, and `[S]` is measured on one
