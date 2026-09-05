@@ -612,8 +612,10 @@ threshold** — regressing each curve's induction time on its own rate with one
 offset per experiment gives **−0.025 ± 0.109** on 147 curves where product
 control requires −1, and the route with no errors-in-variables agrees at
 −0.26 ± 0.32. **Its amplitude is a fraction and not a concentration** (substrate
-order −0.114 ± 0.169). And its barrier, 95 ± 16 kJ/mol, is four times too large
-for dissolution or a cuvette reaching temperature, so it is a covalent step.
+order −0.114 ± 0.169). And its barrier, 95 ± 16 kJ/mol here and 77 ± 12 on the
+window-free clock over all six temperatures (`induction/ANALYSIS.md` §7f), is
+three to four times too large for dissolution or a cuvette reaching temperature,
+so it is a covalent step.
 
 **This is the exact mirror of §6**: the fall of these curves is set by the
 product and not by the clock, and the rise by the clock and not by the product.

@@ -229,7 +229,9 @@ not scale with the catalyst.
 **Not dissolution or aggregation of the cyclodextrin.** The induction's
 activation energy is **95.0 ± 15.7 kJ/mol** (`arrhenius`, `inverse_tau`, 16
 curves at four temperatures). Diffusion-limited and dissolution processes in
-water run at 15–25 kJ/mol. A barrier of 95 kJ/mol is a covalent step.
+water run at 15–25 kJ/mol, so this is a covalent step. §7f measures the same
+barrier on the window-free clock over all six temperatures and gets 77 ± 12;
+the two agree, and neither is within a factor of three of a physical process.
 
 **Not signal-to-noise.** The landmark is the first crossing of half the *largest*
 rolling slope, so on a curve with no signal the largest rolling slope is a noise

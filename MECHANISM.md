@@ -29,7 +29,9 @@ oxidation by H2O2 up to ~60,000-fold over background.
 
 | Symbol | Species |
 |---|---|
-| K | active-site ketone (catalyst) |
+| K | active-site ketone (catalyst), the ACTIVE form |
+| Kh | the ketone's gem-diol **hydrate** — proposed resting form, added 2026-09-05 |
+| Kh⁻ | its conjugate base, the gem-**diolate** — proposed off-path sink |
 | KP | ketone + H2O2 adduct ("perhydrate", a gem-diol hydroperoxide) |
 | KD | active-site dioxirane |
 | S | substrate benzylic alcohol |
@@ -59,6 +61,53 @@ autocatalytic kinetics):
 
 **Catalyst-dependent loop:**
 
+0. `Kh ⇌ K + H2O` — **the induction.** The catalyst is not in its active form
+   when the run starts and converts into it on its own clock, before any
+   turnover. *(Added 2026-09-05. The STEP is required by the data; its IDENTITY
+   is not. What is measured is a unimolecular activation of the catalyst over a
+   covalent barrier; that it is a hydrate dehydrating is the candidate that fits
+   the dependences. `induction/ANALYSIS.md` §7.)*
+
+   What the archive measures:
+
+   - it **needs the catalyst** — 10 of 49 enzyme-free 4OMe curves show any lag
+     at all, median depth 0.000, against 109 of 147 catalysed;
+   - it is **not waiting for product** — the clock regressed on the curve's own
+     rate gives `+0.245 ± 0.127` over 147 curves where a product threshold
+     needs `−1`, and the BnOH block agrees at `+0.897 ± 0.178`;
+   - its barrier is **77 ± 12 kJ/mol** over six temperatures at a window all
+     six runs share, three to four times what dissolution, diffusion or thermal
+     equilibration cost;
+   - it is **slowed by base**: `d ln τ/d pH = +0.12 to +0.34`, positive on all
+     four of the archive's pH ladders, in three buffers and on both substrates;
+   - it is **hurried by the substrate** where the buffer is held fixed:
+     `d ln τ/d ln[S] = −0.18 to −0.71` on exps 135–151, the only block in which
+     `[S]` moves without `[buf]` moving against it.
+
+   The last two are BOUNDED, and the bounds are what make them mechanistic. For
+   a species X that holds the catalyst OFF the activation path, `1/τ =
+   k_act/(1 + K[X])` gives `d ln τ/d ln[X] ∈ (0, +1)`; for a species Y whose
+   bound form activates, `d ln τ/d ln[Y] ∈ (−1, 0)`. Neither bound contains a
+   rate constant, so a coefficient outside it falsifies the scheme rather than
+   fitting it. The pH result puts X at **5–15 % saturated** across the archive's
+   whole pH range; the substrate result puts Y at **18–72 %**.
+
+   **A resting anionic adduct at the carbonyl, displaced by the alcohol binding
+   in the cavity, is the shape that fits.** Ketone hydration is fast and the
+   hydrate of an electron-poor ketone is acidic; a gem-diolate cannot dehydrate,
+   so more base means more of it and a longer wait — the sign measured. A
+   hydrophobic guest in the cyclodextrin cavity shifts hydration towards the
+   free ketone — the substrate sign. **`COMPUTATIONAL.md` C7 is the test**: a
+   hydrate pK<sub>a</sub> near 10 puts the diolate exactly where the boric
+   ladder (pH 8.46–10.34) sits, and one near 13 rules it out and leaves the
+   perhydrate trap of C8 as the only survivor.
+
+   **What is NOT established.** That the clock is independent of `[enz]`, which
+   is what "unimolecular" means and the one prediction here that a concentration
+   could falsify. The archive holds two `[enz]` pairs: one has no lag to time,
+   and the other gives a 1.8× *longer* clock at 2.4× the catalyst — past the
+   replicate floor, in the wrong direction, on two runs in the block whose
+   signal control fails. `induction/ANALYSIS.md` §7g.
 4. `K + H2O2 ⇌ KP` — the ketone forms its gem-diol hydroperoxide ("perhydrate")
    with H2O2.
 5. `KP + S → K + A` — the perhydrate directly oxidizes the alcohol substrate to
@@ -66,10 +115,17 @@ autocatalytic kinetics):
    produces the first trace of A needed to start the autocatalytic loop, before
    enough product has accumulated for steps 1–2 to run.
 
-   *2026-09-02.* The induction period of the catalysed 4OMe curves is **not**
-   this step running to its threshold: it ends on a clock rather than at a
-   product level, it has no substrate order, and it is absent from every
-   enzyme-free curve in the archive. Whatever v5 does, something slower and
+   *2026-09-02, extended 2026-09-05.* The induction period of the catalysed
+   4OMe curves is **not** this step running to its threshold: it ends on a clock
+   rather than at a product level, it has no substrate order, and it is absent
+   from every enzyme-free 4OMe curve in the archive. **That last clause is a
+   4OMe clause.** 14 of 26 enzyme-free *BnOH* curves do begin below their
+   eventual rate, at a median depth of 0.138 — in exps 3 and 6, three and five
+   hour runs at pH 6.71, and in exp 65, whose four cuvettes share the break
+   `scope.synchronised_break` measures. That is steps 1–3 above, which are
+   autocatalytic in the product and need no catalyst, and which S2 already finds
+   switched on for benzaldehyde and off for the 4-methoxy aldehyde. **A lag is
+   two different things on the two substrates and they must not be pooled.** Whatever v5 does, something slower and
    unimolecular has to happen to the catalyst first. Step 4's own status is
    affected too and in the opposite direction to the obvious one — see
    `COMPUTATIONAL.md` C8 and `induction/ANALYSIS.md` §4a.
@@ -83,6 +139,10 @@ autocatalytic kinetics):
 
 Total catalyst is conserved: `[K] + [KP] + [KD] = [enz]0` throughout (no rate
 constant needed to enforce this — it falls out of steps 4–7 by construction).
+**With step 0 the law is `[Kh] + [Kh⁻] + [K] + [KP] + [KD] = [enz]0`**, and the
+reduction below has not been redone under it: every fit in `FITTING.md` starts
+from a fully active catalyst at `t = 0`, which is the one thing the induction
+says is false. A known gap, listed in the open questions.
 
 ## Structural analysis and ODE reduction
 
@@ -401,10 +461,17 @@ results decide it. **The induction does not exist without the catalyst at all**
 — 0 of 49 enzyme-free 4OMe curves have one, at matched substrate, buffer,
 peroxide, pH and temperature, including a 17934 s run — which is fatal to any
 account in which the induction is the catalyst-free loop of steps 1–3 waiting
-for its first aldehyde. And **its barrier, 95 ± 16 kJ/mol, is a covalent one**,
-four times too large for anything physical. What the induction times is a
-unimolecular change on the catalyst, before turnover begins. See
-`induction/ANALYSIS.md` §3 and `COMPUTATIONAL.md` C7.
+for its first aldehyde. And **its barrier is a covalent one**: **77 ± 12 kJ/mol** over six
+temperatures at a window all six runs share, three to four times too large for
+anything physical. What the induction times is a unimolecular change on the
+catalyst, before turnover begins — **step 0 above**. See
+`induction/ANALYSIS.md` §3 and §7f, and `COMPUTATIONAL.md` C7.
+
+*(The barrier read 95 ± 16 until 2026-09-05. That figure is
+`arrhenius.inverse_tau`, the ONE-phase fit's τ, which reaches only 15–30 °C
+because above 32 °C a decelerating curve gives the one-phase form no lag to
+find. The two agree inside their errors; the six-temperature number is the one
+to quote, and it carries a window systematic of about ±7.)*
 
 ## Step-by-step reasoning and literature support
 
@@ -1107,6 +1174,48 @@ catalyst, that the buffer meets the constraint where the peroxide does not, and
 that the archive cannot yet choose between them: `induction.peroxide_crossing`
 finds that of 88 runs, 53 step `[buf]`, 20 step `[H2O2]` and **0 step both**.
 
+**2026-09-05 — and the peroxide axis is not merely unresolved, it is
+unmeasurable here.** Every block in the archive that moves `[H2O2]` has the
+peroxide as its own signal: once the run offsets are projected out, log[H2O2]
+correlates with log(net/noise) at **+0.57** on the two-axis block and **+0.67**
+on exps 127–131. Holding the signal takes the induction clock's peroxide order
+from +0.68 to +0.38 on one and from +0.19 to −0.13 on the other. That is true of
+the windowed landmark (§4a of `induction/ANALYSIS.md`) *and* of the window-free
+clock, so it is a property of the design and not of the statistic, and no
+refinement of the statistic will fix it. **A peroxide dependence of the
+induction cannot be measured in this archive at all.**
+
+**What can be measured is pH, and it says the same thing the peroxide sign was
+pointing at.** pH is one value per run everywhere here, so it needed a lag
+statistic with no window in it (`scope.frame.lag_half_s`) and a refit of every
+run on a window its ladder shares. There are four such ladders — 4OMe/phosphate
+pH 5.64–8.95, 4OMe/boric pH 8.46–10.34, and the two-axis block's own two, BnOH
+in pyrophosphate — and they are confounded in *opposite* directions, pH against
+log(run length) running −0.25, +0.71, −0.53, −0.79 and against
+log(signal/noise) +0.87, −0.65, +0.77, +0.79. All four coefficients on the clock
+are positive and they agree (χ² = 0.95 on 3):
+
+> **d ln τ / d pH = +0.12 to +0.34** across windows, pooled over four ladders,
+> three buffers and both substrates. More alkaline, longer induction.
+
+Positive is the sign a **trap** requires and the wrong sign for the species that
+activates. Converted to a saturation fraction it is **5–15 %**: whatever holds
+the catalyst back is only slightly engaged over the archive's whole pH range, so
+this cannot yet name the species — but it removes the one objection that made
+§4a's peroxide sign worthless, which was that both blocks carrying it were
+signal-confounded. The pH ladders are not, in the same direction, and they
+agree. `induction/ANALYSIS.md` §7e.
+
+**And the substrate is on the other side of it.** On exps 135–151 — the only
+block where `[S]` moves with `[buf]` held fixed — the clock **shortens** with
+substrate at every floor, `d ln τ/d ln[S] = −0.18 to −0.71`. That block fails
+its own signal control and can still carry this, because its rate order in `[S]`
+is +0.09 ± 0.05: substrate buys no signal there (r = +0.04), which is the
+structural reason the same block cannot be asked about peroxide and can be asked
+about substrate. A negative order is the **activating** branch of the same
+bounded algebra, 18–72 % engaged. Whatever the catalyst is waiting for, base
+holds it back and the alcohol pulls it forward.
+
 Two consequences for this document. The rate is **not** first order in H₂O₂ —
 `peroxide_saturation` rejects `a = 1` at F = 41 on the two-axis ladder — so step
 4's pre-equilibrium is saturating, and "first order in H₂O₂" is the
@@ -1160,6 +1269,24 @@ signal starvation at the top rung were both excluded rather than assumed
 
 ## Open questions
 
+- **Does the catalyst loading move the induction clock?** A unimolecular
+  activation says it must not, and that is the only prediction of step 0 a
+  concentration can falsify. The archive's two `[enz]` pairs cannot answer:
+  exps 59 and 60 hold everything but `[enz]` and neither run has a lag to time,
+  and exps 140/141 give a **1.8× longer** clock at 2.4× the catalyst — past the
+  replicate floor, in the wrong direction, on two runs 0.07 pH units apart in
+  the block whose signal control fails. One substrate ladder at two catalyst
+  loadings on the catalysed 4OMe system at 25 °C settles it, and it is the
+  cheapest experiment this document still wants.
+  `induction/ANALYSIS.md` §7g.
+- **The reduction has not been redone with step 0 in it.** Every fit in
+  `FITTING.md` starts from a fully active catalyst at `t = 0`, and the induction
+  says that is false — on the catalysed 4OMe block the catalyst takes
+  thousands of seconds to arrive. Adding `Kh ⇌ K` costs one rate constant and
+  one state and would change the `E0 = 0` limit not at all, so the sequential
+  strategy survives; what it changes is every catalysed trajectory's first
+  hour. Until that is done, a fitted `k5'` or `k6` from this archive is a rate
+  constant for a catalyst that was assumed present and was not.
 - **Is the ketone the catalyst that destroys the peroxide, or something else
   in the stock?** S4 establishes that the gas forms in the cuvette that holds
   the enzyme -- the double-beam layout makes every run a matched control, and

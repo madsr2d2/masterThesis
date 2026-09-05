@@ -8,6 +8,111 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-05 — Five of the seven experimental variables were unaskable, and the induction's barrier was measured against a confound
+
+`induction/` had measured the induction against `[S]` and `[H2O2]` and against
+nothing else. That was not a choice of interest: `induction.induction_point`
+reads through a rolling window a tenth of the run, which the folder's own §1
+says is safe inside a run and unsafe between runs — and **temperature, pH, the
+buffer salt and the substrate are one value per run in every one of the
+archive's 88 experiments** (`induction.lag_identifiability`). Five of the seven
+questions could not be asked with the statistic the folder had.
+
+**The statistic.** `summary_kinetics.ProgressFit.lag_profile` reads the same two
+numbers — how far below its peak the fitted rate starts, and how long it takes
+to cover half that gap — off the **fitted rate** rather than a rolling one. It
+recovers a planted τ as τ·ln2 to within 6% at 200, 800 and 3000 s, returns
+exactly zero on a curve that begins at its fastest, and is read *inside* the
+measured span, so a truncated run under-reads rather than extrapolates.
+`scope.frame` carries it as `lag_depth` and `lag_half_s`, off the gas-corrected
+readings for the reason `tau_corrected` is; on the 73 two-axis curves with no
+detachment the corrected and raw values are identical.
+
+**What it does not remove, and the error that was live because of it.** The
+fit's τ grid runs from span/300 to 2·span, so a run cannot report a relaxation
+much longer than itself. In the temperature series the **cold runs are the long
+runs** — 1/T against log(run length) at **+0.66** — and the induction's
+activation energy is 83.7 ± 8.9 kJ/mol read on whole runs, **55.3 ± 24.3** if
+log(run length) is put into the same regression. Neither is the measurement.
+Refitting every run on a window all six share removes the collinearity by
+construction and gives **76.7 ± 12.2 kJ/mol over six temperatures**, stable to
+84 at wider windows and collapsing below 0.75 of the shared window as the 15 and
+20 °C clocks pass outside it.
+
+**So the published 95.0 ± 15.7 kJ/mol is the top of a range and not the
+centre.** That figure is `arrhenius.inverse_tau`, the *one-phase* fit's τ, which
+reaches only 15–30 °C: above 32 °C a decelerating curve gives the one-phase form
+no lag to find and τ lands on the top of its grid
+(`arrhenius.BURST_TRUSTWORTHY_BELOW_C`, already documented). The two agree inside
+their errors and nothing published reverses — the conclusion drawn from it,
+that a barrier of this size is covalent rather than physical, holds at three
+times over as well as at four. The number to quote is now **77 ± 12 with a
+window systematic of about ±7**, and `induction/ANALYSIS.md` §7f,
+`temperature_series/ANALYSIS.md`, `MECHANISM.md` and `COMPUTATIONAL.md` C7 all
+carry the pair.
+
+**A forty-sigma artefact, caught by writing the guard.** `lag_ph_ladders` was
+first run with one offset per experiment on ladders whose pH is one value per
+experiment. pH is then perfectly collinear with the offsets, `lstsq` splits the
+coefficient through the pseudo-inverse, the residual is dust, and the boric
+ladder came back at **+0.549 ± 0.014** — a forty-sigma pH effect that was
+entirely the collinearity. This is `scope._moves` one level out (see 2026-09-03),
+and `induction.lag_ladder` now raises rather than returning the split:
+`_identified` measures the share of the axis's variance that survives projecting
+the offsets out and refuses below 1e-6. Nothing was published from the bad
+number; it lived for one afternoon.
+
+**One order machinery, not two.** `induction.lag_orders` was written as its own
+single-axis regression and gave the two-axis block's induction clock a substrate
+order of **−0.453 ± 0.107**, where the block's own `scope.orders` — which fits
+`[S]` and `[H2O2]` together — says **−0.225 ± 0.115**. The block's cuvettes
+carry log[S] against log[H2O2] at about −0.5 by construction (`ladder_arms`), so
+a one-axis fit reads part of the partner. `scope.orders` gained `terms` and
+`covariates` and `lag_orders` is now a wrapper over it, with
+`test_lag_orders_agree_with_the_package_order_machinery` holding the two to bit
+equality.
+
+**Findings that came out of it**, all in `induction/ANALYSIS.md` §7:
+
+- **The lag is two phenomena.** 14 of 26 enzyme-free *BnOH* curves begin below
+  their eventual rate at a median depth of 0.138, against 10 of 49 enzyme-free
+  4OMe curves at 0.000. The BnOH ones are exps 3 and 6 (pH 6.71 phosphate, 11025
+  and 17934 s, 8 of 10 curves) and exp 65, whose cuvettes share the break
+  `scope.synchronised_break` measures. That is `MECHANISM.md` steps 1–3, which
+  need no catalyst and which `product_fate` already finds on for benzaldehyde
+  and off for the 4-methoxy aldehyde. §2's "the induction needs the catalyst" is
+  a **4OMe** claim and is now labelled as one.
+- **The depth is not a between-run statistic.** Exps 2, 4, 5 and 7 are four
+  repeats of one composition — the only four-fold repeat in the archive — and
+  their per-run depths run 0.388, 0.734, 1.000, 1.000. A spread of 0.612 on a
+  quantity bounded by [0, 1]. Their clocks run 2951–3682 s, a factor of 1.25, so
+  the clock is a between-run statistic and the depth is not.
+- **`[H2O2]` cannot be asked at all.** Once run offsets are projected out,
+  log[H2O2] correlates with log(net/noise) at +0.57 on the two-axis block and
+  +0.67 on exps 127–131, and holding the signal moves the clock's peroxide order
+  from +0.68 to +0.38 and from +0.19 to −0.13. This is the same objection §4a
+  raises against the landmark, so it is a property of the DESIGN and no
+  statistic fixes it.
+- **`[S]` can be, on one block, and for a structural reason.** The two-axis
+  block fails its own signal control (+0.92 ± 0.26) and still carries a
+  substrate order, because its rate order in `[S]` is +0.09 ± 0.05 — substrate
+  buys no signal there, r = +0.04 — and the clock's substrate order is unmoved
+  by the control and negative at every floor from 1 s to 300 s.
+- **pH is measurable and the four ladders agree.** +0.12 to +0.34 per pH unit on
+  the clock, χ² = 0.95 on 3, in three buffers and on both substrates, with pH's
+  confounds running in opposite directions between ladders. More alkaline,
+  longer induction.
+
+Four new named blocks in `scope.py` — `PH_LADDER_PHOSPHATE`, `PH_LADDER_BORIC`,
+`PH_LADDER_TWO_AXIS_LOW/HIGH` — plus `REPLICATE_RUNS`, `SUBSTRATE_PAIRS`,
+`BUFFER_TYPE_PAIR` and `ENZYME_PAIRS`. None of them had a name before and none
+of the four pH ladders had been used for anything. `BUFFER_TITRATIONS` moved
+from `buffer_role` to `scope` because `induction` needs it and `buffer_role`
+imports `induction`; `buffer_role.TITRATIONS` is a re-export and still the name
+the buffer folder uses.
+
+---
+
 ## 2026-09-04 — `data/Mads` is the worked archive, not the delivered one
 
 Found while asking whether `Mads-20241207T151327Z-001.zip` (13 MB, tracked) was

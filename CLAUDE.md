@@ -9,9 +9,13 @@ alcohol by H<sub>2</sub>O<sub>2</sub>, catalysed by a cyclodextrin–ketone
 **Each question names the block it needs, and every block is defined in
 `data/scope.py`** — never as a list of experiment numbers in an analysis
 script. `TEMPERATURE_SERIES`, `FREE_BNOH_ALL`, `FREE_BNOH_PHOSPHATE`,
-`BUFFER_FIXED`, `buffer_role.TITRATIONS`, `slowdown.substrate_blocks`,
+`BUFFER_FIXED`, `BUFFER_TITRATIONS`, `PH_LADDER_PHOSPHATE`, `PH_LADDER_BORIC`,
+`PH_LADDER_TWO_AXIS_LOW`/`_HIGH`, `REPLICATE_RUNS`, `SUBSTRATE_PAIRS`,
+`BUFFER_TYPE_PAIR`, `ENZYME_PAIRS`, `slowdown.substrate_blocks`,
 `induction.induction_blocks` are the vocabulary; add to it rather than
-selecting inline.
+selecting inline. `buffer_role.TITRATIONS` is a re-export of
+`scope.BUFFER_TITRATIONS`, which moved on 2026-09-05 because `induction` needs
+it and `buffer_role` imports `induction`.
 
 This changed on 2026-09-03. Until then `fit_dataset.TWO_AXIS_BLOCK` named exps
 135-151 and the whole project was declared scoped to it — and that had stopped
@@ -590,6 +594,59 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   looked like the two runs disagreed in sign; read through a landmark with a
   window in SECONDS common to both, they agree at -0.433 +- 0.201 -- more
   buffer, shorter induction. `induction.buffer_lever` and `buffer_order`.
+- **THE LANDMARK ANSWERS TWO OF THE SEVEN QUESTIONS. `lag_half_s` answers the
+  rest.** `induction_point` reads through a rolling window a tenth of the run,
+  and temperature, pH, the buffer salt and the substrate are **one value per
+  run in all 88 experiments** (`induction.lag_identifiability`) -- so five of
+  the seven variables the experiment moves were unaskable until 2026-09-05.
+  `scope.frame` now carries `lag_depth` and `lag_half_s` off the FITTED rate
+  (`summary_kinetics.ProgressFit.lag_profile`), which carries no window; both
+  come off the gas-corrected readings, like `tau_corrected`.
+  **It still carries the SCHEDULE**: the fit's tau grid is span/300 to 2*span,
+  so a 1260 s run cannot report a 4000 s clock. `induction.lag_window_frame`
+  refits a block on a window every run in it shares, and that is not optional
+  where run length correlates with the axis -- the induction's barrier is
+  83.7 +/- 8.9 kJ/mol on whole runs, **55.3 +/- 24.3** with log(run length) in
+  the regression, and **76.7 +/- 12.2 over six temperatures** at a shared
+  window. Quote **77 +/- 12 with a window systematic of about +/-7**; the
+  published 95 +/- 16 is `arrhenius.inverse_tau`, the ONE-phase tau, which
+  reaches only four of the six temperatures.
+- **A BETWEEN-RUN LADDER MAY NOT CARRY ONE OFFSET PER EXPERIMENT.** pH is one
+  value per run, so per-experiment offsets ARE the pH axis; `lstsq` splits the
+  coefficient through the pseudo-inverse and the boric ladder came back at
+  **+0.549 +/- 0.014**, forty sigma of pure collinearity, for one afternoon.
+  `induction.lag_ladder` raises instead. This is `scope._moves` one level out.
+  Pass `offsets=None`, or `offsets="sample"` where cuvettes are matched across
+  runs (the two-axis pH ladders).
+- **FIT EVERY AXIS THE BLOCK MOVES, IN ONE REGRESSION.** `scope.orders` takes
+  `terms` and `covariates` since 2026-09-05 and is the package's ONLY log-log
+  order machinery -- `induction.lag_orders` is a wrapper over it. One axis at a
+  time is a different regression on an L: the two-axis block carries log[S]
+  against log[H2O2] at about -0.5, and a substrate-only fit of the induction
+  clock reads -0.453 +/- 0.107 where the joint fit reads -0.225 +/- 0.115.
+- **THE DEPTH IS NOT A BETWEEN-RUN STATISTIC AND THE CLOCK IS.**
+  `scope.REPLICATE_RUNS` (exps 2, 4, 5, 7) is four repeats of ONE composition,
+  the archive's only four-fold repeat: their depths run 0.388 to 1.000 and their
+  clocks 2951 to 3682 s. A spread of 0.612 on a quantity bounded by [0, 1]
+  against a factor of 1.25. `induction.replicate_floor` is the bar every
+  between-run number has to clear.
+- **`[H2O2]` CANNOT BE ASKED OF THE INDUCTION AT ALL, and `[S]` can be on one
+  block.** Every block that moves peroxide has the peroxide as its own signal:
+  once run offsets are out, log[H2O2] against log(net/noise) runs +0.57 on the
+  two-axis block and +0.67 on exps 127-131, and holding the signal moves the
+  clock's order from +0.68 to +0.38 and from +0.19 to -0.13. It is the DESIGN,
+  not the statistic -- the landmark fails the same way. Substrate is different:
+  the two-axis block's rate order in `[S]` is +0.09, so substrate buys no signal
+  (r = +0.04) and the clock's substrate order survives every control, negative
+  at every floor. The four pH ladders agree at **+0.12 to +0.34 per pH unit**
+  (chi2 0.95 on 3) -- more alkaline, longer induction.
+- **A LAG IS TWO DIFFERENT THINGS ON THE TWO SUBSTRATES.** "The induction needs
+  the catalyst" is a **4OMe** claim: 10 of 49 enzyme-free 4OMe curves show any
+  lag, against **14 of 26 enzyme-free BnOH curves** at a median depth of 0.138
+  (`induction.lag_channel_table`). Those are exps 3 and 6 and exp 65's shared
+  break, and they are `MECHANISM.md` steps 1-3, which need no catalyst and which
+  `product_fate` finds ON for benzaldehyde and OFF for the 4-methoxy aldehyde.
+  Never pool the substrates on this question.
 - **Run `signal_control` before believing any induction result.** The landmark
   is the first crossing of half the largest rolling slope, so on a curve with no
   signal it measures the spectrophotometer. The catalysed 4OMe block passes

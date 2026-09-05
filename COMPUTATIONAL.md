@@ -286,9 +286,23 @@ that makes a calculation worth running. What is established:
 | it is 126× faster than turnover | ΔG‡ gap **−11.99 ± 0.62 kJ/mol** at 298 K |
 | **its barrier** | **E<sub>a</sub> = 95.0 ± 15.7 kJ/mol**, ΔH‡ = 92.6 ± 15.7 |
 
-The last row is the gate. **95 kJ/mol is four times too large for dissolution,
-diffusion, de-aggregation or a cuvette reaching temperature** — those run at
-15–25 — so the catalyst is making or breaking a bond before it can turn over.
+The last row is the gate. **The barrier is three to four times too large for
+dissolution, diffusion, de-aggregation or a cuvette reaching temperature** —
+those run at 15–25 — so the catalyst is making or breaking a bond before it can
+turn over. The row above is the one-phase fit's τ over four temperatures;
+`induction/ANALYSIS.md` §7f measures the same barrier on the window-free clock
+over all six and gets **77 ± 12 kJ/mol**, and the gate is met either way.
+
+**C7 now has two more numbers to hit, and they are signs rather than sizes.**
+The induction is *slowed by base* (`d ln τ/d pH = +0.12 to +0.34`, four ladders,
+three buffers, both substrates) and *hurried by the substrate* where the buffer
+is held fixed (`d ln τ/d ln[S] = −0.18 to −0.71`). A gem-diol hydrate whose
+conjugate base cannot dehydrate reproduces the first; a hydrophobic guest in the
+cavity shifting the hydration equilibrium reproduces the second. **So compute
+the hydrate's pK<sub>a</sub> as well as its ΔG° and barrier**: near 10 puts the
+diolate exactly where the boric ladder (pH 8.46–10.34) sits and the scheme
+stands; near 13 rules the diolate out and leaves C8's perhydrate trap as the
+only survivor.
 The concentration orders say the step is unimolecular in everything the cuvette
 holds. What is left is a unimolecular change on the catalyst itself, and the
 leading candidate has a name.
@@ -680,7 +694,8 @@ Arose from `induction/ANALYSIS.md`, the same exercise as C5/C6 done at the other
 end of the same curves. The archive again settled more than expected — the
 induction needs the catalyst, ends on a clock rather than at a product
 threshold, has an amplitude that is a fraction rather than a concentration, and
-carries a barrier of 95 ± 16 kJ/mol that is far too large to be physical — and
+carries a barrier far too large to be physical (95 ± 16 kJ/mol on the one-phase
+τ over four temperatures, 77 ± 12 on the window-free clock over six) — and
 again stopped exactly where a barrier comparison begins. It also produced a
 clean negative worth recording: **the archive holds no usable peroxide lever on
 an induction period.** The two blocks that move `[H2O2]` inside a run both have
