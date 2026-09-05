@@ -63,14 +63,18 @@ pH, once run length is in the model, with -0.05 +- 0.09.
 """
 import sys
 import os
+import functools
 from dataclasses import dataclass
 
 import numpy as np
+import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from curve_metrics import LAG_WINDOW, rolling_slope
+from curve_metrics import LAG_WINDOW, debubble, rolling_slope
 from fit_dataset import source_floor
+from summary_kinetics import fit_progress
+from arrhenius import GAS_CONSTANT
 import arrhenius
 import scope
 
@@ -776,11 +780,17 @@ def joint_peroxide_order(table, floor=INDUCTION_FLOOR):
 # the two-axis block's `tau_slow` row sits 0.3 sigma from +1; asked of the
 # rebuilt curves it sits 1.4. `JOINT_CLOCKS_RAW` is the uncorrected set, kept
 # so the difference can be shown rather than asserted.
-JOINT_CLOCKS_RAW = (("t_ind", None), ("tau", "tau_resolved"),
-                    ("tau_slow", "tau_slow_resolved"))
-JOINT_CLOCKS = (("t_ind", None),
-                ("tau_corrected", "tau_resolved_corrected"),
-                ("tau_slow_corrected", "tau_slow_resolved_corrected"))
+# Each entry is (clock, resolution gate, is it windowed). The third field is
+# carried rather than derived from the second: `lag_half_s` has NO gate, being
+# a landmark on the fitted rate rather than a fitted constant, and NO window,
+# and reading "windowed" off "gate is None" would have labelled it with the
+# one property it was added to remove.
+JOINT_CLOCKS_RAW = (("t_ind", None, True), ("tau", "tau_resolved", False),
+                    ("tau_slow", "tau_slow_resolved", False))
+JOINT_CLOCKS = (("t_ind", None, True),
+                ("lag_half_s", None, False),
+                ("tau_corrected", "tau_resolved_corrected", False),
+                ("tau_slow_corrected", "tau_slow_resolved_corrected", False))
 
 
 def joint_clocks(table, axis="h2o2", control="s0", rate="vmax_corrected",
@@ -812,10 +822,8 @@ def joint_clocks(table, axis="h2o2", control="s0", rate="vmax_corrected",
     so it is carried as the comparator it is rather than repaired; do not read
     the gap between it and the fitted rows as though the two were like for like.
     """
-    import pandas as pd
-
     rows = []
-    for clock, gate in clocks:
+    for clock, gate, windowed in clocks:
         if clock not in table.columns:
             continue
         if gate is not None and gate not in table.columns:
@@ -828,7 +836,7 @@ def joint_clocks(table, axis="h2o2", control="s0", rate="vmax_corrected",
                 timescale=clock, covariates=(other,),
                 floor=floor if gate is None else None, gate=gate)
             rows.append({"clock": clock, "role": name, "axis": tested,
-                         "windowed": gate is None,
+                         "windowed": windowed,
                          "curves": got.get("points", 0),
                          "order": got.get("slope", np.nan),
                          "stderr": got.get("stderr", np.nan),
@@ -1362,6 +1370,665 @@ def buffer_join_step(ladder):
 # 4OMe archive by CHANNEL, because the catalyst is the variable under test, and
 # keeps the BnOH scope whole, because there the question is whether the early
 # curve is the same object at all.
+# ---------------------------------------------------------------------------
+# THE LAG WITHOUT A WINDOW, AND THE SEVEN AXES.
+#
+# Everything above is measured through `induction_point`, whose rolling window
+# is a tenth of the run. That window is why this folder had, until 2026-09-05,
+# measured the induction against exactly two of the seven variables the
+# experiment moves: `[S]` and `[H2O2]`, both of which step INSIDE a run. The
+# other five -- temperature, pH, `[buf]`, the buffer salt and the substrate --
+# are one value per run in this archive, always, so every one of them is a
+# BETWEEN-run comparison, and a window in run-fractions makes a between-run
+# comparison a comparison of windows.
+#
+# `scope.frame` now carries `lag_depth` and `lag_half_s`, read off the fitted
+# rate (`summary_kinetics.ProgressFit.lag_profile`) rather than a rolling one.
+# They carry no window. What they still carry is the SCHEDULE -- the fit's tau
+# grid runs from span/300 to 2.span, so a 1260 s run cannot report a 4000 s
+# clock -- and the SIGNAL, because a curve with little signal gives the fit
+# little to choose between the shapes. This section answers the first by
+# refitting a block on a window every run in it shares, and the second by
+# carrying the control beside every answer rather than in a footnote.
+#
+# THE THREE CONFOUNDS, and why the archive needs all four pH ladders. Across
+# `scope.PH_LADDER_PHOSPHATE` pH correlates with log(run length) at -0.43 and
+# with log(signal/noise) at +0.92; across `scope.PH_LADDER_BORIC` the same two
+# are +0.71 and +0.67. The signs differ, so a coefficient that survives in both
+# is not either confound. Read `lag_ladder`, never a raw regression on pH.
+
+# Nodes of a rolling window are not involved anywhere below, so the only floor
+# a lag clock needs is the one that makes "no lag" and "a lag shorter than one
+# reading" the same number. It is INDUCTION_FLOOR, deliberately: two floors for
+# one idea is how the lag statistic came to have two definitions in the first
+# place.
+
+# A window has to leave enough readings to fit four parameters and profile a
+# time constant. Eight is `BURST_MINIMUM_POINTS` plus two.
+LAG_WINDOW_MINIMUM_POINTS = 8
+
+# The fractions of the shortest run in a block that `lag_window_sweep` walks.
+# 1.0 is the longest window every run can supply; below it the block keeps all
+# its runs and loses the slow ones's clocks, which is the trade the sweep
+# exists to show.
+LAG_WINDOW_SWEEP = (0.5, 0.75, 1.0)
+
+# What the two bounded schemes allow, in the units each axis is read in.
+# For a species X in pre-equilibrium OFF the activation path -- the trap of
+# section 4a -- 1/tau = k_act/(1 + K[X]), so d ln tau/d ln[X] = K[X]/(1 + K[X])
+# lies in (0, 1) and is the SATURATION FRACTION of that trap. For a species
+# whose BOUND form activates, 1/tau = k_act.K[X]/(1 + K[X]) and the same
+# quantity lies in (-1, 0). Neither bound involves a rate constant, so a
+# measurement outside them falsifies the scheme rather than fitting it.
+TRAP_BOUND = (0.0, 1.0)
+ACTIVATING_BOUND = (-1.0, 0.0)
+
+# One pH unit is one decade of every species whose formation consumes a proton,
+# so a pH coefficient is converted to an order in that species by dividing by
+# ln 10 before it is compared with the bounds above.
+LN10 = float(np.log(10.0))
+
+
+def common_window(experiments):
+    """The longest window every run in `experiments` can supply, in seconds."""
+    return min(float(np.asarray(curve.times, dtype=float)[-1])
+               for curve in scope.curves(tuple(experiments)))
+
+
+def lag_window_frame(experiments, window=None):
+    """
+    Refit every curve of `experiments` on a window they ALL share.
+
+    One row per curve, with `lag_depth`, `lag_half_s`, `lag_peak`, the sign,
+    and the design. Returns a COPY of a memoised frame, for the reason
+    `scope.frame` does.
+
+    WHY REFITTING RATHER THAN CONTROLLING. Run length is not a nuisance
+    variable that a regression can absorb here, it is a bound on what the fit
+    can report: the tau grid runs from span/300 to 2.span, so a run cannot
+    measure a relaxation much longer than itself. In `scope.PH_LADDER_BORIC`
+    the runs span 1260 to 17940 s and pH correlates with log(run length) at
+    +0.71, so the raw pH coefficient on the clock (+1.376 +/- 0.318 per pH
+    unit) is partly the schedule. Putting log(run length) in the regression
+    hands the answer to a 9-point collinearity; truncating every run to 1260 s
+    and refitting removes it by construction. What truncation costs is the
+    clocks longer than the window, and `lag_window_sweep` is how that cost is
+    shown rather than assumed.
+
+    The same tool answers the same question for the temperature series, where
+    it matters most: cold runs are the long ones (1/T against log(run length),
+    r = +0.66), and the activation energy of the induction moves from
+    83.7 +/- 8.9 kJ/mol on whole runs to 55.3 +/- 24.3 if log(run length) is
+    put in the regression instead. At a common window it is 73-84 across every
+    window that keeps all six temperatures. `lag_arrhenius`.
+
+    The readings are gas-corrected first (`curve_metrics.debubble`), like every
+    other clock in this package since 2026-09-04.
+    """
+    frame = _lag_window_frame(tuple(experiments),
+                              None if window is None else float(window))
+    return frame.copy()
+
+
+@functools.lru_cache(maxsize=32)
+def _lag_window_frame(experiments, window):
+    """`lag_window_frame`'s work, memoised. Call `lag_window_frame`."""
+    if window is None:
+        window = common_window(experiments)
+    rows = []
+    for curve in scope.curves(experiments):
+        times = np.asarray(curve.times, dtype=float)
+        values = np.asarray(curve.absorbance, dtype=float)
+        corrected, _ = debubble(times, values, curve.noise)
+        keep = times <= window
+        if int(keep.sum()) < LAG_WINDOW_MINIMUM_POINTS:
+            continue
+        times, corrected = times[keep], corrected[keep]
+        span = float(times[-1] - times[0])
+        fit = fit_progress(times, corrected)
+        depth, half, peak, start = fit.lag_profile(span)
+        net = float(corrected[-1] - corrected[0])
+        rows.append({
+            "experiment": curve.experiment, "sample": curve.sample,
+            "substrate": curve.substrate, "buffer": curve.buffer,
+            "temperature": curve.temperature, "kelvin": curve.temperature + 273.15,
+            "pH": curve.pH, "buf": curve.buf,
+            "s0": curve.conditions.s0, "h2o2": curve.conditions.h2o2,
+            "e0": curve.conditions.e0, "hoo": curve.conditions.hoo,
+            "window_s": span, "duration_s": float(np.asarray(curve.times)[-1]),
+            "points": int(len(times)),
+            "net": net, "noise": curve.noise,
+            "live": bool(net > scope.LIVE_SIGNAL_NOISE_MULTIPLE * curve.noise),
+            "lag_depth": depth, "lag_half_s": half,
+            "lag_peak": peak, "lag_start": start,
+            "phases": int(fit.phases), "progress_kind": fit.kind,
+            "B_fast": fit.amplitudes[0],
+            "lag_first": fit.kind in LAG_FIRST_KINDS,
+        })
+    return pd.DataFrame(rows)
+
+
+# A regressor is identified only where the offsets cannot absorb it. This is
+# the fraction of an axis's variance that survives projecting the offsets out;
+# below it, the coefficient is whatever the pseudo-inverse's minimum-norm
+# solution happens to split off, and its standard error is a fit to noise.
+# It cost an afternoon on 2026-09-05: `lag_ph_ladders` first ran with one
+# offset per EXPERIMENT on ladders where pH is one value per experiment, and
+# reported +0.549 +/- 0.014 -- a forty-sigma pH effect that was the collinearity
+# and nothing else. `scope._moves` guards the same mistake on the within-run
+# orders; this guards it on the between-run ladders.
+IDENTIFIED_SHARE = 1e-6
+
+
+def _identified(values, offsets_matrix):
+    """The share of `values`'s variance the offsets cannot absorb."""
+    spread = float(((values - values.mean()) ** 2).sum())
+    if spread <= 0:
+        return 0.0
+    beta, *_ = np.linalg.lstsq(offsets_matrix, values, rcond=None)
+    resid = values - offsets_matrix @ beta
+    return float(resid @ resid) / spread
+
+
+def _lag_fit(table, response, terms, offsets=None, floor=INDUCTION_FLOOR):
+    """
+    Least squares of a lag response on `terms`, with one offset per group.
+
+    `response` is "lag_half_s" (logged, floored), "lag_depth" (as it is, since
+    it is already a fraction) or "lag_first" (0/1, a linear probability model
+    for the reason `sign_drivers` gives). `offsets` is a column name -- usually
+    "experiment", and "sample" on the two-axis pH ladders, where a cuvette is
+    matched across runs and a run offset would absorb the pH axis itself.
+    """
+    if response == "lag_half_s":
+        y = np.log(np.maximum(table.lag_half_s.to_numpy(dtype=float), floor))
+    elif response == "lag_first":
+        y = table.lag_first.to_numpy(dtype=float)
+    else:
+        y = table[response].to_numpy(dtype=float)
+    columns = [np.asarray(term, dtype=float) for term in terms]
+    if offsets is None:
+        columns.append(np.ones(len(table)))
+    else:
+        for level in sorted(table[offsets].unique()):
+            columns.append((table[offsets] == level).to_numpy(float))
+    design = np.column_stack(columns)
+    beta, *_ = np.linalg.lstsq(design, y, rcond=None)
+    resid = y - design @ beta
+    rank = int(np.linalg.matrix_rank(design))
+    variance = float(resid @ resid) / max(1, len(y) - rank)
+    covariance = variance * np.linalg.pinv(design.T @ design)
+    return (float(beta[0]), float(np.sqrt(max(covariance[0, 0], 0.0))),
+            int(len(y)))
+
+
+def _partial_correlation(first, second, table, offsets):
+    """Correlation of two columns with the offsets projected out of both."""
+    if offsets is None:
+        levels = np.ones((len(table), 1))
+    else:
+        levels = np.column_stack(
+            [(table[offsets] == level).to_numpy(float)
+             for level in sorted(table[offsets].unique())])
+    out = []
+    for column in (first, second):
+        beta, *_ = np.linalg.lstsq(levels, column, rcond=None)
+        out.append(column - levels @ beta)
+    if out[0].std() == 0 or out[1].std() == 0:
+        return np.nan
+    return float(np.corrcoef(out[0], out[1])[0, 1])
+
+
+LAG_RESPONSES = ("lag_half_s", "lag_depth", "lag_first")
+
+
+LAG_ORDER_FLOORS = {"lag_half_s": INDUCTION_FLOOR, "lag_depth": DEPTH_FLOOR}
+
+
+def lag_orders(table, terms=scope.ORDER_TERMS, live_only=True,
+               floors=None):
+    """
+    Within-run orders of the window-free lag, with and without the signal.
+
+    Delegates to `scope.orders`, which is the package's one within-experiment
+    log-log fit and carries the `_moves` guard; this adds only the pairing that
+    makes the answer readable -- the same fit run again with the curve's own
+    log(net/noise) held as a covariate, and the partial correlation that says
+    whether holding it was ever going to matter.
+
+    FIT EVERY AXIS THE BLOCK MOVES. `terms` defaults to ("s0", "h2o2") and has
+    to be ("s0", "h2o2", "buf") on the 4OMe archive, where substrate volume
+    displaced buffer volume. One axis at a time is a different regression on an
+    L: the two-axis block's cuvettes carry log[S] against log[H2O2] at about
+    -0.5, and a substrate-only fit of the induction clock there reads
+    -0.453 +/- 0.107 where the joint fit reads -0.225 +/- 0.115.
+
+    THE PAIR IS THE RESULT. A fitted lag tracks signal-to-noise on every block
+    that moves peroxide, because in those blocks the peroxide IS the signal:
+    +0.92 +/- 0.26 on the two-axis block, +0.98 +/- 0.29 on exps 127-131. Where
+    the held and unheld coefficients agree the axis is separated from the
+    signal; where they do not, the design cannot tell them apart, and that is
+    the finding rather than a caveat on one.
+
+    The sign of the early curve is NOT here. It is a 0/1 and takes no
+    logarithm, so it has its own estimator in `sign_drivers`, which section 6
+    already reports.
+    """
+    live = table[table.live] if live_only else table
+    live = live[(live.net > 0) & (live.noise > 0)].copy()
+    live["signal"] = live.net / live.noise
+    out = {"points": int(len(live)),
+           "experiments": int(live.experiment.nunique()), "terms": tuple(terms)}
+    for term in terms:
+        out[f"signal_collinearity_{term}"] = _partial_correlation(
+            np.log(live[term].to_numpy(dtype=float)),
+            np.log(live.signal.to_numpy(dtype=float)), live, "experiment")
+    for response, floor in (floors or LAG_ORDER_FLOORS).items():
+        bare = scope.orders(response, frame=live, floor=floor, terms=terms)
+        held = scope.orders(response, frame=live, floor=floor, terms=terms,
+                            covariates=("signal",))
+        # How many rows sat ON the floor. `lag_half_s` is 0 on a curve with no
+        # lag and `lag_depth` is 0 with it, and those zeros are measurements --
+        # but a response that is mostly floor is a response the log-log fit
+        # cannot see, and the count is the reader's warning.
+        values = live[response].to_numpy(dtype=float)
+        row = {"n": bare["n"], "r2": bare["r2"],
+               "floored": int((values < floor).sum()),
+               "signal_order": held.get("held_signal", np.nan),
+               "signal_stderr": held.get("held_stderr_signal", np.nan)}
+        for term in terms:
+            row[term] = {"order": bare[f"order_{term}"],
+                         "stderr": bare[f"stderr_{term}"],
+                         "controlled": held[f"order_{term}"],
+                         "controlled_stderr": held[f"stderr_{term}"]}
+        out[response] = row
+    return out
+
+
+def lag_order_floor_sweep(table, axis, terms=scope.ORDER_TERMS,
+                          response="lag_half_s", floors=FLOOR_SWEEP):
+    """
+    One axis's order at every floor, because 44% of the block sits on it.
+
+    A curve that begins at its fastest has `lag_half_s = 0` and `lag_depth = 0`
+    honestly, and those zeros are 48 of the two-axis block's 110 live curves.
+    They cannot be dropped -- dropping them is the censoring the whole
+    statistic was built to avoid -- so they are floored, and the floor is a
+    choice. This walks it, the way `report` walks INDUCTION_FLOOR for the
+    landmark. A coefficient that changes sign across the sweep is the floor's.
+    """
+    rows = []
+    for floor in floors:
+        got = lag_orders(table, terms=terms, floors={response: floor})
+        order = got[response][axis]
+        rows.append({"floor": floor, "order": order["order"],
+                     "stderr": order["stderr"],
+                     "controlled": order["controlled"],
+                     "controlled_stderr": order["controlled_stderr"],
+                     "floored": got[response]["floored"]})
+    return pd.DataFrame(rows).set_index("floor")
+
+
+def lag_sign(table):
+    """
+    `lag_first` on a frame from either source, derived once.
+
+    `lag_window_frame` builds the column itself; `scope.frame` carries the
+    shape as `progress_kind_corrected`, from the same fit on the same rebuilt
+    readings. Both mean "the fast phase is a lag", and LAG_FIRST_KINDS is the
+    single definition of which shapes those are.
+    """
+    if "lag_first" in table.columns:
+        return table
+    table = table.copy()
+    table["lag_first"] = table.progress_kind_corrected.isin(LAG_FIRST_KINDS)
+    return table
+
+
+def lag_signal_control(table, offsets="experiment"):
+    """
+    Does the WINDOW-FREE lag track the curve's own signal-to-noise?
+
+    `signal_control` above asks this of the landmark; this asks it of the
+    fitted lag, and the two do not have the same answer. The catalysed 4OMe
+    block passes on both (+0.003 +/- 0.149 landmark, +0.171 +/- 0.138 clock).
+    The two-axis block fails on both (+0.619 +/- 0.228, +0.832 +/- 0.252) and
+    exps 127-131 fail harder on the fit (+0.989 +/- 0.285) -- so moving to a
+    window-free statistic does NOT rescue the peroxide axis, and the folder's
+    standing refusal to read a peroxide order off those blocks stands.
+
+    It is not a gate. A block that fails it can still carry an axis that is
+    not collinear with its own signal, which is exactly what the two-axis
+    block's substrate arm is: the block's rate order in `[S]` is +0.01 +/- 0.04,
+    so more substrate buys no more signal, and the substrate coefficient on the
+    clock is unmoved by the control (-0.431 -> -0.444). Read `lag_orders`,
+    which reports both.
+    """
+    table = lag_sign(table)
+    live = table[table.live & np.isfinite(table.lag_half_s)
+                 & (table.net > 0) & (table.noise > 0)]
+    if len(live) < LAG_WINDOW_MINIMUM_POINTS:
+        return {"points": int(len(live))}
+    signal = np.log((live.net / live.noise).to_numpy(dtype=float))
+    out = {"points": int(len(live))}
+    for response in LAG_RESPONSES:
+        slope, stderr, _ = _lag_fit(live, response, [signal], offsets)
+        out[response] = {"slope": slope, "stderr": stderr}
+    return out
+
+
+def lag_ladder(experiments, axis="pH", window=None, offsets=None,
+               logged=False):
+    """
+    A BETWEEN-run ladder, read at a window every run in it shares.
+
+    `axis="pH"` is read per pH UNIT and not logged, because pH is already a
+    logarithm; every concentration axis is logged. `offsets="sample"` on the
+    two-axis ladders, where the seven compositions repeat across runs and a
+    run offset would absorb the ladder.
+
+    Returns the coefficient on each lag response, alone and with the signal
+    control, plus the window used, the runs kept and the two collinearities
+    that decide whether the answer means anything: `axis` against log(run
+    length) and against log(signal/noise), over the runs.
+    """
+    experiments = tuple(experiments)
+    if window is None:
+        window = common_window(experiments)
+    table = lag_window_frame(experiments, window)
+    live = table[table.live & np.isfinite(table.lag_half_s)
+                 & (table.net > 0) & (table.noise > 0)]
+    if live.experiment.nunique() < 3:
+        return {"axis": axis, "window_s": float(window),
+                "runs": int(live.experiment.nunique()), "points": int(len(live))}
+    values = (np.log(live[axis].to_numpy(dtype=float)) if logged
+              else live[axis].to_numpy(dtype=float))
+    signal = np.log((live.net / live.noise).to_numpy(dtype=float))
+    # THE OFFSETS MAY NOT ABSORB THE LADDER. On a between-run ladder the axis
+    # is one value per run, so `offsets="experiment"` is collinear with it by
+    # construction and returns a minimum-norm split with a meaningless error.
+    # Pass None (a single level) or "sample" -- the two-axis ladders repeat
+    # seven compositions across runs, so a cuvette offset is matched and a run
+    # offset is the axis.
+    if offsets is None:
+        levels = np.ones((len(live), 1))
+    else:
+        levels = np.column_stack(
+            [(live[offsets] == level).to_numpy(float)
+             for level in sorted(live[offsets].unique())])
+    share = _identified(values, levels)
+    if share < IDENTIFIED_SHARE:
+        raise ValueError(
+            f"{axis} is absorbed by one offset per {offsets}: "
+            f"{share:.2e} of its variance survives. A between-run ladder needs "
+            f"offsets=None, or offsets='sample' where cuvettes are matched.")
+    # `level` and not `axis`: `axis` is a reserved keyword of DataFrame.agg.
+    runs = live.groupby("experiment").agg(
+        level=(axis, "first"), duration=("duration_s", "first"),
+        signal=("net", "median"), noise=("noise", "median"))
+    run_axis = (np.log(runs.level.to_numpy(float)) if logged
+                else runs.level.to_numpy(float))
+    out = {"axis": axis, "window_s": float(window),
+           "runs": int(live.experiment.nunique()), "points": int(len(live)),
+           "schedule_collinearity": float(np.corrcoef(
+               run_axis, np.log(runs.duration.to_numpy(float)))[0, 1]),
+           "signal_collinearity": float(np.corrcoef(
+               run_axis, np.log((runs.signal / runs.noise).to_numpy(float)))[0, 1])}
+    for response in LAG_RESPONSES:
+        slope, stderr, _ = _lag_fit(live, response, [values], offsets)
+        held, held_stderr, _ = _lag_fit(live, response, [values, signal], offsets)
+        out[response] = {"slope": slope, "stderr": stderr,
+                         "controlled": held, "controlled_stderr": held_stderr}
+    return out
+
+
+def lag_window_sweep(experiments, axis="pH", offsets=None,
+                     fractions=LAG_WINDOW_SWEEP, logged=False):
+    """`lag_ladder` at fractions of the block's common window. The systematic."""
+    full = common_window(experiments)
+    return [lag_ladder(experiments, axis=axis, window=full * fraction,
+                       offsets=offsets, logged=logged)
+            for fraction in fractions]
+
+
+def lag_ph_ladders(window_fraction=1.0):
+    """Every pH ladder in the archive, read the same way. `scope.PH_LADDERS`."""
+    rows = []
+    for name, experiments in scope.PH_LADDERS.items():
+        # One offset per CUVETTE on the two-axis ladders, where the seven
+        # compositions repeat across runs; a single level on the other two,
+        # whose runs share nothing but the design. Never one per experiment:
+        # pH is one value per run everywhere in this archive.
+        offsets = "sample" if experiments in (
+            scope.PH_LADDER_TWO_AXIS_LOW, scope.PH_LADDER_TWO_AXIS_HIGH) else None
+        window = common_window(experiments) * window_fraction
+        result = lag_ladder(experiments, axis="pH", window=window,
+                            offsets=offsets)
+        result["ladder"] = name
+        result["offsets"] = offsets
+        rows.append(result)
+    return rows
+
+
+def pooled_ladder(results, response="lag_half_s", controlled=True):
+    """
+    Combine several ladders' coefficients on one response, inverse-variance.
+
+    Four pH ladders is not four times one pH ladder: they sit in three buffers
+    and on two substrates, and their confounds have OPPOSITE signs -- pH
+    against log(run length) runs -0.25, +0.71, -0.53, -0.79 across them and
+    against log(signal/noise) +0.87, -0.65, +0.77, +0.79. So a pooled
+    coefficient is worth more than its error suggests if the four agree, and
+    `chi2` on `dof` is how that is checked rather than assumed.
+
+    It is worth LESS than its error suggests in one respect, which
+    `lag_window_sweep` prices and this cannot: the window is a choice, and on
+    three of the four ladders the coefficient moves further across windows than
+    its own error. Quote the pooled value with the sweep beside it.
+    """
+    key = "controlled" if controlled else "slope"
+    error = "controlled_stderr" if controlled else "stderr"
+    rows = [r[response] for r in results
+            if response in r and np.isfinite(r[response][error])
+            and r[response][error] > 0]
+    if len(rows) < 2:
+        return {"points": len(rows)}
+    values = np.array([r[key] for r in rows], dtype=float)
+    weights = 1.0 / np.array([r[error] for r in rows], dtype=float) ** 2
+    mean = float((weights * values).sum() / weights.sum())
+    stderr = float(1.0 / np.sqrt(weights.sum()))
+    chi2 = float((weights * (values - mean) ** 2).sum())
+    return {"ladders": len(rows), "pooled": mean, "stderr": stderr,
+            "chi2": chi2, "dof": len(rows) - 1,
+            "values": [float(v) for v in values],
+            "errors": [float(e) for e in 1.0 / np.sqrt(weights)]}
+
+
+def lag_arrhenius(experiments=None, window=None, response="lag_half_s"):
+    """
+    The induction's barrier, from the window-free clock at a common window.
+
+    `arrhenius.activation_parameters("inverse_tau")` measures the same barrier
+    from the one-phase fit's `tau` and gets 95.0 +/- 15.7 kJ/mol on 16 curves
+    at FOUR temperatures -- 15 to 30 C, because above 32 C a decelerating curve
+    has no lag for the one-phase form to find and tau lands on the top of its
+    grid (`arrhenius.BURST_TRUSTWORTHY_BELOW_C`). The two-phase form does find
+    it, so `lag_half_s` reaches all six temperatures.
+
+    IT ALSO REACHES THE CONFOUND. Cold runs are long ones here, 1/T against
+    log(run length) at +0.66, and the clock cannot exceed the run: on whole
+    runs the barrier is 83.7 +/- 8.9 and putting log(run length) in the
+    regression drops it to 55.3 +/- 24.3 on a six-point collinearity. At a
+    window all six runs share it is 73.2 +/- 11.9, and `lag_window_sweep` on
+    this block shows it stable from there to the longest run.
+
+    Returns the Arrhenius slope as an activation energy in kJ/mol.
+    """
+    if experiments is None:
+        experiments = scope.TEMPERATURE_SERIES
+    table = lag_window_frame(experiments, window)
+    live = table[table.live & (table.lag_half_s > 0)]
+    if live.temperature.nunique() < 3:
+        return {"temperatures": int(live.temperature.nunique()),
+                "points": int(len(live))}
+    inverse = 1.0 / live.kelvin.to_numpy(dtype=float)
+    y = np.log(1.0 / live.lag_half_s.to_numpy(dtype=float))
+    design = np.column_stack([inverse, np.ones(len(y))])
+    beta, *_ = np.linalg.lstsq(design, y, rcond=None)
+    resid = y - design @ beta
+    covariance = (float(resid @ resid) / max(1, len(y) - 2)
+                  * np.linalg.pinv(design.T @ design))
+    return {"window_s": float(table.window_s.max()),
+            "points": int(len(y)),
+            "temperatures": int(live.temperature.nunique()),
+            "activation_kj": float(-beta[0] * GAS_CONSTANT / 1000.0),
+            "stderr_kj": float(np.sqrt(max(covariance[0, 0], 0.0))
+                               * GAS_CONSTANT / 1000.0),
+            "clock_by_temperature": {
+                float(t): float(g.lag_half_s.median())
+                for t, g in live.groupby("temperature")}}
+
+
+# Multiples of the block's common window. 1.0 is the longest window every run
+# can supply and is the one to quote; below it the cold curves' clocks are
+# longer than the window and the barrier collapses, which is the censoring this
+# whole section is about, shown rather than avoided. Above it the runs that are
+# shorter fall back to their own length, so 4.0 -- past the 3.55x that separates
+# the temperature series' longest run from its shortest -- IS whole runs.
+ARRHENIUS_WINDOW_SWEEP = (0.3, 0.5, 0.75, 1.0, 2.0, 4.0)
+
+
+def lag_arrhenius_sweep(experiments=None, fractions=ARRHENIUS_WINDOW_SWEEP):
+    """The barrier at multiples of the common window; the last is whole runs."""
+    if experiments is None:
+        experiments = scope.TEMPERATURE_SERIES
+    full = common_window(experiments)
+    out = []
+    for fraction in fractions:
+        result = lag_arrhenius(experiments, window=full * fraction)
+        result["fraction"] = fraction
+        out.append(result)
+    return out
+
+
+def replicate_floor(experiments=None, window=None):
+    """
+    How far two runs that differ in NOTHING move the lag parameters.
+
+    `scope.REPLICATE_RUNS` is four repeats of one composition -- the only
+    four-fold repeat in the archive -- so it is the bar every between-run
+    result in this section has to clear. Returns the spread of the per-run
+    medians, as a ratio for the clock and a difference for the depth.
+    """
+    if experiments is None:
+        experiments = scope.REPLICATE_RUNS
+    table = lag_window_frame(experiments, window)
+    live = table[table.live]
+    runs = live.groupby("experiment").agg(
+        clock=("lag_half_s", "median"), depth=("lag_depth", "median"),
+        curves=("lag_depth", "size"))
+    clocks = runs.clock.to_numpy(dtype=float)
+    positive = clocks[clocks > 0]
+    return {"runs": int(len(runs)), "curves": int(len(live)),
+            "window_s": float(table.window_s.max()),
+            "clock_ratio": float(positive.max() / positive.min())
+                           if len(positive) > 1 else np.nan,
+            "clock_range": (float(clocks.min()), float(clocks.max())),
+            "depth_range": (float(runs.depth.min()), float(runs.depth.max())),
+            "depth_spread": float(runs.depth.max() - runs.depth.min()),
+            "table": runs}
+
+
+def matched_pair(pair, window=None):
+    """
+    Two runs matched on everything but one variable, at a common window.
+
+    The archive's substrate, buffer-salt and catalyst contrasts are all pairs
+    (`scope.SUBSTRATE_PAIRS`, `scope.BUFFER_TYPE_PAIR`, `scope.ENZYME_PAIRS`),
+    because none of those three was ever laddered. A pair cannot give an order;
+    it gives a direction and a size, and `replicate_floor` says whether the size
+    means anything -- which for the clock is a factor of 2.1 between runs that
+    differ in nothing at all.
+    """
+    table = lag_window_frame(tuple(pair), window)
+    live = table[table.live]
+    runs = live.groupby("experiment").agg(
+        substrate=("substrate", "first"), buffer=("buffer", "first"),
+        pH=("pH", "first"), e0=("e0", "first"), temperature=("temperature", "first"),
+        clock=("lag_half_s", "median"), depth=("lag_depth", "median"),
+        peak=("lag_peak", "median"), lag_first=("lag_first", "sum"),
+        curves=("lag_depth", "size"))
+    return {"pair": tuple(pair), "window_s": float(table.window_s.max()),
+            "table": runs.reindex([e for e in pair if e in runs.index])}
+
+
+def saturation_fraction(slope, stderr, per_ph=True):
+    """
+    A measured lag coefficient as the saturation fraction it implies.
+
+    Both bounded schemes of section 4a read the same way. For a trap -- a
+    species X that holds the catalyst OFF the activation path --
+
+        1/tau = k_act/(1 + K[X])   =>   d ln tau/d ln[X] = K[X]/(1 + K[X])
+
+    and for a species whose BOUND form is what activates, the same expression
+    with the sign reversed. So the coefficient IS the fraction of the catalyst
+    held by X, between 0 and 1, with no rate constant anywhere in it. A pH
+    coefficient is a coefficient in an axis that moves by a decade per unit, so
+    it is divided by ln 10 first.
+
+    Returns the fraction, its error, and whether it lies inside (0, 1) -- which
+    is the whole test, since a value outside falsifies both schemes.
+    """
+    fraction = slope / LN10 if per_ph else slope
+    error = stderr / LN10 if per_ph else stderr
+    return {"fraction": float(fraction), "stderr": float(error),
+            "inside_trap": bool(TRAP_BOUND[0] < fraction < TRAP_BOUND[1]),
+            "inside_activating": bool(
+                ACTIVATING_BOUND[0] < fraction < ACTIVATING_BOUND[1])}
+
+
+LAG_AXES = ("temperature", "pH", "buf", "buffer", "s0", "substrate", "h2o2")
+
+
+def lag_identifiability(frame=None):
+    """
+    For each of the seven variables: does the archive move it inside a run?
+
+    THE TABLE THIS SECTION EXISTS FOR. A variable that moves only between runs
+    can only be read through a statistic with no window in it, and then only
+    against the schedule and the signal. Returns one row per axis with the
+    number of runs that move it internally, the number of distinct values it
+    takes across the archive, and the widest within-run span.
+    """
+    if frame is None:
+        frame = scope.frame(scope.archive())
+    live = frame[frame.live]
+    rows = []
+    for axis in LAG_AXES:
+        groups = live.groupby("experiment")[axis]
+        internal = int((groups.nunique() > 1).sum())
+        # A ratio for a concentration and a difference for the two axes that
+        # are already logarithms or already differences -- pH and temperature.
+        # Reporting a pH "span" as max/min is how a constant-pH run comes back
+        # as 1.0 and reads like a decade.
+        if axis in ("buffer", "substrate"):
+            span, unit = np.nan, "category"
+        elif axis in ("pH", "temperature"):
+            span = float(groups.apply(lambda s: s.max() - s.min()).max())
+            unit = "units" if axis == "pH" else "C"
+        else:
+            span = float(groups.apply(
+                lambda s: s.max() / s.min() if s.min() > 0 else np.nan).max())
+            unit = "fold"
+        rows.append({"axis": axis,
+                     "runs_moving_it": internal,
+                     "runs": int(live.experiment.nunique()),
+                     "levels": int(live[axis].nunique()),
+                     "widest_within_run": span, "unit": unit})
+    return pd.DataFrame(rows).set_index("axis")
+
+
 def induction_blocks(frame):
     """The named cuts, from the frame's own columns."""
     four = frame.substrate == "4OMe-BnOH"
@@ -1627,6 +2294,74 @@ def report(table=None):
               f"+- {got['stderr_s0']:.3f}   in [H2O2] "
               f"{got['order_h2o2']:+.3f} +- {got['stderr_h2o2']:.3f}   "
               f"n={got['n']}")
+
+    print("\n7. THE SEVEN AXES, AND WHERE THE ARCHIVE IDENTIFIES EACH")
+    print(lag_identifiability().to_string())
+
+    print("\n7a. THE REPLICATE FLOOR -- what two identical runs do anyway")
+    floor = replicate_floor()
+    print(floor["table"].to_string())
+    print(f"   clock {floor['clock_ratio']:.2f}x over {floor['runs']} runs, "
+          f"depth spread {floor['depth_spread']:.3f}")
+
+    print("\n7b. WITHIN RUNS: the axes the archive steps inside a cuvette set")
+    archive = scope.frame(scope.archive())
+    named = induction_blocks(archive)
+    cases = (("4OMe catalysed", named["4OMe catalysed"], ("s0", "h2o2", "buf")),
+             ("BnOH two-axis", named["BnOH two-axis (135-151)"], ("s0", "h2o2")),
+             ("4OMe peroxide 127-131",
+              archive[archive.experiment.isin(PEROXIDE_LEVER)], ("s0", "h2o2")),
+             ("buffer titrations",
+              archive[archive.experiment.isin(scope.BUFFER_TITRATIONS)],
+              ("s0", "h2o2", "buf")))
+    for label, block, terms in cases:
+        got = lag_orders(block, terms=terms)
+        print(f"   {label}  n={got['points']} runs={got['experiments']}")
+        for response in LAG_ORDER_FLOORS:
+            row = got[response]
+            pieces = []
+            for term in terms:
+                order = row[term]
+                if not np.isfinite(order["order"]):
+                    continue
+                pieces.append(
+                    f"{term} {order['order']:+.3f}+-{order['stderr']:.3f}"
+                    f" -> {order['controlled']:+.3f}+-"
+                    f"{order['controlled_stderr']:.3f}"
+                    f" (r={got['signal_collinearity_' + term]:+.2f})")
+            print(f"      {response:11s} floored {row['floored']:3d}/{row['n']:3d}"
+                  f"  " + "  ".join(pieces))
+    print("\n7c. BETWEEN RUNS: the four pH ladders, at a window they share")
+    for fraction in LAG_WINDOW_SWEEP:
+        ladders = lag_ph_ladders(window_fraction=fraction)
+        for row in ladders:
+            clock = row.get("lag_half_s")
+            if clock is None:
+                continue
+            print(f"   {row['ladder']:28s} f={fraction:.2f} "
+                  f"W={row['window_s']:6.0f}s runs={row['runs']:2d} "
+                  f"n={row['points']:3d}  "
+                  f"r(pH,length) {row['schedule_collinearity']:+.2f} "
+                  f"r(pH,signal) {row['signal_collinearity']:+.2f}  "
+                  f"clock {clock['slope']:+.3f} +-{clock['stderr']:.3f} -> "
+                  f"{clock['controlled']:+.3f} +-{clock['controlled_stderr']:.3f}")
+        pooled = pooled_ladder(ladders, "lag_half_s")
+        print(f"   {'POOLED':28s} f={fraction:.2f} "
+              f"{pooled['pooled']:+.3f} +- {pooled['stderr']:.3f}  "
+              f"chi2 {pooled['chi2']:.2f} on {pooled['dof']}")
+
+    print("\n7d. TEMPERATURE, at a window every run in the series shares")
+    for row in lag_arrhenius_sweep():
+        print(f"   x{row['fraction']:.2f} W={row['window_s']:6.0f}s "
+              f"n={row['points']:3d} T={row['temperatures']}  "
+              f"Ea {row['activation_kj']:6.1f} +- {row['stderr_kj']:.1f} kJ/mol")
+
+    print("\n7e. THE PAIRS: buffer salt, substrate, catalyst")
+    for pair in (scope.BUFFER_TYPE_PAIR, *scope.SUBSTRATE_PAIRS,
+                 *scope.ENZYME_PAIRS):
+        got = matched_pair(pair)
+        print(f"   {str(pair):10s} window {got['window_s']:6.0f} s")
+        print(got["table"].to_string())
     return table
 
 

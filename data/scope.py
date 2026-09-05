@@ -84,7 +84,15 @@ def frame(scope=TWO_AXIS_BLOCK):
     noise, net, live, v0, v0_stderr, v0_rms, vmax, vmax_stderr, vmax_where,
     bubble_drops, bubble_load, vmax_corrected, vmax_monotone,
     gain, vmax_time_s, lag_time_s, conversion, peak, lags, accel_z, accel_where, accelerates,
-    late_over_early.
+    late_over_early, lag_depth, lag_half_s, lag_peak, lag_start.
+
+    `lag_depth` and `lag_half_s` are the lag WITH NO WINDOW IN IT, read off the
+    fitted rate rather than a rolling one (summary_kinetics.lag_profile). They
+    are what makes the archive's BETWEEN-run designs -- the pH ladders, the
+    temperature series, the buffer titrations -- askable at all; the folder's
+    `induction.induction_point` carries a window a tenth of the run wide and is
+    safe only inside a run. Both come off the rebuilt curve, like
+    `tau_corrected`; `lag_depth_raw` and `lag_half_raw` are the readings'.
 
     `v0` is the rate before the catalyst has built up and `vmax` the rate
     after; on this block they are different measurements with different
@@ -157,6 +165,8 @@ def _frame(scope):
         # rebuilt series costs 8 ms a curve and removes the excuse.
         progress_fixed = fit_progress(times, corrected)
         burst_fixed = fit_burst_bounded(times, corrected, noise_floor=floor)
+        span = float(times[-1] - times[0])
+        lag_depth, lag_half, lag_peak, lag_start = progress_fixed.lag_profile(span)
         vmax_monotone, _, _ = peak_rate(
             times, monotone_bound(values), floor=floor)
         # AND THE BUBBLE THAT NEVER LEFT. `debubble` subtracts only gas the run
@@ -205,6 +215,7 @@ def _frame(scope):
         # set the grid to [span, 2*span] and made every curve look two-phase.
         progress = fit_progress(times, values)
         peak_fitted, peak_fitted_time = progress.peak_rate
+        lag_depth_raw, lag_half_raw, _, _ = progress.lag_profile(span)
         # How much the curve put on before it stopped rising, off the FITTED
         # curve rather than the readings -- curve_metrics.burst_amplitude says
         # why, and `burst_bounded` is the flag that keeps an unfinished rise
@@ -365,6 +376,26 @@ def _frame(scope):
             "tau_slow_resolved_corrected": bool(
                 progress_fixed.phases == 2 and progress_fixed.two.resolved),
             "phases_corrected": int(progress_fixed.phases),
+            # THE LAG, WITH NO WINDOW IN IT. `induction.induction_point` reads
+            # the same two numbers through a rolling window a tenth of the run
+            # wide, which is safe inside a run and not between runs -- the
+            # induction time regresses on run length at +0.437 +/- 0.181. These
+            # come off the fitted rate instead (summary_kinetics.lag_profile),
+            # so every between-run design in the archive -- the pH ladders, the
+            # temperature series, the buffer titrations -- becomes askable.
+            # Read on the REBUILT curve, for the reason `tau_corrected` is:
+            # the gas is made from peroxide, so leaving it in shortens the
+            # apparent clock on exactly the axis the clock is asked about.
+            "lag_depth": lag_depth,
+            "lag_half_s": lag_half,
+            "lag_peak": lag_peak,
+            "lag_start": lag_start,
+            # And the same pair off the readings, so the gas repair's effect on
+            # the lag can be shown rather than asserted.
+            "lag_depth_raw": lag_depth_raw,
+            "lag_half_raw": lag_half_raw,
+            "progress_kind_corrected": progress_fixed.kind,
+            "B_fast_corrected": progress_fixed.amplitudes[0],
             "outliers": len(isolated),
             "outliers_in_runs": len(in_runs),
             "first_point_z": first_z,
@@ -749,13 +780,29 @@ def _moves(column, groups, within):
     return any(float(np.ptp(column[groups == g])) > 0 for g in np.unique(groups))
 
 
+ORDER_TERMS = ("s0", "h2o2")
+
+
 def orders(parameter="v0", scope=TWO_AXIS_BLOCK, within=True, live_only=True,
-           frame=None, floor=None):
+           frame=None, floor=None, terms=ORDER_TERMS, covariates=()):
     """
     Apparent reaction orders in [S] and [H2O2], from a log-log regression.
 
     Fits log(parameter) = intercept + a*log[S] + b*log[H2O2], with a free
     offset per experiment when `within` is True.
+
+    `terms` names the axes; the default pair is what the two-axis block moves
+    and `("s0", "h2o2", "buf")` is what the 4OMe archive does. FIT EVERY AXIS
+    THE BLOCK MOVES AT ONCE. One axis at a time is not the same regression on
+    an L: the two-axis block's cuvettes correlate log[S] with log[H2O2] at
+    about -0.5 by construction, so a substrate-only fit reads part of the
+    peroxide order -- it puts the induction clock's substrate order at
+    -0.453 +/- 0.107 where the joint fit says -0.225 +/- 0.115.
+
+    `covariates` are further columns fitted in logs alongside, and not treated
+    as orders: `induction.lag_orders` passes the curve's own signal-to-noise
+    there, so that "the order" and "the order with the signal held" come off
+    ONE regression rather than two whose difference nobody can price.
 
     `frame` lets a caller measure the orders of a column this module does not
     build -- `induction` passes its own table in, the way `arrhenius` accepts
@@ -781,13 +828,13 @@ def orders(parameter="v0", scope=TWO_AXIS_BLOCK, within=True, live_only=True,
     data = data[data[parameter] > 0] if floor is None else data[
         data[parameter] >= 0]
     if len(data) < 4:
-        return {"order_s0": np.nan, "stderr_s0": np.nan, "order_h2o2": np.nan,
-                "stderr_h2o2": np.nan, "n": len(data), "r2": np.nan}
+        return {f"order_{t}": np.nan for t in terms} | {
+            f"stderr_{t}": np.nan for t in terms} | {
+            "n": len(data), "r2": np.nan}
 
     y = data[parameter].to_numpy(dtype=float)
     y = np.log(y if floor is None else np.maximum(y, floor))
-    columns = [np.log(data.s0.to_numpy(dtype=float)),
-               np.log(data.h2o2.to_numpy(dtype=float))]
+    columns = [np.log(data[term].to_numpy(dtype=float)) for term in terms]
     # An axis the block does not move is not identified, and saying so is not
     # optional: with `within=True` a constant axis is collinear with the
     # experiment indicators, `lstsq` splits the coefficient between them
@@ -807,6 +854,13 @@ def orders(parameter="v0", scope=TWO_AXIS_BLOCK, within=True, live_only=True,
     identified = [_moves(column, data.experiment.to_numpy(), within)
                   for column in columns]
     columns = [column for column, keep in zip(columns, identified) if keep]
+    # Covariates are held, not reported as orders, and they get the same
+    # identifiability test -- a covariate the offsets absorb is a column of
+    # zeros after projection and would only add rank.
+    held = [name for name in covariates
+            if _moves(np.log(data[name].to_numpy(dtype=float)),
+                      data.experiment.to_numpy(), within)]
+    columns += [np.log(data[name].to_numpy(dtype=float)) for name in held]
     if within:
         # One indicator per experiment, and no separate intercept -- the
         # indicators already span it. Adding both would make X rank-deficient.
@@ -817,26 +871,31 @@ def orders(parameter="v0", scope=TWO_AXIS_BLOCK, within=True, live_only=True,
         columns.append(np.ones(len(data)))
     design_matrix = np.column_stack(columns)
 
-    if not columns:
-        return {"order_s0": np.nan, "stderr_s0": np.nan, "order_h2o2": np.nan,
-                "stderr_h2o2": np.nan, "n": len(data), "r2": np.nan}
+    if not any(identified):
+        return {f"order_{t}": np.nan for t in terms} | {
+            f"stderr_{t}": np.nan for t in terms} | {
+            "n": len(data), "r2": np.nan}
     coefficients, *_ = np.linalg.lstsq(design_matrix, y, rcond=None)
     residual = y - design_matrix @ coefficients
     degrees = max(1, len(y) - np.linalg.matrix_rank(design_matrix))
     variance = float(residual @ residual) / degrees
     covariance = variance * np.linalg.pinv(design_matrix.T @ design_matrix)
     total = float(((y - y.mean()) ** 2).sum())
-    out = {"order_s0": np.nan, "stderr_s0": np.nan,
-           "order_h2o2": np.nan, "stderr_h2o2": np.nan,
-           "n": int(len(y)),
-           "r2": float(1 - (residual @ residual) / total) if total > 0
-           else np.nan}
+    out = {f"order_{name}": np.nan for name in terms}
+    out.update({f"stderr_{name}": np.nan for name in terms})
+    out["n"] = int(len(y))
+    out["r2"] = (float(1 - (residual @ residual) / total) if total > 0
+                 else np.nan)
     position = 0
-    for name, keep in zip(("s0", "h2o2"), identified):
+    for name, keep in zip(terms, identified):
         if not keep:
             continue
         out[f"order_{name}"] = float(coefficients[position])
         out[f"stderr_{name}"] = float(np.sqrt(covariance[position, position]))
+        position += 1
+    for name in held:
+        out[f"held_{name}"] = float(coefficients[position])
+        out[f"held_stderr_{name}"] = float(np.sqrt(covariance[position, position]))
         position += 1
     return out
 
@@ -2714,6 +2773,103 @@ TEMPERATURE_SERIES = (19, 18, 14, 17, 15, 16)
 # is the same design at 35 C, and temperature moves every rate constant through
 # Arrhenius, so including it would pool two cells (FITTING.md F7).
 FREE_4OME_40C = (23, 24, 25, 26, 27, 28, 29, 30, 38, 39)
+
+
+# ---------------------------------------------------------------------------
+# THE pH LADDERS. Four of them, and until 2026-09-05 the project used none.
+#
+# pH is a BETWEEN-run axis everywhere in this archive -- one pH per run, always
+# -- so a pH ladder is a set of runs that share everything else. These four
+# are the sets that do. They matter because the induction's dependence on pH
+# had never been measured: `induction/` reads its landmark through a window a
+# tenth of the run wide, which is not comparable between runs, and every pH
+# comparison is between runs. `scope.frame`'s `lag_half_s` carries no window
+# and `induction.lag_ladder` is how these are read.
+#
+# EVERY ONE OF THEM IS CONFOUNDED, and differently, which is the reason to have
+# four rather than one: pH correlates with log(run length) at -0.43 in the
+# phosphate ladder and +0.71 in the boric one, and with log(signal/noise) at
+# +0.92 and +0.67. A result that survives in all four survives both signs of
+# both confounds. `induction.lag_ladder` refits every run on a window they
+# share and carries the signal control beside the answer.
+
+# 4OMe-BnOH / phosphate / 25 C / 82.5 mM H2O2 / catalysed, pH 5.64 to 8.95.
+# Nine runs sharing the four-rung 1.850-7.399 mM substrate ladder and 50-80 mM
+# buffer. `[enz]` is not quite fixed -- 0.175, 0.241 and 0.273 mM appear -- and
+# that is a 1.6x spread the ladder cannot absorb; it is listed in
+# `PH_LADDER_ENZYME_SPREAD` rather than hidden. Exps 2, 4, 5 and 7 are the same
+# design at pH 6.71 and are NOT here: they are four repeats of one composition,
+# which makes them the replicate floor (`induction.replicate_floor`) and not a
+# rung.
+PH_LADDER_PHOSPHATE = (11, 9, 10, 22, 14, 20, 8, 21, 12)
+
+# 4OMe-BnOH / boric / 25 C / 82.5 mM H2O2 / 0.270 mM chemzyme, pH 8.46 to 10.34.
+# NINE runs with every other condition identical, including the enzyme -- the
+# cleanest ladder in the archive on any axis. Exp 13 is the same cell at
+# pH 9.50 and is excluded: it carries the OTHER substrate ladder (1.850-7.399
+# against 1.529-6.114) and 65 mM buffer against 70-85.
+PH_LADDER_BORIC = (41, 42, 46, 47, 43, 48, 45, 49, 44)
+
+# The two-axis block's own pH ladders, as `ph_ladders` defines them: one set of
+# seven compositions each, so a cuvette is matched across runs. BnOH /
+# pyrophosphate / 25 C, and the only pH ladders in the archive on the other
+# substrate. Read with one offset per CUVETTE, not per run.
+PH_LADDER_TWO_AXIS_LOW = (136, 137, 138, 139, 140, 141, 142)
+PH_LADDER_TWO_AXIS_HIGH = (143, 144, 145, 146, 147, 148, 149, 150, 151)
+
+PH_LADDERS = {
+    "phosphate 4OMe": PH_LADDER_PHOSPHATE,
+    "boric 4OMe": PH_LADDER_BORIC,
+    "pyrophosphate BnOH 136-142": PH_LADDER_TWO_AXIS_LOW,
+    "pyrophosphate BnOH 143-151": PH_LADDER_TWO_AXIS_HIGH,
+}
+
+# The [enz] spread inside PH_LADDER_PHOSPHATE, as a ratio. Quoted so that a
+# reader can see the ladder is not perfectly matched rather than discovering it.
+PH_LADDER_ENZYME_SPREAD = 0.273 / 0.175
+
+# Four repeats of ONE composition: 4OMe-BnOH / phosphate / 25 C / pH 6.71 /
+# 82.5 mM H2O2 / 0.175 mM chemzyme / the 1.5-6.5 mM substrate ladder, each run
+# for 17934 s. Nothing else in the archive repeats a composition four times, so
+# this is the only measurement of how much a lag parameter moves between two
+# runs that differ in NOTHING -- which is the bar every between-run result
+# below has to clear. `induction.replicate_floor`.
+REPLICATE_RUNS = (2, 4, 5, 7)
+
+# The five buffer titrations: 4OMe-BnOH / phosphate / 40 C, `[buf]` stepped
+# inside the run at fixed `[S]`. Exp 34 covers 3.125-25 mM and the other four
+# 50-200. They are the archive's only design that moves the buffer WITHOUT
+# moving the substrate -- in every other 4OMe run substrate volume displaced
+# buffer volume, so the two fall together at -0.96 in logs
+# (`induction.composition_collinearity`).
+#
+# It lived in `buffer_role` until 2026-09-05 and is here now because
+# `induction` needs it too and `buffer_role` imports `induction`, so the block
+# could not be shared without a cycle. `buffer_role.TITRATIONS` is a re-export
+# and remains the name the buffer folder uses.
+BUFFER_TITRATIONS = (32, 34, 35, 36, 37)
+
+# Matched across the SUBSTRATE, which nothing else in the archive is: boric
+# buffer, 25 C, 82.5 mM H2O2, 0.270 vs 0.280 mM chemzyme, the same 70-85 mM
+# buffer, at two pH values. The substrate ladders differ slightly (1.529-6.114
+# against 2.062-8.249 mM) because the two alcohols were weighed to the same
+# volume, not the same molarity.
+SUBSTRATE_PAIRS = ((42, 51), (45, 55))
+
+# Matched across the BUFFER SALT at one pH, and this is the only such pair:
+# exp 12 in phosphate at pH 8.95 against exp 42 in boric at pH 8.98, both
+# 4OMe-BnOH / 25 C / 82.5 mM H2O2 / 0.27 mM chemzyme. Pyrophosphate cannot join
+# it -- exps 127-131 are the only 4OMe pyrophosphate runs and they sit at
+# 193.6 mM buffer and 0.032 mM enzyme.
+BUFFER_TYPE_PAIR = (12, 42)
+
+# The archive's two levers on [enz] with everything else held: exps 59 and 60
+# (BnOH / boric / pH 8.51 / 0.028 against 0.014 mM) and exps 140 and 141 (the
+# two-axis pair, 0.034 against 0.014, 0.07 pH units apart). A unimolecular
+# activation of the catalyst predicts NO dependence of the induction clock on
+# how much catalyst there is, which makes this the one prediction of the
+# activation reading that a concentration can falsify.
+ENZYME_PAIRS = ((59, 60), (140, 141))
 
 
 def boric_sensitivity(estimators=("v0_quad", "v0_burst", "vmax", "v0",

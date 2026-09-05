@@ -363,6 +363,12 @@ TWO_PHASE_GRID_POINTS = 48     # per axis; the pair is profiled on tau1 < tau2
 # are. Treat it as "clearly better", not as a p-value.
 TWO_PHASE_F = 12.0
 
+# Nodes used to read a lag off a fitted rate. The rate is analytic, so this
+# only sets how finely `lag_profile`'s half-rise crossing is located: 4000
+# nodes put it inside span/4000, which is under a tenth of a 60 s reading on
+# even the longest run in the archive.
+LAG_PROFILE_POINTS = 4000
+
 
 @dataclass
 class TwoPhaseFit:
@@ -636,6 +642,82 @@ class ProgressFit:
         if one.B > 0:                      # lag: rises to v_ss
             return float(one.v_ss), float("inf")
         return float(one.v_ss - one.B / one.tau), 0.0   # burst: highest at t=0
+
+    def rate(self, times):
+        """
+        The fitted dA/dt at `times`, from whichever form was earned.
+
+        `predict` gives the curve and this gives its slope, analytically. Both
+        forms are a steady rate minus decaying exponentials, so the derivative
+        is exact and needs no differencing -- which is the whole reason a lag
+        read off the fit is quieter than one read off a rolling window.
+        """
+        times = np.asarray(times, dtype=float)
+        f = self.chosen
+        if self.phases == 2:
+            if not (np.isfinite(f.tau1) and np.isfinite(f.tau2)):
+                return np.full(len(times), np.nan)
+            return (f.v_ss - (f.B1 / f.tau1) * np.exp(-times / f.tau1)
+                    - (f.B2 / f.tau2) * np.exp(-times / f.tau2))
+        if not np.isfinite(f.tau) or f.tau <= 0:
+            return np.full(len(times), np.nan)
+        return f.v_ss - (f.B / f.tau) * np.exp(-times / f.tau)
+
+    def lag_profile(self, span, points=LAG_PROFILE_POINTS):
+        """
+        The lag, read off the FITTED RATE and INSIDE the window measured.
+
+        Returns (depth, half_rise_s, peak, start). `depth` is the fraction of
+        the peak rate that is missing at t = 0 and `half_rise_s` is how long
+        the fitted rate takes to cover half the gap between the two. On a
+        one-phase lag the second is exactly tau.ln2; on a two-phase curve it
+        is the mixture, which is what a single time constant cannot be.
+
+        WHY THIS EXISTS. `induction.induction_point` reads the same two numbers
+        off a ROLLING WINDOW a tenth of the run wide, and that window is what
+        stops the folder comparing two runs: a window in run-fractions turns a
+        between-run comparison into a comparison of windows, which is why the
+        induction time regresses on run length at +0.437 +/- 0.181. This reads
+        them off the fitted form instead, so it carries no window at all and
+        the archive's pH ladders, temperature series and buffer titrations --
+        every one of which is BETWEEN runs -- become askable.
+
+        TWO THINGS IT IS NOT. It is not free of the schedule: the fit's tau
+        grid runs from span/300 to 2.span, so a run still cannot measure a
+        relaxation much longer than itself. `induction.lag_window_frame`
+        answers that by refitting every run of a block on a window they all
+        share. And it is not free of signal -- a curve with little signal gives
+        the fit little to choose between the shapes -- so
+        `induction.lag_signal_control` is run beside every result here.
+
+        READ INSIDE THE WINDOW, not extrapolated. `peak_rate` above returns the
+        supremum, which for a one-phase lag is v_ss at t = infinity; that is
+        the right rate for an Arrhenius plot and the wrong one here, because a
+        depth measured against a rate the run never reached is a statement
+        about the extrapolation. The peak here is the largest fitted rate
+        WITHIN [0, span], so `depth` is bounded by [0, 1) and `half_rise_s` by
+        [0, span]. The floor at zero is the same convention
+        `induction.induction_point` uses for its own start: a fitted initial
+        rate below zero is not a negative lag, it is a full one.
+        """
+        span = float(span)
+        if not np.isfinite(span) or span <= 0:
+            return np.nan, np.nan, np.nan, np.nan
+        grid = np.linspace(0.0, span, points)
+        rate = self.rate(grid)
+        if not np.all(np.isfinite(rate)):
+            return np.nan, np.nan, np.nan, np.nan
+        best = int(np.argmax(rate))
+        peak = float(rate[best])
+        if peak <= 0:
+            return np.nan, np.nan, np.nan, np.nan
+        start = max(float(rate[0]), 0.0)
+        depth = 1.0 - start / peak
+        if depth <= 0:
+            return 0.0, 0.0, peak, start
+        target = start + 0.5 * (peak - start)
+        reached = int(np.argmax(rate[:best + 1] >= target))
+        return float(depth), float(grid[reached]), peak, start
 
     def predict(self, times):
         return self.chosen.predict(times)

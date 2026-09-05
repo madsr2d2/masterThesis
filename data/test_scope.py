@@ -743,9 +743,15 @@ def test_the_clocks_are_corrected_like_the_rate():
 
     # And the accessor has to DEFAULT to them, or the correction is optional in
     # exactly the place it matters most.
-    names = [clock for clock, _ in induction.JOINT_CLOCKS]
+    names = [clock for clock, _, _ in induction.JOINT_CLOCKS]
     check("joint_clocks asks the rebuilt clocks by default",
-          names == ["t_ind", "tau_corrected", "tau_slow_corrected"], f"{names}")
+          names == ["t_ind", "lag_half_s", "tau_corrected",
+                    "tau_slow_corrected"], f"{names}")
+    windowed = {clock: flag for clock, _, flag in induction.JOINT_CLOCKS}
+    check("and the windowed flag is carried, not inferred from the gate",
+          windowed == {"t_ind": True, "lag_half_s": False,
+                       "tau_corrected": False, "tau_slow_corrected": False},
+          f"{windowed}")
     signature = induction.joint_clocks.__defaults__
     check("and pairs them with the rebuilt rate",
           "vmax_corrected" in signature, f"{signature}")

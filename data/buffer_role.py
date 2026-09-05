@@ -45,7 +45,7 @@ import solution_chemistry
 # Five, not the two that `temperature_series` 3 uses: 4OMe-BnOH at 40 C in
 # phosphate, [H2O2] at 82.5 mM, [buf] over 3.125-200 mM, at THREE pH values --
 # which is what makes the acid/base question askable at all.
-TITRATIONS = (32, 34, 35, 36, 37)
+TITRATIONS = scope.BUFFER_TITRATIONS
 
 # The pH split those five fall into. 7.20 is phosphate's second pKa, so the two
 # groups sit either side of it and the base fraction moves from 0.387 to 0.681.

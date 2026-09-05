@@ -29,13 +29,19 @@ from curve_metrics import lag_time
 from test_slowdown import FakeCurve
 from induction import (DEPTH_FLOOR, INDUCTION_CLOCK_SLOPE, INDUCTION_FLOOR,
                        INDUCTION_PRODUCT_SLOPE, PERHYDRATE_ORDER_GAP,
+                       common_window, induction_blocks,
                        induction_drivers, induction_point,
                        joint_buffer_order, joint_order,
                        joint_peroxide_order,
-                       order_ratio,
+                       lag_arrhenius_sweep, lag_ladder, lag_orders,
+                       lag_ph_ladders, lag_signal_control, lag_window_frame,
+                       order_ratio, pooled_ladder,
                        peroxide_geometric_mean, peroxide_saturation,
-                       composition_collinearity, ladder_arms, sign_drivers,
+                       composition_collinearity, ladder_arms,
+                       lag_identifiability, replicate_floor,
+                       saturation_fraction, sign_drivers,
                        signal_control, substrate_lever, trap_constant)
+from summary_kinetics import fit_progress
 
 FAILURES = []
 
@@ -680,6 +686,333 @@ def test_the_blocks_differ_in_their_buffer_collinearity():
           f"constant of {scoped['runs']}")
 
 
+def test_the_window_free_lag_recovers_a_planted_relaxation():
+    """`lag_profile` has to read back the tau and depth it was given."""
+    print("\nthe window-free lag, against a planting")
+    for tau in (200.0, 800.0, 3000.0):
+        curve = lag_curve(tau=tau, span=20000.0, points=400)
+        fit = fit_progress(curve.times, curve.absorbance)
+        depth, half, peak, start = fit.lag_profile(float(curve.times[-1]))
+        check(f"tau {tau:.0f} s reads back as tau.ln2 = {tau * np.log(2):.0f} s",
+              abs(half - tau * np.log(2)) < 0.06 * tau * np.log(2),
+              f"{half:.1f}")
+        check(f"tau {tau:.0f} s: the depth of a curve starting at rest is 1",
+              abs(depth - 1.0) < 0.02, f"{depth:.4f}")
+
+    # A curve that begins at its fastest has NO lag, and the statistic has to
+    # say zero rather than something small and positive.
+    times = np.linspace(0.0, 8000.0, 400)
+    burst = 1e-5 * times + 5e-3 * (1.0 - np.exp(-times / 500.0))
+    fit = fit_progress(times, burst)
+    depth, half, _, _ = fit.lag_profile(float(times[-1]))
+    check("a burst-first curve returns depth 0 and clock 0",
+          depth == 0.0 and half == 0.0, f"depth {depth}, half {half}")
+
+    # And it is read INSIDE the window. A run truncated before the rise is over
+    # must under-read, not extrapolate: that under-reading is the whole reason
+    # `lag_window_frame` exists, so it has to be real. A PARTIAL lag is needed
+    # to see it -- a curve that starts at rest has depth 1 through any window,
+    # because the depth is measured against the initial rate and that is zero.
+    times = np.linspace(0.0, 30000.0, 600)
+    rate, tau = 1e-5, 3000.0
+    partial = rate * times - 0.5 * rate * tau * (1.0 - np.exp(-times / tau))
+    fit = fit_progress(times, partial)
+    full, _, _, _ = fit.lag_profile(30000.0)
+    short, _, _, _ = fit.lag_profile(2000.0)
+    check("the planted half-depth reads back over the whole run",
+          abs(full - 0.5) < 0.02, f"{full:.3f}")
+    check("and a window shorter than the rise under-reads it",
+          short < full - 0.10, f"{short:.3f} against {full:.3f}")
+
+
+def test_the_window_free_lag_is_not_windowed():
+    """
+    The property the whole section rests on: no run-fraction anywhere.
+
+    `induction_point` reads through a window a tenth of the run, so the SAME
+    curve recorded for twice as long gives a different landmark. `lag_profile`
+    must not: read the same relaxation over two spans and the clock is the
+    same number, because it comes off the form and not off a window.
+    """
+    print("\nthe window-free lag carries no window")
+    clocks = []
+    for span, points in ((24000.0, 800), (12000.0, 400)):
+        curve = lag_curve(tau=600.0, span=span, points=points)
+        fit = fit_progress(curve.times, curve.absorbance)
+        clocks.append(fit.lag_profile(float(curve.times[-1]))[1])
+    check("the fitted clock is the same on a run twice as long",
+          abs(clocks[0] - clocks[1]) < 0.05 * clocks[0],
+          f"{clocks[0]:.1f} against {clocks[1]:.1f}")
+
+    # WHERE IT IS NOT INVARIANT, AND WHY THAT IS THE DESIGN. The profile is
+    # read inside the window, so a run that ends before the rise is over
+    # reports a shorter clock -- honestly, since it has not seen the rest. It
+    # is the SCHEDULE the statistic still carries, not a window, and
+    # `lag_window_frame` is the answer to it.
+    truncated, complete = [], []
+    for span, points in ((8000.0, 300), (40000.0, 1500)):
+        curve = lag_curve(tau=3000.0, span=span, points=points)
+        fit = fit_progress(curve.times, curve.absorbance)
+        (truncated if span < 4 * 3000.0 else complete).append(
+            fit.lag_profile(float(curve.times[-1]))[1])
+    check("a run only 2.7 time constants long under-reads its own clock",
+          truncated[0] < complete[0] - 0.05 * complete[0],
+          f"{truncated[0]:.1f} against {complete[0]:.1f}")
+
+    # And the landmark's window dependence is not synthetic: on a noiseless
+    # planting the two agree, and it is the ARCHIVE where the landmark tracks
+    # run length at +0.437 +/- 0.181. `test_regressions` holds that number.
+    landmark = induction_point(lag_curve(tau=600.0, span=24000.0, points=800))
+    check("the landmark agrees with the fitted clock on a clean planting",
+          abs(landmark.t_ind - clocks[0]) < 0.10 * clocks[0],
+          f"{landmark.t_ind:.1f} against {clocks[0]:.1f}")
+
+
+def test_a_between_run_ladder_refuses_offsets_that_absorb_it():
+    """
+    pH is one value per run, so a per-experiment offset IS the pH axis.
+
+    This is `scope._moves` one level out, and it was live for an afternoon:
+    `lag_ph_ladders` first ran with one offset per experiment and reported
+    +0.549 +/- 0.014 on the boric ladder -- forty sigma of pure collinearity.
+    """
+    print("\na between-run ladder and the offsets that would absorb it")
+    raised = False
+    try:
+        lag_ladder(scope.PH_LADDER_BORIC, axis="pH", offsets="experiment")
+    except ValueError as problem:
+        raised = "absorbed" in str(problem)
+    check("one offset per experiment on a pH ladder raises", raised)
+
+    got = lag_ladder(scope.PH_LADDER_BORIC, axis="pH")
+    check("with a single level it returns a coefficient",
+          np.isfinite(got["lag_half_s"]["slope"]), f"{got.get('lag_half_s')}")
+    check("and it reports both collinearities the reader needs",
+          abs(got["schedule_collinearity"]) > 0.5
+          and np.isfinite(got["signal_collinearity"]),
+          f"{got['schedule_collinearity']:+.2f}, "
+          f"{got['signal_collinearity']:+.2f}")
+
+    # The two-axis ladders repeat seven compositions across runs, so a CUVETTE
+    # offset is matched and must be allowed.
+    matched = lag_ladder(scope.PH_LADDER_TWO_AXIS_HIGH, axis="pH",
+                         offsets="sample")
+    check("a cuvette offset is not collinear with pH and is allowed",
+          np.isfinite(matched["lag_half_s"]["slope"]),
+          f"{matched.get('lag_half_s')}")
+
+
+def test_the_common_window_removes_the_schedule():
+    """
+    Every run in a `lag_window_frame` is fitted over the same span.
+
+    That is the property, and it is checkable directly: the boric ladder's runs
+    span 1260 to 17940 s and their fitted windows must all be the shortest.
+    """
+    print("\nthe common window")
+    table = lag_window_frame(scope.PH_LADDER_BORIC)
+    spans = table.window_s.to_numpy(dtype=float)
+    durations = table.duration_s.to_numpy(dtype=float)
+    check("the runs really do differ in length",
+          durations.max() / durations.min() > 10,
+          f"{durations.min():.0f} to {durations.max():.0f} s")
+    check("and every curve is fitted over the same window",
+          float(spans.max() - spans.min()) < 120.0,
+          f"{spans.min():.0f} to {spans.max():.0f} s")
+    check("which is the shortest run",
+          abs(float(spans.max()) - common_window(scope.PH_LADDER_BORIC)) < 120.0,
+          f"{spans.max():.0f} against "
+          f"{common_window(scope.PH_LADDER_BORIC):.0f}")
+
+    # And it has to change the answer, or there was nothing to remove.
+    whole = lag_ladder(scope.PH_LADDER_BORIC, axis="pH",
+                       window=common_window(scope.PH_LADDER_BORIC) * 20)
+    shared = lag_ladder(scope.PH_LADDER_BORIC, axis="pH")
+    check("the schedule was carrying the boric ladder's pH coefficient",
+          abs(whole["lag_half_s"]["slope"] - shared["lag_half_s"]["slope"]) > 0.5,
+          f"{whole['lag_half_s']['slope']:+.3f} whole runs against "
+          f"{shared['lag_half_s']['slope']:+.3f} shared")
+
+
+def test_the_barrier_survives_the_schedule_and_the_naive_control_does_not():
+    """
+    The one between-run result this section rescues rather than withdraws.
+
+    On whole runs the induction's barrier is 83.7 +/- 8.9 kJ/mol; putting
+    log(run length) into that regression drops it to about 55 on a six-point
+    collinearity of +0.66. At a window all six runs share it is 73-84, which is
+    the number to quote -- and both bounds have to be checked, or the sweep is
+    decoration.
+    """
+    print("\nthe induction's barrier, against the schedule")
+    sweep = lag_arrhenius_sweep()
+    full = [row for row in sweep if row["fraction"] == 1.0][0]
+    check("at the common window all six temperatures contribute",
+          full["temperatures"] == 6, f"{full['temperatures']}")
+    check("and the barrier is covalent-sized: 60-100 kJ/mol",
+          60.0 < full["activation_kj"] < 100.0,
+          f"{full['activation_kj']:.1f} +/- {full['stderr_kj']:.1f}")
+    wide = [row["activation_kj"] for row in sweep if row["fraction"] >= 0.75]
+    check("it is stable from three quarters of the window upwards",
+          max(wide) - min(wide) < 15.0, f"{[round(v, 1) for v in wide]}")
+    narrow = [row for row in sweep if row["fraction"] <= 0.5]
+    check("and it collapses below it, because the cold clocks are censored",
+          all(row["activation_kj"] < 30.0 for row in narrow),
+          f"{[round(row['activation_kj'], 1) for row in narrow]}")
+    check("which the temperature count shows rather than hides",
+          all(row["temperatures"] < 6 for row in narrow),
+          f"{[row['temperatures'] for row in narrow]}")
+
+
+def test_the_replicate_floor_is_the_bar_between_runs():
+    """Four runs that differ in nothing still differ; by how much."""
+    print("\nthe replicate floor")
+    floor = replicate_floor()
+    check("it is four runs of one composition", floor["runs"] == 4,
+          f"{floor['runs']}")
+    check("the clock reproduces between runs to better than 1.5x",
+          1.0 < floor["clock_ratio"] < 1.5, f"{floor['clock_ratio']:.2f}x")
+    check("the DEPTH does not -- its replicate spread is over half a unit",
+          floor["depth_spread"] > 0.5, f"{floor['depth_spread']:.3f}")
+
+
+def test_lag_orders_agree_with_the_package_order_machinery():
+    """
+    `lag_orders` must BE `scope.orders`, not a second copy of it.
+
+    The lag statistic already had two definitions once and they disagreed on
+    96 of 402 curves. This checks the wrapper adds the signal pairing and
+    changes nothing else.
+    """
+    print("\nlag_orders is scope.orders")
+    block = scope.frame(scope.TWO_AXIS_BLOCK)
+    got = lag_orders(block)
+    direct = scope.orders("lag_half_s", frame=block, floor=INDUCTION_FLOOR)
+    check("the bare substrate order is scope.orders' own",
+          abs(got["lag_half_s"]["s0"]["order"] - direct["order_s0"]) < 1e-12,
+          f"{got['lag_half_s']['s0']['order']} against {direct['order_s0']}")
+    check("and so is the peroxide order",
+          abs(got["lag_half_s"]["h2o2"]["order"] - direct["order_h2o2"]) < 1e-12)
+
+    # The joint fit is not the single-axis fit, and the difference is the point.
+    single = scope.orders("lag_half_s", frame=block, floor=INDUCTION_FLOOR,
+                          terms=("s0",))
+    check("fitting one axis of an L is a different number",
+          abs(single["order_s0"] - direct["order_s0"]) > 0.1,
+          f"{single['order_s0']:+.3f} against {direct['order_s0']:+.3f}")
+
+    # And the covariate has to be identified the way an order is.
+    held = scope.orders("lag_half_s", frame=block, floor=INDUCTION_FLOOR,
+                        covariates=("e0",))
+    check("a covariate constant inside every run is refused, not fitted",
+          "held_e0" not in held, f"{sorted(held)}")
+
+
+def test_the_signal_collinearity_says_which_axis_can_be_asked():
+    """
+    The two-axis block fails its signal control and can still be asked about
+    substrate, because in that block substrate buys no signal. That is the
+    structural argument the whole section rests on, so it is measured.
+    """
+    print("\nwhich axis a block that fails the signal control can carry")
+    block = scope.frame(scope.TWO_AXIS_BLOCK)
+    got = lag_orders(block)
+    check("peroxide IS the signal here",
+          got["signal_collinearity_h2o2"] > 0.4,
+          f"{got['signal_collinearity_h2o2']:+.3f}")
+    check("substrate is not",
+          abs(got["signal_collinearity_s0"]) < 0.2,
+          f"{got['signal_collinearity_s0']:+.3f}")
+    peroxide = got["lag_half_s"]["h2o2"]
+    substrate = got["lag_half_s"]["s0"]
+    check("so holding the signal moves the peroxide order a long way",
+          abs(peroxide["order"] - peroxide["controlled"]) > 0.2,
+          f"{peroxide['order']:+.3f} -> {peroxide['controlled']:+.3f}")
+    check("and the substrate order stays negative either way",
+          substrate["order"] < 0 and substrate["controlled"] < 0,
+          f"{substrate['order']:+.3f} -> {substrate['controlled']:+.3f}")
+
+    control = lag_signal_control(block)
+    check("the block fails the signal control outright",
+          control["lag_half_s"]["slope"]
+          > 3 * control["lag_half_s"]["stderr"],
+          f"{control['lag_half_s']['slope']:+.3f} +/- "
+          f"{control['lag_half_s']['stderr']:.3f}")
+
+    catalysed = induction_blocks(scope.frame(scope.archive()))["4OMe catalysed"]
+    passes = lag_signal_control(catalysed)
+    check("the catalysed 4OMe block passes it",
+          abs(passes["lag_half_s"]["slope"])
+          < 2 * passes["lag_half_s"]["stderr"],
+          f"{passes['lag_half_s']['slope']:+.3f} +/- "
+          f"{passes['lag_half_s']['stderr']:.3f}")
+
+
+def test_the_pooled_ladder_notices_a_disagreement():
+    """A pooled coefficient that hides a disagreement is worse than none."""
+    print("\npooling four ladders")
+    agreeing = [{"x": {"controlled": 0.30, "controlled_stderr": 0.10}},
+                {"x": {"controlled": 0.34, "controlled_stderr": 0.10}}]
+    disagreeing = [{"x": {"controlled": -0.60, "controlled_stderr": 0.10}},
+                   {"x": {"controlled": +0.60, "controlled_stderr": 0.10}}]
+    good = pooled_ladder(agreeing, "x")
+    bad = pooled_ladder(disagreeing, "x")
+    check("two ladders that agree give a small chi2", good["chi2"] < 1.0,
+          f"{good['chi2']:.2f}")
+    check("two that do not give a large one", bad["chi2"] > 50.0,
+          f"{bad['chi2']:.2f}")
+    check("and the pooled value is the inverse-variance mean",
+          abs(good["pooled"] - 0.32) < 1e-9, f"{good['pooled']}")
+
+    real = pooled_ladder(lag_ph_ladders(), "lag_half_s")
+    check("the four real pH ladders agree with each other",
+          real["chi2"] < 7.81, f"chi2 {real['chi2']:.2f} on {real['dof']}")
+
+
+def test_the_saturation_fraction_bounds_both_schemes():
+    """A coefficient outside (0,1) falsifies the trap; inside, it sizes it."""
+    print("\nthe bounded schemes")
+    trap = saturation_fraction(1.0, 0.2)
+    check("a pH coefficient is divided by ln 10 first",
+          abs(trap["fraction"] - 1.0 / np.log(10.0)) < 1e-12,
+          f"{trap['fraction']:.4f}")
+    check("and +1.0 per pH unit is a half-saturated trap",
+          trap["inside_trap"] and not trap["inside_activating"],
+          f"{trap}")
+    outside = saturation_fraction(4.0, 0.2)
+    check("a coefficient past ln 10 per pH unit falsifies both schemes",
+          not outside["inside_trap"] and not outside["inside_activating"],
+          f"{outside['fraction']:.3f}")
+    activating = saturation_fraction(-0.5, 0.1, per_ph=False)
+    check("a negative order is the activating branch",
+          activating["inside_activating"] and not activating["inside_trap"],
+          f"{activating['fraction']:.3f}")
+
+
+def test_the_identifiability_table_names_the_between_run_axes():
+    """Five of the seven variables are one value per run. Say so."""
+    print("\nwhat the archive moves, and where")
+    table = lag_identifiability()
+    between = sorted(table.index[table.runs_moving_it == 0])
+    check("temperature, pH, the buffer salt and the substrate move only "
+          "between runs",
+          between == ["buffer", "pH", "substrate", "temperature"],
+          f"{between}")
+    check("[S] moves inside most runs",
+          table.loc["s0", "runs_moving_it"] > 70,
+          f"{table.loc['s0', 'runs_moving_it']}")
+    check("[buf] inside about half",
+          40 < table.loc["buf", "runs_moving_it"] < 70,
+          f"{table.loc['buf', 'runs_moving_it']}")
+    check("[H2O2] inside a fifth",
+          10 < table.loc["h2o2", "runs_moving_it"] < 30,
+          f"{table.loc['h2o2', 'runs_moving_it']}")
+    check("a pH span is reported in units and not as a ratio",
+          table.loc["pH", "unit"] == "units"
+          and table.loc["pH", "widest_within_run"] == 0.0,
+          f"{table.loc['pH', 'unit']}, {table.loc['pH', 'widest_within_run']}")
+
+
 def test_regressions():
     """The numbers induction/ANALYSIS.md quotes."""
     print("\nthe published numbers")
@@ -913,6 +1246,17 @@ if __name__ == "__main__":
     test_the_sign_comes_off_the_fit_and_not_off_the_depth()
     test_the_L_has_to_be_split_before_it_is_read()
     test_the_blocks_differ_in_their_buffer_collinearity()
+    test_the_window_free_lag_recovers_a_planted_relaxation()
+    test_the_window_free_lag_is_not_windowed()
+    test_a_between_run_ladder_refuses_offsets_that_absorb_it()
+    test_the_common_window_removes_the_schedule()
+    test_the_barrier_survives_the_schedule_and_the_naive_control_does_not()
+    test_the_replicate_floor_is_the_bar_between_runs()
+    test_lag_orders_agree_with_the_package_order_machinery()
+    test_the_signal_collinearity_says_which_axis_can_be_asked()
+    test_the_pooled_ladder_notices_a_disagreement()
+    test_the_saturation_fraction_bounds_both_schemes()
+    test_the_identifiability_table_names_the_between_run_axes()
     test_regressions()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)
