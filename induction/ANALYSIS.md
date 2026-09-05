@@ -712,12 +712,27 @@ block and from +0.19 to −0.13 on the other. **This archive cannot measure a
 peroxide dependence of the induction**, through the landmark (§4a) or through
 the fit, and the reason is the same both times.
 
+*Two of these rows are the same measurement.* With one offset per experiment,
+the only `[H2O2]` variation the 4OMe block has is inside exps 127–131 — every
+other catalysed 4OMe run sits at 82.5 mM — so the two peroxide rows return the
+same +0.194 with different errors. They are one result reported twice, not two
+that agree.
+
 The same objection sinks the buffer titrations: `[buf]` correlates with the
 signal at +0.63 there, and holding it moves −0.349 ± 0.215 to +0.076 ± 0.222.
 **The direct buffer result of §6 is not reproduced by the window-free clock.**
-What survives is the 4OMe archive's own `[buf]` axis, which is the one buffer
-measurement in the archive that is *not* signal-confounded (r = −0.09) — and it
-reads −0.20 ± 0.30, the right sign and no significance.
+
+The 4OMe block's own `[buf]` row is the only one whose coefficient is unmoved by
+the control (−0.203 → −0.194), and it is worth saying exactly why rather than
+calling it clean. The block holds **two** sources of buffer variation: the five
+titrations, where `[buf]` moves alone and tracks the signal at +0.63, and every
+other 4OMe run, where substrate volume displaced buffer volume so `[buf]` falls
+as `[S]` rises at −0.96 in logs. Neither is usable on its own — drop the
+titrations and the remaining collinearity puts the buffer order at
++2.20 ± 1.27 — and pooled, their opposite signal correlations very nearly
+cancel, leaving `[buf]` almost orthogonal to the signal (r = −0.09). So the
+−0.20 ± 0.30 is a real fit rather than a confound, and its error covers
+everything from §6's −0.433 to zero.
 
 *The floor moves the sizes and not the signs.* 48 of the two-axis block's 110
 live curves begin at their fastest and sit on the floor honestly. Sweeping it
@@ -761,18 +776,22 @@ forty-sigma pH effect for one afternoon before the guard existed.
 Every run is refit on the window they all share, and each ladder is confounded
 differently — which is the reason to have four:
 
-| ladder | runs | pH | r(pH, run length) | r(pH, signal) | clock, held |
-|---|---|---|---|---|---|
-| 4OMe phosphate | 9 | 5.64–8.95 | −0.25 | **+0.87** | +0.094 ± 0.303 |
-| 4OMe boric | 9 | 8.46–10.34 | **+0.71** | −0.65 | +0.286 ± 0.322 |
-| BnOH pyrophosphate 136–142 | 7 | 6.95–9.43 | −0.53 | +0.77 | +0.472 ± 0.343 |
-| BnOH pyrophosphate 143–151 | 9 | 5.47–9.73 | **−0.79** | +0.79 | +0.405 ± 0.187 |
-| **pooled** | | | | | **+0.336 ± 0.132** |
+| ladder | runs in it | kept | window | pH | r(pH, length) | r(pH, signal) | clock, held |
+|---|---|---|---|---|---|---|---|
+| 4OMe phosphate | 9 | **6** | 1470 s | 5.64–8.95 | −0.25 | **+0.87** | +0.094 ± 0.303 |
+| 4OMe boric | 9 | 9 | 1260 s | 8.46–10.34 | **+0.71** | −0.65 | +0.286 ± 0.322 |
+| BnOH pyrophosphate 136–142 | 7 | 7 | 3720 s | 6.95–9.43 | −0.53 | +0.77 | +0.472 ± 0.343 |
+| BnOH pyrophosphate 143–151 | 9 | 9 | 3000 s | 5.47–9.73 | **−0.79** | +0.79 | +0.405 ± 0.187 |
+| **pooled** | | | | | | | **+0.336 ± 0.132** |
+
+The phosphate ladder is the one that pays for the common window: three of its
+nine runs are shorter than 1470 s and leave fewer than eight readings when
+truncated, so they drop out. The other three ladders keep every run.
 
 The four agree (χ² = 0.95 on 3) across two substrates, three buffers, and
-confounds of both signs. **They do not survive the window**: at 0.75 and 0.5 of
-the shared window the pooled value is +0.119 ± 0.115 and +0.176 ± 0.113. So the
-honest quote is
+confounds of both signs. **The pooled value moves with the window, though never
+in sign**: at 0.75 and 0.5 of the shared window it is +0.119 ± 0.115 and
++0.176 ± 0.113. So the honest quote is
 
 > **d ln τ / d pH = +0.12 to +0.34, positive at every window and never past
 > 2.6σ.**

@@ -733,6 +733,39 @@ def test_the_clocks_are_corrected_like_the_rate():
     check("and the form it earned does not change either",
           bool((clean.phases == clean.phases_corrected).all()))
 
+    # The WINDOW-FREE lag gets the same treatment and needs the same null.
+    # `lag_depth` and `lag_half_s` are read off the fit on the REBUILT curve,
+    # so on a curve with no detachment they have to be the readings' own --
+    # `debubble` returns those unchanged, and if they were not identical the
+    # repair would be moving something it never touched.
+    check("a clean curve's window-free depth is untouched, exactly",
+          bool((clean.lag_depth == clean.lag_depth_raw).all()),
+          f"{int((clean.lag_depth == clean.lag_depth_raw).sum())} of "
+          f"{len(clean)}")
+    check("and its window-free clock",
+          bool((clean.lag_half_s == clean.lag_half_raw).all()),
+          f"{int((clean.lag_half_s == clean.lag_half_raw).sum())} of "
+          f"{len(clean)}")
+    gassy = live[live.bubble_events > 0]
+    check("while the gassy curves are moved, or the repair does nothing",
+          int((gassy.lag_half_s != gassy.lag_half_raw).sum()) > 5,
+          f"{int((gassy.lag_half_s != gassy.lag_half_raw).sum())} of "
+          f"{len(gassy)} moved")
+
+    # The two are bounded by construction, and the bound is what makes the
+    # depth comparable between runs at all.
+    check("the depth is a fraction in [0, 1]",
+          bool(((live.lag_depth >= 0) & (live.lag_depth <= 1)).all()),
+          f"{live.lag_depth.min():.3f} to {live.lag_depth.max():.3f}")
+    check("and the clock never exceeds the run it was read on",
+          bool((live.lag_half_s <= live.duration_s + 1.0).all()),
+          f"worst {float((live.lag_half_s / live.duration_s).max()):.3f} "
+          f"of its run")
+    check("a curve with no lag has a clock of exactly zero",
+          bool((live[live.lag_depth == 0].lag_half_s == 0).all()),
+          f"{int((live[live.lag_depth == 0].lag_half_s != 0).sum())} "
+          f"non-zero")
+
     # Taking the gas out does not cost resolution -- it buys some, because the
     # artefact was what some of those fits could not pin.
     for raw, fixed in (("tau_resolved", "tau_resolved_corrected"),

@@ -484,6 +484,17 @@ def main():
     doc.claim("and quoted as its range",
               f"**{lows.max():+.2f} to {lows.min():+.2f}**")
 
+    dropped = induction.lag_orders(
+        catalysed[~catalysed.experiment.isin(scope.BUFFER_TITRATIONS)],
+        terms=("s0", "h2o2", "buf"))["lag_half_s"]["buf"]
+    doc.claim("the buffer order without the titrations",
+              f"+{dropped['order']:.2f} +/- {dropped['stderr']:.2f}")
+    doc.check("and it is the [S]/[buf] collinearity that does it",
+              dropped["stderr"] > 4 * induction.lag_orders(
+                  catalysed, terms=("s0", "h2o2", "buf")
+              )["lag_half_s"]["buf"]["stderr"],
+              f"{dropped['stderr']:.3f}")
+
     print("\nsection 7d: route one on the window-free clock")
     for label, block in (("4OMe catalysed", catalysed),
                          ("BnOH two-axis", two_axis),
@@ -517,8 +528,11 @@ def main():
         doc.claim(f"{row['ladder']}: the held clock coefficient",
                   f"{clock['controlled']:+.3f} +/- "
                   f"{clock['controlled_stderr']:.3f} |")
-        doc.claim(f"{row['ladder']}: how many runs",
-                  f"| {int(row['runs'])} | ")
+        emphasis = "**" if row["runs"] < len(scope.PH_LADDERS[row["ladder"]]) else ""
+        doc.claim(f"{row['ladder']}: runs in it, runs kept, window",
+                  f"| {len(scope.PH_LADDERS[row['ladder']])} | "
+                  f"{emphasis}{int(row['runs'])}{emphasis} | "
+                  f"{row['window_s']:.0f} s |")
     pooled = induction.pooled_ladder(ladders, "lag_half_s")
     doc.claim("the pooled pH coefficient",
               f"**{pooled['pooled']:+.3f} +/- {pooled['stderr']:.3f}**")
