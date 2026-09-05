@@ -27,8 +27,8 @@ enough runs to have an error bar worth quoting.
     python induction/build_figures.py
     python induction/check_numbers.py
 
-**Figures**: [`index.html`](index.html) is the presentation — thirteen figures, A
-to M, one per claim below. [`progress_curves.html`](progress_curves.html)
+**Figures**: [`index.html`](index.html) is the presentation — fourteen figures, A
+to N, one per claim below. [`progress_curves.html`](progress_curves.html)
 carries **both channels of the 4OMe block**, 147 catalysed and 49 enzyme-free,
 each with the form it earned and its induction landmark — §1's claim is a
 contrast, so a page showing only the catalysed half would show only the half
@@ -192,6 +192,65 @@ own buffer order, **−0.433 ± 0.201**, so the correction can be made:
 rather than dropped, because the correction is real and small-n both — the
 buffer order behind it is eight curves — and because the reader is entitled to
 see the route that weakens as well as the one that holds.
+
+**Route three — ask it in the units the hypothesis is stated in.** Both routes
+above ask whether a faster cuvette's induction is *shorter*. What the product
+hypothesis actually claims is that it ends at the same *product*, and
+`InductionPoint.made` — the absorbance built up by the landmark — has been
+computed on every curve since this module was written and was read by nothing
+until 2026-09-05.
+
+> A clock predicts **+1**: the time is fixed, so the product is whatever the
+> rate makes in it.
+> A threshold predicts **0**: the product is fixed, so the time is whatever it
+> takes.
+
+| block | d log(product at the landmark) / d log(rate) | curves |
+|---|---|---|
+| **4OMe catalysed** | **+0.885 ± 0.125** | 112 of 147 |
+| BnOH two-axis | +0.756 ± 0.115 | 81 of 110 |
+| the temperature series | +1.908 ± 0.474 | 22 of 24 |
+
+*It is not an independent witness and must not be quoted as one.* Over the
+induction the product is about the rate times the time, so this slope is
+`1 + `route one's by construction — route one's −0.025 ± 0.109 predicts +0.975.
+What it adds is the units, the spread comparison below, and a calibration that
+turns out to matter more than either.
+
+***A planted product threshold does not read 0 through this landmark. It reads
++0.4.*** The rolling slope's first centre sits half a window into the run, so
+part of the induction is over before the landmark's own clock starts — and how
+much depends on τ, which is exactly what a threshold varies. Writing it out for
+a planting with `v·τ` held fixed, `made = C(ln 2 − ½e^(−c₀/τ))`, which rises by
+a factor of 3.6 across the band. `induction.product_recovery` plants both
+hypotheses at four run/τ geometries: a clock reads back at **+1.000** exactly,
+and a threshold at **+0.31 to +0.42**.
+
+So the honest exclusion is **3.7σ from a threshold**, not the 7.1σ the nominal
+0 would give, and 0.9σ from a clock. A correction that halves the result is
+worth more than the result.
+
+*And the spread comparison, which is not a regression at all.* Inside one run
+the schedule, pH, temperature, buffer and catalyst are fixed and only the
+substrate ladder moves, changing the rate about four-fold. So ask which
+candidate constant is actually the more nearly constant across those cuvettes:
+
+| pooled within-run sd | 4OMe catalysed | a planted clock | a planted threshold |
+|---|---|---|---|
+| log(t<sub>ind</sub>) | **0.667** | 0.000 | 0.44 |
+| log(product at it) | 1.091 | 0.454 | 0.19 |
+
+The archive holds the **time** more nearly constant than the product, and the
+plantings say that is the clock's signature and not the threshold's. It is a
+weaker separation than the raw numbers suggest — the same half-window bias
+stops a planted threshold reaching zero here too — so it is a direction, and it
+agrees with route one and route three.
+
+*What route three costs.* It is the one statistic in this folder that **drops
+rows**: a curve with no landmark has made no product by it, so 35 of the 147
+live catalysed 4OMe curves do not appear. That is a selection towards curves
+that have an induction — which is the population the question is about, but it
+is a selection, and the count is reported rather than absorbed.
 
 **Route one is not reached by any of this.** Its regressor is the curve's own
 measured rate rather than a concentration: it asks whether a faster cuvette's
@@ -939,7 +998,12 @@ hold.
   all 49 enzyme-free 4OMe curves at matched composition, including a 5-hour run.
 - It ends on a **clock**, not at a product threshold: the coefficient is
   −0.025 ± 0.109 where product control requires −1, on 147 curves, and the
-  bias-free route agrees at −0.26 ± 0.32.
+  bias-free route agrees at −0.26 ± 0.32. Asked in the units the product
+  hypothesis is stated in — is the product made by the landmark fixed, or is it
+  whatever the rate made in a fixed time — the answer is **+0.885 ± 0.125**
+  against the +1.000 a clock reads back and the +0.42 a *planted* threshold
+  reads back through this landmark, so **3.7σ**. §3, route three; and read the
+  calibration before quoting it, because the nominal value would say 7.1σ.
 - Its **amplitude is a fraction** of the eventual rate and does not scale with
   the substrate.
 - It is a **covalent step**: **77 ± 12 kJ/mol** over six temperatures at a

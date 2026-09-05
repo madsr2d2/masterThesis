@@ -213,7 +213,7 @@ def figure_orders():
                   weight="600")
     return fig(
         axes.render("order in [S], within experiments", "",
-                    "D · The substrate moves the rate and nothing else",
+                    "E · The substrate moves the rate and nothing else",
                     yticks=False),
         "The same log-log fit <code>scope.orders</code> uses everywhere, on "
         "three quantities. <strong>The rate carries a substrate order of "
@@ -263,7 +263,7 @@ def figure_induction_arrhenius():
                         "recorded for 17934 s", ACCENT, size=10.5)
     return fig(
         axes.render("1000 / T, K⁻¹", "1 / τ, s⁻¹",
-                    "E · The induction has a barrier, and it is a chemical one"),
+                    "F · The induction has a barrier, and it is a chemical one"),
         "The induction's own rate constant, from the burst form's τ, on the "
         "four temperatures where the profile pins it. <strong>95 ± 16 "
         "kJ/mol</strong> is four times too large for dissolution, diffusion or "
@@ -303,7 +303,7 @@ def figure_activation_gap():
               size=11.5, weight="600", anchor="middle")
     return fig(
         axes.render("", "kJ/mol at 298 K",
-                    "H · The induction is the faster step, as it has to be",
+                    "I · The induction is the faster step, as it has to be",
                     xticks=False),
         "Both columns are <code>arrhenius.activation_parameters</code>. "
         "<strong>The free-energy gap is the solid number</strong>: "
@@ -346,7 +346,7 @@ def figure_signal_control():
                         "spectrophotometer", MUTED, size=10.5, anchor="middle")
     return fig(
         axes.render("d log(induction time) / d log(signal-to-noise)", "",
-                    "F · The control that decides which blocks may be used",
+                    "G · The control that decides which blocks may be used",
                     yticks=False),
         "The landmark is the first crossing of half the <em>largest</em> "
         "rolling slope, so on a curve with no signal the largest rolling slope "
@@ -396,7 +396,7 @@ def figure_peroxide():
               ("BnOH", _blocks()["BnOH two-axis (135-151)"]))}
     return fig(
         axes.render("[H₂O₂], mM", "rate / the run's own level",
-                    "G · The rate is not first order in peroxide"),
+                    "H · The rate is not first order in peroxide"),
         "The peroxide arm of each two-axis run, over a 67-fold range. "
         f"<strong>Strict first order is rejected at F = "
         f"{fitted['first_order_f']:.0f}</strong>; the free power law is "
@@ -463,7 +463,7 @@ def figure_which_way():
                   anchor=anchor)
     return fig(
         axes.render("share of the block's live curves", "",
-                    "I · Which way the curves point, and it is not one "
+                    "J · Which way the curves point, and it is not one "
                     "population", yticks=False),
         "From <code>progress_kind</code> — the sign of the fitted form's fast "
         "phase, which the two-phase expression has carried since it was "
@@ -521,7 +521,7 @@ def figure_identifiability():
                   colour if moving else MUTED, size=10.5, weight="600")
     return fig(
         axes.render("experiments that move the axis inside one run", "",
-                    "J \u00b7 Five of the seven variables move only between runs",
+                    "K \u00b7 Five of the seven variables move only between runs",
                     yticks=False),
         "Every one of the 88 experiments sets its temperature, its pH, its "
         "buffer salt and its substrate once and does not move them again. "
@@ -566,7 +566,7 @@ def figure_within_run_orders():
               weight="600")
     return fig(
         axes.render("d log(induction clock) / d log(axis)", "",
-                    "K \u00b7 Peroxide is the signal; substrate is not",
+                    "L \u00b7 Peroxide is the signal; substrate is not",
                     yticks=False),
         "The window-free clock's order in each axis a block moves, fitted "
         "within experiments by <code>scope.orders</code> with every moving "
@@ -614,7 +614,7 @@ def figure_lag_ph_ladders():
               anchor="end", weight="600")
     return fig(
         axes.render("d ln(induction clock) / d pH", "",
-                    "L \u00b7 More alkaline, longer induction, on all four ladders",
+                    "M \u00b7 More alkaline, longer induction, on all four ladders",
                     yticks=False),
         "pH is one value per run everywhere in this archive, so each of these "
         "is a set of runs sharing everything else, refitted on a window they "
@@ -657,7 +657,7 @@ def figure_barrier_window():
     return fig(
         axes.render("window the block is refitted on, s",
                     "activation energy of 1/tau, kJ/mol",
-                    "M \u00b7 The barrier, once the schedule is held"),
+                    "N \u00b7 The barrier, once the schedule is held"),
         "Cold runs are the long runs in the temperature series, and a fitted "
         "clock cannot exceed its run, so the two are confounded at +0.66. "
         "Refitting every run on a window all six share removes it by "
@@ -667,6 +667,64 @@ def figure_barrier_window():
         "at all, which the temperature count beside each point reports rather "
         "than hides. It replaces figure E's 95 +/- 16, which is the same "
         "barrier over four temperatures instead of six.")
+
+
+def figure_product_at_landmark():
+    """N -- the product test, with the calibration that halves it."""
+    blocks = _blocks()
+    rows = []
+    for label, key in (("4OMe catalysed", "4OMe catalysed"),
+                       ("BnOH two-axis", "BnOH two-axis (135-151)"),
+                       ("the temperature series", "temperature series")):
+        got = induction.product_at_landmark(blocks[key])
+        if "slope" in got:
+            rows.append((label, got))
+    recovery = induction.product_recovery()
+    low, high = recovery["threshold_range"]
+    axes = Axes(660, 280, (-0.35, 2.6), (-0.9, len(rows) - 0.3),
+                pad=(190, 26, 60, 40))
+    # What each hypothesis actually reads back through this landmark: a clock
+    # at exactly +1, a threshold at +0.31 to +0.42 rather than at 0.
+    axes.band(np.array([low, high]), np.array([-0.9, -0.9]),
+              np.array([len(rows) - 0.3, len(rows) - 0.3]), CATEGORY[1],
+              opacity=0.18)
+    axes.line([recovery["clock_reads"]] * 2, [-0.9, len(rows) - 0.3],
+              CATEGORY[0], width=1.8, dash="5 4")
+    axes.line([0.0, 0.0], [-0.9, len(rows) - 0.3], MUTED, width=1.2,
+              dash="2 4")
+    for index, (label, got) in enumerate(rows):
+        y = len(rows) - 1 - index
+        axes.line([got["slope"] - got["stderr"], got["slope"] + got["stderr"]],
+                  [y, y], INK, width=2.6)
+        axes.points([got["slope"]], [y], INK, radius=4.6,
+                    title=f"{got['curves']} curves")
+        axes.note(172, axes._fy(y) + 4, label, INK, size=11, anchor="end")
+        axes.note(636, axes._fy(y) + 4, f"{got['curves']} curves", MUTED,
+                  size=10, anchor="end")
+    axes.note(196, 256, "a clock reads +1.000", CATEGORY[0], size=10.5,
+              weight="600")
+    axes.note(340, 256, f"a threshold reads {low:+.2f} to {high:+.2f}",
+              CATEGORY[1], size=10.5, weight="600")
+    axes.note(540, 256, "nominal 0", MUTED, size=10.5)
+    return fig(
+        axes.render("d log(product made by the landmark) / d log(rate)", "",
+                    "D \u00b7 The product test, and the calibration that halves it",
+                    yticks=False),
+        "The product hypothesis says the induction ends at a fixed amount of "
+        "product, so ask it in those units: is the product made by the "
+        "landmark the same on every cuvette, or is it whatever the rate made "
+        "in a fixed time? <strong>A planted product threshold does not read "
+        "zero through this landmark.</strong> The rolling slope's first centre "
+        "sits half a window into the run, so part of the induction is over "
+        "before the landmark's clock starts, and how much depends on the time "
+        "constant - which is exactly what a threshold varies. Planted at four "
+        f"run/tau geometries it reads back at {low:+.2f} to {high:+.2f}, and a "
+        "planted clock at +1.000 exactly. So the archive's "
+        f"{rows[0][1]['slope']:+.3f} sits "
+        f"<strong>{rows[0][1]['threshold_sigma']:.1f}\u03c3 from a "
+        "threshold</strong> rather than the "
+        f"{abs(rows[0][1]['slope']) / rows[0][1]['stderr']:.1f}\u03c3 the "
+        "dotted line would give, and 0.9\u03c3 from a clock.")
 
 
 def build_curves_page():
@@ -808,6 +866,7 @@ def build_index():
         for (substrate, channel), row
         in induction.lag_channel_table(_archive_frame()).iterrows())
     replicate = induction.replicate_floor()
+    product = figure_product_at_landmark()
     identifiability = figure_identifiability()
     within = figure_within_run_orders()
     ladders = figure_lag_ph_ladders()
@@ -849,6 +908,16 @@ the objection that they were too short does not hold: exp 28 ran 17934 s at
 
 <h2>3 · It runs on a clock, not on product</h2>
 {figure_clock_or_product()}
+<p><strong>Route three asks it in the units the hypothesis is stated in.</strong>
+Route one and the substrate-order route both ask whether a faster cuvette's
+induction is <em>shorter</em>. What the product hypothesis actually claims is
+that it ends at the same <em>product</em> — and <code>InductionPoint.made</code>,
+the absorbance built up by the landmark, had been computed on every curve since
+the module was written and read by nothing until 2026-09-05. It is not an
+independent witness: over the induction the product is about the rate times the
+time, so route three is route one plus one by construction. What it adds is the
+units, and a calibration that halves the exclusion.</p>
+{product}
 {figure_orders()}
 <p><strong>This is the exact mirror of the fall.</strong> In the same block
 <a href='../product_fate/index.html'>product_fate</a> finds the deceleration
@@ -960,6 +1029,7 @@ control</em>. The driver regression does, at nine standard errors, and it is not
 reached by any of this: its regressor is the curve's own measured rate, so it
 asks whether a faster cuvette's induction is shorter and that is well posed
 whatever is making the cuvette faster.</p>
+
 
 <h2>7 · The seven variables, and where the archive can answer for each</h2>
 <p>Everything above measures the induction against <strong>two</strong> of the

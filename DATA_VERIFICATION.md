@@ -8,6 +8,55 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-05 — `InductionPoint.made` measured product from a different origin than `t_ind`, and a planted product threshold does not read zero
+
+`induction_point` returns five numbers about a curve's induction. Four of them
+are used everywhere in `induction/`. The fifth, **`made` — the absorbance built
+up by the landmark — was computed from the day the module was written and read
+by nothing**, which is why what follows moves nothing published.
+
+**The bug.** `t_ind` is measured from the FIRST WINDOW CENTRE
+(`centres[index] - centres[0]`) and `made` was measured from the first READING
+(`np.interp(centres[index], times, values) - values[0]`). The rolling slope's
+first centre sits half a window into the run, so `made` carried an extra
+half-window of product — 2000 s of it on a 40000 s run. That offset is
+proportional to the rate, which is exactly the dependence the statistic exists
+to test: **a planted product threshold read back as +1.03 where the hypothesis
+says 0.00, i.e. as a perfect clock.** Found by writing the planting, not by
+reading the code. `made` is now `A(centres[index]) − A(centres[0])`.
+
+**And the landmark is still biased, by an amount worth more than the result.**
+With the origin fixed a planted threshold reads **+0.31 to +0.42**, not 0. The
+reason is structural rather than a second bug: half a window of the induction
+is over before the landmark's own clock starts, and how much of it depends on
+τ — which is what a threshold varies. For a planting with `v·τ = C` fixed,
+
+    made = C(ln 2 − ½·e^(−c₀/τ))
+
+with `c₀` the half-window, and that rises 3.6-fold across the band as τ falls.
+`induction.product_recovery` plants both hypotheses at four run/τ geometries and
+returns what each reads back; a clock reads **+1.000** exactly at all four, so
+only the threshold end needs correcting.
+
+**What the archive says, calibrated.** `d log(product at the landmark)/d log(rate)`
+on the 112 catalysed 4OMe curves that have a landmark is **+0.885 ± 0.125** —
+**0.9σ from a clock and 3.7σ from a threshold**. Quoting the nominal 0 would
+have said 7.1σ. The exclusion survives and is half the size it looked.
+
+It is **not an independent witness** and `induction/ANALYSIS.md` §3 says so:
+over the induction the product is about the rate times the time, so this slope
+is `1 + induction_drivers`' by construction, and `test_induction` pins the two
+to within 0.10 of that identity. What it adds is the units the hypothesis is
+stated in, a calibration, and one comparison that involves no regression at all
+— the pooled within-run spread of log(t_ind) against log(product), 0.667 against
+1.091, where a planted clock gives 0.000 against 0.454 and a planted threshold
+0.44 against 0.19.
+
+Route three drops rows, which nothing else in that folder does: 35 of the 147
+live catalysed 4OMe curves have no landmark and so made no product by it. That
+is a selection towards curves with an induction — the population the question is
+about — and the count is returned rather than absorbed.
+
 ## 2026-09-05 — Five of the seven experimental variables were unaskable, and the induction's barrier was measured against a confound
 
 `induction/` had measured the induction against `[S]` and `[H2O2]` and against

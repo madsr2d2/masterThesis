@@ -78,8 +78,13 @@ autocatalytic kinetics):
      inside the replicate floor. What separates the two blocks is `[enz]`
      (median 0.241 against 0.024 mM), signal and pH, not the substituent;
    - it is **not waiting for product** — the clock regressed on the curve's own
-     rate gives `+0.245 ± 0.127` over 147 curves where a product threshold
-     needs `−1`, and the BnOH block agrees at `+0.897 ± 0.178`;
+     rate gives `−0.025 ± 0.109` through the landmark and `+0.245 ± 0.127`
+     through the window-free clock, over 147 curves, where a product threshold
+     needs `−1`; asked instead as "is the *product* made by the landmark
+     fixed", it gives `+0.885 ± 0.125` against the `+1.000` a clock reads back
+     and the `+0.42` a planted threshold reads back, which is 3.7σ. Three
+     routes, one of them in the hypothesis's own units, and they are not
+     independent of each other;
    - its barrier is **77 ± 12 kJ/mol** over six temperatures at a window all
      six runs share, three to four times what dissolution, diffusion or thermal
      equilibration cost;

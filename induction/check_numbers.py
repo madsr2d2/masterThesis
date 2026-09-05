@@ -375,6 +375,41 @@ def main():
               abs(gap["entropy_gap_J"]) / gap["entropy_gap_stderr"] < 1.5
               and abs(gap["enthalpy_gap_kJ"]) / gap["enthalpy_gap_stderr"] < 1.5)
 
+    print("\nsection 3, route three: the product at the landmark")
+    for label, key, emphasis in (("4OMe catalysed", "4OMe catalysed", "**"),
+                                 ("BnOH two-axis", "BnOH two-axis (135-151)", ""),
+                                 ("the temperature series", "temperature series", "")):
+        block = named[key]
+        got = induction.product_at_landmark(block)
+        doc.claim(f"route three on {label}",
+                  f"| {emphasis}{got['slope']:+.3f} +/- {got['stderr']:.3f}"
+                  f"{emphasis} | {got['curves']} of {int(block.live.sum())} |")
+    product = induction.product_at_landmark(named["4OMe catalysed"])
+    recovery = induction.product_recovery()
+    doc.claim("what a planted clock reads back",
+              f"at **{recovery['clock_reads']:+.3f}** exactly")
+    doc.claim("and what a planted threshold reads back",
+              f"at **{recovery['threshold_range'][0]:+.2f} to "
+              f"{recovery['threshold_range'][1]:+.2f}**")
+    doc.claim("the calibrated exclusion",
+              f"**{product['threshold_sigma']:.1f}sigma from a threshold**")
+    doc.claim("what the nominal value would have given",
+              f"not the "
+              f"{abs(product['slope']) / product['stderr']:.1f}sigma the nominal")
+    doc.claim("and the distance from a clock",
+              f"{product['clock_sigma']:.1f}sigma from a clock")
+    doc.claim("the spread of the time",
+              f"| log(t<sub>ind</sub>) | **{product['spread_time']:.3f}** | ")
+    doc.claim("the spread of the product",
+              f"| log(product at it) | {product['spread_product']:.3f} | ")
+    doc.claim("how many curves route three drops",
+              f"{product['dropped']} of the 147")
+    route_one = induction.induction_drivers(named["4OMe catalysed"],
+                                            rate="v_peak")
+    doc.check("route three is route one plus one, as the algebra requires",
+              abs((product["slope"] - route_one["slope"]) - 1.0) < 0.10,
+              f"{product['slope']:+.3f} against {route_one['slope']:+.3f}")
+
     print("\nsection 7: the seven variables")
     archive = scope.frame(scope.archive())
     blocks = induction.induction_blocks(archive)
@@ -638,8 +673,8 @@ def main():
               f"({fall['span']:+.3f} +/- {fall['span_stderr']:.3f})")
 
     print("\nthe figures the document promises")
-    doc.figures(os.path.join(HERE, "index.html"), "ABCDEFGHIJKLM")
-    doc.claim("the document's own count of them", "thirteen figures, A\nto M")
+    doc.figures(os.path.join(HERE, "index.html"), "ABCDEFGHIJKLMN")
+    doc.claim("the document's own count of them", "fourteen figures, A\nto N")
 
     print("\nthe curves page draws both channels, whole")
     page = io.open(os.path.join(HERE, "progress_curves.html"),

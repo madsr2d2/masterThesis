@@ -27,18 +27,22 @@ from curve_metrics import lag_time
 # already carries the four attributes `induction_point` reads, and two copies
 # of a fixture drift the way two copies of a measurement do.
 from test_slowdown import FakeCurve
+import pandas as pd
 from induction import (DEPTH_FLOOR, INDUCTION_CLOCK_SLOPE, INDUCTION_FLOOR,
                        INDUCTION_PRODUCT_SLOPE, PERHYDRATE_ORDER_GAP,
                        common_window, induction_blocks,
                        induction_drivers, induction_point,
                        joint_buffer_order, joint_order,
                        joint_peroxide_order,
+                       PRODUCT_CLOCK_SLOPE, PRODUCT_THRESHOLD_SLOPE,
+                       induction_table, product_at_landmark,
+                       product_recovery,
                        lag_arrhenius_sweep, lag_ladder, lag_orders,
                        lag_ph_ladders, lag_signal_control, lag_window_frame,
                        order_ratio, pooled_ladder,
                        peroxide_geometric_mean, peroxide_saturation,
                        composition_collinearity, ladder_arms,
-                       lag_identifiability, replicate_floor,
+                       lag_identifiability, replicate_floor, WHOLE_ARCHIVE,
                        saturation_fraction, sign_drivers,
                        signal_control, substrate_lever, trap_constant)
 from summary_kinetics import fit_progress
@@ -1013,6 +1017,130 @@ def test_the_identifiability_table_names_the_between_run_axes():
           f"{table.loc['pH', 'unit']}, {table.loc['pH', 'widest_within_run']}")
 
 
+def test_the_product_at_the_landmark_tells_a_clock_from_a_threshold():
+    """
+    Plant both hypotheses and check the statistic reads each one back.
+
+    A CLOCK: every curve relaxes with the same tau and only the rate differs,
+    so the landmark falls at the same time and the product made by it is
+    proportional to the rate -- slope +1.
+
+    A THRESHOLD: tau is set to C/rate, so the landmark moves inversely with the
+    rate and the product made by it is the same on every curve -- slope 0.
+
+    Both plantings use the same curve form and the same landmark, so a
+    statistic that could not separate them would return the same number twice.
+    """
+    print("\nthe product at the landmark, against both plantings")
+    # Twelve rates over eight-fold, which is what `product_at_landmark`
+    # needs to fit at all -- it refuses under ten curves, because a slope
+    # from four points with a run offset is one degree of freedom.
+    rates = tuple(2e-6 * 8.0 ** (index / 11.0) for index in range(12))
+
+    def planted(tau_of):
+        rows = []
+        for index, rate in enumerate(rates, start=1):
+            tau = tau_of(rate)
+            times = np.linspace(0.0, 40000.0, 800)
+            values = rate * (times - tau * (1.0 - np.exp(-times / tau)))
+            curve = FakeCurve(times, values, sample=index)
+            found = induction_point(curve)
+            rows.append({"experiment": 1, "sample": index, "live": True,
+                         "t_ind": found.t_ind, "made": found.made,
+                         "v_peak": found.peak_rate, "epsilon": curve.epsilon,
+                         "s0": 5.0})
+        return pd.DataFrame(rows)
+
+    clock = product_at_landmark(planted(lambda rate: 3000.0),
+                                minimum_per_run=4, calibrate=False)
+    threshold = product_at_landmark(planted(lambda rate: 6e-3 / rate),
+                                    minimum_per_run=4, calibrate=False)
+    check("a planted clock reads back as +1, exactly",
+          abs(clock["slope"] - PRODUCT_CLOCK_SLOPE) < 0.02,
+          f"{clock['slope']:+.4f}")
+    check("a planted product threshold does NOT read back as 0",
+          threshold["slope"] > PRODUCT_THRESHOLD_SLOPE + 0.15,
+          f"{threshold['slope']:+.4f}")
+    check("and the two are still far apart",
+          clock["slope"] - threshold["slope"] > 0.5,
+          f"{clock['slope']:+.3f} against {threshold['slope']:+.3f}")
+
+    # The spread comparison points the same way on the same plantings and uses
+    # no regression at all -- and carries the same bias, which is why it is
+    # quoted as a direction and not as a discriminator on its own.
+    check("the clock planting holds the TIME constant",
+          clock["spread_time"] < 0.05 * clock["spread_product"],
+          f"{clock['spread_time']:.4f} against {clock['spread_product']:.4f}")
+    check("the threshold planting holds the PRODUCT more nearly constant",
+          threshold["spread_product"] < 0.6 * threshold["spread_time"],
+          f"{threshold['spread_product']:.4f} against "
+          f"{threshold['spread_time']:.4f}")
+
+
+def test_the_product_test_is_calibrated_against_its_own_bias():
+    """
+    A planted threshold reads +0.4 through this landmark, and the sigma has
+    to be measured from there. Quoting the nominal 0.0 overstates the
+    exclusion by more than a factor of two.
+    """
+    print("\nthe product test, calibrated")
+    recovery = product_recovery()
+    low, high = recovery["threshold_range"]
+    check("a planted threshold reads back well above zero, at every geometry",
+          low > 0.25 and high < 0.55, f"{low:.3f} to {high:.3f}")
+    check("and a planted clock reads back at +1 at every geometry",
+          abs(recovery["clock_range"][0] - 1.0) < 0.01
+          and abs(recovery["clock_range"][1] - 1.0) < 0.01,
+          f"{recovery['clock_range']}")
+
+    table = induction_table(WHOLE_ARCHIVE)
+    got = product_at_landmark(induction_blocks(table)["4OMe catalysed"])
+    check("the archive's answer is quoted against the recovered value",
+          abs(got["threshold_reads"] - high) < 1e-9,
+          f"{got['threshold_reads']:.3f} against {high:.3f}")
+    naive = abs(got["slope"] - PRODUCT_THRESHOLD_SLOPE) / got["stderr"]
+    check("which nearly halves the exclusion the nominal value would give",
+          naive > 1.8 * got["threshold_sigma"],
+          f"{naive:.1f} sigma nominal against "
+          f"{got['threshold_sigma']:.1f} calibrated")
+    check("and the exclusion survives the correction",
+          got["threshold_sigma"] > 3.0, f"{got['threshold_sigma']:.1f}")
+
+
+def test_the_product_test_agrees_with_the_driver_regression():
+    """
+    It is `induction_drivers` in other units, and that is checkable.
+
+    Over the induction the product is about the rate times the time, so the
+    two slopes must differ by 1. If they ever stop doing so, one of them has
+    started measuring something else.
+    """
+    print("\nthe product test is the driver regression restated")
+    table = induction_table(WHOLE_ARCHIVE)
+    block = induction_blocks(table)["4OMe catalysed"]
+    product = product_at_landmark(block)
+    driver = induction_drivers(block, rate="v_peak")
+    check("the two slopes differ by 1, as the algebra requires",
+          abs((product["slope"] - driver["slope"]) - 1.0) < 0.10,
+          f"{product['slope']:+.3f} against {driver['slope']:+.3f}")
+    check("so it is quoted as a restatement and not as a second witness",
+          "not independent" in product_at_landmark.__doc__.lower()
+          or "NOT INDEPENDENT" in product_at_landmark.__doc__)
+
+    check("it drops the curves with no landmark, and says how many",
+          product["dropped"] > 0
+          and product["curves"] + product["dropped"] == int(block.live.sum()),
+          f"{product['curves']} kept, {product['dropped']} dropped")
+    check("the archive's own answer is the clock, not the threshold",
+          product["clock_sigma"] < 1.0 and product["threshold_sigma"] > 3.0,
+          f"{product['clock_sigma']:.1f} from a clock, "
+          f"{product['threshold_sigma']:.1f} from a threshold")
+    check("and the time is the more nearly conserved quantity",
+          product["spread_time"] < product["spread_product"],
+          f"sd(log t) {product['spread_time']:.3f} against "
+          f"sd(log P) {product['spread_product']:.3f}")
+
+
 def test_regressions():
     """The numbers induction/ANALYSIS.md quotes."""
     print("\nthe published numbers")
@@ -1257,6 +1385,9 @@ if __name__ == "__main__":
     test_the_pooled_ladder_notices_a_disagreement()
     test_the_saturation_fraction_bounds_both_schemes()
     test_the_identifiability_table_names_the_between_run_axes()
+    test_the_product_at_the_landmark_tells_a_clock_from_a_threshold()
+    test_the_product_test_is_calibrated_against_its_own_bias()
+    test_the_product_test_agrees_with_the_driver_regression()
     test_regressions()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)

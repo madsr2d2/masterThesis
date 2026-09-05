@@ -191,7 +191,17 @@ def induction_point(curve, level=INDUCTION_LEVEL, window=LAG_WINDOW):
     index = int(np.flatnonzero(slopes >= threshold)[0])
     return InductionPoint(
         t_ind=float(centres[index] - centres[0]),
-        made=float(np.interp(centres[index], times, values) - values[0]),
+        # THE SAME INTERVAL `t_ind` SPANS, and it was not until 2026-09-05:
+        # `t_ind` is measured from the FIRST WINDOW CENTRE and `made` was
+        # measured from the first READING, so it carried an extra half-window
+        # of product -- 2000 s of it on a 40000 s run. That offset is
+        # proportional to the rate, so it manufactured exactly the +1 slope
+        # `product_at_landmark` tests for: a planted product THRESHOLD read
+        # back as +1.03 instead of 0.00. Nothing published moved, because this
+        # field was computed from the day the module was written and read by
+        # nothing until the test that caught it.
+        made=float(np.interp(centres[index], times, values)
+                   - np.interp(centres[0], times, values)),
         peak_rate=peak, start_rate=start,
         depth=float(1.0 - start / peak),
         t_peak=float(centres[top] - centres[0]),
@@ -300,6 +310,194 @@ def induction_drivers(table, response="t_ind", rate="peak_rate",
             "r2": float(1 - float(resid @ resid) / spread) if spread else np.nan,
             "floored": int((live[response].to_numpy(dtype=float) < floor).sum()),
             "experiments": int(live.experiment.nunique())}
+
+
+# Where the two hypotheses put the slope of log(product made by the landmark) on
+# log(rate). This is `induction_drivers`' question asked in the units the
+# PRODUCT hypothesis is stated in: a clock lets the product land wherever the
+# rate puts it in a fixed time, so the product is proportional to the rate; a
+# threshold fixes the product and lets the time land where it may.
+PRODUCT_CLOCK_SLOPE = 1.0
+PRODUCT_THRESHOLD_SLOPE = 0.0
+
+# The geometries `product_recovery` plants on: (run length, tau at the middle
+# of the ladder). Between them they span the archive's own range -- runs of
+# 40000 down to 60000 s and time constants from a twentieth of the run to a
+# third of it, which is the band the landmark can resolve at all.
+PRODUCT_RECOVERY_PLANTINGS = ((40000.0, 1500.0), (60000.0, 6000.0),
+                              (60000.0, 10000.0), (100000.0, 15000.0))
+
+# The rate lever the plantings use, matched to the archive's own: the substrate
+# ladder inside a 4OMe run moves the rate about four-fold (`substrate_lever`).
+PRODUCT_RECOVERY_LEVER = 4.0
+PRODUCT_RECOVERY_CURVES = 12
+
+
+@functools.lru_cache(maxsize=4)
+def product_recovery(plantings=PRODUCT_RECOVERY_PLANTINGS,
+                     lever=PRODUCT_RECOVERY_LEVER,
+                     curves=PRODUCT_RECOVERY_CURVES):
+    """
+    What `product_at_landmark` reads back when each hypothesis is TRUE.
+
+    THE LANDMARK IS BIASED TOWARDS THE CLOCK AND THE BIAS IS NOT SMALL. The
+    rolling slope's first centre sits half a window into the run, so part of the
+    induction has already happened before the landmark's own clock starts --
+    and how much depends on tau, which is exactly what a product threshold
+    varies. Writing it out for a threshold planting with `v.tau = C` fixed:
+
+        made = C(ln2 - 0.5 e^(-c0/tau))
+
+    with `c0` the half-window. As tau falls the exponential dies and `made`
+    rises by a factor of 3.6 across the band, which is a POSITIVE slope on the
+    rate where the hypothesis says zero.
+
+    So a planted threshold reads back near **+0.4**, not 0.0, and the sigma a
+    result should be quoted against is the distance from that rather than from
+    the nominal value. A planted clock reads back at +1.000 exactly, so the
+    other end needs no correction.
+
+    Returns the recovered slope for each hypothesis at each planting, and the
+    worst (most clock-like) threshold reading, which is what
+    `product_at_landmark` uses.
+    """
+    rows = []
+    for run, middle in plantings:
+        for name, tau_of in (
+                ("clock", lambda rate, middle=middle: middle),
+                ("threshold", lambda rate, middle=middle: middle * 2e-6
+                 * np.sqrt(lever) / rate)):
+            planted = []
+            for index in range(curves):
+                rate = 2e-6 * lever ** (index / (curves - 1.0))
+                tau = tau_of(rate)
+                times = np.linspace(0.0, run, 1000)
+                values = rate * (times - tau * (1.0 - np.exp(-times / tau)))
+                found = induction_point(_PlantedCurve(times, values))
+                planted.append({"experiment": 1, "sample": index + 1,
+                                "live": True, "t_ind": found.t_ind,
+                                "made": found.made, "v_peak": found.peak_rate,
+                                "epsilon": 1.0, "s0": 1.0})
+            got = product_at_landmark(pd.DataFrame(planted),
+                                      minimum_per_run=curves, calibrate=False)
+            rows.append({"run_s": run, "tau_s": middle, "planted": name,
+                         "recovered": got.get("slope", np.nan),
+                         "spread_time": got.get("spread_time", np.nan),
+                         "spread_product": got.get("spread_product", np.nan)})
+    table = pd.DataFrame(rows)
+    threshold = table[table.planted == "threshold"].recovered
+    clock = table[table.planted == "clock"].recovered
+    return {"table": table,
+            "threshold_reads": float(threshold.max()),
+            "threshold_range": (float(threshold.min()), float(threshold.max())),
+            "clock_reads": float(clock.mean()),
+            "clock_range": (float(clock.min()), float(clock.max()))}
+
+
+class _PlantedCurve:
+    """The three attributes `induction_point` reads, for a synthetic curve."""
+
+    def __init__(self, times, absorbance, source="rre"):
+        self.times = np.asarray(times, dtype=float)
+        self.absorbance = np.asarray(absorbance, dtype=float)
+        self.source = source
+
+
+def product_at_landmark(table, rate="v_peak", minimum_per_run=3,
+                        calibrate=True):
+    """
+    How much product had been made when the induction ended, and was it fixed?
+
+    THE QUESTION IN ITS OWN UNITS. `induction_drivers` asks whether a faster
+    cuvette's induction is SHORTER; this asks whether a faster cuvette's
+    induction ends at the same PRODUCT, which is what "the induction waits for
+    product" actually claims. `InductionPoint.made` -- the absorbance built up
+    by the landmark -- has been computed on every curve since this module was
+    written and read by nothing until 2026-09-05.
+
+        d log(made) / d log(rate) = +1     a clock: fixed time, so the product
+                                           is whatever the rate makes in it
+                                         =  0     a threshold: fixed product,
+                                           so the time is whatever it takes
+
+    IT IS NOT INDEPENDENT OF `induction_drivers` and must not be quoted as
+    though it were. Over the induction the product is roughly the rate times
+    the time, so this slope is about `1 + (that one)` by construction: route
+    one's -0.025 +/- 0.109 predicts +0.975 and this returns +0.979. What it
+    adds is the units, and the second number below, which is not a regression
+    at all.
+
+    THE SPREAD COMPARISON, which owes nothing to any fit. Inside one run the
+    schedule, pH, temperature, buffer and catalyst are fixed and only the
+    substrate ladder moves, changing the rate about four-fold. So ask which of
+    the two candidate constants is actually more nearly constant across those
+    cuvettes: the pooled within-run standard deviation of log(t_ind) against
+    that of log(made). A clock says the first is smaller and a threshold says
+    the second is. On the catalysed 4OMe block they are 0.667 and 1.091.
+    That comparison carries the same bias and `product_recovery` prices it: a
+    planted threshold gives 0.44 against 0.19 rather than 0.44 against 0, so
+    the two are not expected to separate cleanly -- and the archive's separate
+    in the clock's direction.
+
+    WHAT IT COSTS. A curve with no landmark has made no product by it, so this
+    is the one statistic in the module that DROPS rows: 112 of the 147 live
+    catalysed 4OMe curves carry a landmark. That is a selection towards curves
+    that have an induction, which is the population the question is about, but
+    it is a selection and the count is returned so it can be read.
+    """
+    live = table[table.live & (table.t_ind > 0) & (table.made > 0)
+                 & (table[rate] > 0)]
+    dropped = int(table.live.sum()) - len(live)
+    if len(live) < 10:
+        return {"curves": int(len(live)), "dropped": dropped}
+    response = np.log(live.made.to_numpy(dtype=float))
+    columns = [np.log(live[rate].to_numpy(dtype=float))]
+    columns += [(live.experiment == run).to_numpy(float)
+                for run in sorted(live.experiment.unique())]
+    design = np.column_stack(columns)
+    beta, *_ = np.linalg.lstsq(design, response, rcond=None)
+    resid = response - design @ beta
+    rank = int(np.linalg.matrix_rank(design))
+    variance = float(resid @ resid) / max(1, len(live) - rank)
+    covariance = variance * np.linalg.pinv(design.T @ design)
+    slope = float(beta[0])
+    stderr = float(np.sqrt(max(covariance[0, 0], 0.0)))
+
+    spreads = {"t_ind": [], "made": [], "conversion": [], rate: []}
+    for _, group in live.groupby("experiment"):
+        if len(group) < minimum_per_run:
+            continue
+        converted = (group.made / (group.epsilon * group.s0)).to_numpy(float)
+        for name, values in (("t_ind", group.t_ind.to_numpy(float)),
+                             ("made", group.made.to_numpy(float)),
+                             ("conversion", converted),
+                             (rate, group[rate].to_numpy(float))):
+            if np.all(values > 0):
+                spreads[name].append(float(np.std(np.log(values), ddof=1)))
+    pooled = {name: float(np.sqrt(np.mean(np.square(values))))
+              if values else np.nan for name, values in spreads.items()}
+    # AGAINST WHAT A PLANTING ACTUALLY READS BACK, not against the nominal
+    # value. A true product threshold does not read 0.0 through this landmark,
+    # it reads about +0.4, because the rolling slope's first centre is half a
+    # window into the run -- `product_recovery` derives it and plants it.
+    # Quoting the nominal 0.0 would put the archive's answer 8.9 sigma from a
+    # threshold when the honest distance is 5.3.
+    reads = (product_recovery() if calibrate
+             else {"threshold_reads": PRODUCT_THRESHOLD_SLOPE,
+                   "clock_reads": PRODUCT_CLOCK_SLOPE})
+    return {"curves": int(len(live)), "dropped": dropped,
+            "experiments": int(live.experiment.nunique()),
+            "runs_in_spread": len(spreads["t_ind"]),
+            "slope": slope, "stderr": stderr,
+            "clock_reads": reads["clock_reads"],
+            "threshold_reads": reads["threshold_reads"],
+            "clock_sigma": float(abs(slope - reads["clock_reads"]) / stderr)
+            if stderr else np.nan,
+            "threshold_sigma": float(abs(slope - reads["threshold_reads"])
+                                     / stderr) if stderr else np.nan,
+            "spread_time": pooled["t_ind"], "spread_product": pooled["made"],
+            "spread_conversion": pooled["conversion"],
+            "spread_rate": pooled[rate]}
 
 
 def order_ratio(table, response="t_ind", axis="s0", floor=INDUCTION_FLOOR,
@@ -2147,6 +2345,26 @@ def report(table=None):
         fit = induction_drivers(named["4OMe catalysed"], floor=floor)
         print(f"   4OMe catalysed, floor {floor:5.0f} s        "
               f"{fit['slope']:+.3f} +- {fit['stderr']:.3f}")
+
+    print("\n3a. AND IN THE UNITS THE PRODUCT HYPOTHESIS IS STATED IN")
+    recovery = product_recovery()
+    print(f"   a planted clock reads back at {recovery['clock_reads']:+.3f}, "
+          f"a planted threshold at {recovery['threshold_range'][0]:+.2f} to "
+          f"{recovery['threshold_range'][1]:+.2f}")
+    print(recovery["table"].to_string(index=False))
+    for name in ("4OMe catalysed", "BnOH two-axis (135-151)",
+                 "temperature series"):
+        got = product_at_landmark(named[name])
+        if "slope" not in got:
+            continue
+        print(f"   {name:26s} d log(made)/d log(v) "
+              f"{got['slope']:+.3f} +- {got['stderr']:.3f}   "
+              f"{got['clock_sigma']:.1f} sigma from a clock, "
+              f"{got['threshold_sigma']:.1f} from a threshold   "
+              f"{got['curves']} curves, {got['dropped']} dropped")
+        print(f"   {'':26s} pooled sd: log t {got['spread_time']:.3f}, "
+              f"log product {got['spread_product']:.3f}, "
+              f"log conversion {got['spread_conversion']:.3f}")
 
     print("\n4. THE SAME QUESTION THROUGH THE SUBSTRATE ORDERS")
     print("   the route with no errors-in-variables: the regressor is the")
