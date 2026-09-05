@@ -1585,6 +1585,46 @@ LAG_RESPONSES = ("lag_half_s", "lag_depth", "lag_first")
 LAG_ORDER_FLOORS = {"lag_half_s": INDUCTION_FLOOR, "lag_depth": DEPTH_FLOOR}
 
 
+def lag_channel_table(frame=None):
+    """
+    The window-free lag by substrate and channel: four cells, and they differ.
+
+    `channel_summary` above does this for the LANDMARK on the 4OMe block, where
+    the contrast is the folder's first claim -- 0 of 49 enzyme-free curves have
+    an induction. Run over the whole archive the same contrast holds on 4OMe
+    and DOES NOT HOLD ON BnOH: 14 of 26 enzyme-free BnOH curves begin below
+    their eventual rate, at a median depth of 0.138.
+
+    That is not a counter-example to section 2, it is a second phenomenon. The
+    BnOH lags sit in exps 3 and 6 -- pH 6.71 phosphate, 11025 and 17934 s, 8 of
+    10 curves -- and in exp 65, whose four cuvettes share the synchronised
+    break `scope.synchronised_break` measures. Steps 1-3 of `MECHANISM.md` are
+    autocatalytic in the product and need no catalyst, and `product_fate`
+    already finds them switched ON for benzaldehyde and OFF for the
+    4-methoxy aldehyde, whose electron-rich ring makes it a worse hydride
+    donor. An accelerating enzyme-free BnOH curve is what that predicts.
+
+    So the archive separates the two: on 4OMe the lag needs the catalyst and is
+    its activation; on BnOH a lag can also be the catalyst-free loop finding its
+    product. Do not pool them.
+    """
+    if frame is None:
+        frame = scope.frame(scope.archive())
+    live = frame[frame.live]
+    rows = []
+    for (substrate, catalysed), group in live.groupby(
+            ["substrate", "differential"]):
+        rows.append({
+            "substrate": substrate,
+            "channel": "catalysed" if catalysed else "enzyme-free",
+            "curves": int(len(group)),
+            "with_a_lag": int((group.lag_depth > 0).sum()),
+            "median_depth": float(group.lag_depth.median()),
+            "median_clock_s": float(group.lag_half_s.median()),
+            "experiments": int(group.experiment.nunique())})
+    return pd.DataFrame(rows).set_index(["substrate", "channel"])
+
+
 def lag_orders(table, terms=scope.ORDER_TERMS, live_only=True,
                floors=None):
     """
@@ -2297,6 +2337,9 @@ def report(table=None):
 
     print("\n7. THE SEVEN AXES, AND WHERE THE ARCHIVE IDENTIFIES EACH")
     print(lag_identifiability().to_string())
+
+    print("\n7a0. THE LAG BY SUBSTRATE AND CHANNEL, over the whole archive")
+    print(lag_channel_table().to_string())
 
     print("\n7a. THE REPLICATE FLOOR -- what two identical runs do anyway")
     floor = replicate_floor()

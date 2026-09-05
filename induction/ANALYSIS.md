@@ -6,7 +6,8 @@ on an Arrhenius plot. That document names the induction and times it. This one
 asks what it *is*.
 
 The answer the archive supports: **the catalyst is not in its active form when
-the run starts, and it converts into it on its own clock.** The induction needs
+the run starts, and it converts into it on its own clock, over a covalent
+barrier, slowed by base and hurried by the substrate.** The induction needs
 the catalyst, it does not wait for product, its size is a fraction rather than a
 concentration, and its barrier is 95 kJ/mol — a covalent step, not a physical
 one. What the archive cannot say is *which* covalent step, and in particular it
@@ -26,12 +27,18 @@ enough runs to have an error bar worth quoting.
     python induction/build_figures.py
     python induction/check_numbers.py
 
-**Figures**: [`index.html`](index.html) is the presentation — nine figures, A
-to I, one per claim below. [`progress_curves.html`](progress_curves.html)
+**Figures**: [`index.html`](index.html) is the presentation — thirteen figures, A
+to M, one per claim below. [`progress_curves.html`](progress_curves.html)
 carries **both channels of the 4OMe block**, 147 catalysed and 49 enzyme-free,
 each with the form it earned and its induction landmark — §1's claim is a
 contrast, so a page showing only the catalysed half would show only the half
 that agrees. Both are rebuilt by `build_figures.py`, which computes nothing.
+
+**§7 is the survey of all seven experimental variables** — temperature, pH,
+`[buf]`, buffer salt, `[S]`, substrate and `[H2O2]` — and of which of them this
+archive can answer for at all. It needed a lag statistic with no window in it,
+because five of the seven move only between runs; `scope.frame`'s `lag_depth`
+and `lag_half_s` are that statistic.
 
 Related: [`../temperature_series/`](../temperature_series/ANALYSIS.md) for the
 activation parameters, [`../product_fate/`](../product_fate/ANALYSIS.md) for the
@@ -375,6 +382,12 @@ s⁻¹, needing neither an extinction coefficient nor an enzyme concentration.
 | **the induction**, `1/τ` | 95.0 ± 15.7 | 92.6 ± 15.7 | +3.7 ± 53.2 | **91.48 ± 0.62** | 16, 4 T |
 | **the turnover**, `v_peak` | 88.8 ± 1.8 | 86.3 ± 1.8 | −57.7 ± 5.9 | **103.47 ± 0.10** | 24, 6 T |
 
+*The first row is over FOUR temperatures, 15 to 30 °C, because `inverse_tau` is
+the ONE-phase fit's τ and above 32 °C a decelerating curve gives that form no
+lag to find (`arrhenius.BURST_TRUSTWORTHY_BELOW_C`). §7f measures the same
+barrier on the two-phase form over all six and gets **77 ± 12**; the two agree
+and the six-temperature number is the one to quote.*
+
 **The free-energy gap is the solid number: −11.99 ± 0.62 kJ/mol.** As a rate
 constant at 298 K the induction step is **126× faster** than turnover — which is
 what a step that has to finish before turnover can begin is required to be, and
@@ -572,7 +585,308 @@ scheme in which the buffer's role is to carry the peroxide rather than to be a
 base — which this archive cannot separate from general base catalysis, because
 **0 of its 88 runs step `[buf]` and `[H₂O₂]` at once**.
 
-## 7. What this settles, and what it does not
+## 7. The seven variables, and where the archive can answer for each
+
+Everything above measures the induction against **two** of the seven things the
+experiment moves: `[S]` and `[H2O2]`. That is not a choice of interest, it is
+the statistic. `induction_point` reads through a rolling window a tenth of the
+run, so it is safe inside a run and not between runs (§1) — and **temperature,
+pH, `[buf]`'s partner the buffer salt, and the substrate are one value per run
+in this archive, always.** Five of the seven questions were unaskable.
+
+`scope.frame` now carries `lag_depth` and `lag_half_s`, read off the **fitted
+rate** rather than a rolling one: how far below its peak the rate starts, and
+how long the fit takes to cover half that gap. On a one-phase lag the second is
+exactly τ·ln2; on a two-phase curve it is the mixture a single time constant
+cannot be. `summary_kinetics.ProgressFit.lag_profile` is the definition, it
+recovers a planted τ to within 6% at 200, 800 and 3000 s, and it returns zero on
+a curve that begins at its fastest. Both come off the gas-corrected readings,
+for the reason `tau_corrected` does (§4b).
+
+**It carries no window. It still carries the schedule and the signal**, and
+this section is built around both.
+
+- The **schedule**, because the fit's τ grid runs from span/300 to 2·span: a
+  1260 s run cannot report a 4000 s clock. `induction.lag_window_frame` refits
+  every run of a block on a window they all share.
+- The **signal**, because a curve with little signal gives the fit little to
+  choose between the shapes. Every result below is quoted twice, with and
+  without the curve's own log(net/noise) held alongside, and `lag_orders`
+  reports the partial correlation that says whether holding it could matter.
+
+### 7a. Which axes the archive moves, and where
+
+`induction.lag_identifiability`, over all 88 experiments:
+
+| axis | runs moving it internally | widest span inside one run |
+|---|---|---|
+| `[S]` | **77 of 88** | 50.1× |
+| `[buf]` | **53 of 88** | 8.0× |
+| `[H2O2]` | **20 of 88** | 66.7× |
+| pH | **0** | — |
+| temperature | **0** | — |
+| buffer salt | **0** | — |
+| substrate | **0** | — |
+
+Three axes are within-run and four are not. The four have to be read off
+between-run designs, and the archive holds exactly these: four pH ladders
+(§7d), one temperature series (§7e), and three matched **pairs** — one for the
+buffer salt, two for the substrate, two for the catalyst loading (§7f).
+
+### 7b. The lag is not one phenomenon, and the substrates split it
+
+`induction.lag_channel_table`, over the whole archive:
+
+| substrate | channel | curves | with a lag | median depth | median clock |
+|---|---|---|---|---|---|
+| 4OMe | enzyme-free | 49 | **10** | 0.000 | 0 s |
+| 4OMe | **catalysed** | 147 | **109** | **0.257** | 304 s |
+| BnOH | enzyme-free | 26 | **14** | **0.138** | 69 s |
+| BnOH | catalysed | 164 | **77** | 0.000 | 0 s |
+
+The 4OMe row is §2 again through a different statistic and it holds. **The BnOH
+row does not, and that is a second phenomenon rather than a counter-example.**
+The enzyme-free BnOH lags are exps 3 and 6 — pH 6.71 phosphate, 11025 and
+17934 s, 8 of their 10 curves — and exp 65, whose four cuvettes share the
+break `scope.synchronised_break` measures. Steps 1–3 of `MECHANISM.md` are
+autocatalytic in the product and need no catalyst at all, and `product_fate`
+already finds that chemistry switched **on** for benzaldehyde and **off** for
+the 4-methoxy aldehyde, whose electron-rich ring makes it the worse hydride
+donor. An accelerating enzyme-free BnOH curve is what that predicts.
+
+So: on 4OMe a lag is the catalyst becoming active; on BnOH a lag can also be the
+catalyst-free loop finding its own product. **Do not pool them**, and read every
+number below with its substrate attached.
+
+### 7c. The replicate floor — what two identical runs do anyway
+
+`scope.REPLICATE_RUNS` is exps 2, 4, 5 and 7: four repeats of one composition,
+each 17934 s, the only four-fold repeat in the archive. It is the bar every
+between-run number in this section has to clear.
+
+| | exp 2 | exp 4 | exp 5 | exp 7 | spread |
+|---|---|---|---|---|---|
+| clock, s | 3675 | 3682 | 3388 | 2951 | **1.25×** |
+| depth | 0.388 | 0.734 | 1.000 | 1.000 | **0.612** |
+
+**The clock reproduces between runs and the depth does not.** A factor of 1.25
+on the clock is 0.22 in log units, so a between-run clock effect has to beat
+that; a depth spread of 0.61 on a statistic bounded by [0, 1] means the depth
+is a within-run statistic and nothing else. Every between-run row below is read
+on the clock for that reason.
+
+### 7d. Within runs: `[S]`, `[H2O2]`, `[buf]`
+
+`induction.lag_orders`, which is `scope.orders` — the package's own
+within-experiment log-log fit, one offset per experiment — with the signal
+pairing added. **Every axis the block moves is fitted at once**: one axis at a
+time is a different regression on an L, and a substrate-only fit of the
+two-axis clock reads −0.453 ± 0.107 where the joint fit reads −0.225 ± 0.115.
+
+| block | axis | r(axis, signal) | clock order | with the signal held |
+|---|---|---|---|---|
+| 4OMe catalysed, 147 curves | `[S]` | +0.60 | +0.003 ± 0.164 | +0.017 ± 0.222 |
+| | `[buf]` | −0.09 | −0.203 ± 0.297 | −0.194 ± 0.313 |
+| | `[H2O2]` | +0.33 | +0.194 ± 0.117 | +0.199 ± 0.130 |
+| **BnOH two-axis, 110 curves** | **`[S]`** | +0.04 | **−0.225 ± 0.115** | **−0.336 ± 0.127** |
+| | `[H2O2]` | +0.57 | +0.679 ± 0.171 | +0.377 ± 0.232 |
+| 4OMe peroxide, 127–131, 15 | `[H2O2]` | +0.67 | +0.194 ± 0.165 | −0.134 ± 0.160 |
+| buffer titrations, 20 | `[buf]` | +0.63 | −0.349 ± 0.215 | +0.076 ± 0.222 |
+
+**Read the third column first.** The two-axis block fails its own signal control
+outright (+0.916 ± 0.259) and can *still* be asked about substrate, because in
+that block substrate buys no signal: its rate order in `[S]` is +0.09 ± 0.05, so
+log[S] and log(net/noise) correlate at **+0.04** once the run offsets are out.
+Peroxide is a different matter everywhere — it *is* the signal, at +0.57 and
++0.67 — and holding it takes the peroxide coefficient from +0.68 to +0.38 on one
+block and from +0.19 to −0.13 on the other. **This archive cannot measure a
+peroxide dependence of the induction**, through the landmark (§4a) or through
+the fit, and the reason is the same both times.
+
+The same objection sinks the buffer titrations: `[buf]` correlates with the
+signal at +0.63 there, and holding it moves −0.349 ± 0.215 to +0.076 ± 0.222.
+**The direct buffer result of §6 is not reproduced by the window-free clock.**
+What survives is the 4OMe archive's own `[buf]` axis, which is the one buffer
+measurement in the archive that is *not* signal-confounded (r = −0.09) — and it
+reads −0.20 ± 0.30, the right sign and no significance.
+
+*The floor moves the sizes and not the signs.* 48 of the two-axis block's 110
+live curves begin at their fastest and sit on the floor honestly. Sweeping it
+from 1 s to 300 s:
+
+| floor | 1 s | 30 s | 60 s | 120 s | 300 s |
+|---|---|---|---|---|---|
+| two-axis `[S]`, held | −0.715 | −0.400 | **−0.336** | −0.272 | −0.178 |
+| two-axis `[H2O2]`, held | +0.755 | +0.441 | **+0.377** | +0.313 | +0.243 |
+| 4OMe `[S]`, held | +0.620 | +0.124 | **+0.017** | −0.058 | −0.097 |
+
+The substrate coefficient on BnOH is negative at every floor and the 4OMe one
+changes sign, which is what "a null" and "a weak effect" look like from the
+inside. Quote the BnOH substrate order as a range, **−0.18 to −0.71**, not as
+a number.
+
+**And product control is excluded a second time, on both substrates.** §3's
+route one, re-run on the window-free clock:
+
+| block | d log(clock) / d log(rate) | curves |
+|---|---|---|
+| 4OMe catalysed | **+0.245 ± 0.127** | 147 |
+| BnOH two-axis | **+0.897 ± 0.178** | 110 |
+| the temperature series | −0.073 ± 0.468 | 24 |
+
+A clock predicts 0 and product control −1. The 4OMe row excludes product control
+at 9.8σ, agreeing with the landmark's −0.025 ± 0.109 from a statistic that
+shares no window with it. The BnOH row excludes it at 10.6σ and misses the clock
+too, in the direction its own peroxide confound predicts — faster cuvettes there
+are the high-peroxide ones, and peroxide lengthens the apparent clock.
+
+### 7e. Between runs: pH, on four ladders
+
+pH is one value per run everywhere, so a pH ladder is a set of runs sharing
+everything else. There are four, and until now the project had used none of
+them for this question. **A per-experiment offset is not available here** — it
+would *be* the pH axis; `lag_ladder` raises rather than returning the
+minimum-norm split, which is `scope._moves` one level out and which reported a
+forty-sigma pH effect for one afternoon before the guard existed.
+
+Every run is refit on the window they all share, and each ladder is confounded
+differently — which is the reason to have four:
+
+| ladder | runs | pH | r(pH, run length) | r(pH, signal) | clock, held |
+|---|---|---|---|---|---|
+| 4OMe phosphate | 9 | 5.64–8.95 | −0.25 | **+0.87** | +0.094 ± 0.303 |
+| 4OMe boric | 9 | 8.46–10.34 | **+0.71** | −0.65 | +0.286 ± 0.322 |
+| BnOH pyrophosphate 136–142 | 7 | 6.95–9.43 | −0.53 | +0.77 | +0.472 ± 0.343 |
+| BnOH pyrophosphate 143–151 | 9 | 5.47–9.73 | **−0.79** | +0.79 | +0.405 ± 0.187 |
+| **pooled** | | | | | **+0.336 ± 0.132** |
+
+The four agree (χ² = 0.95 on 3) across two substrates, three buffers, and
+confounds of both signs. **They do not survive the window**: at 0.75 and 0.5 of
+the shared window the pooled value is +0.119 ± 0.115 and +0.176 ± 0.113. So the
+honest quote is
+
+> **d ln τ / d pH = +0.12 to +0.34, positive at every window and never past
+> 2.6σ.**
+
+Positive means **more alkaline, longer induction** — the same direction §4a's
+peroxide sign points, on an axis that is not the peroxide. As a saturation
+fraction (`saturation_fraction`, dividing by ln 10) it is **0.05 to 0.15**: if
+something is holding the catalyst off its activation path, the archive's whole
+pH range moves it across at most a seventh of its range. The depth carries
+nothing at all — pooled +0.020 ± 0.039.
+
+### 7f. Temperature: the barrier, and what the schedule was doing to it
+
+This is the row the schedule bites hardest, and the one where controlling for it
+and refitting for it give different answers.
+
+Cold runs are the long runs here — 1/T against log(run length) at **+0.66** —
+and a clock cannot exceed its run. On whole runs the barrier is
+**83.7 ± 8.9 kJ/mol**; put log(run length) into that regression and it drops to
+**55.3 ± 24.3** on a six-point collinearity, which is not a measurement. Refit
+every run on a window all six share and the collinearity is gone by
+construction:
+
+| window | 0.3× | 0.5× | 0.75× | 1.0× | 2× | whole runs |
+|---|---|---|---|---|---|---|
+| seconds | 1470 | 2499 | 3773 | 5047 | 10094 | 17934 |
+| temperatures | 4 | 5 | 5 | 6 | 6 | 6 |
+| E<sub>a</sub>, kJ/mol | 8.8 ± 37.5 | 1.7 ± 35.7 | 81.6 ± 22.0 | **76.7 ± 12.2** | 76.6 ± 8.7 | 83.7 ± 8.9 |
+
+Stable at **77–84 kJ/mol** from three quarters of the shared window upwards, and
+collapsing below it — where the 15 and 20 °C clocks are longer than the window
+and the fit cannot see them, which the temperature count reports rather than
+hides. The half-rise runs 2212, 2000, 2204, 630, 446 and 334 s from 15 to 40 °C.
+
+**This replaces §5's 95.0 ± 15.7 kJ/mol as the number to quote.** That figure
+comes from `arrhenius.inverse_tau`, which is the *one-phase* fit's τ and
+therefore reaches only 15–30 °C: above 32 °C a decelerating curve gives the
+one-phase form no lag to find and τ lands on the top of its grid
+(`arrhenius.BURST_TRUSTWORTHY_BELOW_C`). The two-phase form does find it. The two
+agree inside their errors and the new one is over six temperatures instead of
+four, so **quote 77 ± 12 with a window systematic of about ±7** — and the
+conclusion §5 drew from it is unchanged: a barrier of that size is three to four
+times what dissolution, diffusion or thermal equilibration cost, and it is
+covalent.
+
+### 7g. The three pairs: buffer salt, substrate, catalyst
+
+None of these three was ever laddered, so each is a pair read at a common
+window, and the bar is §7c's replicate floor — **1.25× on the clock**.
+
+| contrast | runs | clock | depth | verdict |
+|---|---|---|---|---|
+| **buffer salt**, 4OMe pH 8.96 | 12 phosphate / 42 boric | 0 s / 56 s | 0.000 / 0.054 | neither has a lag; nothing measured |
+| **substrate**, boric pH 9.0 | 42 4OMe / 51 BnOH | 57 s / 0 s | 0.054 / 0.000 | both inside the floor |
+| **substrate**, boric pH 9.7 | 45 4OMe / 55 BnOH | 853 s / 1644 s | 0.217 / 0.250 | 1.9×, just past the floor, one pair |
+| **catalyst**, BnOH boric pH 8.51 | 59 (0.028) / 60 (0.014) | 0 s / 0 s | 0.000 / 0.000 | neither has a lag |
+| **catalyst**, two-axis | 140 (0.034) / 141 (0.014) | 913 s / 517 s | 0.618 / 0.162 | 1.8×, and the wrong way |
+
+**The catalyst pair is the one that matters and the archive spends it badly.** A
+unimolecular activation of the catalyst predicts the clock does *not* depend on
+how much catalyst there is — the one prediction of the activation reading that a
+concentration can falsify. Exps 59 and 60 hold everything but `[enz]` and
+neither has a lag to time. Exps 140 and 141 do, and 2.4× more catalyst gives a
+1.8× **longer** clock, which is past the replicate floor and points the wrong
+way for a unimolecular step. It is two runs, 0.07 pH units apart, in the block
+whose signal control fails. **It is a flag, not a result** — and it is the
+cheapest experiment left undone in this folder: one substrate ladder at two
+catalyst loadings on the catalysed 4OMe system at 25 °C.
+
+### 7h. What the dependences add up to
+
+Collecting the rows that survive their own controls:
+
+| variable | the induction clock |
+|---|---|
+| temperature | **77 ± 12 kJ/mol**, six temperatures, common window |
+| `[S]`, BnOH, buffer fixed | **−0.18 to −0.72** across floors, always negative |
+| `[S]`, 4OMe, buffer falling with it | **0.00 ± 0.16**, sign changes across floors |
+| pH, four ladders | **+0.12 to +0.34** per unit, positive at every window |
+| `[buf]`, 4OMe, unconfounded axis | −0.20 ± 0.30 |
+| `[H2O2]` | **not identifiable** — it is the signal, in every block that moves it |
+| buffer salt | not measured — one pair, neither run has a lag |
+| substrate | not measured — two pairs, one inside the replicate floor |
+| `[enz]` | not measured, and the one pair points the wrong way |
+
+**Three of the seven are measured, three are not, and one is measured on one
+substrate only.** That is the honest state, and it is worth being explicit that
+the two which would decide the most — `[H2O2]` and `[enz]` — are exactly the two
+the archive cannot answer.
+
+What the three that survive say, taken together:
+
+**The activation is unimolecular in everything except possibly the substrate,
+covalent, and slowed by base.** The barrier is covalent-sized. The clock does
+not track the rate on either substrate (§7d), so nothing about it waits for
+product. It is slowed by alkali on four independent ladders. And on the one
+block where the substrate moves with the buffer held fixed, more substrate
+*shortens* it.
+
+Two bounded schemes and no others fit that shape, and they are §4a's pair with
+the species left open:
+
+    a TRAP        K·X ⇌ K + X,  K → K*      d ln τ / d ln[X] ∈ (0, +1)
+    an ACTIVATOR  K + Y ⇌ K·Y → K*          d ln τ / d ln[Y] ∈ (−1, 0)
+
+Neither bound contains a rate constant, so a coefficient outside it falsifies the
+scheme rather than fitting it. The pH result puts **X at 5–15% saturated** across
+the archive's whole pH range; the BnOH substrate result puts **Y at 18–72%**,
+with the caveat that it rests on one block. A species whose abundance rises with
+pH and holds the catalyst back, and a substrate that pulls it forward, is exactly
+what a cyclodextrin with a ketone at its mouth would give: **the resting form is
+an anionic adduct at the carbonyl — the gem-diolate, or the hydroperoxide adduct
+of §4a — and the alcohol binding in the cavity is what displaces it.**
+
+That is a reading and not a result. Three things would decide it, and two of
+them are already in `COMPUTATIONAL.md`: **C7**, the hydration equilibrium and the
+pK<sub>a</sub> of the hydrate — a hydrate pK<sub>a</sub> near 10 would put the
+gem-diolate exactly where the boric ladder sits, and one near 13 would rule it
+out; **C8**, the free energy of the perhydrate, whose gate §4b already set at
+−6 to −10 kJ/mol; and the `[enz]` ladder of §7g, which the archive does not
+hold.
+
+## 8. What this settles, and what it does not
 
 **Settled.**
 
@@ -583,12 +897,27 @@ base — which this archive cannot separate from general base catalysis, because
   bias-free route agrees at −0.26 ± 0.32.
 - Its **amplitude is a fraction** of the eventual rate and does not scale with
   the substrate.
-- It is a **covalent step**: 95 ± 16 kJ/mol is four times too large for
-  dissolution, diffusion or thermal equilibration.
+- It is a **covalent step**: **77 ± 12 kJ/mol** over six temperatures at a
+  window all six runs share (§7f), with a window systematic of about ±7. That
+  is three to four times what dissolution, diffusion or thermal equilibration
+  cost. It replaces the 95 ± 16 of §5, which is the same barrier measured on
+  the one-phase fit's τ and therefore over four temperatures rather than six;
+  the two agree inside their errors.
 - It is **faster than turnover** by 126× in free energy, as it must be.
 - The **sign** of the early curve is a property of the block: 98 of 147
   catalysed 4OMe curves begin below their eventual rate, against 10 of 49
   enzyme-free ones. §6.
+- **The lag is two phenomena and the substrate separates them.** On 4OMe it
+  needs the catalyst (10 of 49 enzyme-free curves, median depth 0.000); on BnOH
+  it does not (14 of 26, median 0.138), and those sit in the long low-pH runs
+  and in exp 65's shared break — which is the catalyst-free autocatalytic loop
+  `product_fate` finds switched on for benzaldehyde and off for the 4-methoxy
+  aldehyde. §7b. Do not pool the two substrates.
+- **`[H2O2]` cannot be asked**, and now for a second reason. The landmark
+  tracks signal-to-noise on both blocks that move peroxide (§4a) and so does
+  the window-free clock, because in those blocks the peroxide *is* the signal:
+  the partial correlation is +0.57 and +0.67, and holding it takes the clock's
+  peroxide order from +0.68 to +0.38 and from +0.19 to −0.13. §7d.
 
 **Not settled, and the reasons are different in each case.**
 
@@ -613,8 +942,22 @@ base — which this archive cannot separate from general base catalysis, because
   end of the curve cannot be made at the start. What can be said is that the
   block is not one population: 46 of its 110 live curves begin below their
   eventual rate and 45 begin above it (§6).
+- **Whether the catalyst loading moves the clock**, which a unimolecular
+  activation says it must not. This is the one prediction of the whole
+  activation reading that a concentration can falsify, and the archive spends
+  its two chances badly: exps 59 and 60 hold everything but `[enz]` and neither
+  run has a lag to time, and exps 140/141 give a 1.8× **longer** clock at 2.4×
+  the catalyst — past the replicate floor, the wrong way, on two runs 0.07 pH
+  units apart in the block whose signal control fails. §7g. **A flag, not a
+  result**, and the cheapest experiment this folder still wants.
 - **Whether the buffer is what carries E → E\*.** §6, and this is the most
-  promising open lead in the folder. Three things point the same way: the 4OMe
+  promising open lead in the folder. §7d weakens the direct half of it: the
+  five titrations' `[buf]` axis correlates with the signal at +0.63, and
+  holding the signal moves the window-free clock's buffer order from
+  −0.349 ± 0.215 to +0.076 ± 0.222. What survives is the 4OMe archive's own
+  `[buf]` axis, the one buffer axis in the archive that is not
+  signal-confounded (r = −0.09), at −0.20 ± 0.30 — the right sign, no
+  significance. Three things point the same way: the 4OMe
   and two-axis blocks give *opposite* substrate effects on the sign and differ
   in exactly one structural way (`[buf]` falls with `[S]` at −0.96 in one and is
   constant in the other); the one direct buffer ladder gives

@@ -481,6 +481,194 @@ def figure_which_way():
         "that one may be the buffer wearing substrate's clothes.")
 
 
+# The four blocks of section 7d, in the order the document lists them, with the
+# terms each one actually moves. A block fitted on an axis it holds constant
+# comes back NaN from `scope.orders`; naming the terms here says which axes
+# were asked for rather than leaving it to the guard.
+WITHIN_RUN_BLOCKS = (
+    ("4OMe catalysed", "4OMe catalysed", ("s0", "buf", "h2o2")),
+    ("BnOH two-axis", "BnOH two-axis (135-151)", ("s0", "h2o2")),
+)
+
+AXIS_LABELS = {"s0": "[S]", "h2o2": "[H2O2]", "buf": "[buf]"}
+
+
+@functools.cache
+def _archive_frame():
+    """The whole archive's frame, built once for the section 7 figures."""
+    return scope.frame(scope.archive())
+
+
+def figure_identifiability():
+    """J -- which of the seven axes the archive moves inside a run."""
+    table = induction.lag_identifiability(_archive_frame())
+    order = ("s0", "buf", "h2o2", "pH", "temperature", "buffer", "substrate")
+    names = {"s0": "[S]", "buf": "[buf]", "h2o2": "[H2O2]", "pH": "pH",
+             "temperature": "temperature", "buffer": "buffer salt",
+             "substrate": "substrate"}
+    runs = int(table.runs.iloc[0])
+    axes = Axes(660, 300, (0, runs), (-0.7, len(order) - 0.3),
+                pad=(150, 26, 52, 36))
+    for index, axis in enumerate(order):
+        y = len(order) - 1 - index
+        moving = int(table.loc[axis, "runs_moving_it"])
+        colour = CATEGORY[0] if moving else MUTED
+        axes.line([0, moving], [y, y], colour, width=11.0, opacity=0.85)
+        axes.note(136, axes._fy(y) + 4, names[axis], INK, size=11,
+                  anchor="end")
+        axes.note(axes._fx(moving) + 8, axes._fy(y) + 4,
+                  f"{moving} of {runs}" if moving else "never",
+                  colour if moving else MUTED, size=10.5, weight="600")
+    return fig(
+        axes.render("experiments that move the axis inside one run", "",
+                    "J \u00b7 Five of the seven variables move only between runs",
+                    yticks=False),
+        "Every one of the 88 experiments sets its temperature, its pH, its "
+        "buffer salt and its substrate once and does not move them again. "
+        "Only <code>[S]</code>, <code>[buf]</code> and <code>[H2O2]</code> "
+        "step inside a cuvette set, so only those three can be read through a "
+        "statistic with a window in it. That is why the landmark of figures A "
+        "to I answers two of these seven questions and why the rest needed "
+        "<code>scope.frame</code>'s window-free <code>lag_half_s</code>.")
+
+
+def figure_within_run_orders():
+    """K -- the clock's within-run orders, with and without the signal."""
+    blocks = induction.induction_blocks(_archive_frame())
+    rows = []
+    for label, key, terms in WITHIN_RUN_BLOCKS:
+        got = induction.lag_orders(blocks[key], terms=terms)
+        for axis in terms:
+            order = got["lag_half_s"][axis]
+            if not np.isfinite(order["order"]):
+                continue
+            rows.append((f"{label}  {AXIS_LABELS[axis]}", order,
+                         got[f"signal_collinearity_{axis}"]))
+    axes = Axes(680, 300, (-0.9, 1.3), (-0.7, len(rows) - 0.3),
+                pad=(196, 26, 62, 40))
+    axes.line([0, 0], [-0.7, len(rows) - 0.3], INK, width=1.2, dash="3 3")
+    for index, (name, order, collinear) in enumerate(rows):
+        y = len(rows) - 1 - index
+        for offset, key, error, colour in ((0.16, "order", "stderr",
+                                            CATEGORY[0]),
+                                           (-0.16, "controlled",
+                                            "controlled_stderr", CATEGORY[2])):
+            value, spread = order[key], order[error]
+            axes.line([value - spread, value + spread], [y + offset] * 2,
+                      colour, width=2.4)
+            axes.points([value], [y + offset], colour, radius=4.2)
+        axes.note(178, axes._fy(y) + 4, name, INK, size=10.5, anchor="end")
+        axes.note(636, axes._fy(y) + 4, f"r = {collinear:+.2f}",
+                  ACCENT if abs(collinear) > 0.4 else MUTED, size=10,
+                  anchor="end")
+    axes.note(206, 274, "alone", CATEGORY[0], size=11, weight="600")
+    axes.note(276, 274, "with log(net/noise) held", CATEGORY[2], size=11,
+              weight="600")
+    return fig(
+        axes.render("d log(induction clock) / d log(axis)", "",
+                    "K \u00b7 Peroxide is the signal; substrate is not",
+                    yticks=False),
+        "The window-free clock's order in each axis a block moves, fitted "
+        "within experiments by <code>scope.orders</code> with every moving "
+        "axis in the same regression. <code>r</code> on the right is the "
+        "correlation between that axis and the curve's own signal-to-noise "
+        "once the run offsets are out, and it decides whether holding the "
+        "signal could matter. <strong>It is +0.57 for peroxide and +0.04 for "
+        "substrate on the two-axis block</strong>, so the same block that "
+        "cannot be asked about <code>[H2O2]</code> can be asked about "
+        "<code>[S]</code> - and there the clock shortens with substrate at "
+        "every floor from 1 s to 300 s.")
+
+
+def figure_lag_ph_ladders():
+    """
+    L -- the four pH ladders and their pooled coefficient.
+
+    Not `figure_ph_ladders`: `two_axis/build_figures` has that name for the
+    RATE against [HOO-] inside exps 135-151, and the two are different figures
+    of different quantities. The duplicate guard caught the collision on
+    2026-09-05 and the new name says which one this is.
+    """
+    ladders = induction.lag_ph_ladders()
+    pooled = induction.pooled_ladder(ladders, "lag_half_s")
+    rows = [(row["ladder"], row["lag_half_s"], row["schedule_collinearity"],
+             row["signal_collinearity"]) for row in ladders]
+    axes = Axes(680, 296, (-0.9, 1.3), (-0.9, len(rows) + 0.3),
+                pad=(206, 26, 62, 40))
+    axes.line([0, 0], [-0.9, len(rows) + 0.3], INK, width=1.2, dash="3 3")
+    for index, (name, clock, schedule, signal) in enumerate(rows):
+        y = len(rows) - 1 - index
+        value, spread = clock["controlled"], clock["controlled_stderr"]
+        axes.line([value - spread, value + spread], [y, y], CATEGORY[1],
+                  width=2.6)
+        axes.points([value], [y], CATEGORY[1], radius=4.4)
+        axes.note(188, axes._fy(y) + 4, name, INK, size=10.5, anchor="end")
+        axes.note(650, axes._fy(y) + 4,
+                  f"length {schedule:+.2f}, signal {signal:+.2f}", MUTED,
+                  size=9.5, anchor="end")
+    axes.line([pooled["pooled"] - pooled["stderr"],
+               pooled["pooled"] + pooled["stderr"]], [-0.6, -0.6], ACCENT,
+              width=3.0)
+    axes.points([pooled["pooled"]], [-0.6], ACCENT, radius=5.0)
+    axes.note(188, axes._fy(-0.6) + 4, "pooled", ACCENT, size=11,
+              anchor="end", weight="600")
+    return fig(
+        axes.render("d ln(induction clock) / d pH", "",
+                    "L \u00b7 More alkaline, longer induction, on all four ladders",
+                    yticks=False),
+        "pH is one value per run everywhere in this archive, so each of these "
+        "is a set of runs sharing everything else, refitted on a window they "
+        "all share. The two numbers on the right are what pH is confounded "
+        "with in that ladder, and <strong>their signs differ between "
+        "ladders</strong> - which is the reason to have four. All four "
+        f"coefficients are positive and they agree (chi-square "
+        f"{pooled['chi2']:.2f} on {pooled['dof']}), but the pooled value moves "
+        "from +0.12 to +0.34 across windows, so it is quoted as that range and "
+        "not as a number.")
+
+
+def figure_barrier_window():
+    """M -- the barrier against the window it is read at."""
+    sweep = induction.lag_arrhenius_sweep()
+    x = np.array([row["window_s"] for row in sweep], dtype=float)
+    y = np.array([row["activation_kj"] for row in sweep], dtype=float)
+    error = np.array([row["stderr_kj"] for row in sweep], dtype=float)
+    axes = Axes(600, 292, (0.8 * float(x.min()), 1.25 * float(x.max())),
+                (-45, 130), xlog=True, pad=(66, 26, 48, 34))
+    axes.hline(0.0, GRID, dash=None, width=1.0)
+    for index, row in enumerate(sweep):
+        colour = CATEGORY[0] if row["temperatures"] == 6 else CATEGORY[1]
+        axes.errorbar(x[index], y[index], y[index] - error[index],
+                      y[index] + error[index], colour)
+        axes.points([x[index]], [y[index]], colour, radius=4.6,
+                    title=f"{row['temperatures']} temperatures, "
+                          f"{row['points']} curves")
+        axes.note(axes._fx(x[index]), axes._fy(y[index]) - 12,
+                  f"{row['temperatures']}T", MUTED, size=9.5, anchor="middle")
+    axes.band(np.array([0.8 * float(x.min()), 1.25 * float(x.max())]),
+              np.array([15.0, 15.0]), np.array([25.0, 25.0]), MUTED,
+              opacity=0.18)
+    axes.note(84, 236, "dissolution and diffusion, 15-25 kJ/mol", MUTED,
+              size=10)
+    full = [row for row in sweep if row["fraction"] == 1.0][0]
+    axes.note(84, 60, f"at the shared window: {full['activation_kj']:.0f} +/- "
+                      f"{full['stderr_kj']:.0f} kJ/mol on six temperatures",
+              CATEGORY[0], size=11, weight="600")
+    return fig(
+        axes.render("window the block is refitted on, s",
+                    "activation energy of 1/tau, kJ/mol",
+                    "M \u00b7 The barrier, once the schedule is held"),
+        "Cold runs are the long runs in the temperature series, and a fitted "
+        "clock cannot exceed its run, so the two are confounded at +0.66. "
+        "Refitting every run on a window all six share removes it by "
+        "construction. The barrier is <strong>77 +/- 12 kJ/mol</strong> at the "
+        "shared window and stable to 84 above it; below it the 15 and 20 "
+        "degree clocks are longer than the window and the fit cannot see them "
+        "at all, which the temperature count beside each point reports rather "
+        "than hides. It replaces figure E's 95 +/- 16, which is the same "
+        "barrier over four temperatures instead of six.")
+
+
 def build_curves_page():
     """
     Both channels of the 4OMe block, with the landmark drawn on every curve.
@@ -611,6 +799,23 @@ def build_index():
         f"<td>{row.warm_s:.0f} s</td>"
         f"<td>{row.activation_kJ:.1f} ± {row.stderr_kJ:.1f}</td></tr>"
         for row in windows.itertuples())
+
+    channels = "".join(
+        f"<tr><td>{esc(substrate)}</td><td>{esc(channel)}</td>"
+        f"<td>{row.curves}</td><td>{row.with_a_lag}</td>"
+        f"<td>{row.median_depth:.3f}</td>"
+        f"<td>{row.median_clock_s:.0f} s</td></tr>"
+        for (substrate, channel), row
+        in induction.lag_channel_table(_archive_frame()).iterrows())
+    replicate = induction.replicate_floor()
+    identifiability = figure_identifiability()
+    within = figure_within_run_orders()
+    ladders = figure_lag_ph_ladders()
+    barrier = figure_barrier_window()
+    barrier_kj = [row for row in induction.lag_arrhenius_sweep()
+                  if row["fraction"] == 1.0][0]["activation_kj"]
+    clock_ratio = replicate["clock_ratio"]
+    depth_spread = replicate["depth_spread"]
 
     body = f"""
 <p class='lede'>Every catalysed 4-methoxybenzyl alcohol run from 15 to 30 °C
@@ -756,12 +961,61 @@ reached by any of this: its regressor is the curve's own measured rate, so it
 asks whether a faster cuvette's induction is shorter and that is well posed
 whatever is making the cuvette faster.</p>
 
-<h2>7 · What this settles, and what it does not</h2>
+<h2>7 · The seven variables, and where the archive can answer for each</h2>
+<p>Everything above measures the induction against <strong>two</strong> of the
+seven things the experiment moves. That is the statistic and not a choice of
+interest: the landmark reads through a window a tenth of the run, and five of
+the seven variables are one value per run in this archive.
+<code>scope.frame</code> now carries the same two numbers read off the
+<em>fitted</em> rate — <code>lag_depth</code> and <code>lag_half_s</code> — so
+they carry no window. What they still carry is the schedule and the signal, and
+this section is built around both.</p>
+{identifiability}
+<div class='tbl'><table>
+<tr><th>substrate</th><th>channel</th><th>curves</th><th>with a lag</th>
+<th>median depth</th><th>median clock</th></tr>
+{channels}
+</table></div>
+<p><strong>The lag is two phenomena and the substrate separates them.</strong>
+On 4OMe it needs the catalyst, which is section 2 again through a different
+statistic. On BnOH it does not — and those lags sit in exps 3 and 6, pH 6.71
+phosphate over three and five hours, and in exp 65's shared break. Steps 1–3 of
+<code>MECHANISM.md</code> are autocatalytic in the product and need no catalyst,
+and <a href='../product_fate/index.html'>product_fate/</a> already finds that
+chemistry switched on for benzaldehyde and off for the 4-methoxy aldehyde. Do
+not pool the two substrates.</p>
+{within}
+<p>Four repeats of one composition — exps 2, 4, 5 and 7 — put the
+<strong>replicate floor</strong> at {clock_ratio:.2f}× on the clock and
+{depth_spread:.3f} on the depth. So the clock is a between-run statistic and the
+depth is not, and every between-run row here is read on the clock.</p>
+{ladders}
+{barrier}
+<p><strong>What the three that survive add up to.</strong> The activation is
+covalent ({barrier_kj:.0f} kJ/mol), does not track the rate on either substrate,
+is slowed by alkali on four independent ladders, and — on the one block where
+the substrate moves with the buffer held fixed — is hurried by the substrate.
+Two bounded schemes fit that and no others: a species <em>X</em> that holds the
+catalyst off its path (d ln τ/d ln[X] between 0 and +1) and a species <em>Y</em>
+whose bound form activates (between −1 and 0). The pH result puts X at
+<strong>5–15 % saturated</strong> across the archive's whole pH range and the
+BnOH substrate result puts Y at <strong>18–72 %</strong>. A resting anionic
+adduct at the carbonyl, displaced by the alcohol binding in the cavity, is what
+that shape describes — and it is a reading, not a result.</p>
+
+<h2>8 · What this settles, and what it does not</h2>
 <p><strong>Settled.</strong> The induction is a property of the catalysed
 reaction; it ends on a clock and not at a product threshold; its amplitude is a
 fraction of the eventual rate and does not scale with the substrate; its barrier
 is chemical rather than physical; and it is faster than turnover by the factor
 it must be.</p>
+<p><strong>Not settled: whether the catalyst loading moves the clock</strong>,
+which a unimolecular activation says it must not — the one prediction of this
+whole reading that a concentration could falsify. The archive spends its two
+chances badly: exps 59 and 60 hold everything but <code>[enz]</code> and neither
+run has a lag to time, and exps 140/141 give a 1.8× <em>longer</em> clock at
+2.4× the catalyst, past the replicate floor and the wrong way, on two runs in
+the block whose signal control fails.</p>
 <p><strong>Not settled: which step it is.</strong> "The catalyst becomes active"
 is a shape, not a mechanism. Everything that survives section 3 is unimolecular
 in what the cuvette holds — the ketone's gem-diol hydrate dehydrating, the

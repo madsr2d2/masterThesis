@@ -375,6 +375,214 @@ def main():
               abs(gap["entropy_gap_J"]) / gap["entropy_gap_stderr"] < 1.5
               and abs(gap["enthalpy_gap_kJ"]) / gap["enthalpy_gap_stderr"] < 1.5)
 
+    print("\nsection 7: the seven variables")
+    archive = scope.frame(scope.archive())
+    blocks = induction.induction_blocks(archive)
+
+    identify = induction.lag_identifiability(archive)
+    for axis, label in (("s0", "`[S]`"), ("buf", "`[buf]`"),
+                        ("h2o2", "`[H2O2]`")):
+        row = identify.loc[axis]
+        doc.claim(f"{axis} moves inside this many runs",
+                  f"| {label} | **{int(row.runs_moving_it)} of "
+                  f"{int(row.runs)}** | {row.widest_within_run:.1f}x |")
+    doc.check("the other four axes move in no run at all",
+              set(identify.index[identify.runs_moving_it == 0])
+              == {"pH", "temperature", "buffer", "substrate"},
+              f"{sorted(identify.index[identify.runs_moving_it == 0])}")
+
+    print("\nsection 7b: the lag by substrate and channel")
+    channels = induction.lag_channel_table(archive)
+    for substrate, channel in (("4OMe-BnOH", "enzyme-free"),
+                               ("4OMe-BnOH", "catalysed"),
+                               ("BnOH", "enzyme-free"),
+                               ("BnOH", "catalysed")):
+        row = channels.loc[(substrate, channel)]
+        emphasis = "**" if row.median_depth > 0 else ""
+        doc.claim(f"{substrate} {channel}: curves, lags, depth and clock",
+                  f"| {int(row.curves)} | **{int(row.with_a_lag)}** | "
+                  f"{emphasis}{row.median_depth:.3f}{emphasis} | "
+                  f"{row.median_clock_s:.0f} s |")
+
+    print("\nsection 7c: the replicate floor")
+    floor = induction.replicate_floor()
+    doc.claim("the replicate clock spread",
+              f"**{floor['clock_ratio']:.2f}x**")
+    doc.claim("the replicate depth spread",
+              f"**{floor['depth_spread']:.3f}**")
+    for experiment in scope.REPLICATE_RUNS:
+        row = floor["table"].loc[experiment]
+        doc.claim(f"exp {experiment}'s clock and depth",
+                  f"{row.clock:.0f} | ")
+    doc.check("the four runs are one composition, four repeats",
+              floor["runs"] == 4 and floor["curves"] == 16,
+              f"{floor['runs']} runs, {floor['curves']} curves")
+
+    print("\nsection 7d: the within-run orders")
+    two_axis = blocks["BnOH two-axis (135-151)"]
+    catalysed = blocks["4OMe catalysed"]
+    cases = (("4OMe catalysed", catalysed, ("s0", "h2o2", "buf")),
+             ("BnOH two-axis", two_axis, ("s0", "h2o2")),
+             ("4OMe peroxide",
+              archive[archive.experiment.isin(induction.PEROXIDE_LEVER)],
+              ("s0", "h2o2")),
+             ("buffer titrations",
+              archive[archive.experiment.isin(scope.BUFFER_TITRATIONS)],
+              ("s0", "h2o2", "buf")))
+    for label, block, terms in cases:
+        got = induction.lag_orders(block, terms=terms)
+        for axis in terms:
+            order = got["lag_half_s"][axis]
+            if not np.isfinite(order["order"]):
+                continue
+            bold = "**" if (label == "BnOH two-axis" and axis == "s0") else ""
+            doc.claim(f"{label} {axis}: the collinearity",
+                      f"| {got['signal_collinearity_' + axis]:+.2f} |")
+            doc.claim(f"{label} {axis}: the clock order",
+                      f"| {bold}{order['order']:+.3f} +/- {order['stderr']:.3f}"
+                      f"{bold} | {bold}{order['controlled']:+.3f} +/- "
+                      f"{order['controlled_stderr']:.3f}{bold} |")
+    doc.claim("the two-axis block fails its own signal control",
+              f"({induction.lag_signal_control(two_axis)['lag_half_s']['slope']:+.3f} "
+              f"+/- {induction.lag_signal_control(two_axis)['lag_half_s']['stderr']:.3f})")
+    doc.claim("the rate order in [S] there",
+              f"is {scope.orders('vmax_corrected', frame=two_axis)['order_s0']:+.2f} "
+              f"+/- {scope.orders('vmax_corrected', frame=two_axis)['stderr_s0']:.2f}")
+    doc.claim("the single-axis fit is a different number",
+              f"reads {scope.orders('lag_half_s', frame=two_axis, floor=induction.INDUCTION_FLOOR, terms=('s0',))['order_s0']:+.3f} "
+              f"+/- {scope.orders('lag_half_s', frame=two_axis, floor=induction.INDUCTION_FLOOR, terms=('s0',))['stderr_s0']:.3f}")
+    doc.claim("how many two-axis curves sit on the floor",
+              f"{induction.lag_orders(two_axis)['lag_half_s']['floored']} of the "
+              f"two-axis block's 110")
+
+    sweeps = {"two-axis [S]": induction.lag_order_floor_sweep(two_axis, "s0"),
+              "two-axis [H2O2]": induction.lag_order_floor_sweep(
+                  two_axis, "h2o2"),
+              "4OMe [S]": induction.lag_order_floor_sweep(
+                  catalysed, "s0", terms=("s0", "h2o2", "buf"))}
+    for label, sweep in sweeps.items():
+        row = " | ".join(
+            ("**" if floor_value == 60.0 else "")
+            + f"{sweep.loc[floor_value, 'controlled']:+.3f}"
+            + ("**" if floor_value == 60.0 else "")
+            for floor_value in induction.FLOOR_SWEEP)
+        doc.claim(f"the floor sweep, {label}", row)
+    lows = sweeps["two-axis [S]"].controlled
+    doc.check("the BnOH substrate coefficient is negative at every floor",
+              bool((lows < 0).all()), f"{list(lows.round(3))}")
+    doc.claim("and quoted as its range",
+              f"**{lows.max():+.2f} to {lows.min():+.2f}**")
+
+    print("\nsection 7d: route one on the window-free clock")
+    for label, block in (("4OMe catalysed", catalysed),
+                         ("BnOH two-axis", two_axis),
+                         ("the temperature series", blocks["temperature series"])):
+        route = induction.induction_drivers(block, response="lag_half_s",
+                                            rate="vmax_corrected")
+        bold = "**" if label != "the temperature series" else ""
+        doc.claim(f"route one on {label}",
+                  f"| {bold}{route['slope']:+.3f} +/- {route['stderr']:.3f}"
+                  f"{bold} | {route['points']} |")
+    four = induction.induction_drivers(catalysed, response="lag_half_s",
+                                       rate="vmax_corrected")
+    doc.claim("and how far that is from product control",
+              f"at {(four['slope'] + 1.0) / four['stderr']:.1f}sigma")
+    bnoh = induction.induction_drivers(two_axis, response="lag_half_s",
+                                       rate="vmax_corrected")
+    doc.claim("the BnOH row's distance from product control",
+              f"at {(bnoh['slope'] + 1.0) / bnoh['stderr']:.1f}sigma")
+
+    print("\nsection 7e: the four pH ladders")
+    ladders = induction.lag_ph_ladders()
+    for row in ladders:
+        clock = row["lag_half_s"]
+        doc.claim(f"{row['ladder']}: the two collinearities",
+                  f"| {'**' if abs(row['schedule_collinearity']) > 0.7 else ''}"
+                  f"{row['schedule_collinearity']:+.2f}"
+                  f"{'**' if abs(row['schedule_collinearity']) > 0.7 else ''} | "
+                  f"{'**' if abs(row['signal_collinearity']) > 0.8 else ''}"
+                  f"{row['signal_collinearity']:+.2f}"
+                  f"{'**' if abs(row['signal_collinearity']) > 0.8 else ''} |")
+        doc.claim(f"{row['ladder']}: the held clock coefficient",
+                  f"{clock['controlled']:+.3f} +/- "
+                  f"{clock['controlled_stderr']:.3f} |")
+        doc.claim(f"{row['ladder']}: how many runs",
+                  f"| {int(row['runs'])} | ")
+    pooled = induction.pooled_ladder(ladders, "lag_half_s")
+    doc.claim("the pooled pH coefficient",
+              f"**{pooled['pooled']:+.3f} +/- {pooled['stderr']:.3f}**")
+    doc.claim("and the four agree",
+              f"chi2 = {pooled['chi2']:.2f} on {pooled['dof']}")
+    narrower = [induction.pooled_ladder(
+        induction.lag_ph_ladders(window_fraction=fraction), "lag_half_s")
+        for fraction in (0.75, 0.5)]
+    doc.claim("what the window does to the pooled value",
+              f"{narrower[0]['pooled']:+.3f} +/- {narrower[0]['stderr']:.3f} and "
+              f"{narrower[1]['pooled']:+.3f} +/- {narrower[1]['stderr']:.3f}")
+    lo = min(row["pooled"] for row in narrower + [pooled])
+    hi = max(row["pooled"] for row in narrower + [pooled])
+    doc.claim("the range it is quoted as",
+              f"**d ln tau / d pH = {lo:+.2f} to {hi:+.2f}")
+    fractions = [induction.saturation_fraction(row["pooled"], row["stderr"])
+                 for row in narrower + [pooled]]
+    doc.claim("as a saturation fraction",
+              f"**{min(f['fraction'] for f in fractions):.2f} to "
+              f"{max(f['fraction'] for f in fractions):.2f}**")
+    depth_pooled = induction.pooled_ladder(ladders, "lag_depth")
+    doc.claim("the depth carries nothing",
+              f"pooled {depth_pooled['pooled']:+.3f} +/- "
+              f"{depth_pooled['stderr']:.3f}")
+
+    print("\nsection 7f: the barrier and the schedule")
+    sweep = induction.lag_arrhenius_sweep()
+    doc.claim("the windows swept",
+              " | ".join(f"{row['window_s']:.0f}" for row in sweep[:-1])
+              + f" | {sweep[-1]['window_s']:.0f}")
+    doc.claim("the temperatures each keeps",
+              " | ".join(str(row["temperatures"]) for row in sweep))
+    doc.claim("the barriers",
+              " | ".join(
+                  ("**" if row["fraction"] == 1.0 else "")
+                  + f"{row['activation_kj']:.1f} +/- {row['stderr_kj']:.1f}"
+                  + ("**" if row["fraction"] == 1.0 else "")
+                  for row in sweep))
+    full = [row for row in sweep if row["fraction"] == 1.0][0]
+    doc.claim("the number to quote",
+              f"**{full['activation_kj']:.0f} +/- {full['stderr_kj']:.0f} "
+              f"kJ/mol** over six temperatures")
+    doc.check("it is stable over the wide windows",
+              max(row["activation_kj"] for row in sweep
+                  if row["fraction"] >= 0.75)
+              - min(row["activation_kj"] for row in sweep
+                    if row["fraction"] >= 0.75) < 15.0)
+    doc.claim("the range it is stable over",
+              f"**{min(row['activation_kj'] for row in sweep if row['fraction'] >= 0.75):.0f}-"
+              f"{max(row['activation_kj'] for row in sweep if row['fraction'] >= 0.75):.0f} kJ/mol**")
+    clocks = induction.lag_arrhenius()["clock_by_temperature"]
+    ladder = [f"{clocks[t]:.0f}" for t in sorted(clocks)]
+    doc.claim("the half-rise by temperature",
+              ", ".join(ladder[:-1]) + f" and {ladder[-1]} s")
+    whole = [row for row in sweep if row["fraction"] == 4.0][0]
+    doc.claim("the whole-run barrier",
+              f"**{whole['activation_kj']:.1f} +/- {whole['stderr_kj']:.1f} kJ/mol**")
+    doc.claim("the collinearity that made it necessary",
+              "at **+0.66**")
+
+    print("\nsection 7g: the three pairs")
+    for pair in (scope.BUFFER_TYPE_PAIR, *scope.SUBSTRATE_PAIRS,
+                 *scope.ENZYME_PAIRS):
+        got = induction.matched_pair(pair)
+        rows = got["table"]
+        doc.claim(f"pair {pair}: the clocks",
+                  " / ".join(f"{rows.loc[e].clock:.0f} s" for e in pair))
+        doc.claim(f"pair {pair}: the depths",
+                  " / ".join(f"{rows.loc[e].depth:.3f}" for e in pair))
+    enzyme = induction.matched_pair(scope.ENZYME_PAIRS[1])["table"]
+    doc.claim("the enzyme pair's clock ratio",
+              f"{enzyme.loc[140].clock / enzyme.loc[141].clock:.1f}x")
+    doc.claim("and its catalyst ratio",
+              f"{enzyme.loc[140].e0 / enzyme.loc[141].e0:.1f}x")
+
     print("\nthe product_fate numbers this document quotes back")
     import slowdown
     whole = scope.frame(induction.WHOLE_ARCHIVE)
@@ -386,8 +594,8 @@ def main():
               f"({fall['span']:+.3f} +/- {fall['span_stderr']:.3f})")
 
     print("\nthe figures the document promises")
-    doc.figures(os.path.join(HERE, "index.html"), "ABCDEFGHI")
-    doc.claim("the document's own count of them", "nine figures, A\nto I")
+    doc.figures(os.path.join(HERE, "index.html"), "ABCDEFGHIJKLM")
+    doc.claim("the document's own count of them", "thirteen figures, A\nto M")
 
     print("\nthe curves page draws both channels, whole")
     page = io.open(os.path.join(HERE, "progress_curves.html"),
