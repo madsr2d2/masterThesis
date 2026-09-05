@@ -122,9 +122,12 @@ autocatalytic kinetics):
    4OMe clause.** 14 of 26 enzyme-free *BnOH* curves do begin below their
    eventual rate, at a median depth of 0.138 — in exps 3 and 6, three and five
    hour runs at pH 6.71, and in exp 65, whose four cuvettes share the break
-   `scope.synchronised_break` measures. That is steps 1–3 above, which are
-   autocatalytic in the product and need no catalyst, and which S2 already finds
-   switched on for benzaldehyde and off for the 4-methoxy aldehyde. **A lag is
+   `scope.synchronised_break` measures. Steps 1–3 above are autocatalytic in the
+   product and need no catalyst, and the acceleration test says the same thing
+   the shape does: **4 of 26 enzyme-free BnOH curves accelerate past 3σ and 0
+   of 49 enzyme-free 4OMe curves do.** The substituent argument under S2 —
+   4-methoxy makes the aldehyde a better oxidant target and a worse hydride
+   donor — is why that asymmetry is expected rather than surprising. **A lag is
    two different things on the two substrates and they must not be pooled.** Whatever v5 does, something slower and
    unimolecular has to happen to the catalyst first. Step 4's own status is
    affected too and in the opposite direction to the obvious one — see
@@ -1210,9 +1213,10 @@ agree. `induction/ANALYSIS.md` §7e.
 block where `[S]` moves with `[buf]` held fixed — the clock **shortens** with
 substrate at every floor, `d ln τ/d ln[S] = −0.18 to −0.71`. That block fails
 its own signal control and can still carry this, because its rate order in `[S]`
-is +0.09 ± 0.05: substrate buys no signal there (r = +0.04), which is the
-structural reason the same block cannot be asked about peroxide and can be asked
-about substrate. A negative order is the **activating** branch of the same
+is +0.09 ± 0.05 on the same 110 curves — the +0.01 ± 0.04 quoted above is `vmax`
+over the eleven strong runs, the same flatness on a tighter cut. Substrate buys
+no signal there (r = +0.04), which is the structural reason the same block
+cannot be asked about peroxide and can be asked about substrate. A negative order is the **activating** branch of the same
 bounded algebra, 18–72 % engaged. Whatever the catalyst is waiting for, base
 holds it back and the alcohol pulls it forward.
 

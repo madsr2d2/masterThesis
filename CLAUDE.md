@@ -636,9 +636,10 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   two-axis block and +0.67 on exps 127-131, and holding the signal moves the
   clock's order from +0.68 to +0.38 and from +0.19 to -0.13. It is the DESIGN,
   not the statistic -- the landmark fails the same way. Substrate is different:
-  the two-axis block's rate order in `[S]` is +0.09, so substrate buys no signal
-  (r = +0.04) and the clock's substrate order survives every control, negative
-  at every floor. The four pH ladders agree at **+0.12 to +0.34 per pH unit**
+  the two-axis block's rate order in `[S]` is +0.09 over all 110 live curves
+  (+0.01 over the strong runs -- the same flatness), so substrate buys no signal
+  there (r = +0.04) and the clock's substrate order survives every control,
+  negative at every floor. The four pH ladders agree at **+0.12 to +0.34 per pH unit**
   (chi2 0.95 on 3) -- more alkaline, longer induction.
 - **A LAG IS TWO DIFFERENT THINGS ON THE TWO SUBSTRATES.** "The induction needs
   the catalyst" is a **4OMe** claim: 10 of 49 enzyme-free 4OMe curves show any

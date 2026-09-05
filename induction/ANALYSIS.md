@@ -632,8 +632,8 @@ this section is built around both.
 
 Three axes are within-run and four are not. The four have to be read off
 between-run designs, and the archive holds exactly these: four pH ladders
-(§7d), one temperature series (§7e), and three matched **pairs** — one for the
-buffer salt, two for the substrate, two for the catalyst loading (§7f).
+(§7e), one temperature series (§7f), and five matched **pairs** — one for the
+buffer salt, two for the substrate, two for the catalyst loading (§7g).
 
 ### 7b. The lag is not one phenomenon, and the substrates split it
 
@@ -650,11 +650,16 @@ The 4OMe row is §2 again through a different statistic and it holds. **The BnOH
 row does not, and that is a second phenomenon rather than a counter-example.**
 The enzyme-free BnOH lags are exps 3 and 6 — pH 6.71 phosphate, 11025 and
 17934 s, 8 of their 10 curves — and exp 65, whose four cuvettes share the
-break `scope.synchronised_break` measures. Steps 1–3 of `MECHANISM.md` are
-autocatalytic in the product and need no catalyst at all, and `product_fate`
-already finds that chemistry switched **on** for benzaldehyde and **off** for
-the 4-methoxy aldehyde, whose electron-rich ring makes it the worse hydride
-donor. An accelerating enzyme-free BnOH curve is what that predicts.
+break `scope.synchronised_break` measures.
+
+The acceleration test says the same thing the shape does, on the same curves:
+**4 of 26 enzyme-free BnOH curves accelerate past 3σ and 0 of 49 enzyme-free
+4OMe curves do**. Steps 1–3 of `MECHANISM.md` are autocatalytic in the product
+and need no catalyst at all, and the substituent argument under `MECHANISM.md`
+S2 says why they should run on one substrate and not the other: 4-methoxy makes
+the aldehyde a better target for an electrophilic oxidant and a worse hydride
+*donor*, and the hydride transfer is step 2's rate-determining step. An
+accelerating enzyme-free BnOH curve is what that predicts.
 
 So: on 4OMe a lag is the catalyst becoming active; on BnOH a lag can also be the
 catalyst-free loop finding its own product. **Do not pool them**, and read every
@@ -697,7 +702,9 @@ two-axis clock reads −0.453 ± 0.107 where the joint fit reads −0.225 ± 0.1
 
 **Read the third column first.** The two-axis block fails its own signal control
 outright (+0.916 ± 0.259) and can *still* be asked about substrate, because in
-that block substrate buys no signal: its rate order in `[S]` is +0.09 ± 0.05, so
+that block substrate buys no signal: `vmax_corrected` carries a substrate order
+of only +0.09 ± 0.05 over the same 110 curves — the published +0.01 ± 0.04 is
+`vmax` over the eleven strong runs, a different cut of the same flatness — so
 log[S] and log(net/noise) correlate at **+0.04** once the run offsets are out.
 Peroxide is a different matter everywhere — it *is* the signal, at +0.57 and
 +0.67 — and holding it takes the peroxide coefficient from +0.68 to +0.38 on one
@@ -842,7 +849,7 @@ Collecting the rows that survive their own controls:
 | variable | the induction clock |
 |---|---|
 | temperature | **77 ± 12 kJ/mol**, six temperatures, common window |
-| `[S]`, BnOH, buffer fixed | **−0.18 to −0.72** across floors, always negative |
+| `[S]`, BnOH, buffer fixed | **−0.18 to −0.71** across floors, always negative |
 | `[S]`, 4OMe, buffer falling with it | **0.00 ± 0.16**, sign changes across floors |
 | pH, four ladders | **+0.12 to +0.34** per unit, positive at every window |
 | `[buf]`, 4OMe, unconfounded axis | −0.20 ± 0.30 |
@@ -851,19 +858,23 @@ Collecting the rows that survive their own controls:
 | substrate | not measured — two pairs, one inside the replicate floor |
 | `[enz]` | not measured, and the one pair points the wrong way |
 
-**Three of the seven are measured, three are not, and one is measured on one
+**Three of the seven are measured, three are not, and `[S]` is measured on one
 substrate only.** That is the honest state, and it is worth being explicit that
 the two which would decide the most — `[H2O2]` and `[enz]` — are exactly the two
 the archive cannot answer.
 
 What the three that survive say, taken together:
 
-**The activation is unimolecular in everything except possibly the substrate,
-covalent, and slowed by base.** The barrier is covalent-sized. The clock does
-not track the rate on either substrate (§7d), so nothing about it waits for
-product. It is slowed by alkali on four independent ladders. And on the one
-block where the substrate moves with the buffer held fixed, more substrate
-*shortens* it.
+**The activation is covalent, does not wait for product, is slowed by base and
+is hurried by the substrate.** The barrier is covalent-sized on both routes that
+can measure it. Nothing about it waits for product: regressed on the curve's own
+rate the clock gives +0.245 ± 0.127 on 4OMe and +0.897 ± 0.178 on BnOH, where a
+product threshold needs −1, so product control is excluded on both substrates by
+a statistic that shares no window with §3's. (Neither row is a clock either —
+the BnOH one is far from 0, in the direction its own peroxide confound predicts,
+since the faster cuvettes there are the high-peroxide ones.) It is slowed by
+alkali on four independent ladders. And on the one block where the substrate
+moves with the buffer held fixed, more substrate *shortens* it.
 
 Two bounded schemes and no others fit that shape, and they are §4a's pair with
 the species left open:
@@ -912,9 +923,11 @@ hold.
 - **The lag is two phenomena and the substrate separates them.** On 4OMe it
   needs the catalyst (10 of 49 enzyme-free curves, median depth 0.000); on BnOH
   it does not (14 of 26, median 0.138), and those sit in the long low-pH runs
-  and in exp 65's shared break — which is the catalyst-free autocatalytic loop
-  `product_fate` finds switched on for benzaldehyde and off for the 4-methoxy
-  aldehyde. §7b. Do not pool the two substrates.
+  and in exp 65's shared break. The acceleration test agrees with the shape:
+  4 of 26 enzyme-free BnOH curves accelerate past 3σ and 0 of 49 enzyme-free
+  4OMe curves do, which is the catalyst-free loop of `MECHANISM.md` steps 1–3
+  running on one substrate and not the other. §7b. Do not pool the two
+  substrates.
 - **`[H2O2]` cannot be asked**, and now for a second reason. The landmark
   tracks signal-to-noise on both blocks that move peroxide (§4a) and so does
   the window-free clock, because in those blocks the peroxide *is* the signal:

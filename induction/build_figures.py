@@ -981,9 +981,9 @@ On 4OMe it needs the catalyst, which is section 2 again through a different
 statistic. On BnOH it does not — and those lags sit in exps 3 and 6, pH 6.71
 phosphate over three and five hours, and in exp 65's shared break. Steps 1–3 of
 <code>MECHANISM.md</code> are autocatalytic in the product and need no catalyst,
-and <a href='../product_fate/index.html'>product_fate/</a> already finds that
-chemistry switched on for benzaldehyde and off for the 4-methoxy aldehyde. Do
-not pool the two substrates.</p>
+and the acceleration test says the same thing the shape does — 4 of 26
+enzyme-free BnOH curves accelerate past 3σ against 0 of 49 enzyme-free 4OMe
+curves. Do not pool the two substrates.</p>
 {within}
 <p>Four repeats of one composition — exps 2, 4, 5 and 7 — put the
 <strong>replicate floor</strong> at {clock_ratio:.2f}× on the clock and
@@ -992,9 +992,11 @@ depth is not, and every between-run row here is read on the clock.</p>
 {ladders}
 {barrier}
 <p><strong>What the three that survive add up to.</strong> The activation is
-covalent ({barrier_kj:.0f} kJ/mol), does not track the rate on either substrate,
-is slowed by alkali on four independent ladders, and — on the one block where
-the substrate moves with the buffer held fixed — is hurried by the substrate.
+covalent ({barrier_kj:.0f} kJ/mol), does not wait for product on either
+substrate — the clock regressed on the curve's own rate is far from the −1 a
+threshold needs, on both — is slowed by alkali on four independent ladders, and,
+on the one block where the substrate moves with the buffer held fixed, is
+hurried by the substrate.
 Two bounded schemes fit that and no others: a species <em>X</em> that holds the
 catalyst off its path (d ln τ/d ln[X] between 0 and +1) and a species <em>Y</em>
 whose bound form activates (between −1 and 0). The pH result puts X at

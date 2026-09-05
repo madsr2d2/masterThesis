@@ -8,9 +8,22 @@ description: Use when analysing, measuring, plotting or answering any question a
 **There is no privileged block.** Each question names the block it needs, and
 every block is defined in `data/scope.py`: `TWO_AXIS_BLOCK`,
 `TEMPERATURE_SERIES`, `FREE_BNOH_ALL`, `FREE_BNOH_PHOSPHATE`, `BUFFER_FIXED`,
-plus `buffer_role.TITRATIONS`, `slowdown.substrate_blocks` and
-`induction.induction_blocks`. Add to that vocabulary rather than selecting
-experiment numbers inline.
+`BUFFER_TITRATIONS`, the four pH ladders (`PH_LADDER_PHOSPHATE`,
+`PH_LADDER_BORIC`, `PH_LADDER_TWO_AXIS_LOW`/`_HIGH`), `REPLICATE_RUNS`,
+`SUBSTRATE_PAIRS`, `BUFFER_TYPE_PAIR`, `ENZYME_PAIRS`, plus
+`slowdown.substrate_blocks` and `induction.induction_blocks`. Add to that
+vocabulary rather than selecting experiment numbers inline.
+(`buffer_role.TITRATIONS` is a re-export of `scope.BUFFER_TITRATIONS`.)
+
+**pH, temperature, the buffer salt and the substrate are one value per run in
+all 88 experiments.** Only `[S]`, `[buf]` and `[H2O2]` step inside a cuvette
+set (`induction.lag_identifiability`), so any question about the other four is
+a BETWEEN-run question and needs a statistic with no window in it --
+`scope.frame`'s `lag_depth`/`lag_half_s` for the lag phase -- plus
+`induction.lag_window_frame` to hold the schedule and `lag_orders`'
+signal pairing to hold the signal. A between-run ladder may NOT carry one
+offset per experiment: `induction.lag_ladder` raises, because the offsets would
+be the axis.
 
 The **two-axis block** (`fit_dataset.TWO_AXIS_BLOCK`, exps 135-151, 119 curves
 of BnOH / 25 °C / pyrophosphate) is the block the mechanism fitting uses and

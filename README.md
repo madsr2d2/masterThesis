@@ -41,7 +41,8 @@ background_reaction/        the uncatalysed BnOH reaction, and its buffer order
 temperature_series/         exps 14-19: the only route to activation parameters
 two_axis/                   exps 135-151: both concentration axes, and a pH ladder
 product_fate/               why the 4OMe curves peak and fall, and BnOH's do not
-induction/                  what the induction period is, and what it is not
+induction/                  what the induction period is, what it is not, and
+                            how it depends on all seven experimental variables
 buffer/                     the buffer as reagent, confound and candidate
 
 MECHANISM.md                the 7-step mechanism, its reduction, and the evidence

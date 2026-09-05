@@ -404,6 +404,17 @@ def main():
                   f"{emphasis}{row.median_depth:.3f}{emphasis} | "
                   f"{row.median_clock_s:.0f} s |")
 
+    live = archive[archive.live]
+    free = live[~live.differential]
+    accelerating = {
+        substrate: (int(group.accelerates.sum()), int(len(group)))
+        for substrate, group in free.groupby("substrate")}
+    doc.claim("enzyme-free BnOH curves that accelerate",
+              f"**{accelerating['BnOH'][0]} of {accelerating['BnOH'][1]} "
+              f"enzyme-free BnOH curves accelerate past 3sigma and "
+              f"{accelerating['4OMe-BnOH'][0]} of "
+              f"{accelerating['4OMe-BnOH'][1]} enzyme-free\n4OMe curves do**")
+
     print("\nsection 7c: the replicate floor")
     floor = induction.replicate_floor()
     doc.claim("the replicate clock spread",
@@ -445,9 +456,9 @@ def main():
     doc.claim("the two-axis block fails its own signal control",
               f"({induction.lag_signal_control(two_axis)['lag_half_s']['slope']:+.3f} "
               f"+/- {induction.lag_signal_control(two_axis)['lag_half_s']['stderr']:.3f})")
+    rate = scope.orders("vmax_corrected", frame=two_axis)
     doc.claim("the rate order in [S] there",
-              f"is {scope.orders('vmax_corrected', frame=two_axis)['order_s0']:+.2f} "
-              f"+/- {scope.orders('vmax_corrected', frame=two_axis)['stderr_s0']:.2f}")
+              f"of only {rate['order_s0']:+.2f} +/- {rate['stderr_s0']:.2f}")
     doc.claim("the single-axis fit is a different number",
               f"reads {scope.orders('lag_half_s', frame=two_axis, floor=induction.INDUCTION_FLOOR, terms=('s0',))['order_s0']:+.3f} "
               f"+/- {scope.orders('lag_half_s', frame=two_axis, floor=induction.INDUCTION_FLOOR, terms=('s0',))['stderr_s0']:.3f}")
