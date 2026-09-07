@@ -296,7 +296,7 @@ over all six and gets **77 ± 12 kJ/mol**, and the gate is met either way.
 **C7 now has two more numbers to hit, and they are signs rather than sizes.**
 The induction is *slowed by base* (`d ln τ/d pH = +0.16 to +0.34`, four ladders,
 three buffers, both substrates) and *hurried by the substrate* where the buffer
-is held fixed (`d ln τ/d ln[S] = −0.19 to −0.70`). A gem-diol hydrate whose
+is held fixed (`d ln τ/d ln[S] = −0.16 to −0.60`). A gem-diol hydrate whose
 conjugate base cannot dehydrate reproduces the first; a hydrophobic guest in the
 cavity shifting the hydration equilibrium reproduces the second. **So compute
 the hydrate's pK<sub>a</sub> as well as its ΔG° and barrier**: near 10 puts the
@@ -545,7 +545,7 @@ peroxide value.
 `MECHANISM.md` S4 establishes that something in the enzyme-containing cuvette
 catalyses `2 H₂O₂ → 2 H₂O + O₂`. The evidence is kinetic: the gas forms in the
 sample beam and not the reference, which omits only the enzyme (122 falls
-beyond 20σ against 23 rises); its production rate is **+1.469 ± 0.255 in
+beyond 20σ against 23 rises); its production rate is **+1.473 ± 0.255 in
 [H₂O₂] against −0.344 ± 0.093 in [S]** from a fit that never saw a
 concentration; and across the whole archive it appears with both substrates in
 three buffers, with a hard floor of zero detachments below pH 7.5. It is silent

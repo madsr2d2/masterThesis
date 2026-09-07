@@ -898,6 +898,27 @@ EXCURSION_LOCAL_WINDOW = 8
 # 2.0 sits in the gap and keeps every one of those four cases where it was.
 EXCURSION_LOCAL_SIGMA = 2.0
 
+# How many readings past a fall the recovery search extends, beyond the one
+# adjacent reading the test always checked. ADDED 2026-09-07: exp 150 cuvette
+# 1 and exp 151 cuvette 6 -- the two weakest, most drift-dominated curves in
+# the two-axis block -- carry falls whose single-reading recovery is only
+# 13-48% of the drop and whose FULL reversal lands one or two readings later.
+# A single-reading test cannot see that and reads the fall as gas; on these
+# two curves it is 10 of 402 archive-wide detachments. See
+# DATA_VERIFICATION.md 2026-09-07.
+EXCURSION_RECOVERY_DEPTH = 3
+
+# How much of a fall an extended-window recovery may credit before it is
+# capped, in units of the drop's own size. ONE, not more: a spike's reversal
+# returns a curve to about where it was, not past it, so crediting recovery
+# BEYOND the drop's own size is not evidence of a spike -- it is the curve
+# resuming its own climb. Uncapped, the depth extension wrongly flagged a
+# genuine 6.2 sigma detachment on exp 135 cuvette 1 (cuvette readings
+# 272/273), which accelerates hard in the two readings right after; capped at
+# 1.0 that detachment, and every other pinned real one, is untouched, while
+# the delayed-recovery cases the extension was added for are still caught.
+EXCURSION_RECOVERY_CEILING = 1.0
+
 
 def _local_step_scale(values, start, stop, window=EXCURSION_LOCAL_WINDOW):
     """
@@ -925,33 +946,45 @@ def _local_step_scale(values, start, stop, window=EXCURSION_LOCAL_WINDOW):
 
 
 def _is_excursion(values, event, recovery=BUBBLE_RECOVERY_FRACTION,
-                  window=EXCURSION_LOCAL_WINDOW, sigma=EXCURSION_LOCAL_SIGMA):
+                  window=EXCURSION_LOCAL_WINDOW, sigma=EXCURSION_LOCAL_SIGMA,
+                  depth=EXCURSION_RECOVERY_DEPTH,
+                  ceiling=EXCURSION_RECOVERY_CEILING):
     """
     Is this fall an instrument excursion rather than gas leaving?
 
     GAS THAT LEAVES DOES NOT COME BACK, and a bubble does not grow half its
-    size in one 60 s reading. So a fall flanked by a single reading that
-    climbs a comparable amount is a spike -- either the fall departs from an
+    size in one 60 s reading. So a fall flanked by a reading that climbs a
+    comparable amount is a spike -- either the fall departs from an
     anomalously high reading, in which case it is the return off one, or it
-    lands on an anomalously low one, in which case the level is back next
-    reading. TWO CLAUSES, both required: the adjacent step must recover most
-    of the drop (`recovery`, against the drop's own size -- unchanged), AND
-    it must be anomalous relative to what this curve's readings normally do
-    (`sigma`, against `_local_step_scale` -- new). The first clause alone
-    made the whole test fire on ordinary steps whenever the drop itself was
-    modest relative to the curve's own rise rate, which is exactly the
-    regime `_local_step_scale`'s docstring documents on exp 130 cuvette 2.
-    Requiring both can only ever REJECT FEWER falls as excursions than the
-    single-clause test did, never more, so nothing this test used to catch
-    can be missed by adding the second clause -- see the constant above for
-    where `sigma` is pinned so that stays true of the known cases.
+    lands on an anomalously low one, in which case the level is back within a
+    few readings. THREE CLAUSES: the adjacent step must recover most of the
+    drop (`recovery`, against the drop's own size -- unchanged), AND it must
+    be anomalous relative to what this curve's readings normally do (`sigma`,
+    against `_local_step_scale`), OR the same is true a reading or two later
+    (`depth`, capped at `ceiling` -- new, see the constants above). The
+    single-reading version made the whole test fire on ordinary steps
+    whenever the drop itself was modest relative to the curve's own rise
+    rate, which is exactly the regime `_local_step_scale`'s docstring
+    documents on exp 130 cuvette 2. Extending it can only ever REJECT MORE
+    falls as excursions than the one-reading test did, never fewer, so
+    nothing this test used to catch as real is put at risk by the extra
+    reach -- see the constants above for where `depth` and `ceiling` are
+    pinned so that stays true of the known cases.
+
+    THE EXTRA READINGS ARE POST-EVENT ONLY. A reading or two BEFORE the fall
+    is not a symmetric case: a curve can genuinely accelerate hard just
+    before losing a bubble, and reading that back as a "spike" flags real gas
+    -- exp 135 cuvette 1's 41 sigma detachment sits right after four readings
+    of fast, real acceleration, and extending the INTO side to match the OUT
+    side flagged it as an excursion for exactly that reason during testing.
+    Gas leaving is a one-way event; only the recovery side needed the reach.
 
     `local_outlier_z` CANNOT BE USED FOR THIS, though it is the obvious tool:
     its window spans the fall, so a genuine step change flags itself. That is
     the "sharp kink" limitation its own docstring records, and it is not
     marginal here -- exp 135 cuvette 2's 0.1196 AU detachment scores +130.
-    This looks only at the two readings immediately either side, which no step
-    change can make anomalous.
+    This looks only at the readings near either side, which no step change
+    can make anomalous on its own.
 
     Exp 149 cuvette 5 is the curve that forced the first clause. Its two
     "detachments" are 9.3 and 8.2 sigma, both instrument excursions: the
@@ -960,19 +993,33 @@ def _is_excursion(values, event, recovery=BUBBLE_RECOVERY_FRACTION,
     isolated spike (2.1x). Between them they set a production rate of
     6.2e-6 AU/s, and the repair then removed 0.0097 AU from a curve that rose
     0.0262 -- flattening a real early rise into a straight line.
+
+    Exp 150 cuvette 1 and exp 151 cuvette 6 are the curves that forced the
+    depth extension: both weak enough that a spike's single-reading recovery
+    undershoots half the drop, with the rest arriving one or two readings
+    later. `ceiling` stops that reach from reading a genuine acceleration as
+    a spike in the other direction -- see the constant above.
     """
     start, stop = event
     drop = float(values[start] - values[stop])
     if drop <= 0:
         return True
+    baseline = _local_step_scale(values, start, stop, window)
     into = (float(values[start] - values[start - 1]) if start >= 1 else 0.0)
     out = (float(values[stop + 1] - values[stop])
            if stop + 1 < len(values) else 0.0)
     biggest = max(into, out)
-    if biggest <= recovery * drop:
-        return False
-    baseline = _local_step_scale(values, start, stop, window)
-    return biggest > sigma * baseline
+    if biggest > recovery * drop and biggest > sigma * baseline:
+        return True
+    for k in range(2, depth + 1):
+        if stop + k >= len(values):
+            break
+        out_k = float(values[stop + k] - values[stop])
+        if out_k <= recovery * drop:
+            continue
+        if min(out_k, ceiling * drop) > sigma * k * baseline:
+            return True
+    return False
 
 
 def unreleased_gas(values, events):

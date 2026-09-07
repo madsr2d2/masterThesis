@@ -20,7 +20,7 @@ both is what this folder is.
 **Figures**: [`index.html`](index.html) is the presentation — ten figures, A
 to J, one per claim below. [`progress_curves.html`](progress_curves.html) carries
 all 119 cuvettes with the form each earned, which is the audit surface for
-every number here. The **49 curves carrying O₂ detachments** are drawn twice
+every number here. The **48 curves carrying O₂ detachments** are drawn twice
 there — the raw readings and the reconstruction, with a fit to each and a rule
 at every detachment — so a fit to the gas cannot pass for a fit to the reaction.
 A curve whose only falls were instrument excursions is drawn once, because
@@ -378,7 +378,7 @@ readings as two bubbles, gave the second a growth window of **zero seconds**,
 skipped it, and left the whole of it in place — −0.0165 AU at 60σ in exp 144
 cuvette 2.
 
-Both are gone. Over the block's **224 detachments**, every one is corrected in
+Both are gone. Over the block's **220 detachments**, every one is corrected in
 full: `scope.rebuild_smoothness`'s `worst_at_event` is zero or above on all 47
 repairable curves. The single exception is exp 135 cuvette 6, whose fall is in
 the *first interval* — a bubble grown before the run began leaves no rise to
@@ -387,7 +387,7 @@ rather than guessing.
 
 **`rebuilt_worst` is not the guarantee, and it should not be.** The
 reconstructions still fall by up to −61.1σ somewhere, and the curves doing that
-are behaving correctly: those are the **33 falls rejected as instrument
+are behaving correctly: those are the **37 falls rejected as instrument
 excursions**, which the gas model deliberately leaves where they are. The next
 section is why.
 
@@ -428,7 +428,7 @@ window spans the fall, so a genuine step change flags itself — exp 135 cuvette
 of 221 falls including every large one. The excursion test looks only at the
 two readings immediately either side, which no step change can make anomalous.
 
-Of 257 candidate falls, **33 are rejected** and 224 kept. **2 curves** lose all
+Of 257 candidate falls, **37 are rejected** and 220 kept. **2 curves** lose all
 of theirs and are returned exactly as they were read, exps 144.7 and 149.5
 among them. Nothing is deleted: an excursion stays in the readings, visible as
 the instrument problem it is, and `isolated_outliers` is what nominates those.
@@ -462,8 +462,8 @@ cuvette 4 had gone on making gas at its fitted rate, the tail would have carried
 curves the rate would have made more gas over the quiet tail than the trace rose
 altogether, and a bubble that keeps growing detaches — **13 of 47** ran more
 than a full shedding interval past their last detachment without one
-(`curve_metrics.quiet_tail`; exps 149.4 at 14.4, 146.1 at 6.9, 150.1 at 6.0,
-146.3 at 5.9). Those runs stopped making gas, and the last thing they did was
+(`curve_metrics.quiet_tail`; exps 149.4 at 14.4, 146.1 at 6.9, 146.3 at 5.9,
+149.2 at 5.7). Those runs stopped making gas, and the last thing they did was
 shed, so their beams are empty.
 
 So the third clause is evidence and not extrapolation: **the beam holds at most
@@ -551,7 +551,7 @@ The production rate is read off the timing and size of the detachments alone —
 **the fit never sees a concentration** — so what it correlates with is a
 prediction the gas argument makes rather than a parameter it was given.
 
-It is **first order in peroxide, +1.469 ± 0.255** over the 47 live curves that
+It is **first order in peroxide, +1.473 ± 0.255** over the 47 live curves that
 carry one, 5.8σ from zero and within 2σ of exactly first order. That is the
 catalysed decomposition of H₂O₂, measured a second and independent way: the
 ladder above shows detachments get *more common* with peroxide, and this shows
@@ -782,9 +782,9 @@ manufacture a flat substrate order. `scope.bubble_sensitivity`:
 | `vmax` from | n | order in [S] | order in [H₂O₂] |
 |---|---|---|---|
 | the readings | 110 | +0.091 ± 0.052 | +0.794 ± 0.077 |
-| the reconstruction | 110 | +0.095 ± 0.047 | **+0.701 ± 0.071** |
+| the reconstruction | 110 | +0.098 ± 0.047 | **+0.705 ± 0.069** |
 | the monotone bound | 110 | +0.141 ± 0.049 | +0.770 ± 0.072 |
-| the reconstruction, terminal bubble charged to gas | 110 | +0.121 ± 0.049 | +0.702 ± 0.074 |
+| the reconstruction, terminal bubble charged to gas | 110 | +0.123 ± 0.049 | +0.707 ± 0.072 |
 | readings, load ≤ 1 only | 96 | +0.093 ± 0.057 | +0.750 ± 0.081 |
 
 **The substrate order does not move** under any repair — by less than the two
@@ -793,8 +793,8 @@ estimates' errors combined every time — and under the monotone bound it moves
 since the artefact could only have flattened it. §2 stands.
 
 **The peroxide order does move.** The reconstruction takes it from +0.794 to
-+0.701, and on the strong runs alone from +0.871 to +0.768 — about 0.10 either
-way, which is 0.9σ and 1.2σ of the two estimates' errors combined and the
++0.705, and on the strong runs alone from +0.871 to +0.768 — about 0.10 either
+way, which is 0.8σ and 1.2σ of the two estimates' errors combined and the
 largest shift any repair here produces. That is not the repair failing, it is
 the repair working: the gas is *made from peroxide*, so an uncorrected artefact
 has to inflate the apparent peroxide order, and taking the gas out has to bring

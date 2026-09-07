@@ -17,6 +17,8 @@ import sys
 import numpy as np
 
 from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
+                           EXCURSION_RECOVERY_CEILING,
+                           EXCURSION_RECOVERY_DEPTH,
                            INITIAL_WINDOW, LAG_THRESHOLD,
                            QUANTISATION_SIGMA, acceleration, curve_noise,
                            initial_rate, line_fit, line_slope, peak_position,
@@ -1202,6 +1204,83 @@ def test_bubble_drop_sigma_enrichment():
           f"{len(touched_below)} against {len(touched_clean)}")
 
 
+def test_the_recovery_depth_extension():
+    """
+    Why `_is_excursion` reaches past the one adjacent reading: the sweep
+    behind the 2026-09-07 depth extension, kept as a check for the same
+    reason `test_bubble_drop_sigma_enrichment` is -- so the archive-wide
+    claim cannot silently stop being true.
+
+    Exp 150 cuvette 1 and exp 151 cuvette 6 are the block's two weakest,
+    most drift-dominated curves (net signal 14-21x noise, against 27-143x
+    for their sibling cuvettes). Both carry falls that recover only 13-48%
+    of themselves in the single adjacent reading the old test looked at, and
+    the rest of the way one or two readings later -- a shape the old test
+    could not see, and one no real detachment in the archive shares.
+    """
+    print("\nwhy the recovery test reaches past one reading")
+    archive_curves = {(c.experiment, c.sample): c
+                      for c in scope.curves(scope.archive())}
+
+    def get(experiment, sample):
+        return archive_curves[(experiment, sample)]
+
+    # The two curves the extension was built for.
+    weak_before, weak_after = {}, {}
+    for experiment, sample in ((151, 6), (150, 1)):
+        curve = get(experiment, sample)
+        weak_before[(experiment, sample)] = detachments(
+            curve.absorbance, curve.noise, sigma=BUBBLE_DROP_SIGMA)
+    check("exp 151 cuvette 6 no longer carries any detachment",
+          weak_before[(151, 6)] == [], f"{weak_before[(151, 6)]}")
+    check("exp 150 cuvette 1 keeps four of its eight",
+          len(weak_before[(150, 1)]) == 4, f"{weak_before[(150, 1)]}")
+
+    # Every real detachment and confirmed excursion pinned elsewhere in the
+    # package is unmoved by the extension -- this is the regression guard.
+    pinned_real = {
+        (143, 3): 3, (149, 1): 1, (135, 2): 15, (144, 2): 4, (140, 4): 7,
+        (135, 1): 19, (139, 2): 3, (130, 2): 6,
+    }
+    for (experiment, sample), count in pinned_real.items():
+        curve = get(experiment, sample)
+        events = detachments(curve.absorbance, curve.noise,
+                             sigma=BUBBLE_DROP_SIGMA)
+        check(f"exp {experiment} cuvette {sample} keeps its {count} "
+              f"real detachments",
+              len(events) == count, f"{len(events)}: {events}")
+    excursion_curve = get(149, 5)
+    check("exp 149 cuvette 5 still has none",
+          detachments(excursion_curve.absorbance, excursion_curve.noise,
+                     sigma=BUBBLE_DROP_SIGMA) == [], "")
+
+    # The extension is one-directional: reaching backward from `start` the
+    # same way conflates genuine pre-fall acceleration with a spike, and
+    # exp 135 cuvette 1's largest detachment (41.3 sigma) is the case that
+    # would be lost. It sits right after four readings of real, fast rise.
+    curve = get(135, 1)
+    event = (222, 223)
+    values = np.asarray(curve.absorbance, dtype=float)
+    check("the pre-fall rise into exp 135 cuvette 1's largest detachment is "
+          "real acceleration, not noise",
+          float(values[222] - values[218]) > 20 * curve.noise,
+          f"{(values[222] - values[218]) / curve.noise:.1f} sigma of climb "
+          f"over the four readings before it")
+    check("and that detachment is not read as an excursion",
+          not _is_excursion(values, event), "")
+
+    # The ceiling is what keeps a genuine acceleration right after a fall
+    # from being read as the fall's own recovery. Exp 135 cuvette 1's
+    # 6.2 sigma detachment at (272, 273) is real and sits right before the
+    # curve accelerates hard; uncapped, that acceleration alone would cross
+    # the anomaly threshold within the extended window.
+    event = (272, 273)
+    check("this detachment survives only because recovery is capped",
+          not _is_excursion(values, event), "")
+    check("  uncapped, the same reach would have rejected it",
+          _is_excursion(values, event, ceiling=1e9), "")
+
+
 if __name__ == "__main__":
     test_every_test_is_actually_run()
     test_the_runner_finds_every_gate()
@@ -1221,5 +1300,6 @@ if __name__ == "__main__":
     test_the_monotone_bound()
     test_the_bubble_the_run_never_shed()
     test_bubble_drop_sigma_enrichment()
+    test_the_recovery_depth_extension()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

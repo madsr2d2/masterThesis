@@ -410,8 +410,25 @@ Three things follow that are worth not re-deriving.
   9.3, 6.6, 8.2 and 6.0 sigma, the last two only candidates since the
   2026-09-07 threshold change -- and none is gas: the first falls 0.00206 and
   the next reading climbs 0.00222 back, and an unfiltered repair would have
-  removed 0.0046 AU from a curve that rose 0.0262. 33 of 257 candidate falls
+  removed 0.0046 AU from a curve that rose 0.0262. 37 of 257 candidate falls
   are rejected; two curves lose all of theirs and are returned untouched.
+  **The recovery test was widened again on 2026-09-07**, this time to reach
+  past the one adjacent reading it always checked: on the block's two
+  weakest, most drift-dominated curves (exps 150.1 and 151.6) a spike's
+  recovery landed one or two readings later, not the next one, and a
+  single-reading test could not see it. `_is_excursion` now looks up to three
+  readings past a fall, crediting recovery only up to the drop's own size
+  (`EXCURSION_RECOVERY_CEILING = 1.0`) so a genuine acceleration right after a
+  real detachment -- exp 135 cuvette 1's 6.2 sigma fall at (272, 273) -- is
+  not read as that fall's own reversal. The reach is one-directional: applying
+  it to the reading BEFORE a fall as well would read real pre-fall
+  acceleration as a spike, which is what rejected exp 135 cuvette 1's genuine
+  41.3 sigma detachment during testing. Archive-wide the change touches
+  exactly two curves -- exp 151.6 loses both its candidate falls (0 of 2 kept)
+  and exp 150.1 keeps 4 of its 8 -- and every previously-pinned real
+  detachment and confirmed excursion is unmoved.
+  `data/test_curve_metrics.py::test_the_recovery_depth_extension` is the
+  check, and DATA_VERIFICATION.md 2026-09-07 has the sweep.
   **`local_outlier_z` CANNOT be used for this**: its window spans the fall, so
   a genuine step flags itself (exp 135 cuvette 2's 0.1196 AU detachment scores
   +130). The test looks only at the two readings either side.
@@ -427,14 +444,14 @@ Three things follow that are worth not re-deriving.
   never bubbled. The ONE survivor is exp 135 cuvette 6, whose fall is in the
   first interval -- no rate explains a bubble grown before the run, and
   `debubble` returns that curve untouched.
-  **`gas_rate_drivers`**: the fitted rate is +1.469 +/- 0.255 in peroxide and
+  **`gas_rate_drivers`**: the fitted rate is +1.473 +/- 0.255 in peroxide and
   -0.344 +/- 0.093 in substrate, from a fit that never saw a concentration.
   **Read `bubble_load` before quoting a rate**: 14 of 110 live curves sit above
   1 and carry no measurable rate -- all four substrate rungs of exp 135, plus
   inner rungs of 138, 140, 141, 142, 149 and 150. They are FLAGGED, NOT EXCLUDED.
   The SUBSTRATE order moves under no repair, but the PEROXIDE order does --
-  +0.794 to +0.701 over all live and +0.871 to +0.768 over the strong runs,
-  0.9 and 1.2 sigma -- which is what an artefact made from peroxide requires.
+  +0.794 to +0.705 over all live and +0.871 to +0.768 over the strong runs,
+  0.8 and 1.2 sigma -- which is what an artefact made from peroxide requires.
   Do not repeat the older claim that no order moves.
 - **The early rise is counted by the CATALYST, not the substrate.**
   `curve_metrics.burst_amplitude` reads it off the FITTED CURVE, because the
@@ -519,7 +536,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   one regression -- `joint_peroxide_order` and `joint_buffer_order` are that
   function with the species filled in. Through the LANDMARK both blocks that
   can test it fall short (2.6σ and 3.7σ), and the rate is not first order in
-  peroxide either -- `peroxide_saturation` rejects a = 1 at F = 39 on the
+  peroxide either -- `peroxide_saturation` rejects a = 1 at F = 44 on the
   two-axis ladder. Do not assume "first order in H2O2": that is the
   *unsaturated* limit of the scheme, not a consequence of it.
 - **The +1 does not belong to the landmark, and the clock decides who can be
@@ -624,7 +641,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   order machinery -- `induction.lag_orders` is a wrapper over it. One axis at a
   time is a different regression on an L: the two-axis block carries log[S]
   against log[H2O2] at about -0.5, and a substrate-only fit of the induction
-  clock reads -0.453 +/- 0.107 where the joint fit reads -0.225 +/- 0.115.
+  clock reads -0.439 +/- 0.106 where the joint fit reads -0.205 +/- 0.113.
 - **THE DEPTH IS NOT A BETWEEN-RUN STATISTIC AND THE CLOCK IS.**
   `scope.REPLICATE_RUNS` (exps 2, 4, 5, 7) is four repeats of ONE composition,
   the archive's only four-fold repeat: their depths run 0.388 to 1.000 and their

@@ -8,6 +8,110 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-07 — `_is_excursion` reached only one reading for a recovery; exps 150.1 and 151.6's weakest falls were noise, not gas
+
+Asked whether two of the two-axis block's weakest curves — exp 150.1 and exp
+151.6, both near or below the `live` threshold (net/noise 20.7 and 13.9,
+against 27–143 for their sibling cuvettes) — might have scatter misread as
+detachments, inspection of their flagged falls showed a shape the excursion
+test could not see: the reading recovers only 13–48% of the drop in the very
+next reading (below `BUBBLE_RECOVERY_FRACTION`), and the rest of the way one
+or two readings later. `bubble_load` on these two curves is 5.44 and 8.88 —
+the second-highest and *highest* of any curve in the 119-curve block, ahead of
+even exp 135's genuinely heavy-bubbling substrate rungs (4.1–8.8) — which is
+itself a flag that something other than gas was being counted.
+
+**The gap.** `_is_excursion`'s recovery clause only ever checked the single
+reading immediately after a fall (`stop + 1`). A spike that reverses over two
+readings instead of one produces exactly the pattern seen here — partial,
+sub-threshold recovery at `stop + 1`, full recovery by `stop + 2` or
+`stop + 3` — and the single-reading test called it real every time.
+
+**The fix.** `_is_excursion` now searches up to `EXCURSION_RECOVERY_DEPTH = 3`
+readings past `stop`, not only the first, with two constraints so the reach
+does not start catching real gas:
+
+- **Post-event only.** Extending the *pre*-event side (`start - k` for
+  `k > 1`) the same way conflates genuine pre-fall acceleration with a spike:
+  exp 135 cuvette 1's largest detachment (41.3σ) sits right after four
+  readings of real, fast climb, and reaching backward from `start` flagged it
+  as an excursion during testing. Gas leaving is one-way; only the recovery
+  side needed the reach.
+- **Capped at the drop's own size** (`EXCURSION_RECOVERY_CEILING = 1.0`). A
+  spike's reversal returns a curve to about where it was, not past it, so
+  crediting recovery beyond the drop's own size is not evidence of a spike —
+  it is the curve resuming its own climb. Uncapped, the extended window
+  wrongly flagged a genuine 6.2σ detachment on exp 135 cuvette 1 (readings
+  272/273), which accelerates hard in the two readings right after it.
+
+Both constraints were found by testing the extension against every
+previously-pinned real detachment and confirmed excursion in the codebase —
+exp 143.3 (this session's earlier `BUBBLE_DROP_SIGMA` fix), exp 149.1 (the
+sustained near-miss that fix also surfaced), exp 135.2 (the 0.1196 AU worked
+example), exp 144.2 and exp 140.4 (the segment-ramp counterexamples), exp
+130.2 (the curve that forced the local-baseline clause), and exp 149.5 (the
+curve the excursion test was originally built for) — and tightening `depth`
+and `ceiling` until every one of those was unmoved. `depth = 3` and
+`ceiling = 1.0` are not round numbers chosen in advance: `depth` beyond 3
+changes nothing further (150.1 and 151.6's results are identical at depth
+3–8), and `ceiling` below 1.0 is where exp 135 cuvette 1's 272/273 detachment
+first survives every case tested.
+`data/test_curve_metrics.py::test_the_recovery_depth_extension` is the check.
+
+**Archive-wide scope (all 402 curves, not just the two-axis block): exactly
+two curves change, nothing else.** Total detachments fall from 385 to 379.
+Exp 151.6 loses both its candidate falls (2 → 0) — it drops out of
+`gas_curves`' detaching set entirely, consistent with it never having cleared
+`live`. Exp 150.1 keeps 4 of its 8 (the four that recover within the extended
+window; the remaining four don't recover even out to 8 readings, so they stay
+detected). Every other curve in the archive, including every curve with a
+confirmed real detachment or a confirmed excursion, is unchanged. `bubble_load`
+is unaffected either way, since it is computed from raw `bubble_drops`, not
+filtered `detachments` — 150.1 was already excluded from any rate
+quotation by `bubble_load > 1` before this fix and still is.
+
+**Two-axis block scope.** Detachments fall from 224 to 220; rejected
+excursions rise from 33 to 37 (candidate falls 257 either way — only the split
+moves). The fitted gas rate moves to +1.473 ± 0.255 in [H₂O₂] (was
++1.469 ± 0.255); the peroxide order under reconstruction moves +0.794 → +0.705
+(was → +0.701), 0.8σ (was 0.9σ) — the strong-runs figure is untouched, since
+`strong_runs()` excludes exps 149–151 entirely. `peroxide_saturation` on
+`vmax_corrected` now rejects `a = 1` at F = 44 (was F = 39); the *raw* `vmax`
+saturation (F = 32, `two_axis/ANALYSIS.md` §2) does not depend on `debubble`
+and is unaffected. `terminal_bubbles`, `tail_excess`'s named examples, the
+quiet-tail-outran-evidence counts, and every other bubble statistic checked
+unchanged (`two_axis/check_numbers.py`'s full 240 claims pass).
+
+**Induction side.** Every number derived through `two_axis`'s corrected
+columns moved by a similar small amount: the BnOH two-axis clock's within-run
+substrate and peroxide orders (−0.205 ± 0.113 / +0.700 ± 0.168, held:
+−0.285 ± 0.126 / +0.479 ± 0.230), its own signal control (+0.850 ± 0.257,
+still failing), the single-axis substrate fit (−0.439 ± 0.106), the floor
+sweep at every level, the substrate-order range (**−0.16 to −0.60**, was
+−0.19 to −0.70), route one on the two-axis block (+0.899 ± 0.176, excludes
+product control at 10.8σ, was 11.2σ), and the BnOH-catalysed lag count
+(76 of 164, was 75) — `lag_depth`/`lag_half_s` are fitted off the
+gas-corrected readings, and one of the block's cuvettes crossed the depth
+threshold for a lag once its correction changed. `induction/ANALYSIS.md`'s
+full 216
+claims pass. Nothing in §7e (the four pH ladders, all between-run and
+unaffected by a two-axis-only change) or §7g (the enzyme-pair window) moved.
+
+**Nothing published changes direction.** `two_axis/index.html`,
+`two_axis/progress_curves.html`, and `induction/index.html` were rebuilt from
+the corrected code (`induction/progress_curves.html` draws only raw progress
+fits and came out byte-identical, as it did for the previous fix). Their
+cross-references in `MECHANISM.md`, `FITTING.md`, `COMPUTATIONAL.md` and
+`CLAUDE.md`'s own quoted figures were updated to match. While in the
+neighbourhood, one further pre-existing staleness — `CLAUDE.md`'s "FIT EVERY
+AXIS THE BLOCK MOVES" bullet quoting −0.453 ± 0.107 / −0.225 ± 0.115 for the
+single-axis-vs-joint substrate fit, which matched neither this session's
+values nor the ones the previous `_is_excursion` fix left behind — was found
+and corrected to the current values. All 20 fast gates and the slow optimiser
+suite (`data/test_fit_kinetics.py`) pass.
+
+---
+
 ## 2026-09-07 — `BUBBLE_DROP_SIGMA` lowered from 8 to 6: a hard cutoff was sitting mid-tail, not in a gap
 
 Asked to explain how `debubble` handles a curve that is still holding a bubble

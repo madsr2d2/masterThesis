@@ -738,7 +738,7 @@ against the mechanism.
 
   **It is made from the peroxide and not from the alcohol.** The production rate
   is fitted from the timing and size of the detachments alone -- the fit never
-  sees a concentration -- and comes out **+1.469 +/- 0.255 in [H2O2]** against
+  sees a concentration -- and comes out **+1.473 +/- 0.255 in [H2O2]** against
   **-0.344 +/- 0.093 in [S]** (`scope.gas_rate_drivers`). First order in
   peroxide, weakly negative in substrate: a catalase-like disproportionation
   competing with the productive cycle for the same oxidant, and one the alcohol
@@ -1231,7 +1231,7 @@ bounded algebra, 18–72 % engaged. Whatever the catalyst is waiting for, base
 holds it back and the alcohol pulls it forward.
 
 Two consequences for this document. The rate is **not** first order in H₂O₂ —
-`peroxide_saturation` rejects `a = 1` at F = 39 on the two-axis ladder — so step
+`peroxide_saturation` rejects `a = 1` at F = 44 on the two-axis ladder — so step
 4's pre-equilibrium is saturating, and "first order in H₂O₂" is the
 *unsaturated* limit of the scheme rather than a consequence of it. And every
 buffer order here is an order in **total** buffer: at one pH the acid, the base

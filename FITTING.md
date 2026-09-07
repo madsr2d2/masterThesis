@@ -211,7 +211,7 @@ reconstruction is an upper bound on the chemistry in the same direction as
 the second reading. `scope.bubble_recovery(ends_holding=...)` is both.
 
 The **substrate** order in `two_axis/` moves under no repair. The **peroxide**
-order does: +0.794 → +0.701 under the reconstruction, 0.9σ, and downward, which
+order does: +0.794 → +0.705 under the reconstruction, 0.8σ, and downward, which
 is what an artefact made from peroxide requires (`scope.bubble_sensitivity`).
 Neither reading is significant, but do not quote the older "no order moves".
 
