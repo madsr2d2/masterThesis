@@ -738,8 +738,8 @@ against the mechanism.
 
   **It is made from the peroxide and not from the alcohol.** The production rate
   is fitted from the timing and size of the detachments alone -- the fit never
-  sees a concentration -- and comes out **+1.389 +/- 0.251 in [H2O2]** against
-  **-0.307 +/- 0.103 in [S]** (`scope.gas_rate_drivers`). First order in
+  sees a concentration -- and comes out **+1.417 +/- 0.247 in [H2O2]** against
+  **-0.312 +/- 0.094 in [S]** (`scope.gas_rate_drivers`). First order in
   peroxide, weakly negative in substrate: a catalase-like disproportionation
   competing with the productive cycle for the same oxidant, and one the alcohol
   slows rather than feeds.
@@ -1171,16 +1171,16 @@ otherwise inflate the rate's order and shorten the clock, flattering the +1:
 | clock | curves | order in [H₂O₂] | from +1 | control, [S] |
 |---|---|---|---|---|
 | `t_ind`, windowed | 110 | +0.304 ± 0.188 | 3.7σ | 6.4σ |
-| `tau`, from the fit | 65 | +0.707 ± 0.158 | 1.9σ | 8.5σ |
-| `tau_slow`, from the fit | 32 | +0.669 ± 0.242 | 1.4σ | 6.0σ |
+| `tau`, from the fit | 65 | +0.686 ± 0.159 | 2.0σ | 8.5σ |
+| `tau_slow`, from the fit | 33 | +0.671 ± 0.241 | 1.4σ | 6.1σ |
 
 **The substrate axis is the control and it must miss**, because the alcohol is
 not the activating species and the clock carries no substrate order. It misses
-by 4.2σ to 8.5σ in every cut. A reading where both axes met +1 would be a
+by 4.3σ to 8.5σ in every cut. A reading where both axes met +1 would be a
 regression that had stopped discriminating rather than a mechanism.
 
-**Nothing is concluded from the peroxide column.** `tau_slow` is resolved on 32
-of 110 live curves and 20 of the 77 strong ones, and across cuts the estimate
+**Nothing is concluded from the peroxide column.** `tau_slow` is resolved on 33
+of 110 live curves and 21 of the 77 strong ones, and across cuts the estimate
 moves +0.67 to +0.85 — short of +1 everywhere and nowhere by enough to reject
 it. What the two axes together say is that *something* in excess activates the
 catalyst, that the buffer meets the constraint where the peroxide does not, and
@@ -1231,7 +1231,7 @@ bounded algebra, 18–72 % engaged. Whatever the catalyst is waiting for, base
 holds it back and the alcohol pulls it forward.
 
 Two consequences for this document. The rate is **not** first order in H₂O₂ —
-`peroxide_saturation` rejects `a = 1` at F = 41 on the two-axis ladder — so step
+`peroxide_saturation` rejects `a = 1` at F = 40 on the two-axis ladder — so step
 4's pre-equilibrium is saturating, and "first order in H₂O₂" is the
 *unsaturated* limit of the scheme rather than a consequence of it. And every
 buffer order here is an order in **total** buffer: at one pH the acid, the base

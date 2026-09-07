@@ -528,9 +528,9 @@ def main():
                   f"{row.terminal_gas:.4f} | "
                   + ("**64%**" if share == "64%" else share)
                   + f" | {row.tail_excess:+.1e} | "
-                  + ("**0.83**" if experiment == 140 else
-                     "**1.08**" if (experiment, sample) == (142, 2) else
-                     f"{row.tail_excess / row.gas_rate:.2f}") + " |")
+                  + ("**" + f"{row.tail_excess / row.gas_rate:.2f}" + "**"
+                     if experiment == 140 or (experiment, sample) == (142, 2)
+                     else f"{row.tail_excess / row.gas_rate:.2f}") + " |")
     holding = terminal[(terminal.experiment == 140)
                        & (terminal["sample"] == 4)].iloc[0]
     stopped = terminal[(terminal.experiment == 149)

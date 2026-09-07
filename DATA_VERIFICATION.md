@@ -8,6 +8,92 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-07 — `_is_excursion` compared a fall against its own size, not the curve's; 32 curves' detachments changed archive-wide
+
+While fitting the chemistry model jointly with the gas correction on exp 130.2
+(a two-axis pH-ladder curve) the residual still sawtoothed, and by eye the
+uncorrected shape at t=1674 s and t=1860 s looked exactly like the detachments
+`debubble` handles everywhere else on that curve. Neither was in the event
+list.
+
+**The bug.** `curve_metrics._is_excursion` rejects a candidate fall as an
+instrument spike, not a detachment, when a single adjacent reading undoes more
+than half of it (`BUBBLE_RECOVERY_FRACTION`) — the test `MECHANISM.md`'s
+"a fall that comes straight back is not gas" documents. It compared that
+recovery only against **the drop's own size**. On a curve rising fast enough,
+a genuine detachment is followed by continued fast growth, and that growth can
+undo more than half of the drop's own size within one reading without the fall
+being anything other than real gas leaving. Both of exp 130.2's missed events
+were exactly this: real detachments on a steeply rising curve, rejected
+because the curve kept climbing quickly afterwards.
+
+**The fix.** `_is_excursion` now requires the recovery to be anomalous against
+a **local baseline** as well — `_local_step_scale`, the median absolute step
+in an `EXCURSION_LOCAL_WINDOW`-reading window around the event, excluding the
+fall itself — not just against the drop's own size. Both clauses must fire for
+a fall to be rejected, so the fix can only *reject fewer* falls than before,
+never more. `EXCURSION_LOCAL_SIGMA = 2.0` was calibrated against four known
+cases: exp 130.2's two rescued detachments sit at 1.0× and 1.4× their local
+baseline (recovered), and exp 149.5's two genuine instrument excursions —
+already used as the worked example in `two_axis/ANALYSIS.md` §5 — sit at
+2.1× and 7.2× (correctly still rejected).
+
+**Archive-wide scope.** Re-running `detachments()` over every curve that
+carries any: **32 of 77 bubbling curves changed detection, 59 net additional
+detachments recovered.** This changed the default output of `detachments()`
+and therefore `debubble`/`frame()` archive-wide (unlike the experimental
+`onset`/`shaped` parameters added earlier this week, which default to the old
+behaviour and are not wired into anything published). Two published documents
+had numbers built on the old detection and needed regenerating from the
+corrected code: `two_axis/ANALYSIS.md` (the terminal-bubble table, the
+detachment/rejection counts, `gas_rate_drivers`' peroxide and substrate
+orders, `bubble_sensitivity`'s corrected orders, and the `tau`/`tau_slow`
+resolved counts and joint-order rows) and `induction/ANALYSIS.md` (§7d's
+within-run orders including the two-axis `[S]` clock order and its own
+signal control, §7e's four pH-ladder rows and pooled coefficient, and §7g's
+matched pairs). Both folders' cross-references in `MECHANISM.md` (S4, the
+joint-clocks table) and `FITTING.md` (the peroxide order's move under
+reconstruction, the recovery table) were updated to match. Figures
+(`two_axis/progress_curves.html`, `induction/progress_curves.html`) were
+rebuilt from the corrected code. All 20 fast gates and `test_fit_kinetics.py`
+pass against the regenerated documents.
+
+**Nothing published changes direction, except one number that changes sign of
+comparison.** Most of the moves are small (e.g. the two-axis peroxide gas-rate
+order +1.389 → +1.417, `tau_slow`'s resolved count 32 → 33 of 110). The one
+worth flagging on its own: `induction/ANALYSIS.md` §7g's catalyst-loading pair
+(exps 140/141) previously read exp 140 (2.4× more catalyst) as having the
+**longer** clock, 1.8× — "the wrong way for a unimolecular step." On the
+corrected detection it has the **shorter** clock, 0.6×. Both readings equally
+contradict strict catalyst-independence, and the section already carried this
+as "a flag, not a result" on two confounded runs (0.07 pH units apart, in a
+block whose own signal control fails) rather than as a conclusion — so nothing
+downstream was resting on the sign, and nothing downstream moves. The text now
+states the corrected number without asserting a direction relative to the old
+one.
+
+**A second, unrelated bug turned up while regenerating the terminal-bubble
+table**: `two_axis/check_numbers.py` had a hardcoded `"**0.83**"` literal for
+exp 140.4's `tail_excess`/`gas_rate` ratio cell instead of computing it —
+exactly the kind of throwaway number this project's own convention warns
+against. It happened to still match the true value when it was written; once
+detection changed the true ratio to 1.27 the literal went stale silently,
+because a hardcoded string can't fail to recompute. Replaced with the same
+formula the row's fallback case already used.
+
+**Also loosened, with the reason recorded in the test itself:** two assertions
+in `test_curve_metrics.py::test_the_bubble_the_run_never_shed` were tuned
+against a synthetic curve that carried the same excursion bug — the old filter
+was wrongly rejecting a genuinely-planted 4th detachment there too, and its
+wrong (longer) tail span coincidentally gave `terminal_gas` extra slack that
+made an "exactly bounded" assertion pass for the wrong reason. Fixed detection
+shortens that span and exposes that the guarantee was never `held <= planted`
+in general — it is `held/planted == fitted_rate/true_rate` exactly, in the
+uncapped case, which is `bubble_rate`'s own known undershoot and nothing more.
+The assertions now check that identity instead of the coincidence.
+
+---
+
 ## 2026-09-05 — `InductionPoint.made` measured product from a different origin than `t_ind`, and a planted product threshold does not read zero
 
 `induction_point` returns five numbers about a curve's induction. Four of them

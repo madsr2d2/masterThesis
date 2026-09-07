@@ -186,7 +186,7 @@ against -260.4 as read and -5.8 on curves that never bubbled. The one survivor,
 exp 135 cuvette 6, has its fall in the FIRST interval -- a bubble grown before
 the run leaves no rise to date it from, and that curve is returned untouched.
 `gas_rate_drivers` is the independent check on the diagnosis: the fitted rate
-is +1.389 +/- 0.251 in peroxide, from a fit that never saw a concentration.
+is +1.417 +/- 0.247 in peroxide, from a fit that never saw a concentration.
 
 **The landmark's failure closes a statistic, not the block.** `signal_control`
 fails here (+0.619 +/- 0.228) and run length spans 9.6x, so `t_ind` -- a
@@ -197,9 +197,9 @@ depend on that statistic: it holds for ANY clock of the activation step, and
 `induction.joint_clocks` asks it through each in turn BESIDE ITS CONTROL AXIS,
 because the +1 belongs to the activating species and the substrate axis must
 miss it. Pass `gate=` and never `floor=` for a fitted clock. On this block the
-two routes disagree -- 3.7 sigma short through the landmark, 1.9 and 1.4 through
+two routes disagree -- 3.7 sigma short through the landmark, 2.0 and 1.4 through
 the clocks -- and nothing is concluded from it yet, because `tau_slow` is
-resolved on 32 of 110 curves and the estimate moves +0.67 to +0.85 across cuts.
+resolved on 33 of 110 curves and the estimate moves +0.67 to +0.85 across cuts.
 
 **Both sides of that ratio come off the REBUILT curves.** `frame` carries
 `tau_corrected` and `tau_slow_corrected` beside `tau` and `tau_slow`, and

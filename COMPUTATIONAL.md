@@ -405,12 +405,12 @@ and that weakens this task's premise without removing it.** `t_ind` is a rolling
 window a tenth of the run wide, and on exps 135–151 `signal_control` fails, so
 the landmark there is partly measuring the spectrophotometer. `tau` and
 `tau_slow` come from the progress fit instead and are subject to the same
-identity; asked of the O₂-corrected curves they fall **1.9σ and 1.4σ** short of
-+1 rather than 3.7, with the substrate control missing by 4.2–8.5σ as it must
+identity; asked of the O₂-corrected curves they fall **2.0σ and 1.4σ** short of
++1 rather than 3.7, with the substrate control missing by 4.3–8.5σ as it must
 (`induction.joint_clocks`). Two consequences for C8. The measured shortfall that
 motivates the trap reading is **route-dependent**, so a calculation that lands
 on a modest K no longer has a 3.7σ discrepancy to explain, only a 1.4σ one. And
-`tau_slow` is resolved on 32 of 110 curves with the estimate moving +0.67 to
+`tau_slow` is resolved on 33 of 110 curves with the estimate moving +0.67 to
 +0.85 across cuts, so this is not yet strong enough to overturn the trap reading
 either. **Compute the profile; the measurement will not settle it alone.**
 
@@ -545,8 +545,8 @@ peroxide value.
 `MECHANISM.md` S4 establishes that something in the enzyme-containing cuvette
 catalyses `2 H₂O₂ → 2 H₂O + O₂`. The evidence is kinetic: the gas forms in the
 sample beam and not the reference, which omits only the enzyme (122 falls
-beyond 20σ against 23 rises); its production rate is **+1.389 ± 0.251 in
-[H₂O₂] against −0.307 ± 0.103 in [S]** from a fit that never saw a
+beyond 20σ against 23 rises); its production rate is **+1.417 ± 0.247 in
+[H₂O₂] against −0.312 ± 0.094 in [S]** from a fit that never saw a
 concentration; and across the whole archive it appears with both substrates in
 three buffers, with a hard floor of zero detachments below pH 7.5. It is silent
 about *where*, and the archive cannot become less silent: the rate is first

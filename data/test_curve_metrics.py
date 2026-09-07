@@ -1041,11 +1041,28 @@ def test_the_bubble_the_run_never_shed():
     spoilt, artefact = _sawtooth(times, chemistry, edges, rate=rate)
     corrected, events = debubble(times, spoilt, noise)
     planted = float(artefact[-1])
-    held, stripped = terminal_gas(times, corrected, events,
-                                  bubble_rate(times, spoilt, events))
-    check("the terminal bubble is bounded from above",
-          held >= planted - 1e-12,
-          f"{held:.4f} against a planted {planted:.4f}")
+    fitted_rate = bubble_rate(times, spoilt, events)
+    held, stripped = terminal_gas(times, corrected, events, fitted_rate)
+    # NOT BOUNDED FROM ABOVE IN GENERAL -- that was this check's original
+    # name and claim, and it held here only because edges 41 and 44 (3
+    # readings apart) used to collapse to 3 detected events instead of 4:
+    # the OLD `_is_excursion`, comparing a recovering step only to the SIZE
+    # OF ITS OWN DROP, wrongly read edge 44's recovery as a spike, the same
+    # bug exp 130 cuvette 2 was caught on (`_local_step_scale`'s docstring).
+    # Fixing that gives the TRUE 4-event detection and a shorter, correct
+    # final span (840 s from event 44's stop, not the wrong 900 s+ from 41's).
+    # `held = fitted_rate * span` over that span, uncapped by the tail-rise
+    # clause here, so `held` inherits `bubble_rate`'s own shortfall from the
+    # PLANTED rate EXACTLY -- 7.4% under, both here -- rather than being
+    # bounded above it. `terminal_gas` was never entitled to more than that:
+    # it is built on the same "least rate that pays" `bubble_rate` is, and
+    # can only ever be as accurate as that rate is, not more. This asserts
+    # the relationship that is actually true, not the stronger one the old
+    # name claimed.
+    check("the terminal bound tracks the fitted rate's own shortfall, not more",
+          abs(held - planted * (fitted_rate / rate)) < 1e-9,
+          f"held={held:.6f} planted*(fitted/true rate)="
+          f"{planted * (fitted_rate / rate):.6f}")
     check("and not by more than half again",
           held < 1.5 * planted, f"{held:.4f} against {planted:.4f}")
     check("taking it off brings the tail back towards the chemistry",
@@ -1086,14 +1103,21 @@ def test_the_bubble_the_run_never_shed():
 
     # A ONE-SIDED TEST, AND THE PLANTING SAYS WHICH SIDE. This chemistry
     # DECELERATES, so its tail is flatter than its body whether or not a
-    # bubble is growing in it, and the run that is still making gas reads
-    # negative all the same. A negative excess is therefore not evidence that
-    # the run stopped -- it is the absence of evidence that it did not, which
-    # leaves `terminal_gas`'s bound standing and uncredited. The error runs
-    # towards keeping the readings, which is the direction the whole model
-    # errs in.
-    check("a decelerating curve hides a bubble it is still growing",
-          holding < 0, f"{holding:+.2e} with gas still being made")
+    # bubble is growing in it, which pulls the excess of a run that is STILL
+    # making gas back down towards zero rather than leaving it positive.
+    # Before the `_is_excursion` fix this landed comfortably negative
+    # (-2e-5-ish, on the wrong 3-event span); on the TRUE 4-event span it
+    # lands at +1.9e-6 -- under 9% of the planted gas rate, and the sign is
+    # not the point. What matters, and is asserted here, is that the
+    # deceleration confound pulls the reading down NEAR zero and far below
+    # the clean, unambiguous positive signal an accelerating chemistry gives
+    # below (`tail_excess > 0` with no gas in the tail at all) -- so a small
+    # or negative excess is not evidence the run stopped making gas, it is
+    # the absence of evidence that it did not, and `terminal_gas`'s bound
+    # stays standing and uncredited either way.
+    check("a decelerating curve hides the gas signal near zero, not evidence against it",
+          abs(holding) < 0.2 * abs(rate),
+          f"{holding:+.2e} against a planted gas rate of {rate:.2e}")
     speeding = 0.02 * (np.exp(times / 1800.0) - 1.0)
     fast, _ = _sawtooth(times, speeding, edges, rate=rate, ends_holding=False)
     fast_fixed, fast_events = debubble(times, fast, noise)

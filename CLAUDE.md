@@ -426,8 +426,8 @@ Three things follow that are worth not re-deriving.
   never bubbled. The ONE survivor is exp 135 cuvette 6, whose fall is in the
   first interval -- no rate explains a bubble grown before the run, and
   `debubble` returns that curve untouched.
-  **`gas_rate_drivers`**: the fitted rate is +1.389 +/- 0.251 in peroxide and
-  -0.307 +/- 0.103 in substrate, from a fit that never saw a concentration.
+  **`gas_rate_drivers`**: the fitted rate is +1.417 +/- 0.247 in peroxide and
+  -0.312 +/- 0.094 in substrate, from a fit that never saw a concentration.
   **Read `bubble_load` before quoting a rate**: 13 of 110 live curves sit above
   1 and carry no measurable rate -- all four substrate rungs of exp 135, plus
   inner rungs of 138, 140, 141, 142 and 150. They are FLAGGED, NOT EXCLUDED.
@@ -527,10 +527,10 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   `signal_control` or spans run lengths can still be asked through them.
   `joint_clocks` runs every clock on an axis BESIDE ITS CONTROL AXIS, and the
   control is the point: the +1 belongs to the activating species, so the
-  substrate axis must MISS it, and it does by 4.2σ to 8.5σ. On the two-axis
+  substrate axis must MISS it, and it does by 4.3σ to 8.5σ. On the two-axis
   block the two routes disagree -- the peroxide axis falls 3.7σ short through
-  the landmark, 1.9σ and 1.4σ through the fitted clocks. **Conclude nothing
-  from that yet**: `tau_slow` is resolved on 32 of 110 live curves and the
+  the landmark, 2.0σ and 1.4σ through the fitted clocks. **Conclude nothing
+  from that yet**: `tau_slow` is resolved on 33 of 110 live curves and the
   estimate moves +0.67 to +0.85 across cuts. Pass `gate=` and not `floor=` for
   a fitted clock -- a floor puts an unresolved constant ON the floor and calls
   it the fastest curve in the block.

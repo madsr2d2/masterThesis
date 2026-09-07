@@ -859,7 +859,48 @@ def detachments(values, noise, sigma=BUBBLE_DROP_SIGMA,
             if not _is_excursion(values, event, recovery)]
 
 
-def _is_excursion(values, event, recovery=BUBBLE_RECOVERY_FRACTION):
+# How many readings each side of an event the LOCAL baseline step size is
+# drawn from -- wide enough to be a real local estimate, narrow enough that a
+# genuine change in the background rate does not get pooled into it.
+EXCURSION_LOCAL_WINDOW = 8
+
+# How many times the local baseline step a recovery must be before it counts
+# as anomalous rather than ordinary. Pinned between two known cases, not
+# guessed: exp 149 cuvette 5's two genuine excursions recover at 7.2x and
+# 2.1x their local baseline, and exp 130 cuvette 2's two real, previously
+# rejected detachments (12.4 and 16.6 sigma falls) recover at only 1.0x and
+# 1.4x -- see `bubble_profile`'s `shaped` clause for how those were found.
+# 2.0 sits in the gap and keeps every one of those four cases where it was.
+EXCURSION_LOCAL_SIGMA = 2.0
+
+
+def _local_step_scale(values, start, stop, window=EXCURSION_LOCAL_WINDOW):
+    """
+    The median |step| in the neighbourhood of an event, excluding the fall
+    itself.
+
+    WHAT THIS IS FOR. `_is_excursion`'s recovery test alone asks whether an
+    adjacent step is large relative to THIS drop's own size -- and on a curve
+    rising fast enough that ordinary steps are themselves a sizeable fraction
+    of a modest, genuine detachment, that test fires on real gas. It rejected
+    two falls on exp 130 cuvette 2 this way, 12.4 and 16.6 sigma each, both
+    real: their "into" steps (0.00266, 0.00331 AU) are unremarkable next to
+    the ~0.0025 AU/reading the curve is climbing at throughout that stretch,
+    but exceeded half of THOSE FALLS' comparatively modest size regardless.
+    This is the second question the function's own docstring already implies
+    ("a reading that climbs a COMPARABLE amount") but the old arithmetic never
+    asked: comparable to what is normal HERE, not only to the drop's own size.
+    """
+    lo = max(0, start - window)
+    hi = min(len(values), stop + window + 1)
+    before = np.abs(np.diff(values[lo:start + 1]))
+    after = np.abs(np.diff(values[stop:hi]))
+    combined = np.concatenate([before, after])
+    return float(np.median(combined)) if len(combined) else 0.0
+
+
+def _is_excursion(values, event, recovery=BUBBLE_RECOVERY_FRACTION,
+                  window=EXCURSION_LOCAL_WINDOW, sigma=EXCURSION_LOCAL_SIGMA):
     """
     Is this fall an instrument excursion rather than gas leaving?
 
@@ -868,7 +909,17 @@ def _is_excursion(values, event, recovery=BUBBLE_RECOVERY_FRACTION):
     climbs a comparable amount is a spike -- either the fall departs from an
     anomalously high reading, in which case it is the return off one, or it
     lands on an anomalously low one, in which case the level is back next
-    reading.
+    reading. TWO CLAUSES, both required: the adjacent step must recover most
+    of the drop (`recovery`, against the drop's own size -- unchanged), AND
+    it must be anomalous relative to what this curve's readings normally do
+    (`sigma`, against `_local_step_scale` -- new). The first clause alone
+    made the whole test fire on ordinary steps whenever the drop itself was
+    modest relative to the curve's own rise rate, which is exactly the
+    regime `_local_step_scale`'s docstring documents on exp 130 cuvette 2.
+    Requiring both can only ever REJECT FEWER falls as excursions than the
+    single-clause test did, never more, so nothing this test used to catch
+    can be missed by adding the second clause -- see the constant above for
+    where `sigma` is pinned so that stays true of the known cases.
 
     `local_outlier_z` CANNOT BE USED FOR THIS, though it is the obvious tool:
     its window spans the fall, so a genuine step change flags itself. That is
@@ -877,12 +928,13 @@ def _is_excursion(values, event, recovery=BUBBLE_RECOVERY_FRACTION):
     This looks only at the two readings immediately either side, which no step
     change can make anomalous.
 
-    Exp 149 cuvette 5 is the curve that forced it. Its two "detachments" are
-    9.3 and 8.2 sigma, both instrument excursions: the first falls 0.00206 and
-    the next reading climbs 0.00222 straight back, the second falls off a
-    reading that is an isolated spike. Between them they set a production rate
-    of 6.2e-6 AU/s, and the repair then removed 0.0097 AU from a curve that
-    rose 0.0262 -- flattening a real early rise into a straight line.
+    Exp 149 cuvette 5 is the curve that forced the first clause. Its two
+    "detachments" are 9.3 and 8.2 sigma, both instrument excursions: the
+    first falls 0.00206 and the next reading climbs 0.00222 straight back
+    (7.2x the local baseline), the second falls off a reading that is an
+    isolated spike (2.1x). Between them they set a production rate of
+    6.2e-6 AU/s, and the repair then removed 0.0097 AU from a curve that rose
+    0.0262 -- flattening a real early rise into a straight line.
     """
     start, stop = event
     drop = float(values[start] - values[stop])
@@ -891,7 +943,11 @@ def _is_excursion(values, event, recovery=BUBBLE_RECOVERY_FRACTION):
     into = (float(values[start] - values[start - 1]) if start >= 1 else 0.0)
     out = (float(values[stop + 1] - values[stop])
            if stop + 1 < len(values) else 0.0)
-    return max(into, out) > recovery * drop
+    biggest = max(into, out)
+    if biggest <= recovery * drop:
+        return False
+    baseline = _local_step_scale(values, start, stop, window)
+    return biggest > sigma * baseline
 
 
 def unreleased_gas(values, events):
@@ -932,7 +988,23 @@ def unreleased_gas(values, events):
     return owed
 
 
-def bubble_profile(times, values, events, rate, onset=0.0):
+## Within a growth window that ends in a release, the local rate is not flat.
+# Pooled over every pre-release window in the two-axis block (6382 reading
+# intervals, 142 windows), the local rate normalised by that window's own
+# mean rate regresses on fraction-of-window-elapsed at +0.428 +/- 0.097 (4.4
+# sigma). Two controls rule out the obvious confounds: windows with no
+# upcoming release (the quiet tail after a curve's last detachment) show no
+# trend (-0.425 +/- 0.822), and whole clean (non-bubbling) curves -- which
+# also span early-to-late -- trend the OTHER way (-1.386 +/- 0.305). So this
+# is not "curve position" or "chemistry accelerates late in a run"; it is
+# specific to approaching a release. BUBBLE_SHAPE_INTERCEPT is fixed by the
+# constraint that the local rate must average back to the window's own mean
+# rate: intercept = 1 - slope/2.
+BUBBLE_SHAPE_SLOPE = 0.428
+BUBBLE_SHAPE_INTERCEPT = 1.0 - BUBBLE_SHAPE_SLOPE / 2.0
+
+
+def bubble_profile(times, values, events, rate, onset=0.0, shaped=False):
     """
     The gas held in the beam at each reading, `b(t) >= 0`.
 
@@ -940,6 +1012,17 @@ def bubble_profile(times, values, events, rate, onset=0.0):
     its decomposition does not slow over a run -- and leaves in the whole of
     each detachment. Between detachments `b` climbs, and THREE clauses bound
     the climb.
+
+    `shaped` is a fifth, EXPERIMENTAL clause, and it is off by default: with
+    `shaped=True`, the rate within a window that ends in a release ramps
+    linearly from `BUBBLE_SHAPE_INTERCEPT` to `BUBBLE_SHAPE_INTERCEPT +
+    BUBBLE_SHAPE_SLOPE` times `rate` across that window, rather than staying
+    flat -- see the constants above for the archive-wide measurement behind
+    it. The FINAL stretch, after the last detachment (or the whole curve, if
+    there is no detachment to shape towards), is NOT shaped: that is exactly
+    the "no upcoming release" control the measurement was checked against,
+    and it showed no trend, so shaping it would not be supported by anything
+    measured. `onset=0.0, shaped=False` reproduces the original model exactly.
 
     `onset` is a fourth, EXPERIMENTAL clause: no gas may be held before it.
     The default, 0.0, reproduces the original model exactly -- growth starts
@@ -996,7 +1079,9 @@ def bubble_profile(times, values, events, rate, onset=0.0):
     # model. An interval straddling `onset` is prorated, not all-or-nothing.
     growable_seconds = np.clip(times[1:] - np.maximum(times[:-1], onset),
                                 0.0, None)
-    growth = np.minimum(rate * growable_seconds, room)
+    # UNSHAPED rate everywhere by default -- this is what the final,
+    # no-upcoming-release stretch always uses, shaped or not.
+    multiplier = np.ones(len(growable_seconds))
     # `np.minimum(start + cumsum(growth), owed)` IS the saturating recursion,
     # not an approximation of it: every increment is non-negative and `owed`
     # never rises, so once the running sum meets the cap it stays at it, and
@@ -1004,15 +1089,28 @@ def bubble_profile(times, values, events, rate, onset=0.0):
     position = 0
     for start, stop in events:
         if start > position:
+            if shaped:
+                span = times[start] - times[position]
+                if span > 0:
+                    midpoints = 0.5 * (times[position:start]
+                                       + times[position + 1:start + 1])
+                    fraction = np.clip((midpoints - times[position]) / span,
+                                       0.0, 1.0)
+                    multiplier[position:start] = (BUBBLE_SHAPE_INTERCEPT
+                                                  + BUBBLE_SHAPE_SLOPE * fraction)
+            growth = np.minimum(rate * multiplier[position:start]
+                                * growable_seconds[position:start],
+                                room[position:start])
             held[position + 1:start + 1] = np.minimum(
-                held[position] + np.cumsum(growth[position:start]),
+                held[position] + np.cumsum(growth),
                 owed[position + 1:start + 1])
         held[start + 1:stop + 1] = np.maximum(
             held[start] - (values[start] - values[start + 1:stop + 1]), 0.0)
         position = stop
     if position < len(values) - 1:
+        growth = np.minimum(rate * growable_seconds[position:], room[position:])
         held[position + 1:] = np.minimum(
-            held[position] + np.cumsum(growth[position:]), owed[position + 1:])
+            held[position] + np.cumsum(growth), owed[position + 1:])
     return held
 
 
@@ -1043,7 +1141,7 @@ def quiet_tail(times, events):
     return float((times[-1] - times[events[-1][1]]) / cadence)
 
 
-def bubble_shortfall(times, values, events, rate, onset=0.0):
+def bubble_shortfall(times, values, events, rate, onset=0.0, shaped=False):
     """
     The largest detachment this `rate` (held from `onset` on) cannot pay for,
     in absorbance.
@@ -1054,12 +1152,13 @@ def bubble_shortfall(times, values, events, rate, onset=0.0):
     """
     if not events:
         return 0.0
-    held = bubble_profile(times, values, events, rate, onset=onset)
+    held = bubble_profile(times, values, events, rate, onset=onset, shaped=shaped)
     return max(float((values[start] - values[stop]) - held[start])
                for start, stop in events)
 
 
-def bubble_rate(times, values, events, rounds=BISECTION_ROUNDS, onset=0.0):
+def bubble_rate(times, values, events, rounds=BISECTION_ROUNDS, onset=0.0,
+                shaped=False):
     """
     The least steady production rate that pays for every detachment, AU/s,
     if gas may only be held from `onset` onward.
@@ -1107,12 +1206,14 @@ def bubble_rate(times, values, events, rounds=BISECTION_ROUNDS, onset=0.0):
         return np.inf
     high = 4.0 * max(float(np.max(steps) / np.min(intervals[intervals > 0])),
                      1e-12)
-    if bubble_shortfall(times, values, events, high, onset=onset) > 0:
+    if bubble_shortfall(times, values, events, high, onset=onset,
+                        shaped=shaped) > 0:
         return np.inf
     low = 0.0
     for _ in range(rounds):
         middle = 0.5 * (low + high)
-        if bubble_shortfall(times, values, events, middle, onset=onset) > 0:
+        if bubble_shortfall(times, values, events, middle, onset=onset,
+                            shaped=shaped) > 0:
             low = middle
         else:
             high = middle
