@@ -1032,8 +1032,8 @@ def main():
                   & ((frame.vmax_corrected_time_s
                       - frame.vmax_time_s).abs() > 1.0)]
     doc.check("the corrected rate is marked wherever it moved",
-              page.count(">v_max*<") == len(moved),
-              f"{page.count('>v_max*<')} against {len(moved)}")
+              page.count(">v_max* ") == len(moved),
+              f"{page.count('>v_max* ')} against {len(moved)}")
     # The same predicate the panel draws on: resolved, positive, and inside the
     # axis, since a clock longer than its own run has nowhere to be drawn.
     clock = np.where(frame.bubble_events > 0, frame.tau_corrected, frame.tau)
@@ -1042,8 +1042,8 @@ def main():
                     & np.isfinite(clock) & (clock > 0)
                     & (clock < frame.duration_s)]
     doc.check("and the progress fit's clock is marked wherever it resolved",
-              page.count(">τ<") == len(clocked),
-              f"{page.count('>τ<')} against {len(clocked)}")
+              page.count(">τ ") == len(clocked),
+              f"{page.count('>τ ')} against {len(clocked)}")
     held = frame[frame.terminal_gas > 0]
     doc.check("and every run that ended holding gas says so on its own panel",
               page.count(">gas held<") == len(held),

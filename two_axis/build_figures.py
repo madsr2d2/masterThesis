@@ -22,8 +22,9 @@ import induction
 import scope
 import slowdown
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc
-from figure_kit import (CATEGORY, PH_RAMP, RUNGS, breakpoints, fig, panel,
-                        progress_axes, progress_overlay, styled, write_pages)
+from figure_kit import (CATEGORY, EVENT_BAND_COLOUR, PH_RAMP, RUNGS,
+                        breakpoints, fig, panel, progress_axes,
+                        progress_overlay, residual_axes, styled, write_pages)
 
 
 @functools.cache
@@ -420,7 +421,7 @@ def build_curves_page():
     end is where the argument stops, and a page showing only the live ones
     would show only the part that works.
 
-    AND IT DRAWS THE GAS. Forty-six of these carry O₂ detachments, and until
+    AND IT DRAWS THE GAS. Forty-eight of these carry O₂ detachments, and until
     2026-09-03 this page showed a progress fit to the raw readings with nothing
     to say so — a fit to the bubble, presented as a fit to the reaction. Each
     contaminated panel now carries the raw readings, the reconstruction (§5,
@@ -456,14 +457,40 @@ def build_curves_page():
         corrected, events = curve_metrics.debubble(times, values, curve.noise)
         chopped = len(events) > 0
         axes, radius = progress_axes(times, values, limit=140,
-                                     companion=corrected if chopped else None)
+                                     companion=corrected if chopped else None,
+                                     pad=(56, 12, 10, 20))
+        # EACH DETACHMENT'S OWN SPAN, SHADED, on the readings and on the
+        # residual strip below, so a residual spike lines up with the release
+        # that caused it rather than only with a dashed line. Narrower than
+        # the growth window on purpose -- shading the whole window between
+        # releases washes the panel out on a curve with several close
+        # together and stops reading as a location. Drawn last, at low
+        # opacity, since the axes already carry the points by the time this
+        # function sees them; a wash over the marks reads fine where a band
+        # beneath them would not.
+        bands = []
         if chopped:
+            for start, stop in events:
+                bands.append((float(times[start]), float(times[stop])))
+            for lo, hi in bands:
+                axes.band([lo, hi], [axes.ylim[0], axes.ylim[0]],
+                         [axes.ylim[1], axes.ylim[1]], EVENT_BAND_COLOUR,
+                         opacity=0.14)
             axes.line(times, corrected, CATEGORY[2], width=1.0, dash="3 2",
                       opacity=0.85)
-            progress_overlay(axes, times, corrected, colour=CATEGORY[2],
-                             mark_radius=radius)
-        progress_overlay(axes, times, values, mark_radius=radius)
-        # EVERY PARAMETER THE PANEL IS READ FOR, DRAWN WHERE IT IS READ. One
+            corrected_fit = progress_overlay(axes, times, corrected,
+                                             colour=CATEGORY[2],
+                                             mark_radius=radius)
+        raw_fit = progress_overlay(axes, times, values, mark_radius=radius)
+        # THE FITTED CHEMISTRY the residual strip below is read against: the
+        # fit to the corrected series where there is gas to correct, since
+        # that is the fit standing in for the reaction; the fit to the
+        # readings otherwise, where the two are the same fit.
+        chem_fit = corrected_fit if chopped else raw_fit
+        chem_values = corrected if chopped else values
+        # EVERY PARAMETER THE PANEL IS READ FOR, DRAWN WHERE IT IS READ, AND
+        # LABELLED WITH ITS VALUE -- not just "v_max" but the number the
+        # document quotes, so the panel is readable without the footer. One
         # rule per landmark, each in the colour of the series it belongs to:
         # `v_max` on the readings in blue, `v_max` on the reconstruction in the
         # correction's own purple -- the gas moves WHERE the rate peaks as well
@@ -473,17 +500,18 @@ def build_curves_page():
         # so a page that draws v_max and not tau shows half of what section 6
         # is read off.
         if np.isfinite(row.vmax_time_s) and row.vmax_time_s > 0:
-            breakpoints(axes, [float(row.vmax_time_s)], ["v_max"],
-                        colour=CATEGORY[0])
+            breakpoints(axes, [float(row.vmax_time_s)],
+                        [f"v_max {row.vmax:.2e}"], colour=CATEGORY[0])
         if (chopped and np.isfinite(row.vmax_corrected_time_s)
                 and abs(row.vmax_corrected_time_s - row.vmax_time_s) > 1.0):
             breakpoints(axes, [float(row.vmax_corrected_time_s)],
-                        ["v_max*"], colour=CATEGORY[2], row=1)
+                        [f"v_max* {row.vmax_corrected:.2e}"],
+                        colour=CATEGORY[2], row=1)
         clock = (row.tau_corrected if chopped else row.tau)
         resolved = (row.tau_resolved_corrected if chopped else row.tau_resolved)
         if resolved and np.isfinite(clock) and 0 < clock < times[-1]:
-            breakpoints(axes, [float(clock)], ["τ"], colour=CATEGORY[1],
-                        row=2)
+            breakpoints(axes, [float(clock)], [f"τ {clock:.0f} s"],
+                        colour=CATEGORY[1], row=2)
         if chopped:
             # Where the gas left, so the reader can see the correction is
             # anchored to the readings and not to a smoothing choice -- and
@@ -495,19 +523,24 @@ def build_curves_page():
             breakpoints(axes, edges,
                         [""] * (len(edges) - 1) + ["gas held" if held else ""],
                         colour=GRID, row=3)
+        residual = (chem_values - chem_fit.predict(times)) / curve.noise
+        rms_over_noise = float(np.sqrt(np.nanmean(residual ** 2)))
+        rax = residual_axes(times, residual,
+                            colour=(CATEGORY[2] if chopped else ACCENT),
+                            bands=bands)
         panels.append(panel(
             f"pH {row.pH:.2f} · [S] {row.s0:g} mM · [H₂O₂] {row.h2o2:g} mM"
             f"<span class='pill'>exp {int(row.experiment)}.{int(row.sample)}"
             "</span>",
             f"[HOO⁻] {row.hoo:.3g} mM · [enz] {row.e0:g} mM · "
-            f"[buf] {row.buf:g} mM · {int(row.points)} readings over "
-            f"{row.duration_s / 60:.0f} min · {row.source}",
-            axes.render("time, s", "ΔA"),
+            f"[{row.buffer.lower()}] {row.buf:g} mM · {int(row.points)} "
+            f"readings over {row.duration_s / 60:.0f} min · {row.source}",
+            axes.render("", "ΔA") + rax.render("time, s", "z"),
             f"<strong>{int(row.phases)} phase"
             + ("s" if row.phases == 2 else "")
             + f"</strong> · {esc(str(row.progress_kind))} "
             f"· F = {row.two_phase_f:.0f} · v_max {row.vmax:.2e}"
-            f" · v0 {row.v0:.2e}"
+            f" · v0 {row.v0:.2e} · rms/noise {rms_over_noise:.2f}"
             + (" · <strong>accelerates</strong>" if row.accelerates else "")
             + ("" if row.live else " · <strong>NOT LIVE</strong>")
             + ("" if row.experiment in strong
@@ -522,13 +555,25 @@ def build_curves_page():
     agreement = scope.concentration_agreement()
     weak = sorted(int(e) for e in agreement.index if e not in strong)
     body = (f"<p class='lede'>All {len(panels)} cuvettes of exps 135–151 — "
-            "BnOH, 25 °C, pyrophosphate — in pH order, from 5.47 to 9.73. The "
-            "rust line is whichever form the curve earned, one relaxation or "
-            "two, from <code>summary_kinetics.fit_progress</code>; the blue "
-            "dashed vertical is where the rolling slope peaks, which is where "
-            "<code>v_max</code> is read. Nothing is excluded and every fit "
-            "uses every point except the instrument's first reading, which is "
-            "discarded from every run in the archive.</p>"
+            "BnOH, 25 °C, pyrophosphate — in pH order, from 5.47 to 9.73. Grey "
+            "dots are the readings; the rust line is whichever form the curve "
+            "earned, one relaxation or two, from "
+            "<code>summary_kinetics.fit_progress</code>, fitted to the "
+            "readings. Where a curve carries a detachment, purple is the "
+            "reconstruction (§5, <code>curve_metrics.debubble</code>) — dashed "
+            "for the corrected readings themselves, solid for the fit to "
+            "them — and the amber bands mark each detachment's own span, on "
+            "the panel and on the residual strip beneath it. The strip is "
+            "(readings − fit) ÷ noise for whichever fit stands in for the "
+            "chemistry — the reconstruction's where there is one, the "
+            "readings' fit otherwise — so a residual that lines up with a "
+            "band is explained and one that does not is not. The blue dashed "
+            "vertical is where the rolling slope peaks, which is where "
+            "<code>v_max</code> is read, and rust dashed is the fit's own "
+            "clock, τ; both are labelled with their value. Nothing is "
+            "excluded and every fit uses every point except the instrument's "
+            "first reading, which is discarded from every run in the "
+            "archive.</p>"
             f"<p class='lede'><strong>{int((~frame.live).sum())} of "
             f"{len(frame)} curves are not live</strong> and are drawn anyway, "
             "all of them at the bottom of the pH ladder. Below them sit the "
@@ -612,6 +657,7 @@ def build_index():
         f"<td>{row.r2:.3f}</td></tr>"
         for label, row in ladders.iterrows())
 
+    chopped_count = int((frame.bubble_events > 0).sum())
     body = f"""
 <p class='lede'>Seventeen runs, seven cuvettes each, one substrate and one
 buffer and one temperature: exps 135–151 are the only place in this archive
@@ -621,8 +667,8 @@ block is named for. What has not been written down is that they are also a
 and exps 143–151 another, matched cuvette for cuvette — and that second design
 is the stronger one. This folder is what the block says when both are
 used.</p>
-<p class='lede'><strong>Which curves each number is read from.</strong> Forty-six
-of these 119 curves carry O₂ bubbles that grow in the beam and detach
+<p class='lede'><strong>Which curves each number is read from.</strong>
+{chopped_count} of these 119 curves carry O₂ bubbles that grow in the beam and detach
 (<a href='#gas'>section 5</a>), so it matters, and there is no single answer.
 Sections 2, 3 and 4 are read from the <strong>readings</strong>, with section 5
 giving what every one of their orders becomes under each repair — the substrate

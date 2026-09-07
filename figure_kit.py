@@ -18,7 +18,7 @@ import os
 
 import numpy as np
 
-from svgplot import ACCENT, MUTED
+from svgplot import ACCENT, GRID, MUTED
 
 
 # ORDERED VARIABLES GET SEQUENTIAL RAMPS, not categorical hues. Substrate rung
@@ -53,6 +53,13 @@ BURST_COLOUR = "#7a4bb8"       # the burst/lag form           -- purple
 WHOLE_COLOUR = "#3f8a5a"       # straight line, whole curve   -- green
 OUTLIER_COLOUR = "#c0392b"     # ring round a suspect reading -- red
 
+# The window a correction was read through, shaded behind the marks it
+# covers -- the two-axis curves page's gas growth-windows, and anything else
+# that needs to show WHERE a statistic was measured rather than just quoting
+# it in prose. Amber, so it reads as "this span mattered" without competing
+# with WINDOW_COLOUR/QUAD_COLOUR/BURST_COLOUR, which are all fit lines.
+EVENT_BAND_COLOUR = "#e0a530"
+
 # Figures sit on a fixed light surface whatever the page theme, so the ramps'
 # contrast is deterministic. A sequential ramp cannot clear 3:1 against a white
 # AND a near-black surface at once -- it needs the lightness range the contrast
@@ -67,6 +74,8 @@ FIT_WIDTH = 1.5
 
 EXTRA_CSS = """
 .fig{background:#fbfbfa;border-color:#e4e4e2}
+.fig svg{display:block}
+.fig svg + svg{margin-top:2px}
 .fig .cap{color:#5a5a5a}
 .pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;
 background:var(--rule);color:var(--muted);margin-left:7px;vertical-align:2px}
@@ -132,6 +141,43 @@ def progress_overlay(axes, times, values, colour=ACCENT, width=FIT_WIDTH,
     return progress
 
 
+def residual_axes(times, residual, width=340, height=72, pad=(56, 12, 30, 8),
+                  colour=ACCENT, bands=(), band_colour=EVENT_BAND_COLOUR):
+    """
+    A thin strip of (data - fit) / noise against time, to pair beneath a
+    `progress_axes` panel.
+
+    Shares `progress_axes`' default left/right padding, so the two plot AREAS
+    line up when the two SVGs are stacked in one panel div even though they
+    are independent drawings -- a reader should be able to look straight down
+    from a feature in the residual to the reading that caused it.
+
+    `bands` is a sequence of `(start, stop)` time pairs shaded the full height
+    of the strip -- the window a correction was read through, so a residual
+    spike that lines up with one is explained rather than mysterious. Pass the
+    same pairs to shade the panel above for the same reason.
+
+    Y-limits are `max(|residual|) * 1.15` each side, symmetric about zero
+    because a residual has no natural floor the way a reading does.
+    """
+    from svgplot import Axes
+    times = np.asarray(times, dtype=float)
+    residual = np.asarray(residual, dtype=float)
+    finite = residual[np.isfinite(residual)]
+    span = max(float(np.abs(finite).max()), 1.0) if len(finite) else 1.0
+    axes = Axes(width, height, (0, float(times[-1]) * 1.02),
+               (-span * 1.15, span * 1.15), pad=pad)
+    for start, stop in bands:
+        axes.band([start, stop], [-span * 1.15, -span * 1.15],
+                 [span * 1.15, span * 1.15], band_colour, opacity=0.16)
+    axes.hline(0.0, colour=GRID, dash="2 2", width=1.0)
+    dense = len(times) > 150
+    axes.line(times, residual, colour, width=0.9, opacity=0.5)
+    axes.points(times, residual, colour, radius=1.4 if dense else 1.8,
+               opacity=0.8, stroke=None)
+    return axes
+
+
 def breakpoints(axes, where, labels=None, colour=MUTED, row=0):
     """
     EVERY landmark the curve earned, labelled, not just the first.
@@ -148,7 +194,14 @@ def breakpoints(axes, where, labels=None, colour=MUTED, row=0):
     write their names on top of each other -- which is the failure mode of
     drawing more than one thing and the reason a panel used to draw only
     `v_max`.
+
+    LABELS THAT CARRY A VALUE CAN OVERFLOW THE RIGHT EDGE, where a bare
+    ordinal or "v_max" never did -- "v_max* 8.67e-05" is four times the
+    width. Past 60% of the plot a label is right-anchored and grows back
+    towards the line instead of off the panel; `note`'s `anchor` was already
+    there for this, just never driven by the mark's own position.
     """
+    x0, x1 = axes.left, axes.width - axes.right
     for index, cut in enumerate(where):
         x = axes._fx(cut)
         axes.parts.append(
@@ -157,7 +210,11 @@ def breakpoints(axes, where, labels=None, colour=MUTED, row=0):
             f"stroke='{colour}' stroke-width='1.1' "
             f"stroke-dasharray='3 3' fill='none'/>")
         text = f"{index + 1}" if labels is None else labels[index]
-        axes.note(x + 3, axes.top + 10 + 11 * row, text, colour, size=9.5)
+        if not text:
+            continue
+        late = (x - x0) > 0.6 * (x1 - x0)
+        axes.note(x - 3 if late else x + 3, axes.top + 10 + 11 * row, text,
+                  colour, size=9.5, anchor="end" if late else "start")
 
 
 def progress_axes(times, values, width=340, height=210, limit=None,
