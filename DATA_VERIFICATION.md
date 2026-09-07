@@ -8,6 +8,92 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-07 — `BUBBLE_DROP_SIGMA` lowered from 8 to 6: a hard cutoff was sitting mid-tail, not in a gap
+
+Asked to explain how `debubble` handles a curve that is still holding a bubble
+at its last reading (exp 142.2), the answer led to inspecting exp 143.3's
+residual plot by eye: a clean, unambiguous fall at t=1200 s — no rebound, sharp
+growth either side — sat right on the corrected fit line as if nothing had
+happened. It was never a candidate. The fall is 7.83σ of the curve's own noise,
+0.17σ short of `BUBBLE_DROP_SIGMA`'s old value of 8.
+
+**This was not one curve.** Scanning every live curve in the two-axis block for
+single-step falls below the old 8σ cutoff that are not already inside a
+registered event, and testing each as a candidate against the unmodified
+`_is_excursion` (so only the drop-size threshold is being asked, not the
+excursion logic): 95 such falls turn up on curves across the block, 64 of them
+surviving `_is_excursion` unchanged — i.e. behaving exactly like the block's
+confirmed detachments, not like the 31 correctly-rejected excursions. The
+distribution has no cliff anywhere below 8σ: 10 falls in 7.5–8.0σ, 7 in
+7.0–7.5σ, 13 in 6.0–6.5σ, 16 in 5.5–6.0σ — a smoothly thinning tail, which is
+not what a well-placed threshold looks like.
+
+**The split that is not smooth: whether the curve already bubbles.** A fall's
+own size cannot separate real gas from noise in this band, because both
+populations sit there. Whether the *curve it is on* already carries a
+confirmed (≥8σ) detachment can, if these near-threshold falls are the same
+population as the confirmed ones and not generic curve noise — noise does not
+know what else happened on its curve, an artefact's continuation does.
+Sweeping the cutoff down from 8: curves that already bubble pick up a
+near-threshold fall in 65% of cases (31 of 48) at 5.0σ against 6% (4 of 71) of
+curves that never register a single detachment even that far down — an 11×
+enrichment, and it is not close. The cutoff was lowered to the value where that
+split is cleanest: from 8.0 down to 6.0, exactly **one** curve outside the
+confirmed-bubbling set is touched at every step (exp 149 cuvette 1, 7.97σ) —
+inspected by eye, a sustained level drop held for four readings after, not a
+spike, so almost certainly a second near-miss rather than a false positive.
+Only below 6.0 does a second, then a third and fourth curve outside that set
+start picking up falls. `BUBBLE_DROP_SIGMA = 6.0`.
+`data/test_curve_metrics.py::test_bubble_drop_sigma_enrichment` is the sweep,
+kept as a check rather than a one-off calculation.
+
+**Nothing about the fix to `_is_excursion` needed to change.** Both clauses
+(recovery against the drop's own size, and against the local baseline) are
+unmodified; lowering the entry threshold only offers more candidates to a test
+that was already correctly separating gas from spikes at 8σ and above. The
+clearest single check of that: exp 149 cuvette 5 — the curve
+`two_axis/ANALYSIS.md` §5 already used as the worked example of an instrument
+excursion — goes from 2 candidate falls to 4 at the new threshold, and all
+four, including the two new ones (6.6σ and 6.0σ), are still correctly rejected.
+
+**Archive-wide scope, all inside the two-axis block's own `debubble` pipeline**
+(nothing outside `two_axis/` and `induction/`'s two-axis-derived rows moved —
+`background_reaction/`, `product_fate/`, `temperature_series/` and `buffer/`
+were rebuilt and their `check_numbers.py` still pass unchanged). Detachments
+rise from 195 to 224 over 47 (was 46) repairable curves; rejected excursions
+from 19 to 33; curves with `bubble_load > 1` ("no measurable rate") from 13 to
+14; curves ending mid-bubble (`terminal_bubbles`) from 38 to 42. The peroxide
+order under reconstruction moves +0.794 → +0.701 (was → +0.703); the fitted gas
+rate moves to +1.469 ± 0.255 in [H₂O₂] (was +1.417 ± 0.247). On the induction
+side, the two-axis clock's joint-order rows move from 1.4σ to 1.5σ short of the
++1 rule, `tau_slow` resolves on 34 curves instead of 33, and the pooled pH
+coefficient across the four ladders becomes +0.338 ± 0.132 (χ² = 0.95 on 3),
+quoted as **+0.16 to +0.34** rather than +0.12 to +0.34. `two_axis/ANALYSIS.md`,
+`induction/ANALYSIS.md`, their cross-references in `MECHANISM.md` and
+`FITTING.md`, and `CLAUDE.md`/`COMPUTATIONAL.md`'s own quoted figures were all
+regenerated to match. Figures (`two_axis/progress_curves.html`,
+`induction/progress_curves.html`) were rebuilt from the corrected code. All 20
+fast gates pass against the regenerated documents.
+
+**Nothing published changes direction.** The two orders `bubble_sensitivity`
+tracks against the bracket move by +0.026 in substrate and +0.001 in peroxide
+(previously +0.016/−0.006 against the *pre-2026-09-07* `_is_excursion` fix, not
+comparable further back), both still inside their own standard errors of 0.047
+and 0.071. Two pre-existing staleness bugs, unrelated to this threshold but in
+the same paragraphs, were fixed while regenerating them: `two_axis/
+check_numbers.py`'s "how many curves end holding gas" claim had the count
+`"Thirty-eight"` hardcoded as a literal rather than computed from `len(
+terminal)` — it had already silently drifted from the true count once before
+this session's change moved it again, to 42, without the check ever failing,
+because the claim was comparing the document to itself rather than to the
+code. Replaced with `len(terminal)`. And several `CLAUDE.md` figures in this
+same section (the tail-excess numbers for exp 140.4, the "18 of 44"/"11 of 44"
+repairable-curve counts) were already inconsistent with `two_axis/ANALYSIS.md`
+before today, from some earlier partial update — corrected to the current
+values while in the neighbourhood.
+
+---
+
 ## 2026-09-07 — `_is_excursion` compared a fall against its own size, not the curve's; 32 curves' detachments changed archive-wide
 
 While fitting the chemistry model jointly with the gas correction on exp 130.2

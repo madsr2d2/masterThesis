@@ -301,8 +301,8 @@ Three things follow that are worth not re-deriving.
   detach, 5 of 5 above 80 mM, monotone across six bands),
   `bubble_turnover_control` (exps 136 and 137 sit at 73.4 mM with NONE, being
   the two weakest runs there -- but read its pH confound below before quoting
-  it) and `bubble_synchrony` (17 coincidences over 357 cuvette pairs against
-  16.0 expected, so it is not the instrument).
+  it) and `bubble_synchrony` (23 coincidences over 357 cuvette pairs against
+  21.3 expected, so it is not the instrument).
   **The bubble is in the SAMPLE beam and it SCATTERS**, so absorbance climbs
   while it grows and drops when it goes. The reference omits only the enzyme,
   so it holds the same peroxide and would bubble too if the gas came from
@@ -311,7 +311,7 @@ Three things follow that are worth not re-deriving.
   holds the enzyme and EVERY RUN IS ITS OWN +/- ENZYME CONTROL. Do not use
   `bubble_turnover_control` for this -- it is CONFOUNDED WITH pH (exps 136 and
   137 sit at pH 6.95 and 7.53, and `turnover_control_confound` prices their
-  silence at 0.68 and 1.48 expected events from pH alone), and do not use the
+  silence at 0.75 and 1.64 expected events from pH alone), and do not use the
   archive's enzyme-free runs either: `gas_enzyme_control` puts the whole set at
   about ONE expected event. `solution_chemistry.oxygen_budget` kills the "too small to
   see" objection -- the solution saturates on 1.5% of the peroxide at the top
@@ -327,11 +327,11 @@ Three things follow that are worth not re-deriving.
   **IT IS NOT A PROPERTY OF THE BLOCK, AND pH IS THE TRIGGER RATHER THAN
   PEROXIDE.** `scope.gas_curves` runs the same test over all 402 curves of 88
   experiments, keeping the ones that did NOT bubble because those are the
-  control. It appears with BOTH substrates -- 20 of 58 4OMe against 22 of 68
+  control. It appears with BOTH substrates -- 27 of 58 4OMe against 24 of 68
   BnOH, catalysed, above 40 mM and pH 8, in three buffers
   (`gas_substrate_control`), which is the prediction S4 makes since a catalyst
   decomposing peroxide involves no alcohol. And the archive's median [H2O2] is
-  82.5 mM with 278 of 402 curves above 80, of which only 28 chop: inside every
+  82.5 mM with 278 of 402 curves above 80, of which only 37 chop: inside every
   buffer the rate climbs with pH from a hard floor of ZERO detachments in 270
   hours below pH 7.5, over 23 experiments (`gas_survey`). Use `archive()` or
   `parse_scope("archive")` for the widest scope; nothing else in the project
@@ -377,17 +377,17 @@ Three things follow that are worth not re-deriving.
   **THE BUBBLE THAT NEVER LEFT IS BRACKETED, NOT EXCLUDED.** That price is now
   per curve. `curve_metrics.terminal_gas` bounds what the beam may still hold
   at the last reading -- the fitted rate over the quiet tail, capped by what the
-  tail rose -- and `scope.terminal_bubbles` is the table: 38 of 110 live curves
-  carry one, 13 above a fifth of their rise. The bound CANNOT tell a run that
+  tail rose -- and `scope.terminal_bubbles` is the table: 42 of 110 live curves
+  carry one, 12 above a fifth of their rise. The bound CANNOT tell a run that
   ended mid-bubble from one that stopped making gas, because it asks the rate
   and not the readings; `curve_metrics.tail_excess` can, and it is the tail's
-  slope minus the body's. Exp 140.4 runs +4.4e-05 AU/s faster, 0.83 of its own
-  gas rate; exp 149.4 runs SLOWER, and 7 of the 8 curves past two shedding
+  slope minus the body's. Exp 140.4 runs +7.6e-05 AU/s faster, 1.27 of its own
+  gas rate; exp 149.4 runs SLOWER, and 9 of the 10 curves past two shedding
   intervals do. It is ONE-SIDED -- an accelerating curve ends steeper with no
   gas in it and a decelerating one hides a bubble, both planted -- so a positive
   excess is evidence, a negative one is not. `vmax_terminal` is the far end of
-  the bracket and NOTHING published lives inside it: +0.016 in substrate and
-  -0.005 in peroxide against errors of 0.047 and 0.071. The two curves it bites
+  the bracket and NOTHING published lives inside it: +0.026 in substrate and
+  +0.001 in peroxide against errors of 0.047 and 0.071. The two curves it bites
   hardest on, 140.4 and 142.4, are already `bubble_load` > 1.
   **A MONOTONE RECONSTRUCTION CAN STILL BE THE WRONG ONE** -- pulling a curve
   down by a smooth ramp leaves it smooth. Three faults hid behind that, and all
@@ -398,19 +398,20 @@ Three things follow that are worth not re-deriving.
   carried BOUNDED that without curing it -- exp 149 cuvette 3 still sat a flat
   0.0022 AU under its own readings for 82% of the run, and exp 150 cuvette 1
   under its by 99% of everything it rose. THE READINGS REFUTE THE
-  EXTRAPOLATION: on 18 of 44 repairable curves the rate would have made more
-  gas over the tail than the trace rose in total, and 11 of 44 ran more than a
+  EXTRAPOLATION: on 16 of 47 repairable curves the rate would have made more
+  gas over the tail than the trace rose in total, and 13 of 47 ran more than a
   full shedding interval past their last detachment without one. Check
   `rebuild_smoothness`'s `gas_at_end` -- it is zero on every curve, so every
   reconstruction lands back ON the readings.
   And **A FALL THAT COMES STRAIGHT BACK IS NOT GAS**: gas that leaves the beam
   does not return, and a bubble cannot grow half its size in one 60 s reading,
   so `detachments` rejects a fall that a single adjacent reading undoes by more
-  than `BUBBLE_RECOVERY_FRACTION`. Exp 149 cuvette 5's two "detachments" are
-  9.3 and 8.2 sigma and neither is gas -- the first falls 0.00206 and the next
-  reading climbs 0.00222 back -- and they were licensing the removal of 0.0097
-  AU from a curve that rose 0.0262. 34 of 214 candidate falls are rejected;
-  five curves lose all of theirs and are returned untouched.
+  than `BUBBLE_RECOVERY_FRACTION`. Exp 149 cuvette 5 carries four such falls --
+  9.3, 6.6, 8.2 and 6.0 sigma, the last two only candidates since the
+  2026-09-07 threshold change -- and none is gas: the first falls 0.00206 and
+  the next reading climbs 0.00222 back, and an unfiltered repair would have
+  removed 0.0046 AU from a curve that rose 0.0262. 33 of 257 candidate falls
+  are rejected; two curves lose all of theirs and are returned untouched.
   **`local_outlier_z` CANNOT be used for this**: its window spans the fall, so
   a genuine step flags itself (exp 135 cuvette 2's 0.1196 AU detachment scores
   +130). The test looks only at the two readings either side.
@@ -426,14 +427,14 @@ Three things follow that are worth not re-deriving.
   never bubbled. The ONE survivor is exp 135 cuvette 6, whose fall is in the
   first interval -- no rate explains a bubble grown before the run, and
   `debubble` returns that curve untouched.
-  **`gas_rate_drivers`**: the fitted rate is +1.417 +/- 0.247 in peroxide and
-  -0.312 +/- 0.094 in substrate, from a fit that never saw a concentration.
-  **Read `bubble_load` before quoting a rate**: 13 of 110 live curves sit above
+  **`gas_rate_drivers`**: the fitted rate is +1.469 +/- 0.255 in peroxide and
+  -0.344 +/- 0.093 in substrate, from a fit that never saw a concentration.
+  **Read `bubble_load` before quoting a rate**: 14 of 110 live curves sit above
   1 and carry no measurable rate -- all four substrate rungs of exp 135, plus
-  inner rungs of 138, 140, 141, 142 and 150. They are FLAGGED, NOT EXCLUDED.
+  inner rungs of 138, 140, 141, 142, 149 and 150. They are FLAGGED, NOT EXCLUDED.
   The SUBSTRATE order moves under no repair, but the PEROXIDE order does --
-  +0.794 to +0.688 over all live and +0.871 to +0.760 over the strong runs,
-  1.0 and 1.2 sigma -- which is what an artefact made from peroxide requires.
+  +0.794 to +0.701 over all live and +0.871 to +0.768 over the strong runs,
+  0.9 and 1.2 sigma -- which is what an artefact made from peroxide requires.
   Do not repeat the older claim that no order moves.
 - **The early rise is counted by the CATALYST, not the substrate.**
   `curve_metrics.burst_amplitude` reads it off the FITTED CURVE, because the
@@ -518,7 +519,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   one regression -- `joint_peroxide_order` and `joint_buffer_order` are that
   function with the species filled in. Through the LANDMARK both blocks that
   can test it fall short (2.6σ and 3.7σ), and the rate is not first order in
-  peroxide either -- `peroxide_saturation` rejects a = 1 at F = 32 on the
+  peroxide either -- `peroxide_saturation` rejects a = 1 at F = 39 on the
   two-axis ladder. Do not assume "first order in H2O2": that is the
   *unsaturated* limit of the scheme, not a consequence of it.
 - **The +1 does not belong to the landmark, and the clock decides who can be
@@ -527,11 +528,11 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   `signal_control` or spans run lengths can still be asked through them.
   `joint_clocks` runs every clock on an axis BESIDE ITS CONTROL AXIS, and the
   control is the point: the +1 belongs to the activating species, so the
-  substrate axis must MISS it, and it does by 4.3σ to 8.5σ. On the two-axis
+  substrate axis must MISS it, and it does by 4.7σ to 8.5σ. On the two-axis
   block the two routes disagree -- the peroxide axis falls 3.7σ short through
-  the landmark, 2.0σ and 1.4σ through the fitted clocks. **Conclude nothing
-  from that yet**: `tau_slow` is resolved on 33 of 110 live curves and the
-  estimate moves +0.67 to +0.85 across cuts. Pass `gate=` and not `floor=` for
+  the landmark, 2.0σ and 1.5σ through the fitted clocks. **Conclude nothing
+  from that yet**: `tau_slow` is resolved on 34 of 110 live curves and the
+  estimate moves +0.65 to +0.81 across cuts. Pass `gate=` and not `floor=` for
   a fitted clock -- a floor puts an unresolved constant ON the floor and calls
   it the fastest curve in the block.
 - **CORRECT THE CLOCK, NOT JUST THE RATE.** `vmax_corrected` sat beside `vmax`
@@ -542,10 +543,10 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   is MADE from peroxide, so it inflates the rate's order AND shortens the
   apparent clock, both pushing `d ln v - d ln tau` towards the +1 under test.
   Asked of the readings the block's `tau_slow` row sat 0.3σ from +1; asked of
-  the rebuilt curves, 1.4σ. `frame` now carries `tau_corrected`,
+  the rebuilt curves, 1.5σ. `frame` now carries `tau_corrected`,
   `tau_slow_corrected` and their resolved flags, `joint_clocks` DEFAULTS to
   them, and `JOINT_CLOCKS_RAW` is kept so the difference can be shown. The
-  repair costs no resolution -- it buys some (62 to 65 and 25 to 32 curves),
+  repair costs no resolution -- it buys some (62 to 67 and 25 to 34 curves),
   because the artefact was what those fits could not pin.
 - **That `+1` is not about H2O2.** It holds for ANY species held in excess that
   draws the catalyst into its active form, so it transfers to any axis the
@@ -639,7 +640,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   the two-axis block's rate order in `[S]` is +0.09 over all 110 live curves
   (+0.01 over the strong runs -- the same flatness), so substrate buys no signal
   there (r = +0.04) and the clock's substrate order survives every control,
-  negative at every floor. The four pH ladders agree at **+0.12 to +0.34 per pH unit**
+  negative at every floor. The four pH ladders agree at **+0.16 to +0.34 per pH unit**
   (chi2 0.95 on 3) -- more alkaline, longer induction.
 - **A LAG IS TWO DIFFERENT THINGS ON THE TWO SUBSTRATES.** "The induction needs
   the catalyst" is a **4OMe** claim: 10 of 49 enzyme-free 4OMe curves show any

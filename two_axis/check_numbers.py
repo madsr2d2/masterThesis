@@ -449,9 +449,15 @@ def main():
 
     worked = {c.sample: c for c in scope.curves_of(149)}[5]
     marks = np.asarray(worked.absorbance, dtype=float)
-    doc.claim("the worked excursion curve's two falls",
-              f"two, at {abs(np.diff(marks)[curve_metrics.bubble_drops(marks, worked.noise)][0] / worked.noise):.1f}sigma and "
-              f"{abs(np.diff(marks)[curve_metrics.bubble_drops(marks, worked.noise)][1] / worked.noise):.1f}sigma")
+    # At BUBBLE_DROP_SIGMA=8 this curve carried two candidate falls; lowered
+    # to 6 on 2026-09-07 it carries four, and all four are still correctly
+    # rejected as excursions -- the strongest single-curve check that the
+    # lowered threshold does not just trade a missed detachment for a false
+    # one (`data/test_scope.py::test_the_excursion_test_on_the_curve_that_forced_it`).
+    worked_sigmas = (np.abs(np.diff(marks)[curve_metrics.bubble_drops(marks, worked.noise)])
+                     / worked.noise)
+    doc.claim("the worked excursion curve's falls",
+              "four, at " + ", ".join(f"{s:.1f}sigma" for s in worked_sigmas))
     doc.claim("what the first falls and what comes back",
               f"falls {marks[8] - marks[9]:.5f} AU and the\n"
               f"**next reading climbs {marks[10] - marks[9]:.5f} straight back**")
@@ -513,8 +519,12 @@ def main():
     # bound on what is still in the beam, and the tail slope that says whether
     # the bound is credible on that curve.
     terminal = scope.terminal_bubbles()
+    # Was a hardcoded "Thirty-eight" until 2026-09-07 -- silently wrong the
+    # moment the count moved, which the BUBBLE_DROP_SIGMA change did (38 to
+    # 42) without this claim ever failing, because it was comparing the
+    # document to itself rather than to `terminal`.
     doc.claim("how many curves end holding gas",
-              f"**Thirty-eight of the {int(frame.live.sum())} live curves**")
+              f"**{len(terminal)} of the {int(frame.live.sum())} live curves**")
     doc.claim("and how many of them carry a fifth of their rise",
               f"**{int((terminal.terminal_load > 0.2).sum())}** of them more "
               "than a fifth")

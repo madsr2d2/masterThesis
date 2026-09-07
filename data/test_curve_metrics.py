@@ -16,7 +16,8 @@ import sys
 
 import numpy as np
 
-from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
+from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
+                           INITIAL_WINDOW, LAG_THRESHOLD,
                            QUANTISATION_SIGMA, acceleration, curve_noise,
                            initial_rate, line_fit, line_slope, peak_position,
                            OUTLIER_SIGMA, bubble_drops, bubble_load,
@@ -24,7 +25,7 @@ from curve_metrics import (ACCELERATION_SIGMA, INITIAL_WINDOW, LAG_THRESHOLD,
                            local_outlier_z, OUTLIER_SIGMA,
                            debubble, detachments, isolated_outliers,
                            monotone_bound, tail_excess,
-                           terminal_gas,
+                           terminal_gas, _is_excursion,
                            local_outlier_z, model_residual, quadratic_rate,
                            segmented_fit, segment_breaks,
                            segment_selection, _segment_errors,
@@ -1129,6 +1130,78 @@ def test_the_bubble_the_run_never_shed():
           np.isnan(tail_excess(times, chemistry, [])))
 
 
+def test_bubble_drop_sigma_enrichment():
+    """
+    Why BUBBLE_DROP_SIGMA is 6, not 8: the archive-wide sweep behind the
+    2026-09-07 change, kept as a check rather than a one-off calculation so it
+    cannot silently stop being true of the data.
+
+    8 was a hard cut through a smooth tail: sweeping every step in the block
+    that falls short of the OLD cutoff and would survive `_is_excursion`
+    unchanged, the count thins gradually from 5 sigma to 8 with no gap in it
+    anywhere -- not the signature of a clean threshold. What separates real
+    gas from noise here is not the fall's own size, since gas and noise share
+    a size distribution in this band; it is whether the CURVE it is on already
+    carries a confirmed (>=8 sigma) detachment. Noise would not know that;
+    the artefact would.
+    """
+    print("\nwhy BUBBLE_DROP_SIGMA is 6, not 8")
+    OLD_CUTOFF = 8.0
+    curve_list = scope.curves(scope.TWO_AXIS_BLOCK)
+    bubbling, clean = set(), set()
+    per_curve_sigmas = {}
+    for curve in curve_list:
+        values = np.asarray(curve.absorbance, dtype=float)
+        noise = curve.noise
+        key = (curve.experiment, curve.sample)
+        events = detachments(values, noise, sigma=OLD_CUTOFF)
+        (bubbling if events else clean).add(key)
+        covered = set()
+        for start, stop in events:
+            covered.update(range(start, stop))
+        sigmas = []
+        for index, step in enumerate(np.diff(values)):
+            sigma = -step / noise
+            if sigma < OLD_CUTOFF and index not in covered and not _is_excursion(
+                    values, (index, index + 1)):
+                sigmas.append(sigma)
+        per_curve_sigmas[key] = sigmas
+
+    def rate_at(cutoff, pool):
+        hit = sum(1 for key in pool
+                  if any(s >= cutoff for s in per_curve_sigmas[key]))
+        return hit / len(pool)
+
+    check("every curve in the block falls in one bin or the other",
+          len(bubbling) + len(clean) == len(curve_list),
+          f"{len(bubbling)} + {len(clean)} against {len(curve_list)}")
+
+    at_new_cutoff = rate_at(BUBBLE_DROP_SIGMA, bubbling)
+    off_new_cutoff = rate_at(BUBBLE_DROP_SIGMA, clean)
+    check("curves that already bubble carry a near-threshold fall far more "
+          "often than curves that never do",
+          at_new_cutoff > 8 * off_new_cutoff,
+          f"{at_new_cutoff:.2f} against {off_new_cutoff:.2f}")
+
+    # 6.0 is the lowest cutoff this split supports without picking up a
+    # second curve outside the confirmed-bubbling set -- exp 149 cuvette 1's
+    # 7.97 sigma fall is the sole exception at every cutoff from 7.5 down to
+    # 6.0, and by eye it is a sustained level drop held for four readings
+    # after, not a spike, so it reads as the same near-miss population as
+    # 143.3 rather than a false positive.
+    touched_clean = {key for key in clean
+                     if any(s >= BUBBLE_DROP_SIGMA for s in per_curve_sigmas[key])}
+    check("only one curve outside the confirmed-bubbling set is touched at "
+          "the new cutoff",
+          touched_clean == {(149, 1)}, f"{sorted(touched_clean)}")
+    touched_below = {key for key in clean
+                     if any(s >= BUBBLE_DROP_SIGMA - 0.5 for s in per_curve_sigmas[key])}
+    check("half a sigma lower already picks up more, which is why 6.0 and "
+          "not lower",
+          len(touched_below) > len(touched_clean),
+          f"{len(touched_below)} against {len(touched_clean)}")
+
+
 if __name__ == "__main__":
     test_every_test_is_actually_run()
     test_the_runner_finds_every_gate()
@@ -1147,5 +1220,6 @@ if __name__ == "__main__":
     test_the_excursion_test_on_planted_spikes()
     test_the_monotone_bound()
     test_the_bubble_the_run_never_shed()
+    test_bubble_drop_sigma_enrichment()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

@@ -757,13 +757,38 @@ def burst_amplitude(times, fitted, edge=BURST_EDGE):
 
 
 # A downward step this many of the curve's own noise is a DETACHMENT, not a
-# reading. 8 is chosen from the block's own step distribution rather than from
-# a table: across the two-axis block's 28827 steps, 23 rise by more than +20
-# sigma and 122 fall by more than -20 sigma, and the largest fall (-260 sigma)
-# is 4.6x the largest rise. That asymmetry is the artefact's signature -- slow
-# growth, sudden release -- and 8 sits well above the noise while staying below
-# the smallest step the asymmetry is visible in.
-BUBBLE_DROP_SIGMA = 8.0
+# reading. Originally 8, chosen from the block's own step distribution rather
+# than from a table: across the two-axis block's 28827 steps, 23 rise by more
+# than +20 sigma and 122 fall by more than -20 sigma, and the largest fall
+# (-260 sigma) is 4.6x the largest rise. That asymmetry is the artefact's
+# signature -- slow growth, sudden release.
+#
+# LOWERED TO 6 ON 2026-09-07, because 8 was a hard cut through a smooth tail,
+# not a gap. exp 143 cuvette 3 has a real 7.83 sigma fall at 1200 s -- clean
+# growth either side, no rebound -- that 8 simply missed, and it was not
+# alone: scanning every step in the block that (a) falls short of the old
+# cutoff and (b) would pass `_is_excursion` unchanged if it were a candidate,
+# 64 such falls turn up on 35 curves, thinning smoothly from 5 to 8 sigma with
+# no cliff anywhere in it (10 in 7.5-8.0, 16 in 5.5-6.0 -- a slope, not a
+# step). A smooth tail cannot be split on its own shape, so it was split on an
+# independent question: does a curve's rate of these near-threshold falls
+# depend on whether it ALREADY carries a confirmed (>=8 sigma) detachment? If
+# they were ordinary noise it should not -- noise does not know what else is
+# on the curve. It does, sharply: curves that already bubble carry one in 65%
+# of cases (31 of 48) against 6% of the ones that never do (4 of 71), an 11x
+# enrichment -- the same population, not two.
+#
+# 6 is where that split is cleanest: sweeping the cutoff down from 8, exactly
+# one curve outside the confirmed-bubbling set is touched at every step from
+# 7.5 down to 6.0 (exp 149 cuvette 1, whose own fall -- inspected by eye -- is
+# a sustained 7.97 sigma drop to a level the curve holds for four readings
+# after, not a spike that bounces back; almost certainly the same near-miss as
+# 143.3's, not a false positive). Only below 6.0 does a second, then a third
+# and fourth curve outside that set start picking up falls, so 6.0 is the
+# lowest cutoff this archive's own curves justify without new false positives
+# appearing. `data/test_curve_metrics.py::test_bubble_drop_sigma_enrichment`
+# is the check, and DATA_VERIFICATION.md 2026-09-07 has the sweep.
+BUBBLE_DROP_SIGMA = 6.0
 
 
 def bubble_drops(values, noise, sigma=BUBBLE_DROP_SIGMA):

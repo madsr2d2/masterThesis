@@ -537,7 +537,7 @@ def test_every_detachment_is_corrected_and_nothing_else_is():
     check("and they are why the rebuilt curves still fall somewhere",
           float(repaired.rebuilt_worst.min()) < -20,
           f"{repaired.rebuilt_worst.min():.1f} sigma")
-    for experiment, sample in ((149, 5), (149, 1)):
+    for experiment, sample in ((149, 5),):
         row = table[(table.experiment == experiment)
                     & (table["sample"] == sample)].iloc[0]
         check(f"exp {experiment} cuvette {sample} is left entirely alone",
@@ -546,6 +546,31 @@ def test_every_detachment_is_corrected_and_nothing_else_is():
               f"{int(row.excursions)} excursions")
         check(f"  and its reconstruction is the readings",
               abs(row.raw_worst - row.rebuilt_worst) < 1e-9)
+
+    # EXP 149 CUVETTE 1 USED TO BE THE SAME SHAPE -- its one candidate fall
+    # was an excursion and nothing else survived at BUBBLE_DROP_SIGMA=8. At 6
+    # it carries a second candidate, 7.97 sigma, that is NOT an excursion: a
+    # sustained level drop held for four readings after, not a spike that
+    # bounces back. So it is no longer left alone -- one real detachment is
+    # corrected, the original excursion still is not, and the two do not
+    # coincide, so the curve's single worst fall (the excursion, at -9.67
+    # sigma) is unmoved even though the reconstruction itself is not the
+    # readings any more.
+    row = table[(table.experiment == 149) & (table["sample"] == 1)].iloc[0]
+    check("exp 149 cuvette 1 now carries one real detachment and one excursion",
+          int(row.bubble_events) == 1 and int(row.excursions) == 1,
+          f"{int(row.bubble_events)} detachments, {int(row.excursions)} excursions")
+    curve = {c.sample: c for c in scope.curves_of(149)}[1]
+    times = np.asarray(curve.times, dtype=float)
+    values = np.asarray(curve.absorbance, dtype=float)
+    rebuilt, _ = curve_metrics.debubble(times, values, curve.noise)
+    check("  and this time the reconstruction is NOT the readings",
+          float(np.max(np.abs(rebuilt - values))) > 5 * curve.noise,
+          f"{np.max(np.abs(rebuilt - values)):.5f} AU against noise "
+          f"{curve.noise:.5f}")
+    check("  because the excursion, not the detachment, is this curve's "
+          "worst fall",
+          abs(row.raw_worst - row.rebuilt_worst) < 1e-9)
 
 
 def test_the_excursion_test_on_the_curve_that_forced_it():
@@ -558,6 +583,15 @@ def test_the_excursion_test_on_the_curve_that_forced_it():
     a production rate the curve has no business carrying, and the repair then
     flattened a real early rise while staying perfectly monotone and passing
     every test there was.
+
+    LOWERING BUBBLE_DROP_SIGMA TO 6 ON 2026-09-07 ADDED TWO MORE, and both are
+    the same fault: a 6.6 sigma fall at 2160 s that a single reading recovers
+    (0.01017 to 0.00870 and straight back to 0.01052), and a 6.0 sigma fall at
+    8880 s off another isolated high reading (0.01939 against neighbours of
+    0.01864 and 0.01918). The excursion test built for the first two catches
+    these without being touched -- this curve is the one that most directly
+    checks the lowered threshold does not just trade a missed detachment for a
+    false one.
 
     HOW MUCH IT REFUSES DEPENDS ON THE OTHER CLAUSE, and this test was written
     before that clause existed. When the fault was found on 2026-09-03 the two
@@ -575,7 +609,7 @@ def test_the_excursion_test_on_the_curve_that_forced_it():
     times = np.asarray(curve.times, dtype=float)
     values = np.asarray(curve.absorbance, dtype=float)
     falls = curve_metrics.bubble_drops(values, curve.noise)
-    check("the detector still sees both falls", len(falls) == 2, f"{len(falls)}")
+    check("the detector still sees all four falls", len(falls) == 4, f"{len(falls)}")
     check("and they are past the threshold on their own",
           float(np.diff(values)[falls].min() / curve.noise)
           < -curve_metrics.BUBBLE_DROP_SIGMA,
