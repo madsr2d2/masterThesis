@@ -932,7 +932,7 @@ def unreleased_gas(values, events):
     return owed
 
 
-def bubble_profile(times, values, events, rate):
+def bubble_profile(times, values, events, rate, onset=0.0):
     """
     The gas held in the beam at each reading, `b(t) >= 0`.
 
@@ -940,6 +940,17 @@ def bubble_profile(times, values, events, rate):
     its decomposition does not slow over a run -- and leaves in the whole of
     each detachment. Between detachments `b` climbs, and THREE clauses bound
     the climb.
+
+    `onset` is a fourth, EXPERIMENTAL clause: no gas may be held before it.
+    The default, 0.0, reproduces the original model exactly -- growth starts
+    at the first reading, as if a bubble had already begun forming before the
+    run did. That is wrong at the start of a slow curve: on exp 130 cuvette 2
+    it attributes 88% of the whole first 465 s of rise to gas, because the
+    "may not outrun the curve" clause only bites when the real rise is large,
+    and an induction phase is exactly where it is not. `onset` lets that
+    stretch be ruled out on physical grounds -- gas cannot be held before it
+    exists -- without assuming anything about the shape of the chemistry.
+    See `bubble_onset` for how it is picked.
 
       it may not outrun    `b` grows by at most what the reading itself gained,
       the curve            so `f = A_obs - b` can never fall across an ordinary
@@ -980,7 +991,12 @@ def bubble_profile(times, values, events, rate):
     # at most a few dozen -- which matters, because `bubble_rate` bisects and
     # so calls this some tens of times per curve.
     room = np.maximum(np.diff(values), 0.0)
-    growth = np.minimum(rate * np.diff(times), room)
+    # Only the part of each interval that falls after `onset` may grow gas;
+    # at onset=0.0 this is `np.diff(times)` exactly, reproducing the original
+    # model. An interval straddling `onset` is prorated, not all-or-nothing.
+    growable_seconds = np.clip(times[1:] - np.maximum(times[:-1], onset),
+                                0.0, None)
+    growth = np.minimum(rate * growable_seconds, room)
     # `np.minimum(start + cumsum(growth), owed)` IS the saturating recursion,
     # not an approximation of it: every increment is non-negative and `owed`
     # never rises, so once the running sum meets the cap it stays at it, and
@@ -1027,9 +1043,10 @@ def quiet_tail(times, events):
     return float((times[-1] - times[events[-1][1]]) / cadence)
 
 
-def bubble_shortfall(times, values, events, rate):
+def bubble_shortfall(times, values, events, rate, onset=0.0):
     """
-    The largest detachment this `rate` cannot pay for, in absorbance.
+    The largest detachment this `rate` (held from `onset` on) cannot pay for,
+    in absorbance.
 
     A bubble cannot shed gas that was never made. Zero or less means every
     detachment is affordable and `A_obs - bubble_profile` is non-decreasing
@@ -1037,14 +1054,15 @@ def bubble_shortfall(times, values, events, rate):
     """
     if not events:
         return 0.0
-    held = bubble_profile(times, values, events, rate)
+    held = bubble_profile(times, values, events, rate, onset=onset)
     return max(float((values[start] - values[stop]) - held[start])
                for start, stop in events)
 
 
-def bubble_rate(times, values, events, rounds=BISECTION_ROUNDS):
+def bubble_rate(times, values, events, rounds=BISECTION_ROUNDS, onset=0.0):
     """
-    The least steady production rate that pays for every detachment, AU/s.
+    The least steady production rate that pays for every detachment, AU/s,
+    if gas may only be held from `onset` onward.
 
     THE ONE FREE PARAMETER, and it is pinned rather than fitted. Gas that
     leaves the beam was made before it left, so the rate is bounded below by
@@ -1053,16 +1071,33 @@ def bubble_rate(times, values, events, rounds=BISECTION_ROUNDS):
     UPPER bound on the chemistry -- the same direction as `monotone_bound`,
     and the safe one.
 
-    It is not a nuisance parameter. Over the two-axis block's 50 detaching
-    curves it rises with the CATALYST, +1.97 +/- 0.61 per decade of `[enz]`,
-    and is flat in substrate, -0.09 +/- 0.21 -- which is the peroxide
+    It is not a nuisance parameter. Pooled across every detaching Pyrophosphate
+    curve in the archive (51 curves, 18 experiments, both substrates),
+    log(rate) regresses on log[H2O2] and pH at +1.29 +/- 0.20 and
+    +0.52 +/- 0.17 per pH unit (R^2 = 0.55, n = 51) -- the peroxide/HOO-
     decomposition the gas was argued to be, recovered by a fit that never saw
-    either concentration.
+    a rate constant. `[enz]` was tried alongside them and dropped: at
+    +0.49 +/- 0.44 it was under 1.2 sigma from zero, and removing it barely
+    moved R^2 (0.559 to 0.548) while tightening both remaining standard
+    errors -- the signature of a term that was absorbing someone else's
+    signal, not carrying its own. That figure is at `onset=0.0`; it has not
+    been re-measured against a fitted onset.
 
-    Returns `inf` when no rate suffices. That is one curve in the block, exp
-    135 cuvette 6, whose fall is in the FIRST interval: a bubble that grew
-    before the run began leaves no rise in the data to date it from, and
-    `debubble` returns such a curve untouched.
+    THIS REPLACES AN EARLIER CLAIM, made here, of "+1.97 +/- 0.61 per decade
+    of `[enz]`, flat in substrate" over the two-axis block's 50 curves alone.
+    That regression never carried pH as a term, and within the two-axis
+    block `[enz]` correlates with `[H2O2]` at r = 0.65 between runs -- so it
+    was very likely reading part of the peroxide/pH signal as an enzyme
+    effect. It is also not reproducible from the current `gas_rate_drivers`,
+    which does not carry `[enz]` as a term at all.
+
+    Returns `inf` when no rate suffices -- at `onset=0.0`, one curve in the
+    block, exp 135 cuvette 6, whose fall is in the FIRST interval: a bubble
+    that grew before the run began leaves no rise in the data to date it
+    from, and `debubble` returns such a curve untouched. A later `onset`
+    shrinks the growth window available to the earliest detachments, so it
+    can turn a curve infeasible that was feasible at `onset=0.0`; that is the
+    boundary `bubble_onset` searches for.
     """
     if not events:
         return 0.0
@@ -1072,16 +1107,73 @@ def bubble_rate(times, values, events, rounds=BISECTION_ROUNDS):
         return np.inf
     high = 4.0 * max(float(np.max(steps) / np.min(intervals[intervals > 0])),
                      1e-12)
-    if bubble_shortfall(times, values, events, high) > 0:
+    if bubble_shortfall(times, values, events, high, onset=onset) > 0:
         return np.inf
     low = 0.0
     for _ in range(rounds):
         middle = 0.5 * (low + high)
-        if bubble_shortfall(times, values, events, middle) > 0:
+        if bubble_shortfall(times, values, events, middle, onset=onset) > 0:
             low = middle
         else:
             high = middle
     return high
+
+
+def bubble_onset(times, values, events, rate, rounds=BISECTION_ROUNDS):
+    """
+    EXPERIMENTAL. The latest start time gas could have had, holding `rate`
+    FIXED at an already-fitted value, and still explain every detachment.
+
+    A bubble cannot be held before it exists, but `bubble_profile` at its
+    default `onset=0.0` does not know that -- it lets gas accumulate from the
+    first reading, which is only harmless when the real early rise is large
+    enough to cap it (the "may not outrun the curve" clause). On a slow
+    curve it is not: on exp 130 cuvette 2, `onset=0.0` attributes 88% of the
+    whole first 465 s of rise to gas, none of it demonstrated.
+
+    `rate` MUST be fixed by the caller, normally to `bubble_rate(...,
+    onset=0.0)`, and not re-solved here for a reason found by testing this
+    function, not by design: letting `bubble_rate` re-inflate to cover a
+    squeezed early window fixes the early segment and wrecks a much longer
+    later one. On exp 130 cuvette 2 the rate needed to explain the first
+    detachment from `onset=2045` is 22x the original (0.00071 against
+    3.17e-05 AU/s), and applied everywhere it then saturates the
+    `unreleased_gas` ceiling within a couple of readings and holds the
+    reconstruction FLAT for the 1500 s spanning the second detachment --
+    a worse error than the one being fixed, and in the same direction the
+    original ramp model failed for (`bubble_profile`'s docstring). Holding
+    `rate` fixed cannot do that: raising it is off the table, so the search
+    can only find onset where slack already exists, never manufacture it.
+
+    THE ANSWER THIS FINDS ON EXP 130 CUVETTE 2 IS ~0 -- NOT BECAUSE THERE IS
+    NO SLACK, BUT BECAUSE OF WHERE IT IS. Event 1 alone has 0.033 AU of slack
+    at `onset=0` and would tolerate a large delay; but the fixed rate was set
+    by event 3, which has ZERO slack at `onset=0` (that is what pinned it),
+    and delaying the onset can only ever REDUCE what has accumulated by any
+    later time -- so event 3 goes infeasible within seconds of onset moving
+    off zero, regardless of how much room event 1 has to spare. A single
+    global rate chains the whole curve to its single tightest event; slack
+    earlier in the curve cannot be spent unless the tight event has slack
+    too. That is a finding about this curve, not a bug in the search.
+
+    Returns 0.0 when there are no events or `rate` cannot already explain
+    them at `onset=0.0`.
+    """
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    if not events or not np.isfinite(rate):
+        return 0.0
+    low = float(times[0])
+    high = float(times[events[0][0]])
+    if bubble_shortfall(times, values, events, rate, onset=low) > 0:
+        return low
+    for _ in range(rounds):
+        middle = 0.5 * (low + high)
+        if bubble_shortfall(times, values, events, rate, onset=middle) <= 0:
+            low = middle
+        else:
+            high = middle
+    return low
 
 
 def debubble(times, values, noise, sigma=BUBBLE_DROP_SIGMA):
@@ -1128,6 +1220,43 @@ def debubble(times, values, noise, sigma=BUBBLE_DROP_SIGMA):
     if not np.isfinite(rate):
         return values.copy(), events
     return values - bubble_profile(times, values, events, rate), events
+
+
+def debubble_onset(times, values, noise, sigma=BUBBLE_DROP_SIGMA):
+    """
+    EXPERIMENTAL. `debubble`, but with an onset floor found AFTER the rate,
+    at the rate FIXED -- see `bubble_onset` for why fixing it is the whole
+    point. Returns `(reconstructed, events, onset, rate)`; `rate` is exactly
+    `bubble_rate`'s value, unchanged, so this can only move gas attribution
+    OUT of the pre-onset stretch, never add to what the curve already carries
+    at `onset=0.0`.
+
+    On exp 130 cuvette 2 the onset comes back at ~0: `bubble_rate` is pinned
+    by the LAST detachment, which has no slack to give up, so nothing earlier
+    in the curve can be freed even though the first detachment alone has
+    plenty. That is the finding, not a null result to discard -- it says a
+    single per-curve rate cannot separate "slow chemistry" from "gas not yet
+    nucleated" here, and the fix is an independently-anchored rate (pooled
+    across curves of matched composition, `scope.gas_rate_drivers`), not a
+    richer per-curve search.
+
+    Not yet wired into `frame()`, `vmax_corrected` or anything downstream --
+    it has been checked against `rebuild_smoothness`-style guarantees on
+    exp 130 cuvette 2 only. Before it replaces `debubble` anywhere it needs
+    the same block-wide checks `debubble` was built against: the planted-
+    sawtooth recovery table, and `rebuild_smoothness` over every curve that
+    currently carries a repair.
+    """
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    events = detachments(values, noise, sigma=sigma)
+    rate = bubble_rate(times, values, events)
+    if not np.isfinite(rate):
+        return values.copy(), events, 0.0, rate
+    onset = bubble_onset(times, values, events, rate)
+    reconstructed = values - bubble_profile(times, values, events, rate,
+                                            onset=onset)
+    return reconstructed, events, onset, rate
 
 
 # The fewest readings after the last detachment that a tail slope may be read
