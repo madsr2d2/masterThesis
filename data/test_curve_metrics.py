@@ -1559,12 +1559,17 @@ def test_debubble_with_gains():
 def test_early_trough():
     """
     `early_trough` finds a sustained decline and rejects a single deep
-    outlier that a smoothed mean alone cannot tell apart from one.
+    outlier that a smoothed mean alone cannot tell apart from one, via a
+    LEAVE-ONE-OUT test: drop the trough window's single worst reading and
+    require the rest to still average below threshold.
 
-    The two planted cases are calibrated to the two real ones that motivated
-    `sustained`: exp 4.2's genuine dip (9 of 9 readings in its trough window
-    individually clear 2 sigma) against exp 4.1's rejected candidate (3 of
-    9), both at a similar smoothed depth.
+    The real-curve case is calibrated to the one that motivated the design:
+    an earlier version required a fixed COUNT of the window's readings to
+    individually clear a per-reading depth bar, and it wrongly rejected
+    exp 4.1 -- a real, sustained decline (9 of 9 readings in its trough
+    window negative) that is simply shallower per reading than exp 4.2's
+    more dramatic one. Leave-one-out passes both: removing the single worst
+    reading barely moves either curve's mean.
     """
     print("\nthe early trough: sustained decline against a lone outlier")
     times = np.arange(0, 3600, 60.0)
@@ -1582,16 +1587,16 @@ def test_early_trough():
           f"start={start}")
 
     # ONE DEEP OUTLIER, otherwise flat: the smoothed window it sits in can
-    # still average out negative, but only 1 of the WINDOW readings is
-    # individually below the per-reading bar.
+    # still average out negative, but removing that single reading collapses
+    # the mean back toward zero -- the leave-one-out test's whole point.
     rng = np.random.default_rng(0)
     spiky = rng.normal(0.0, noise * 0.3, size=len(times))
     spiky[10] -= 0.006
     z_spike, _, _, sustained_spike = early_trough(times, spiky, noise)
     check("a lone spike can still smooth to a deep z",
           z_spike < -4.0, f"z={z_spike:.2f}")
-    check("but is not sustained", not sustained_spike,
-          f"z={z_spike:.2f}")
+    check("but is not sustained (leave-one-out collapses it)",
+          not sustained_spike, f"z={z_spike:.2f}")
 
     # CLEAN NOISE: no decline at all.
     clean = rng.normal(0.0, noise * 0.5, size=len(times))
@@ -1613,14 +1618,14 @@ def test_early_trough():
         np.asarray(real_dip.absorbance, dtype=float), real_dip.noise)
     check("exp 4.2's real, sustained dip is found",
           z_real < -30.0 and sustained_real, f"z={z_real:.2f}")
-    near_miss = lookup[(4, 1)]
-    z_near, _, _, sustained_near = early_trough(
-        np.asarray(near_miss.times, dtype=float),
-        np.asarray(near_miss.absorbance, dtype=float), near_miss.noise)
-    check("exp 4.1's smoothed trough also clears -4 sigma",
-          z_near < -4.0, f"z={z_near:.2f}")
-    check("but is rejected as not sustained", not sustained_near,
-          f"z={z_near:.2f}")
+    sibling = lookup[(4, 1)]
+    z_sibling, _, _, sustained_sibling = early_trough(
+        np.asarray(sibling.times, dtype=float),
+        np.asarray(sibling.absorbance, dtype=float), sibling.noise)
+    check("exp 4.1's shallower, genuine dip clears -4 sigma",
+          z_sibling < -4.0, f"z={z_sibling:.2f}")
+    check("and IS sustained under leave-one-out (the corrected verdict)",
+          sustained_sibling, f"z={z_sibling:.2f}")
 
 
 if __name__ == "__main__":

@@ -8,6 +8,119 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-08 — the early trough's `sustained` test wrongly rejected two real
+curves; corrected to seventeen, and a rate constant, an Arrhenius check, and
+a buffer effect follow from it
+
+**The correction.** `early_trough.py`'s three-part screen (below) originally
+required at least 5 of a trough window's 9 raw readings to individually
+clear a fixed per-reading depth bar (`EARLY_TROUGH_CONSEC_SIGMA`/
+`EARLY_TROUGH_MIN_CONSEC`). On inspection, exps 4.1 (smoothed z = -7.31) and
+22.2 (z = -6.23) failed that bar — only 3 and 4 of 9 readings individually
+qualified — and were excluded as likely single-outlier artefacts. Direct
+inspection of the raw readings showed otherwise: **9 of 9 readings in each
+trough window are negative**, and removing the single worst reading barely
+moves either curve's mean (-7.31 → -6.12 sigma for exp 4.1; -6.23 → -5.10 for
+exp 22.2) — nothing like a genuine single-outlier case, which collapses
+under the same test (a synthetic planted spike: -10.8 → -0.7).
+
+The per-reading-count design was measuring the wrong thing: depth per
+reading, not robustness to a single bad one. `curve_metrics.early_trough`
+now uses a LEAVE-ONE-OUT test instead — drop the trough window's single
+worst reading and require the remaining 8 to still average below
+`EARLY_TROUGH_LEAVE_ONE_OUT_Z = -3.0` — which correctly keeps both real
+curves and still rejects the synthetic spike. **Rescanned the full archive
+with the corrected test: the candidate pool is unchanged (still 17 of 311
+scanned curves — the smoothed-z threshold that defines a candidate does not
+depend on `sustained`), and all 17 of 17 are now genuine**, up from 15;
+there are currently no excluded candidates left in the archive. The cluster
+split moves from 12 oxidant / 3 substrate to **14 oxidant / 3 substrate**
+(both new curves are oxidant-dominated, and are sibling cuvettes of the
+already-confirmed exps 4.2 and 22.1 — the same experiments, strengthening
+rather than complicating the picture). The archive-wide `[enz]/[HOO-]`
+correlation itself is unchanged (computed over all 311 scanned curves
+regardless of genuine/candidate status, so it was never affected by the
+misclassification).
+
+**A rate constant, reusing the fit already on file.** A trough is the same
+one/two-phase functional form's "lag" shape taken far enough that `B/tau`
+exceeds `v_ss`, so `tau_fast` (`scope.frame`'s own column, already fitted
+for every curve) is already the relaxation time of whatever produces it —
+no new fitting needed. Pseudo-first-order (`[enz]` in vast excess for the
+oxidant cluster, `[S]` for the smaller substrate cluster):
+`k_obs = 1/tau_fast = k_on * [excess]`. `early_trough.binding_rates` gives
+**k_on = 0.51-32.7 M-1 s-1 across all 17 curves — 1.8 orders of magnitude**,
+despite [enz] varying 20-fold, pH varying over four units, temperature
+varying 15-40 C, both clusters, both substrates and two buffers pooled
+together, and 8-9 orders of magnitude below the diffusion limit — consistent
+with a chemically-controlled step.
+
+**An activation energy proposed and then retracted.** The obvious two-point
+estimate (exp 19.1, 15 C, and exp 34.4, 40 C — an otherwise closely matched
+pair: same pH 7.00, same [enz] 0.241 mM, same [H2O2] 82.5 mM) gives
+Ea = 85.7 kJ/mol. Solving for the pre-exponential factor implied by those
+same two points gives 2.1e15 M-1 s-1 — about 2e5 times the diffusion limit —
+and the equivalent Eyring dS-double-dagger is +40 J/mol/K, where a genuine
+bimolecular association (losing translational/rotational freedom) must be
+NEGATIVE. That number is not a measurement, and is retracted.
+`early_trough.arrhenius_check` gives the honest version instead: a proper
+regression over all 14 oxidant-cluster curves' own temperatures gives
+**Ea = 78.9 +/- 48.6 kJ/mol, t = 1.6** — not significant. The reason: among
+the 12 curves sharing the single most common temperature (298.15 K), `k_on`
+alone spans 1.43 orders of magnitude, almost as wide as the 1.74 spanned
+across the whole 15-40 C range. The archive holds essentially one real
+low-temperature point, one real high-temperature point, and a lot of
+same-temperature scatter — not enough to resolve an Ea, and the write-up
+says so rather than reporting a number the data cannot support.
+
+**The species test: HOO- specifically, not peroxide in general.**
+`early_trough.dominance_correlation` now also reports `[enz]/[H2O2]`
+(un-weighted by pH) alongside `[enz]/[HOO-]` and `[enz]/[S]`. If the effect
+tracked total peroxide regardless of protonation state, the two should
+correlate similarly; they do not. In 4OMe-BnOH, `[enz]/[H2O2]` is
++0.160 (p = 0.05, wrong sign) against `[enz]/[HOO-]`'s -0.621 at p = 5e-17;
+in BnOH it is -0.234, same sign but weaker than -0.315. That pattern —
+pH-weighting mattering, not just total oxidant load — is the signature of
+the deprotonated anion being consumed specifically, consistent with HOO-'s
+much greater nucleophilicity toward a carbonyl (the alpha effect) than
+neutral H2O2.
+
+**A buffer effect the simple picture does not predict.**
+`early_trough.buffer_comparison` finds the oxidant cluster's geometric-mean
+`k_on` depends on which buffer is present even after normalising by `[enz]`
+identically: Phosphate (n=11) gives 2.85 M-1 s-1, Pyrophosphate (n=3) gives
+17.75 M-1 s-1 -- roughly 6x higher. A clean elementary E + HOO- step should
+not care which buffer holds the pH. The reading connects to an
+already-established result: `induction.joint_buffer_order` finds the
+catalyst's own E -> E* activation step satisfies the pre-equilibrium "+1"
+rule specifically on the BUFFER axis (+1.094 +/- 0.150), not the peroxide
+axis. A two-step mechanism is consistent with both: a fast,
+cuvette-symmetric buffer-HOO- pre-equilibrium (which cancels in the
+reference subtraction on its own, since it is identical in both cuvettes)
+sets the size of the reactive pool available; the catalyst's own slower,
+genuinely asymmetric engagement with that pool is the trough itself; and
+the already-established buffer-driven step converts the loaded intermediate
+into the active catalyst afterward. Checked whether the curves' own slower
+relaxation (`tau_slow`) shows the buffer's fingerprint directly: only 6 of
+the 14 oxidant-cluster curves carry a resolved `tau_slow` (the rest hit the
+fit's own tau-grid ceiling or chose the one-phase form), too few to test
+anything — so the middle piece of this picture is inferred from the
+buffer-identity effect, not independently confirmed on these same curves.
+
+**Where it lives.** `curve_metrics.early_trough` (`EARLY_TROUGH_LEAVE_ONE_OUT_Z`
+replaces `EARLY_TROUGH_CONSEC_SIGMA`/`EARLY_TROUGH_MIN_CONSEC`),
+`data/early_trough.py` (`binding_rates`, `arrhenius_check` — reusing
+`arrhenius.arrhenius_fit` rather than duplicating it, caught by
+`test_no_duplicate_definitions` on first attempt — and `buffer_comparison`,
+plus `dominance_correlation`'s new `e0_h2o2` column and `cluster` promoted to
+a native `trough_table` column), `data/test_curve_metrics.py` and
+`data/test_early_trough.py` (both rewritten for the corrected screen and the
+new functions), and `early_trough/ANALYSIS.md`/`build_figures.py`/
+`check_numbers.py` (two new figures, D and E, for the retracted Arrhenius
+estimate and the buffer effect; 61 gate-checked claims, up from 41). All 22
+fast gates pass; the slow optimiser suite (`data/test_fit_kinetics.py`) was
+not run for this change and its result is not claimed.
+
 ## 2026-09-08 — fifteen curves dip below zero before the catalysed rate takes
 over; the driver is `[enz]/[HOO-]`, not `[enz]/[S]`, in both substrates
 

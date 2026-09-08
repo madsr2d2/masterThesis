@@ -1737,13 +1737,12 @@ def bubble_load(values, drops):
 
 EARLY_TROUGH_WINDOW = 9
 EARLY_TROUGH_FRACTION = 0.5
-EARLY_TROUGH_CONSEC_SIGMA = 2.0
-EARLY_TROUGH_MIN_CONSEC = 5
+EARLY_TROUGH_LEAVE_ONE_OUT_Z = -3.0
 
 
 def early_trough(times, values, noise, window=EARLY_TROUGH_WINDOW,
-                 frac=EARLY_TROUGH_FRACTION, consec_sigma=EARLY_TROUGH_CONSEC_SIGMA,
-                 min_consec=EARLY_TROUGH_MIN_CONSEC):
+                 frac=EARLY_TROUGH_FRACTION,
+                 leave_one_out=EARLY_TROUGH_LEAVE_ONE_OUT_Z):
     """
     How far, and where, a curve dips below zero in its own early readings.
 
@@ -1768,13 +1767,22 @@ def early_trough(times, values, noise, window=EARLY_TROUGH_WINDOW,
     4680 s to 28740 s of total run length apart).
 
     THE SMOOTHED MINIMUM ALONE CANNOT TELL A SUSTAINED DECLINE FROM ONE DEEP
-    OUTLIER READING dragging a rolling mean down -- exp 4.1 and exp 22.2 both
-    clear -6 sigma smoothed and neither is a real dip: only 3 and 4 of the 9
-    raw readings inside their own trough window are individually below
-    `consec_sigma` on their own, against 6-9 of 9 for every curve this
-    project has confirmed as real by eye. `min_consec` is that bar. Returns
-    `sustained=False` rather than excluding the curve, so a caller can see
-    how close a rejected candidate came.
+    OUTLIER READING dragging a rolling mean down, so `sustained` drops the
+    single WORST reading in the trough window and requires the remaining
+    `window - 1` to still average below `leave_one_out` sigma. This is a
+    LEAVE-ONE-OUT robustness test, not a per-reading depth count: a first
+    version required a fixed number of the window's own readings to
+    individually clear a per-reading bar, and it rejected exp 4.1 and exp
+    22.2 -- both real, sustained declines with 9 of 9 readings in their
+    window negative -- because their per-reading depth is more modest than
+    exp 4.2's dramatic one, spread thinner across the same noise. Removing
+    each curve's single worst reading barely moves either: -7.3 to -6.1 sigma
+    for exp 4.1, -6.2 to -5.1 for exp 22.2, against a synthetic single spike
+    on flat noise collapsing from -10.8 to -0.7. `leave_one_out` sits between
+    those two regimes.
+
+    Returns `sustained=False` rather than excluding the curve, so a caller
+    can see how close a rejected candidate came.
 
     Returns (z, time, start, sustained); z is nan and start is -1 with fewer
     than one window's worth of readings in the first half of the run, or a
@@ -1791,6 +1799,8 @@ def early_trough(times, values, noise, window=EARLY_TROUGH_WINDOW,
     start = int(np.argmin(smooth))
     z = float(smooth[start] / (noise / np.sqrt(window)))
     segment = values[start:start + window]
-    consecutive = int(np.sum(segment < -consec_sigma * noise))
+    worst = int(np.argmin(segment))
+    reduced = np.delete(segment, worst)
+    reduced_z = float(reduced.mean() / (noise / np.sqrt(len(reduced))))
     time = float(times[start + window // 2])
-    return z, time, start, consecutive >= min_consec
+    return z, time, start, reduced_z <= leave_one_out

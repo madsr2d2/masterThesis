@@ -710,7 +710,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
 
 `early_trough/` holds a second, smaller finding this session's
 derivative-of-fit panel surfaced by eye (on exps 135.5 and 151.5-.7) before
-`data/early_trough.py` put a number on it: fifteen catalysed curves, across
+`data/early_trough.py` put a number on it: seventeen catalysed curves, across
 both substrates, dip **measurably below zero** in their own early readings
 before the catalysed rate takes over. A catalysed curve's absorbance is
 already reference-subtracted against an enzyme-free cuvette holding the same
@@ -720,36 +720,88 @@ them only while both see the same free concentration of whatever it runs on
 in the sample cuvette alone breaks that cancellation for as long as the
 engagement lasts.
 
-Three screens separate a genuine dip from an artefact: at least 5 of the 9
-readings inside the smoothed trough window must themselves sit below 2 sigma
-(not just the smoothed mean -- this alone rejects two candidates, exps 4.1
-and 22.2), the trough must not overlap a detected O2 detachment, and it must
-survive `curve_metrics.debubble` correction. **15 of 17** candidates survive
-all three, and the two curves that carry any O2 event (141.4, 142.4) get
-DEEPER after correction, not weaker.
+Three screens separate a genuine dip from an artefact: the trough window must
+survive a LEAVE-ONE-OUT test (drop the single worst reading and the rest must
+still average below its own threshold -- a real decline is robust to this, a
+single bad reading is not), the trough must not overlap a detected O2
+detachment, and it must survive `curve_metrics.debubble` correction. **17 of
+17** candidates survive all three -- every candidate the scan found, no
+exclusions -- and the two curves that carry any O2 event (141.4, 142.4) get
+DEEPER after correction, not weaker. **This was 15 of 17 until 2026-09-08's
+correction**: an earlier `sustained` test required a fixed count of a
+window's readings to individually clear a per-reading depth bar, and wrongly
+rejected two real curves (exps 4.1, 22.2 -- 9 of 9 window readings negative
+in both, and removing the single worst one barely moves either mean). See
+`DATA_VERIFICATION.md`.
 
-Archive-wide the driver is **[enz]/[HOO-], not [enz]/[S]**, significant at
-p < 10<sup>-4</sup> in both substrates scanned independently
-(rho = -0.621 for 4OMe, -0.315 for BnOH) while the catalyst:substrate ratio
-carries no signal in either. The hydroperoxide anion is nanomolar across most
-of the archive's pH range, so a catalyst held at 0.014-0.273 mM is routinely
-a 100-4000-fold molar excess over it -- the same regime `MECHANISM.md`'s S4
-and `BUBBLES.md`'s gas already put the catalyst in, engaging the peroxide
-non-productively. **This is that same engagement's signature on the OTHER
-cuvette's signal**, not the sample's own gas. Twelve of the fifteen genuine
-curves are this oxidant-dominated kind; the remaining three (141.4, 142.4,
-143.4) sit at the two-axis block's lowest substrate rung, where [enz] is
-instead a large enough fraction of [S] (6.5-9.7%) for simple substrate
-sequestration to plausibly be the mechanism -- three curves cannot move an
-archive-wide correlation dominated by the other twelve, which is why
-[enz]/[S] shows no *overall* signal without that cluster being any less real.
+Archive-wide the driver is **[enz]/[HOO-], not [enz]/[S] and not total
+[H2O2]**, significant at p < 10<sup>-4</sup> in both substrates scanned
+independently (rho = -0.621 for 4OMe, -0.315 for BnOH) while the
+catalyst:substrate ratio carries no signal in either, and the un-weighted
+catalyst:total-peroxide ratio does worse still -- in 4OMe it is not even
+correctly signed. That pH-weighting mattering, not just total oxidant load,
+is the signature of the deprotonated anion being consumed specifically,
+consistent with HOO<sup>-</sup>'s much greater nucleophilicity toward a
+carbonyl (the alpha effect) than neutral H<sub>2</sub>O<sub>2</sub>. The
+hydroperoxide anion is nanomolar across most of the archive's pH range, so a
+catalyst held at 0.014-0.273 mM is routinely a 100-4000-fold molar excess
+over it -- the same regime `MECHANISM.md`'s S4 and `BUBBLES.md`'s gas already
+put the catalyst in, engaging the peroxide non-productively. **This is that
+same engagement's signature on the OTHER cuvette's signal**, not the sample's
+own gas. Fourteen of the seventeen genuine curves are this oxidant-dominated
+kind; the remaining three (141.4, 142.4, 143.4) sit at the two-axis block's
+lowest substrate rung, where [enz] is instead a large enough fraction of [S]
+(6.5-9.7%) for simple substrate sequestration to plausibly be the mechanism
+-- three curves cannot move an archive-wide correlation dominated by the
+other fourteen, which is why [enz]/[S] shows no *overall* signal without
+that cluster being any less real.
+
+**A trough IS a deep enough "lag,"** in the same one/two-phase functional
+form `summary_kinetics.fit_progress` already fits to every curve --
+`B/tau > v_ss` makes the fitted rate negative for a while -- so its own
+relaxation time (`tau_fast`, already on file, no new fitting) gives a
+pseudo-first-order rate constant for free: `early_trough.binding_rates`
+finds **k_on = 0.51-32.7 M<sup>-1</sup>s<sup>-1</sup>, a spread of only 1.8
+orders of magnitude**, across 20-fold [enz], four pH units, 15-40 C, both
+clusters, both substrates and two buffers pooled together -- 8-9 orders of
+magnitude below the diffusion limit, the regime of a chemically-controlled
+step. An obvious two-point Arrhenius estimate (exp 19.1 at 15 C against exp
+34.4 at 40 C, an otherwise closely matched pair) gives Ea = 85.7 kJ/mol, but
+it does not survive its own Eyring self-consistency check -- the implied
+pre-exponential factor is 2×10<sup>5</sup> times the diffusion limit, and the
+equivalent activation entropy is **positive** where a real bimolecular
+association must be negative. **That number is retracted.** The honest
+version, `early_trough.arrhenius_check` over all 14 oxidant-cluster curves'
+own temperatures, gives Ea = 78.9 +/- 48.6 kJ/mol (t = 1.6, not significant)
+-- curves sharing one temperature alone scatter almost as widely as the
+entire 15-40 C range covers, so the archive cannot resolve an activation
+energy here at all, and says so rather than reporting one anyway.
+
+**The apparent rate constant depends on which buffer is present, even after
+normalising by [enz] identically** -- pyrophosphate's geometric mean runs
+roughly 6x phosphate's (`early_trough.buffer_comparison`). A clean elementary
+E + HOO<sup>-</sup> step should not care which buffer holds the pH. The
+likely connection: `induction.joint_buffer_order` already finds the
+catalyst's own E -> E* activation satisfies the pre-equilibrium "+1" rule
+specifically on the BUFFER axis (+1.094 +/- 0.150), not the peroxide axis --
+so a fast, cuvette-symmetric buffer-HOO<sup>-</sup> pre-equilibrium
+(cancelling in the reference subtraction on its own, since it is identical
+in both cuvettes) may set the SIZE of the reactive pool the catalyst draws
+down, while the catalyst's own slower, genuinely asymmetric engagement with
+that pool is the trough itself, and the already-established buffer-driven
+step converts the loaded intermediate into the active catalyst afterward.
+Only the first and third pieces have real statistical power behind them;
+the middle piece is inferred, not measured -- a check against the curves'
+own slower relaxation (`tau_slow`) found only 6 of 14 oxidant-cluster curves
+with a resolved value, too few to test anything.
 
 **Neither species is directly measured.** This archive has no headspace or
 manometric measurement of anything, the same limit `BUBBLES.md` states for
-the gas itself, so "the catalyst engages the peroxide" is the reading, not an
-established finding. And three of the strongest oxidant-cluster curves belong
-to exp 151, one of the two-axis block's own weakest, most drift-dominated
-runs -- which is exactly why the archive's strongest examples by far (exps
-4.2, 5.2, three of the four-fold `REPLICATE_RUNS`, at -40 to -42 sigma) matter:
-a different substrate, a different buffer, and none of the two-axis block's
-own caveats.
+the gas itself, so "the catalyst engages HOO<sup>-</sup>" is the reading,
+not an established finding, and it cannot be separated from a
+buffer-mediated route on this evidence alone. And three of the strongest
+oxidant-cluster curves belong to exp 151, one of the two-axis block's own
+weakest, most drift-dominated runs -- which is exactly why the archive's
+strongest examples by far (exps 4.2, 5.2, part of the four-fold
+`REPLICATE_RUNS`, at -40 to -42 sigma) matter: a different substrate, a
+different buffer, and none of the two-axis block's own caveats.
