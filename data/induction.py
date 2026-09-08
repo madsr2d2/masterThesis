@@ -68,6 +68,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from scipy.stats import spearmanr
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -683,6 +684,156 @@ def activation_contrast():
                                  - turnover["enthalpy_kJ"]),
         "enthalpy_gap_stderr": float(np.hypot(induction["enthalpy_stderr"],
                                               turnover["enthalpy_stderr"])),
+    }
+
+
+# --- the burst is the same clock, run backwards -----------------------------
+#
+# §6 gives the early rise a sign (`progress_kind`, `B_fast`) but no rate. A
+# curve that begins fast and a curve that begins slow can be the same relay
+# read from opposite ends: `dE*/dt = k_A(E_tot - E*) - k_B E*` (E -> E*
+# activation, then E* -> E + P turnover, pseudo-first-order under this
+# archive's saturating substrate) relaxes at `1/tau = k_A + k_B` -- the SUM,
+# set by whichever step is larger -- while its steady specific activity is
+# `vmax/e0 = k_A k_B / (k_A + k_B)` -- set by whichever is SMALLER. A lag is
+# this relay started at E*=0; a burst is it started at E*=E_tot. Same two
+# constants, same clock, opposite initial condition.
+#
+# Both `1/tau` and `vmax/e0` are already columns of `scope.frame()`, so the
+# two constants can be SOLVED FOR rather than approximated: they are the roots
+# of `x^2 - x/tau + (vmax/e0)/tau = 0`, which are real only if
+# `b = (vmax/e0)*tau <= 1/4`. That is the model's own falsifiable prediction,
+# and it costs no new fitting -- `activation_contrast` above already treats
+# `1/tau` and `v_peak` as if they measured k_A and k_B separately (valid only
+# in the limit the two are well separated, `b` small); this makes that
+# assumption explicit and testable, and gives the two roots where it holds.
+TWO_STATE_BOUND = 0.25
+
+# `tau_corrected` is always the ONE-PHASE fit's own clock (`BurstFit.tau`),
+# fitted whether or not the two-phase form won (`scope._frame`). On a curve
+# where the two-phase form earned it, that one-phase tau is a single
+# exponential compromising over a curve with a second, slower process on top
+# -- not a clean read of the fast relaxation this model is about. Restrict to
+# curves where the one-phase form WAS the earned form.
+TWO_STATE_KINDS = ("lag", "burst")
+
+
+def two_state_table(table, bound=TWO_STATE_BOUND, kinds=TWO_STATE_KINDS):
+    """
+    Per curve: can one two-state relay explain its own (tau, vmax/e0), and if
+    so, what are its two rate constants.
+
+    Restricted to `progress_kind` in `kinds` -- see the module comment above
+    for why `tau_corrected` is not trustworthy as this relay's clock
+    otherwise. Both rates come off the gas-corrected columns
+    (`vmax_corrected`, `tau_corrected`), for the reason `scope._frame`'s own
+    comment gives: the gas is made from peroxide, so leaving it in shortens
+    the apparent clock and inflates the apparent rate together, in whichever
+    direction flatters whatever is being asked.
+
+    The two roots are returned UNLABELLED, `k_fast` (the larger) and `k_slow`
+    -- the quadratic is symmetric under swapping which one is "activation",
+    and nothing in one curve's own numbers says which. `k_fast_naive`
+    (`1/tau`) and `k_slow_naive` (`vmax/e0`) are the decoupled approximation
+    `activation_contrast` already uses; their ratio to the exact roots is
+    exactly 1 as `b -> 0` and 2 at the bound, so it is what that approximation
+    costs as `b` grows, not a separate measurement.
+
+    Returns every row of `kinds` and `live`, whether or not it resolves --
+    `resolvable` says which, the way `tau_resolved` does for the fit it comes
+    from. Rows with `tau_corrected` unresolved are dropped, the way a curve
+    with no lag time is not "zero" but absent (`INDUCTION_FLOOR`'s docstring
+    makes the same distinction the other way).
+    """
+    live = table[table.progress_kind.isin(kinds) & table.live
+                & table.tau_resolved_corrected
+                & np.isfinite(table.vmax_corrected)
+                & (table.vmax_corrected > 0)
+                & np.isfinite(table.e0) & (table.e0 > 0)
+                & (table.tau_corrected > 0)].copy()
+    live["specific_activity"] = live.vmax_corrected / live.e0
+    live["b"] = live.specific_activity * live.tau_corrected
+    live["resolvable"] = live.b <= bound
+    inverse_tau = 1.0 / live.tau_corrected
+    discriminant = np.clip(1.0 - 4.0 * live.b, 0.0, None)
+    span = inverse_tau * np.sqrt(discriminant)
+    live["k_fast"] = np.where(live.resolvable, 0.5 * (inverse_tau + span), np.nan)
+    live["k_slow"] = np.where(live.resolvable, 0.5 * (inverse_tau - span), np.nan)
+    live["k_fast_naive"] = inverse_tau
+    live["k_slow_naive"] = live.specific_activity
+    return live
+
+
+def two_state_summary(split):
+    """
+    How often the two-state bound holds, and whether its failures track pH.
+
+    `split` is a `two_state_table` result. The Spearman correlation is taken
+    over EVERY row, not just the failures, because "does b rise with pH" is
+    the question and a correlation restricted to one tail of its own response
+    answers a different one.
+    """
+    resolvable = split.resolvable
+    out = {
+        "n": int(len(split)),
+        "resolvable": int(resolvable.sum()),
+        "fraction_resolvable": (float(resolvable.mean())
+                                if len(split) else float("nan")),
+        "median_b": float(split.b.median()) if len(split) else float("nan"),
+        "median_b_resolvable": (float(split.b[resolvable].median())
+                                if resolvable.any() else float("nan")),
+    }
+    if len(split) >= 4:
+        rho, p = spearmanr(split.pH, split.b)
+        out["b_pH_rho"] = float(rho)
+        out["b_pH_p"] = float(p)
+    return out
+
+
+def activation_orientation():
+    """
+    How much the temperature series' own decoupled reading (`activation_contrast`)
+    costs against the exact two-state solve.
+
+    The temperature series has no lever that tells k_A from k_B apart on its
+    own -- it is the SAME "126x faster" evidence read a second way, through
+    the quadratic instead of the linear approximation. `b` is small there
+    (every curve resolves), so the two agree closely by construction; what
+    this adds is HOW closely, which sets how far the decoupled reading can be
+    trusted before the two-axis block's own, larger `b` values need the exact
+    solve instead of the approximation.
+    """
+    split = two_state_table(scope.frame(scope.TEMPERATURE_SERIES))
+    fast_ratio = split.k_fast / split.k_fast_naive
+    slow_ratio = split.k_slow / split.k_slow_naive
+    return {
+        "curves": int(len(split)),
+        "resolvable": int(split.resolvable.sum()),
+        "median_b": float(split.b.median()),
+        "max_b": float(split.b.max()),
+        "median_fast_ratio": float(fast_ratio.median()),
+        "median_slow_ratio": float(slow_ratio.median()),
+    }
+
+
+def activation_orders(scope_=scope.TWO_AXIS_BLOCK, bound=TWO_STATE_BOUND):
+    """
+    `k_fast`'s and `k_slow`'s own orders in [S] and [H2O2], within runs.
+
+    `1/tau` mixes both rate constants by construction (`1/tau = k_A + k_B`),
+    so its own peroxide order -- the one `joint_clocks` reads -- cannot say
+    which step carries it. This regresses the DECONVOLVED roots instead, on
+    whichever two-axis curves `two_state_table` resolves: few enough that the
+    errors below are wide, and this is a bound on where the dependence sits,
+    not a resolved order for either step.
+    """
+    split = two_state_table(scope.frame(scope_), bound=bound)
+    return {
+        "curves": int(len(split)),
+        "resolvable": int(split.resolvable.sum()),
+        "experiments": int(split.loc[split.resolvable, "experiment"].nunique()),
+        "k_fast": scope.orders("k_fast", frame=split),
+        "k_slow": scope.orders("k_slow", frame=split),
     }
 
 

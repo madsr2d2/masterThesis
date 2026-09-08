@@ -646,6 +646,116 @@ scheme in which the buffer's role is to carry the peroxide rather than to be a
 base — which this archive cannot separate from general base catalysis, because
 **0 of its 88 runs step `[buf]` and `[H₂O₂]` at once**.
 
+### The two rate constants can be bounded, without a temperature series
+
+§5's "126× faster" already treats `1/τ` and `v_peak` as if they measured the
+activation and turnover rate constants separately. That is only valid in a
+limit: for `dE*/dt = k_A(E_tot − E*) − k_B·E*` (activation, then turnover
+pseudo-first-order under this archive's saturating substrate), the relaxation
+that `τ` measures is the **sum** `1/τ = k_A + k_B`, set by whichever step is
+larger, and the specific activity `v_max/e₀` is the harmonic term
+`k_A·k_B/(k_A+k_B)`, set by whichever is *smaller*. A **lag** is this relay
+started at `E* = 0`; a **burst** is it started at `E* = E_tot`. Same two
+constants, same clock, opposite starting point — which is why §6 finds them
+sharing one shape family in the first place.
+
+Both `1/τ` and `v_max/e₀` are already `scope.frame()` columns, so `k_A` and
+`k_B` can be **solved for** rather than approximated: they are the roots of
+`x² − x/τ + (v_max/e₀)/τ = 0`, real only if
+
+> **b = (v_max/e₀)·τ ≤ 1/4**
+
+— the model's own falsifiable prediction, costing no new fitting. The two
+roots come back unlabelled, `k_fast` (the larger) and `k_slow`, because the
+quadratic is symmetric under swapping which one is "activation": nothing in
+one curve's own numbers says which. `k_fast_naive` (`1/τ`) and `k_slow_naive`
+(`v_max/e₀`) are §5's decoupled reading; the ratio to the exact roots is what
+that approximation costs as `b` grows, not a separate measurement. Restricted
+throughout to curves whose `progress_kind` is `lag` or `burst` — on a curve
+the two-phase form earned, `τ` is still the one-phase fit's own clock
+(`BurstFit.tau`, fitted regardless of which form won), so it is a single
+exponential compromising over a curve with a second, slower process on top of
+it, not a clean read of this relay alone.
+
+**The temperature series validates the approximation it is already built on.**
+Its own `b` is small everywhere — median **0.057**, max **0.106** — so all
+**12 of 12** pure lag/burst curves resolve, and the exact roots sit close to
+§5's decoupled ones: `k_fast` is **93.9%** of `1/τ` at the median, `k_slow`
+**106.5%** of `v_max/e₀`. That is the size of the correction the "126× faster"
+figure carries, and it is small because `b` is small there.
+
+**The two-axis block's own `b` is more than three times larger, and a third of
+it fails outright.** Of its 31 live curves earning a pure one-phase form, only
+**20 (64.5%)** resolve a real two-state solution; median `b` over all 31 is
+**0.163**, against 0.057 for the temperature series. The five worst failures:
+
+| curve | pH | shape | b |
+|---|---|---|---|
+| exp 143.2 | 9.73 | lag | 2.43 |
+| exp 141.2 | 9.15 | lag | 2.31 |
+| exp 148.5 | 7.60 | burst | 2.29 |
+| exp 140.1 | 9.22 | lag | 1.30 |
+| exp 145.1 | 9.04 | lag | 0.75 |
+
+**and the failures track pH**: `ρ(pH, b)` = **+0.469** (p = **0.0078**) over
+all 31. Four of the five worst sit at pH ≥ 9.04; the block's own high-pH
+ladder (§7e) is exactly where this simplest possible two-state picture stops
+describing the curve. Whether that means a third state, a substrate term that
+does not saturate the way turnover assumes, or the fast pre-equilibrium
+binding HOO⁻/buffer ([`../early_trough/`](../early_trough/ANALYSIS.md)) no
+longer being fast against activation is not something this test can tell —
+only that the single-relay picture has a real, pH-tracking edge to it. The
+correction the naive reading pays for approaching that edge:
+
+| b | k_fast / naive |
+|---|---|
+| 0.05 | 0.947 |
+| 0.10 | 0.887 |
+| 0.15 | 0.816 |
+| 0.20 | 0.724 |
+| 0.25 (the bound) | 0.500 |
+
+**Where it does resolve, the two-axis block gives a second, room-temperature
+estimate of the same ratio §5 gives from an Arrhenius fit.** Over the 20
+resolvable curves `k_fast/k_slow` runs from **2.4× to 70×**, median **13.2×**
+— smaller than §5's 126×, and it should be: it is read at one temperature, a
+different substrate, three buffers instead of one, and a pH range §5 never
+reaches. It needs no temperature series and no Eyring extrapolation, which is
+what makes it a genuine second check rather than a restatement, but the
+spread is real and the assignment below is what would let a DFT barrier be
+compared against either end of it rather than the pair.
+
+**And the split separates cleanly by which axis carries which step**, on the
+20 curves it can be asked of (9 experiments, `scope.orders` with one offset
+per run):
+
+| | order in [S] | order in [H₂O₂] | r² |
+|---|---|---|---|
+| `k_fast` | −0.082 ± 0.168 | +0.080 ± 0.233 | 0.54 |
+| `k_slow` | **+0.401 ± 0.102** | **+0.544 ± 0.142** | 0.88 |
+
+`k_slow` carries a resolved, roughly half-order dependence on both axes —
+close to `burst_drivers`' own orders for the raw early rise (+0.136–0.201 in
+[S], +0.757–0.793 in [H₂O2]) and to `vmax`'s published orders for this block,
+which is expected since `k_slow ≈ v_max/e₀` whenever `b` is small.
+**`k_fast` carries neither, but the errors are wide enough that this is not
+evidence of flatness** — 20 points over 9 run offsets leaves little power, and
+a dependence as large as `k_slow`'s own is still inside `k_fast`'s interval.
+
+**What this does and does not establish.** The identification `k_fast` =
+activation, carried over from the temperature series' independent "faster"
+finding, is an *assumption* here, not a re-derivation — the two-axis block has
+no temperature series of its own to test it against, and the quadratic is
+blind to which root is which. If that assignment is right, the peroxide/buffer
+dependence C9 predicts for activation is not yet visible in `k_fast` at this
+sample size, and what *is* visible sits with `k_slow` (turnover) instead —
+worth flagging plainly rather than either confirming or quietly dropping
+C9's prediction. `data/induction.py`'s `two_state_table`, `two_state_summary`,
+`activation_orientation` and `activation_orders` are the machinery, and
+`data/test_induction.py` plants known `(k_A, k_B)` pairs and checks the
+quadratic reads them back exactly, and refuses a `(τ, v_max/e₀)` pair with no
+real solution rather than reporting a complex root.
+
 ## 7. The seven variables, and where the archive can answer for each
 
 Everything above measures the induction against **two** of the seven things the
@@ -1013,7 +1123,10 @@ hold.
   cost. It replaces the 95 ± 16 of §5, which is the same barrier measured on
   the one-phase fit's τ and therefore over four temperatures rather than six;
   the two agree inside their errors.
-- It is **faster than turnover** by 126× in free energy, as it must be.
+- It is **faster than turnover** by 126× in free energy, as it must be, and the
+  two-axis block gives a second estimate of the same ratio — **13.2× median,
+  2.4–70× range over 20 curves** — at one temperature, no Arrhenius fit needed.
+  §6.
 - The **sign** of the early curve is a property of the block: 98 of 147
   catalysed 4OMe curves begin below their eventual rate, against 10 of 49
   enzyme-free ones. §6.
@@ -1038,6 +1151,15 @@ hold.
   the cuvette holds: the ketone's gem-diol **hydrate** dehydrating to the free
   ketone, the perhydrate collapsing to the dioxirane, or a conformational change
   of the cyclodextrin. Absorbance at one wavelength cannot choose between them.
+- **Which root is which.** §6's two-state solve gives every resolvable curve
+  two rate constants, `k_fast` and `k_slow`, and calling the larger one
+  "activation" is carried over from the temperature series' own independent
+  finding — the two-axis block has no temperature series of its own to check
+  it against. On the 20 curves it can be asked of, the peroxide/buffer
+  dependence C9 predicts for activation is not resolved in `k_fast`
+  (+0.08 ± 0.23 in [H₂O₂]); what *is* resolved sits with `k_slow`
+  (+0.544 ± 0.142). A DFT barrier for either candidate step would settle which
+  root it belongs to.
 - **Whether the peroxide is involved at all.** §4a–4b. Three things point the
   same way and none of them is clean: the induction's peroxide order has the
   wrong *sign* for an adduct, the joint constraint the scheme puts on both
@@ -1079,7 +1201,7 @@ hold.
   on a carbonyl centre would be expected to show. It is eight curves in two
   runs at one temperature, so it is a direction and not a buffer order.
 
-**The three things that would finish it.**
+**The things that would finish it.**
 
 1. `COMPUTATIONAL.md` **C7** — the hydration equilibrium and the dehydration
    barrier of the chemzyme's ketone in water, against the barrier for adding
@@ -1096,3 +1218,10 @@ hold.
    **step `[buf]` at fixed `[S]` on the catalysed 4OMe system at 25 °C**, where
    the induction is thousands of seconds long rather than nearly over — the
    archive's only buffer titration sits at 40 °C, where it is not.
+4. Whichever of C7/C8's barriers survives now has two numbers to be checked
+   against instead of one: §5's 126× from the temperature series' Arrhenius
+   fit, and §6's 13.2× (2.4–70×) from the two-axis block's own two-state solve
+   at a single temperature. A computed barrier that lands near either
+   `k_fast/k_slow` ratio, rather than between them, is also a computed answer
+   to "which root is which" — the one thing in §6 the kinetics alone cannot
+   give.

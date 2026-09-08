@@ -1141,6 +1141,83 @@ def test_the_product_test_agrees_with_the_driver_regression():
           f"sd(log P) {product['spread_product']:.3f}")
 
 
+def _planted_two_state_row(k_fast, k_slow, kind="lag", pH=8.0, experiment=1,
+                           sample=1, e0=0.03):
+    """One `scope.frame`-shaped row implied by a planted (k_fast, k_slow)."""
+    tau = 1.0 / (k_fast + k_slow)
+    specific_activity = k_fast * k_slow / (k_fast + k_slow)
+    return {"experiment": experiment, "sample": sample, "pH": pH, "live": True,
+            "progress_kind": kind, "tau_resolved_corrected": True,
+            "tau_corrected": tau, "vmax_corrected": specific_activity * e0,
+            "e0": e0}
+
+
+def test_the_two_state_solve_recovers_planted_rate_constants():
+    """
+    The quadratic has to read back the two rates it was built from.
+
+    Three separations: barely inside the bound (b just under 1/4, where the
+    two roots nearly coincide), well separated in the direction the
+    temperature series sits (k_fast >> k_slow), and well separated the other
+    way -- the solve does not know or care which root is larger going in.
+    """
+    print("\nthe two-state solve, against a planting")
+    for k_fast, k_slow in ((0.0011, 0.0009), (0.05, 0.0004), (0.0004, 0.05)):
+        row = _planted_two_state_row(k_fast, k_slow)
+        table = pd.DataFrame([row])
+        split = induction.two_state_table(table)
+        check(f"k_fast={k_fast:g}, k_slow={k_slow:g}: resolvable",
+              bool(split.resolvable.iloc[0]))
+        got_fast, got_slow = float(split.k_fast.iloc[0]), float(split.k_slow.iloc[0])
+        want_fast, want_slow = sorted((k_fast, k_slow), reverse=True)
+        check(f"k_fast={k_fast:g}, k_slow={k_slow:g}: recovers the larger root",
+              abs(got_fast - want_fast) < 1e-6 * want_fast,
+              f"{got_fast:.6g} against {want_fast:.6g}")
+        check(f"k_fast={k_fast:g}, k_slow={k_slow:g}: recovers the smaller root",
+              abs(got_slow - want_slow) < 1e-6 * want_slow,
+              f"{got_slow:.6g} against {want_slow:.6g}")
+
+
+def test_the_two_state_bound_flags_what_it_cannot_solve():
+    """
+    A (tau, specific activity) pair with no real two-state solution has to be
+    refused, not silently handed a complex-rooted answer.
+    """
+    print("\nthe two-state bound, against a curve it cannot explain")
+    # k_A = k_B gives b = 1/4 exactly -- the boundary itself resolves.
+    boundary = _planted_two_state_row(0.001, 0.001)
+    split = induction.two_state_table(pd.DataFrame([boundary]))
+    check("k_A = k_B sits exactly on the bound and still resolves",
+          bool(split.resolvable.iloc[0]) and abs(split.b.iloc[0] - 0.25) < 1e-9,
+          f"b={split.b.iloc[0]:.6f}")
+
+    # A tau and a specific activity that do not correspond to any real pair.
+    row = _planted_two_state_row(0.001, 0.001)
+    row["vmax_corrected"] = row["vmax_corrected"] * 3.0   # b -> 0.75
+    split = induction.two_state_table(pd.DataFrame([row]))
+    check("a b of 0.75 is refused rather than solved",
+          not bool(split.resolvable.iloc[0])
+          and not np.isfinite(split.k_fast.iloc[0])
+          and not np.isfinite(split.k_slow.iloc[0]),
+          f"resolvable={split.resolvable.iloc[0]}, b={split.b.iloc[0]:.3f}")
+
+    # progress_kind outside ("lag", "burst") is dropped even if it would
+    # otherwise resolve cleanly -- tau_corrected is not this relay's clock on
+    # a curve the two-phase form earned.
+    two_phase = _planted_two_state_row(0.05, 0.0004, kind="mixed")
+    split = induction.two_state_table(pd.DataFrame([two_phase]))
+    check("a two-phase-earned curve is dropped, not solved",
+          len(split) == 0, f"{len(split)} rows kept")
+
+    raw = pd.DataFrame([_planted_two_state_row(0.05, 0.0004, pH=7.0,
+                                               experiment=1, sample=1),
+                        {**row, "experiment": 2, "sample": 1}])
+    summary = induction.two_state_summary(induction.two_state_table(raw))
+    check("the summary counts one of two as resolvable",
+          summary["n"] == 2 and summary["resolvable"] == 1,
+          f"{summary}")
+
+
 def test_regressions():
     """The numbers induction/ANALYSIS.md quotes."""
     print("\nthe published numbers")
@@ -1266,6 +1343,53 @@ def test_regressions():
           gap["induction"]["activation_kJ"] > 60.0,
           f"{gap['induction']['activation_kJ']:.1f} kJ/mol")
 
+    orient = induction.activation_orientation()
+    check("the temperature series resolves the two-state bound on all 12 "
+          "of its pure lag/burst curves",
+          orient["curves"] == 12 and orient["resolvable"] == 12,
+          f"{orient['resolvable']} of {orient['curves']}")
+    check("its b sits comfortably under the bound: median 0.057, max 0.106",
+          abs(orient["median_b"] - 0.057) < 0.002
+          and abs(orient["max_b"] - 0.106) < 0.002,
+          f"median {orient['median_b']:.3f}, max {orient['max_b']:.3f}")
+    check("so the decoupled reading costs under 7% on the fast root there",
+          abs(orient["median_fast_ratio"] - 1.0) < 0.07,
+          f"{orient['median_fast_ratio']:.3f}")
+
+    two = scope.frame(scope.TWO_AXIS_BLOCK)
+    split = induction.two_state_table(two)
+    summary = induction.two_state_summary(split)
+    check("31 of the two-axis block's live curves earn a pure one-phase form",
+          summary["n"] == 31, f"{summary['n']}")
+    check("64.5% of those resolve a real two-state solution",
+          abs(summary["fraction_resolvable"] - 0.645) < 0.005,
+          f"{summary['fraction_resolvable']:.3f}")
+    check("its median b is 0.163, over three times the temperature series'",
+          abs(summary["median_b"] - 0.163) < 0.002,
+          f"{summary['median_b']:.3f}")
+    check("failures track pH: rho +0.469, p < 0.01",
+          abs(summary["b_pH_rho"] - 0.469) < 0.002 and summary["b_pH_p"] < 0.01,
+          f"rho {summary['b_pH_rho']:+.3f}, p {summary['b_pH_p']:.4f}")
+
+    orders = induction.activation_orders()
+    check("20 resolvable curves over 9 experiments carry the split",
+          orders["resolvable"] == 20 and orders["experiments"] == 9,
+          f"{orders['resolvable']} curves, {orders['experiments']} experiments")
+    check("k_fast's own orders are flat within a wide error: "
+          "-0.08 +- 0.17 in [S], +0.08 +- 0.23 in [H2O2]",
+          abs(orders["k_fast"]["order_s0"] + 0.082) < 0.01
+          and abs(orders["k_fast"]["stderr_s0"] - 0.168) < 0.01
+          and abs(orders["k_fast"]["order_h2o2"] - 0.080) < 0.01
+          and abs(orders["k_fast"]["stderr_h2o2"] - 0.233) < 0.01,
+          f"{orders['k_fast']}")
+    check("k_slow's own orders are resolved: +0.40 +- 0.10 in [S], "
+          "+0.54 +- 0.14 in [H2O2]",
+          abs(orders["k_slow"]["order_s0"] - 0.401) < 0.01
+          and abs(orders["k_slow"]["stderr_s0"] - 0.102) < 0.01
+          and abs(orders["k_slow"]["order_h2o2"] - 0.544) < 0.01
+          and abs(orders["k_slow"]["stderr_h2o2"] - 0.142) < 0.01,
+          f"{orders['k_slow']}")
+
     windows = induction.landmark_window()
     narrow = windows[windows.window == "300 s"].iloc[0]
     tenth = windows[windows.window.str.startswith("0.10")].iloc[0]
@@ -1388,6 +1512,8 @@ if __name__ == "__main__":
     test_the_product_at_the_landmark_tells_a_clock_from_a_threshold()
     test_the_product_test_is_calibrated_against_its_own_bias()
     test_the_product_test_agrees_with_the_driver_regression()
+    test_the_two_state_solve_recovers_planted_rate_constants()
+    test_the_two_state_bound_flags_what_it_cannot_solve()
     test_regressions()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)

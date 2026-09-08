@@ -344,6 +344,86 @@ def main():
               abs(fixed["corrected"] - fixed["threshold"])
               < abs(fixed["measured"] - fixed["threshold"]))
 
+    print("\nsection 6: the two rate constants")
+    doc.claim("the falsifiable prediction",
+              "**b = (v_max/e₀)·τ ≤ 1/4**")
+    orient = induction.activation_orientation()
+    doc.claim("temperature series: b range",
+              f"median **{orient['median_b']:.3f}**, max **"
+              f"{orient['max_b']:.3f}**")
+    doc.check("all 12 of its pure lag/burst curves resolve",
+              orient["curves"] == 12 and orient["resolvable"] == 12)
+    doc.claim("temperature series: k_fast against naive",
+              f"**{orient['median_fast_ratio'] * 100:.1f}%**")
+    doc.claim("temperature series: k_slow against naive",
+              f"**{orient['median_slow_ratio'] * 100:.1f}%**")
+
+    two_axis_split = induction.two_state_table(
+        scope.frame(scope.TWO_AXIS_BLOCK))
+    summary = induction.two_state_summary(two_axis_split)
+    doc.claim("two-axis: curves earning a pure one-phase form", "31 live")
+    doc.check("31 curves", summary["n"] == 31, f"{summary['n']}")
+    doc.claim("two-axis: how many resolve",
+              f"**20 (64.5%)**")
+    doc.check("20 of 31, 64.5%",
+              summary["resolvable"] == 20
+              and abs(summary["fraction_resolvable"] - 0.645) < 0.005)
+    doc.claim("two-axis: median b",
+              f"**0.163**")
+    doc.check("0.163 against the temperature series' 0.057",
+              abs(summary["median_b"] - 0.163) < 0.002)
+
+    worst = two_axis_split.sort_values("b", ascending=False).head(5)
+    doc.claim("the five worst failures' header", "| curve | pH | shape | b |")
+    for row in worst.itertuples():
+        doc.claim(f"exp {row.experiment}.{row.sample}'s row",
+                  f"| exp {row.experiment}.{row.sample} | {row.pH:.2f} | "
+                  f"{row.progress_kind} | {row.b:.2f} |")
+
+    doc.claim("the pH correlation",
+              f"**+{summary['b_pH_rho']:.3f}** (p = **{summary['b_pH_p']:.4f}**)")
+    doc.check("the correlation is significant",
+              summary["b_pH_p"] < 0.01)
+
+    for b, label in ((0.05, "0.05"), (0.10, "0.10"), (0.15, "0.15"),
+                     (0.20, "0.20"), (0.25, "0.25 (the bound)")):
+        exact = 0.5 * (1.0 + np.sqrt(max(1.0 - 4.0 * b, 0.0)))
+        doc.claim(f"the correction table at b={b:.2f}",
+                  f"| {label} | {exact:.3f} |")
+
+    resolvable = two_axis_split[two_axis_split.resolvable]
+    ratio = resolvable.k_fast / resolvable.k_slow
+    doc.claim("the resolvable ratio range",
+              f"**2.4× to 70×**")
+    doc.check("2.4 to 70",
+              abs(ratio.min() - 2.4) < 0.1 and abs(ratio.max() - 70) < 1)
+    doc.claim("the resolvable ratio median",
+              f"median **13.2×**")
+    doc.check("13.2x median", abs(ratio.median() - 13.2) < 0.1)
+
+    orders = induction.activation_orders()
+    doc.check("20 curves over 9 experiments carry the split",
+              orders["resolvable"] == 20 and orders["experiments"] == 9)
+    doc.claim("k_fast's row",
+              f"| `k_fast` | {orders['k_fast']['order_s0']:.3f} +/- "
+              f"{orders['k_fast']['stderr_s0']:.3f} | "
+              f"{orders['k_fast']['order_h2o2']:+.3f} +/- "
+              f"{orders['k_fast']['stderr_h2o2']:.3f} | "
+              f"{orders['k_fast']['r2']:.2f} |")
+    doc.claim("k_slow's row",
+              f"| `k_slow` | **{orders['k_slow']['order_s0']:+.3f} +/- "
+              f"{orders['k_slow']['stderr_s0']:.3f}** | "
+              f"**{orders['k_slow']['order_h2o2']:+.3f} +/- "
+              f"{orders['k_slow']['stderr_h2o2']:.3f}** | "
+              f"{orders['k_slow']['r2']:.2f} |")
+    doc.claim("k_fast's H2O2 order restated in the not-settled list",
+              f"+0.08 ± 0.23")
+    doc.claim("k_slow's H2O2 order restated in the not-settled list",
+              f"+0.544 ± 0.142")
+
+    doc.claim("the second ratio restated in section 8",
+              "13.2× median, 2.4–70× range over 20 curves")
+
     print("\nsection 5: the activation parameters")
     for label, key in (("the induction", "induction"),
                        ("the turnover", "turnover")):
