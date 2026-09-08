@@ -24,8 +24,9 @@ import scope
 from curve_metrics import LAG_WINDOW, rolling_slope
 from fit_dataset import source_floor
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc, page, PAGE_CSS
-from figure_kit import (CATEGORY, RUNGS, breakpoints, fig, panel,
-                        progress_axes, progress_overlay, styled, write_pages)
+from figure_kit import (CATEGORY, RUNGS, breakpoints, derivative_axes, fig,
+                        panel, progress_axes, progress_overlay,
+                        residual_axes, styled, write_pages)
 
 
 
@@ -768,6 +769,9 @@ def build_curves_page():
                 marks.append(row.t_ind)
                 labels.append("t_ind")
             breakpoints(axes, marks, labels, colour=colour)
+            residual = (values - progress.predict(times)) / curve.noise
+            rax = residual_axes(times, residual, colour=colour)
+            drax = derivative_axes(times, progress, colour=colour)
             panels.append(panel(
                 f"exp {int(row.experiment)} · sample {int(row.sample)}"
                 f"<span class='pill'>{row.temperature:.0f} °C</span>",
@@ -775,7 +779,8 @@ def build_curves_page():
                 f"pH {row.pH:.2f} · [buf] {row.buf:.0f} mM · "
                 f"{int(row.points)} readings over "
                 f"{row.duration_s / 60:.0f} min · {row.source}",
-                axes.render("time, s", "ΔA"),
+                axes.render("", "ΔA") + rax.render("", "z")
+                + drax.render("time, s", "dA/dt"),
                 f"<strong>{int(row.phases)} phase"
                 + ("s" if row.phases == 2 else "")
                 + f"</strong> · {esc(str(row.progress_kind))} · "

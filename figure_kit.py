@@ -178,6 +178,54 @@ def residual_axes(times, residual, width=340, height=72, pad=(56, 12, 30, 8),
     return axes
 
 
+def derivative_axes(times, progress, width=340, height=72, pad=(56, 12, 30, 8),
+                    colour=ACCENT, bands=(), band_colour=EVENT_BAND_COLOUR,
+                    samples=300):
+    """
+    A third strip beneath `residual_axes`: dA/dt of the FITTED curve.
+
+    The rate, not the readings differenced. `progress.rate(times)` is
+    `summary_kinetics.ProgressFit`'s own analytic derivative of whichever form
+    the curve earned -- a steady rate minus decaying exponentials, so the
+    slope is exact and needs no finite differencing of noisy points. That
+    matters here specifically: differencing 402 curves' worth of readings
+    would draw the noise floor, not the reaction, and would need its own
+    smoothing choice on every panel. The fit already made that choice; this
+    panel reads it off rather than re-deriving it.
+
+    Evaluated on a SMOOTH GRID (`samples` points from 0 to the run's own
+    length), the same way `progress_overlay` draws the curve itself -- not at
+    the reading times, which would draw a jagged line wherever readings are
+    sparse and hide that the underlying rate is smooth.
+
+    Y-limits include zero, the same convention `progress_axes` uses for the
+    readings above it, because a rate that goes negative (a two-phase curve's
+    decaying second term can do this briefly) should visibly cross the axis
+    rather than be cropped into looking like it never does.
+
+    `bands` and `pad`'s left/right match `residual_axes` exactly, so all
+    three panels' plot AREAS line up when stacked in one panel div -- a
+    reader should be able to look straight down from a reading, through its
+    residual, to the rate the fit assigns it at that instant.
+    """
+    from svgplot import Axes
+    times = np.asarray(times, dtype=float)
+    grid = np.linspace(0.0, float(times[-1]), samples)
+    rate = np.asarray(progress.rate(grid), dtype=float)
+    finite = rate[np.isfinite(rate)]
+    lo = min(float(finite.min()), 0.0) if len(finite) else 0.0
+    hi = max(float(finite.max()), 1e-9) if len(finite) else 1e-9
+    margin = max((hi - lo) * 0.12, 1e-12)
+    axes = Axes(width, height, (0, float(times[-1]) * 1.02),
+               (lo - margin, hi + margin), pad=pad)
+    for start, stop in bands:
+        axes.band([start, stop], [lo - margin, lo - margin],
+                 [hi + margin, hi + margin], band_colour, opacity=0.16)
+    axes.hline(0.0, colour=GRID, dash="2 2", width=1.0)
+    axes.line(grid, rate, colour, width=1.3)
+    return axes
+
+
 def breakpoints(axes, where, labels=None, colour=MUTED, row=0):
     """
     EVERY landmark the curve earned, labelled, not just the first.

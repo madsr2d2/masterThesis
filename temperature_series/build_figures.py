@@ -28,8 +28,9 @@ from fit_dataset import source_floor
 from summary_kinetics import fit_burst_bounded, fit_progress
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc, page, PAGE_CSS
 from figure_kit import (CATEGORY, FIT_WIDTH, RUNGS, SURFACE,
-                        TEMPERATURES, breakpoints, fig, panel,
-                        progress_overlay, styled, write_pages)
+                        TEMPERATURES, breakpoints, derivative_axes, fig,
+                        panel, progress_overlay, residual_axes, styled,
+                        write_pages)
 
 # RUNGS, TEMPERATURES, CATEGORY, SURFACE and FIT_WIDTH come from figure_kit
 # above and are NOT redeclared here. Byte-identical copies of all five sat on
@@ -499,13 +500,17 @@ def build_curves_page():
                                         mark_radius=radius)
             breakpoints(axes, record.break_times)
             kind = progress.chosen.kind
+            residual = (values - progress.predict(times)) / curve.noise
+            rax = residual_axes(times, residual)
+            drax = derivative_axes(times, progress)
             panels.append(panel(
                 f"{temperature:.0f} °C · [S] = {s0:.3f} mM"
                 f"<span class='pill'>exp {int(record.experiment)}</span>",
                 f"[buf] {record.buf:.0f} mM · "
                 f"{int(record.points)} readings over "
                 f"{record.duration_s / 60:.0f} min · {record.source}",
-                axes.render("time, s", "ΔA at 300 nm"),
+                axes.render("", "ΔA at 300 nm") + rax.render("", "z")
+                + drax.render("time, s", "dA/dt"),
                 f"<strong>{int(record.phases)} phase"
                 + ("s" if record.phases == 2 else "")
                 + f"</strong> · {esc(kind)} · F = {record.two_phase_f:.0f}"

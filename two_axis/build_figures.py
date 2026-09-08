@@ -23,8 +23,9 @@ import scope
 import slowdown
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc
 from figure_kit import (CATEGORY, EVENT_BAND_COLOUR, PH_RAMP, RUNGS,
-                        breakpoints, fig, panel, progress_axes,
-                        progress_overlay, residual_axes, styled, write_pages)
+                        breakpoints, derivative_axes, fig, panel,
+                        progress_axes, progress_overlay, residual_axes,
+                        styled, write_pages)
 
 
 @functools.cache
@@ -528,6 +529,9 @@ def build_curves_page():
         rax = residual_axes(times, residual,
                             colour=(CATEGORY[2] if chopped else ACCENT),
                             bands=bands)
+        drax = derivative_axes(times, chem_fit,
+                               colour=(CATEGORY[2] if chopped else ACCENT),
+                               bands=bands)
         panels.append(panel(
             f"pH {row.pH:.2f} · [S] {row.s0:g} mM · [H₂O₂] {row.h2o2:g} mM"
             f"<span class='pill'>exp {int(row.experiment)}.{int(row.sample)}"
@@ -535,7 +539,8 @@ def build_curves_page():
             f"[HOO⁻] {row.hoo:.3g} mM · [enz] {row.e0:g} mM · "
             f"[{row.buffer.lower()}] {row.buf:g} mM · {int(row.points)} "
             f"readings over {row.duration_s / 60:.0f} min · {row.source}",
-            axes.render("", "ΔA") + rax.render("time, s", "z"),
+            axes.render("", "ΔA") + rax.render("", "z")
+            + drax.render("time, s", "dA/dt"),
             f"<strong>{int(row.phases)} phase"
             + ("s" if row.phases == 2 else "")
             + f"</strong> · {esc(str(row.progress_kind))} "

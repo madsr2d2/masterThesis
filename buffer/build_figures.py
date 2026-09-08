@@ -21,8 +21,9 @@ import buffer_role
 import induction
 import scope
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc, page, PAGE_CSS
-from figure_kit import (CATEGORY, PH_RAMP, SURFACE, breakpoints, fig, panel,
-                        progress_axes, progress_overlay, styled, write_pages)
+from figure_kit import (CATEGORY, PH_RAMP, SURFACE, breakpoints,
+                        derivative_axes, fig, panel, progress_axes,
+                        progress_overlay, residual_axes, styled, write_pages)
 
 
 
@@ -306,13 +307,17 @@ def build_curves_page():
             marks.append(found.t_ind)
             labels.append("t_ind")
         breakpoints(axes, marks, labels, colour=CATEGORY[0])
+        residual = (values - progress.predict(times)) / curve.noise
+        rax = residual_axes(times, residual, colour=CATEGORY[0])
+        drax = derivative_axes(times, progress, colour=CATEGORY[0])
         panels.append(panel(
             f"[buf] = {row.buf:g} mM · pH {row.pH:.2f}"
             f"<span class='pill'>exp {int(row.experiment)}</span>",
             f"[S] {row.s0:.3f} mM · [H₂O₂] {row.h2o2:g} mM · "
             f"{row.temperature:.0f} °C · {int(row.points)} readings over "
             f"{row.duration_s / 60:.0f} min · {row.source}",
-            axes.render("time, s", "ΔA"),
+            axes.render("", "ΔA") + rax.render("", "z")
+            + drax.render("time, s", "dA/dt"),
             f"<strong>{int(row.phases)} phase"
             + ("s" if row.phases == 2 else "")
             + f"</strong> · {esc(str(row.progress_kind))} "
