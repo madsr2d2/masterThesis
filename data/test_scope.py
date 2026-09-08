@@ -476,15 +476,21 @@ def test_the_correction_recovers_a_planted_rate():
               f"{shed.rebuilt.iloc[-1]:.2f}")
 
     # A repair that moves a curve it was not needed on is a repair that has to
-    # be defended on every curve. This one is the identity there.
+    # be defended on every curve. This one is the identity there -- for a
+    # curve free of BOTH artefacts. `bubble_gains` catches what `bubble_drops`
+    # cannot (exp 146 cuvette 4 carries no fall at all, but does carry a
+    # confirmed arrival), so a curve is only "untouched" ground if it is clean
+    # of that too.
     untouched = []
     for curve in scope.curves():
+        times = np.asarray(curve.times, dtype=float)
         values = np.asarray(curve.absorbance, dtype=float)
         if len(curve_metrics.bubble_drops(values, curve.noise)):
             continue
+        if curve_metrics.bubble_gains(times, values, curve.noise):
+            continue
         untouched.append(np.array_equal(curve_metrics.debubble(
-            np.asarray(curve.times, dtype=float), values, curve.noise)[0],
-            values))
+            times, values, curve.noise)[0], values))
     check("and on a curve with no detachment it changes nothing at all",
           all(untouched) and len(untouched) > 40,
           f"{sum(untouched)} of {len(untouched)}")
@@ -683,9 +689,15 @@ def test_the_gas_may_not_outlast_the_evidence():
     print("\nthe gas may not outlast the evidence for it")
     table = scope.rebuild_smoothness()
     repaired = table[~table.clean]
-    check("no reconstruction ends holding gas",
-          float(repaired.gas_at_end.abs().max()) == 0.0,
-          f"worst {repaired.gas_at_end.abs().max():.2e}")
+    # The FALLS component's own promise, isolated from `bubble_gains`' -- a
+    # confirmed arrival is a deliberate, permanent shift with no release to
+    # date it from, so `gas_at_end` alone is no longer zero on a curve
+    # carrying one; `gas_at_end - gain_total` is what `unreleased_gas` still
+    # guarantees. See DATA_VERIFICATION.md 2026-09-08.
+    falls_only = repaired.gas_at_end - repaired.gain_total
+    check("no reconstruction ends holding gas from the falls model",
+          float(falls_only.abs().max()) < 1e-12,
+          f"worst {falls_only.abs().max():.2e}")
     ratio = repaired.gas_held / repaired.biggest_bubble
     check("no curve holds many times its own largest bubble",
           float(ratio.max()) < 6.0, f"worst {ratio.max():.1f}x")
@@ -746,7 +758,20 @@ def test_the_clocks_are_corrected_like_the_rate():
     peroxide, so it inflates the rate's peroxide order and shortens the
     apparent clock, and both push `d ln v - d ln tau` towards the +1 that
     `induction.joint_clocks` tests. Asked of the readings the block's
-    `tau_slow` row sat 0.3 sigma from +1; asked of the rebuilt curves, 1.4.
+    `tau_slow` row sat 0.3 sigma from +1; asked of the FALLS-corrected
+    curves, 1.4.
+
+    ADDED 2026-09-08: `bubble_gains` moves this again, and back the other
+    way. The falls-only correction was itself part of the systematic --
+    exp 135 cuvette 4 lost its resolved `tau_slow` once its own gain was
+    removed, and exps 138 cuvette 2, 141 cuvette 4 and 146 cuvette 4 gained
+    one -- and asked of the fully-corrected curves the row sits 0.3 sigma
+    from +1 again, matching the readings' own distance almost exactly
+    (+0.875 +/- 0.366 against +0.915 +/- ..., 0.343 sigma against 0.325).
+    The correction still touches individual curves -- 32 of 110 live curves'
+    `tau_slow` differs from `tau_slow_corrected`, 38 of 110 for the fast
+    clock -- it no longer moves the AXIS away from +1, because the piece
+    doing that was gas the falls-only model could not see.
 
     The null is what makes the columns safe to use: `debubble` returns a clean
     curve unchanged, so a clean curve's corrected clock must be its raw clock
@@ -755,7 +780,10 @@ def test_the_clocks_are_corrected_like_the_rate():
     print("\nthe clocks are corrected like the rate")
     data = scope.frame()
     live = data[data.live]
-    clean = live[live.bubble_events == 0]
+    # Clean of BOTH artefacts -- exp 146 cuvette 4 carries no fall
+    # (bubble_events == 0) but does carry a confirmed arrival, so it is not
+    # untouched ground for this null.
+    clean = live[(live.bubble_events == 0) & (live.gain_events == 0)]
     check("there are clean curves to check the null on", len(clean) > 40,
           f"{len(clean)} of {len(live)}")
     check("a clean curve's fast clock is untouched, exactly",
@@ -827,11 +855,28 @@ def test_the_clocks_are_corrected_like_the_rate():
     fixed = induction.joint_clocks(table)
     raw = induction.joint_clocks(table, rate="vmax",
                                  clocks=induction.JOINT_CLOCKS_RAW)
-    check("the correction moves the peroxide axis by more than a rounding",
+    # THE CORRECTION STILL TOUCHES CURVES, even though it no longer moves the
+    # fitted AXIS away from +1 (see the docstring) -- a positive, per-curve
+    # check that does not depend on which way a regression over a changing
+    # resolved set happens to fall.
+    tau_slow_moved = int(live.tau_slow.fillna(-1.0).ne(
+        live.tau_slow_corrected.fillna(-1.0)).sum())
+    check("the correction changes tau_slow on a real share of live curves",
+          tau_slow_moved > 20, f"{tau_slow_moved} of {len(live)}")
+    # AND WITH GAINS FOLDED IN, the axis-level gap to the raw reading closes
+    # back up rather than staying open: the falls-only correction's own
+    # 1.4 sigma move away from +1 was itself part of the artefact.
+    check("the fully-corrected peroxide axis is back within a rounding of "
+          "the raw reading",
           abs(float(fixed.loc[("tau_slow_corrected", "axis"), "order"])
-              - float(raw.loc[("tau_slow", "axis"), "order"])) > 0.1,
+              - float(raw.loc[("tau_slow", "axis"), "order"])) < 0.1,
           f"{fixed.loc[('tau_slow_corrected', 'axis'), 'order']:+.3f} against "
           f"{raw.loc[('tau_slow', 'axis'), 'order']:+.3f}")
+    check("and both now sit about 0.3 sigma from +1",
+          abs(float(fixed.loc[("tau_slow_corrected", "axis"), "sigma"])
+              - float(raw.loc[("tau_slow", "axis"), "sigma"])) < 0.1,
+          f"{fixed.loc[('tau_slow_corrected', 'axis'), 'sigma']:.3f} against "
+          f"{raw.loc[('tau_slow', 'axis'), 'sigma']:.3f}")
     # The control has to keep working under the repair, or the repair has
     # bought a result by breaking the thing that made it meaningful.
     check("and the substrate control still misses the +1 under it",

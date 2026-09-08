@@ -202,16 +202,16 @@ hand-picked subset — which is what a residual needs.
 
 **Its recovery has two halves and a fit should know which one it is in.**
 Against sawtooths planted into the block's own clean curves, on a planting whose
-run stops making gas at its last release the repair is exact — worst 0.06 across
+run stops making gas at its last release the repair is exact — worst 0.04 across
 every severity to 2× under both plantings. On one still producing at the last
 reading it KEEPS the bubble that never detached, and the recovered `vmax` runs
-to 1.65 at 2×. Only gas that was watched to leave is subtracted, so the
+to 1.67 at 2×. Only gas that was watched to leave is subtracted, so the
 reconstruction is an upper bound on the chemistry in the same direction as
 `monotone_bound`; `curve_metrics.quiet_tail` says which curves are at risk of
 the second reading. `scope.bubble_recovery(ends_holding=...)` is both.
 
 The **substrate** order in `two_axis/` moves under no repair. The **peroxide**
-order does: +0.794 → +0.706 under the reconstruction, 0.8σ, and downward, which
+order does: +0.794 → +0.696 under the reconstruction, 0.9σ, and downward, which
 is what an artefact made from peroxide requires (`scope.bubble_sensitivity`).
 Neither reading is significant, but do not quote the older "no order moves".
 

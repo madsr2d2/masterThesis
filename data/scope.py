@@ -31,7 +31,8 @@ import pandas as pd
 
 from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
                            INITIAL_WINDOW, LAG_THRESHOLD,
-                           OUTLIER_SIGMA, acceleration, bubble_drops, bubble_load,
+                           OUTLIER_SIGMA, acceleration, bubble_drops, bubble_gains,
+                           bubble_load,
                            bubble_rate,
                            burst_amplitude, debubble, detachments,
                            initial_rate,
@@ -149,6 +150,7 @@ def _frame(scope):
         # is the repair that suggests itself and the one that makes it worse.
         drops = bubble_drops(values, noise)
         events = detachments(values, noise)
+        gains = bubble_gains(times, values, noise)
         gas_rate = bubble_rate(times, values, events)
         corrected, _ = debubble(times, values, noise)
         vmax_corrected, _, vmax_corrected_where = peak_rate(
@@ -414,6 +416,16 @@ def _frame(scope):
             "bubble_drops": int(len(drops)),
             "bubble_events": int(len(events)),
             "bubble_load": bubble_load(values, drops),
+            # GAS ARRIVING, not leaving -- the rare mirror of a detachment: a
+            # confirmed single-reading level jump that is neither a real
+            # acceleration (ruled out by the kink test) nor a spike that
+            # reverts (ruled out by the same recovery test a fall uses,
+            # negated). `debubble` already removes it; this is only so a
+            # curve carrying one is visible the way `bubble_events` makes a
+            # detaching curve visible. See curve_metrics.bubble_gains and
+            # DATA_VERIFICATION.md 2026-09-08.
+            "gain_events": int(len(gains)),
+            "gain_total": float(sum(g for _, g in gains)),
             "gas_rate": gas_rate,
             "vmax_corrected": vmax_corrected,
             # WHERE the corrected rate peaks, in seconds, so a curves page can
@@ -1883,9 +1895,17 @@ def bubble_recovery(severities=RECOVERY_SEVERITIES, emptying=True,
     Columns: severity, raw, stitched, rebuilt, n.
     """
     generator = np.random.default_rng(seed)
+    # A donor must be free of every artefact this module knows about, not
+    # only falls -- exp 146 cuvette 4 carries no fall (bubble_drops is empty)
+    # but does carry a confirmed gain, and planting a synthetic fall onto a
+    # curve that already holds an uncorrected rise would make its "truth" the
+    # readings plus one artefact rather than the chemistry alone.
     donors = [c for c in curves(scope)
               if not len(bubble_drops(np.asarray(c.absorbance, dtype=float),
                                       c.noise))
+              and not len(bubble_gains(np.asarray(c.times, dtype=float),
+                                       np.asarray(c.absorbance, dtype=float),
+                                       c.noise))
               and float(np.ptp(np.asarray(c.absorbance, dtype=float))) > 0.02]
     rows = []
     for severity in severities:
@@ -1976,28 +1996,40 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
     One row per curve: experiment, sample, bubble_events, bubble_load,
     raw_worst (the steepest single fall in the READINGS, in units of the
     curve's own noise), rebuilt_worst (the same for the reconstruction),
-    `clean` for the curves with no detachment at all, and four columns for the
+    `clean` for the curves with no detachment at all, and five columns for the
     second way a repair can go wrong: gas_held (the most the profile ever puts
     in the beam), biggest_bubble (the largest single detachment), gas_at_end
-    (what it still holds at the last reading) and quiet_tail, beside
-    tail_gas, tail_rise and rebuilt_net.
+    (what it still holds at the last reading), gain_total (the same, but only
+    the part `bubble_gains` put there) and quiet_tail, beside tail_gas,
+    tail_rise and rebuilt_net.
 
-    READ `gas_at_end`, AND IT IS ZERO EVERYWHERE. A monotone reconstruction
-    can still be a wrong one, and this is the fault that was not roughness but
-    LEVEL: until 2026-09-03 a rate fixed by the drops was carried across hours
-    in which nothing detached, and this table would have shown 12 of 49 curves
+    READ `gas_at_end` MINUS `gain_total`, AND THAT IS ZERO EVERYWHERE -- not
+    `gas_at_end` alone, since 2026-09-08. A monotone reconstruction can still
+    be a wrong one, and this is the fault that was not roughness but LEVEL:
+    until 2026-09-03 a rate fixed by the drops was carried across hours in
+    which nothing detached, and this table would have shown 12 of 49 curves
     holding more than twice their own largest bubble, one at 26.6x, and three
     finishing below zero. Capping the tail at the most the beam had carried
     bounded that without curing it -- exp 149 cuvette 3 still sat a flat
     0.0022 AU under its own readings for 82% of the run. `unreleased_gas`
     cures it: gas is subtracted only where the run was watched to shed it, so
-    every reconstruction lands back ON the readings at the end. What that
-    costs is stated in `bubble_recovery(ends_holding=True)` rather than
-    assumed away, and `quiet_tail` says which curves could be paying it.
+    every reconstruction lands back ON the readings at the end -- of the
+    FALLS component. What that costs is stated in
+    `bubble_recovery(ends_holding=True)` rather than assumed away, and
+    `quiet_tail` says which curves could be paying it.
 
-    Over the two-axis block every one of the 181 detachments is corrected in
+    `bubble_gains` breaks the equality on `gas_at_end` alone, on purpose: a
+    confirmed arrival is a permanent, unreleased shift by design (there is no
+    detachment to date a release from, the way there is for a fall), so
+    `gas_at_end` on a curve carrying one is exactly that curve's `gain_total`
+    -- checked over all 110 live curves, zero mismatches, in
+    `data/test_curve_metrics.py::test_debubble_with_gains`. The falls
+    component's own promise is unchanged; this is a second, independent one
+    on top of it, not a hole in the first.
+
+    Over the two-axis block every one of the 216 detachments is corrected in
     full: `worst_at_event` is zero or above on all 110 live curves. What is
-    left in `rebuilt_worst` is the 40 falls rejected as excursions, plus the
+    left in `rebuilt_worst` is the 27 falls rejected as excursions, plus the
     one detachment `debubble` declines to touch -- exp 135 cuvette 6, whose
     fall is in the first interval.
     """
@@ -2013,6 +2045,7 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
         values = np.asarray(curve.absorbance, dtype=float)
         rebuilt, events = debubble(times, values, curve.noise)
         gas_rate = bubble_rate(times, values, events)
+        gains = bubble_gains(times, values, curve.noise)
         steps = np.diff(values)
         rows.append({
             "experiment": curve.experiment,
@@ -2032,7 +2065,13 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
             "biggest_bubble": max(
                 (float(values[start] - values[stop])
                  for start, stop in events), default=np.nan),
+            # THE FALLS MODEL'S OWN END-OF-CURVE BALANCE, isolated from
+            # `bubble_gains`' independent, unreleased shift: `gas_at_end`
+            # minus `gain_total` is what `unreleased_gas` promises is zero,
+            # and gains never touch that promise -- see
+            # `test_the_gas_may_not_outlast_the_evidence`.
             "gas_at_end": float(values[-1] - rebuilt[-1]),
+            "gain_total": float(sum(gain for _, gain in gains)),
             "quiet_tail": quiet_tail(times, events),
             # What the fitted rate would have made over the quiet tail, and
             # what the readings did over it. Where the first exceeds the

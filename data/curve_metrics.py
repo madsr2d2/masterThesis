@@ -1061,6 +1061,129 @@ def _is_excursion(values, event, recovery=BUBBLE_RECOVERY_FRACTION,
     return False
 
 
+def bubble_gains(times, values, noise, sigma=BUBBLE_DROP_SIGMA,
+                 recovery=BUBBLE_RECOVERY_FRACTION, kink_sigma=OUTLIER_SIGMA,
+                 window=EXCURSION_LOCAL_WINDOW, floor=DETACHMENT_SNR_FLOOR):
+    """
+    Level jumps that are gas arriving in the beam: `(index, gain)` pairs,
+    where `index` is the last reading of the jump and `gain` is the part of
+    it that exceeds an ordinary step there.
+
+    A RISE NEEDS TWO TESTS A FALL DOES NOT, because a fall gets one of them
+    for free. `bubble_drops` needs only an amplitude test: real chemistry
+    never falls, so any fall past `sigma` is already suspect, and
+    `_is_excursion` then asks only whether it reverses. Real chemistry rises
+    constantly, so a rise past the same `sigma` is not suspect on its own --
+    in the two-axis block such steps are 809 against 303 falls, the opposite
+    of the 122-against-23 asymmetry `bubble_step_asymmetry` reports at its
+    own, much stricter, 20 sigma. Most large rises are the reaction.
+
+    NEVER MERGED ACROSS READINGS, unlike `detachments`. One bubble can cost a
+    fall more than one reading because real chemistry never produces a
+    multi-reading run of large falls, so any such run is unambiguously gas --
+    but real chemistry DOES produce multi-reading runs of large rises, which
+    is the whole reason this function exists rather than reusing
+    `bubble_drops` directly. Grouping consecutive candidates the way
+    `detachments` does would fold a genuine multi-reading acceleration into
+    one giant "jump": on exp 144 cuvette 2, readings 29-42 climb by 20-30
+    sigma a step for fourteen consecutive readings, real and smooth, and a
+    merged span across them scores as a level jump the same way a true one
+    does, because the span's own ENDPOINTS are still a kink relative to what
+    is outside it. Scoring every step alone, unmerged, is what keeps that
+    curve's real acceleration out and still catches a true one-reading jump
+    dead centre.
+
+    THE FIRST TEST IS RECOVERY, reused rather than reinvented: negating the
+    curve turns a rise into a fall, so `_is_excursion` on `-values` asks
+    exactly the question a rise needs -- does the very next reading undo a
+    comparable amount, which is a spike (real chemistry, or noise), not gas
+    that arrived and stayed. Without this a single-reading spike up that
+    reverts at the very next reading reads identically to a persistent jump,
+    because the leave-one-out fit below cannot tell "elevated from here on"
+    from "elevated for one reading" -- both pull the neighbouring points the
+    same way.
+
+    THE SECOND IS THE KINK, tested the way `isolated_outliers` tests for one:
+    `local_outlier_z` against a local fit that EXCLUDES the point being
+    scored. A genuine acceleration builds curvature over several readings and
+    does not fail this AT A GIVEN STEP, even though the region as a whole
+    would if it were scored as one span -- the fit at any interior step is
+    pulled by neighbours on both sides that are already on the same rising
+    trend, not straddling a level. A true level jump does fail it, because the
+    fit at that one step is pulled between the two levels it straddles, so the
+    reading just before reads anomalously LOW and the reading the jump lands
+    on reads anomalously HIGH. Exp 135 cuvette 5's jump at 9780 s scores -8.4
+    then +10.0. `_is_excursion`'s own docstring calls this property the
+    reason `local_outlier_z` "CANNOT be used" for a fall -- there a step's
+    anomalousness is not in question, only whether it reverses; here, past
+    the recovery test, it is the question left, which is exactly what the
+    leave-one-out fit answers.
+
+    Only the EXCESS over the curve's own local step size is gas.
+    `_local_step_scale` -- the estimator `_is_excursion`'s recovery test uses
+    for the same reason -- is what a step there looks like with nothing
+    arriving, so `gain = max(step - _local_step_scale(...), 0)` never removes
+    an ordinary step's worth of real rise, only what is anomalous beyond it.
+
+    The same curve-level gate as `detachments`, and for the same reason: on a
+    curve below `floor` no per-event test is trusted, rise or fall alike, and
+    none is returned. See DATA_VERIFICATION.md 2026-09-08.
+
+    A KNOWN LIMITATION, shared with `isolated_outliers`'s "masking": the
+    leave-one-out fit is not robust to a fall large enough to dominate its own
+    window, so a handful of readings right after an extreme fall can score as
+    a false kink -- on a synthetic 120 sigma fall in the very first interval
+    (`test_curve_metrics.test_the_bubble_correction`'s first-interval case)
+    this reaches a spurious 0.0006 AU gain, four orders of magnitude under
+    the fall itself and well under anything found on a real curve. No case on
+    a real archive curve triggers it; `test_bubble_gains` sweeps the archive.
+    """
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    if len(values) < 2 or not np.isfinite(noise) or noise <= 0:
+        return []
+    net = float(values[-1] - values[0])
+    if net / noise < floor:
+        return []
+    candidates = bubble_drops(-values, noise, sigma=sigma)
+    if not len(candidates):
+        return []
+    z = local_outlier_z(times, values, noise)
+    gains = []
+    for index in candidates:
+        index = int(index)
+        start, stop = index, index + 1
+        if _is_excursion(-values, (start, stop), recovery=recovery,
+                         window=window):
+            continue
+        before, after = z[start], z[stop]
+        if not (np.isfinite(before) and np.isfinite(after)):
+            continue
+        if before > -kink_sigma or after < kink_sigma:
+            continue
+        baseline = _local_step_scale(values, start, stop, window)
+        gain = max(float(values[stop] - values[start]) - baseline, 0.0)
+        if gain > 0:
+            gains.append((stop, gain))
+    return gains
+
+
+def apply_gains(values, gains):
+    """
+    Subtract confirmed bubble arrivals (`bubble_gains`) from a curve.
+
+    Each gain is a level shift: from its reading on, the curve is lowered by
+    the amount that reading's jump exceeded an ordinary step there. This is
+    independent of the falls' rate-fitted model -- a gain's size is read
+    directly off the jump rather than inferred from a rate and a cap, so it
+    needs neither.
+    """
+    values = np.asarray(values, dtype=float).copy()
+    for index, gain in gains:
+        values[index:] -= gain
+    return values
+
+
 def unreleased_gas(values, events):
     """
     At every reading, the gas that is still going to be seen leaving.
@@ -1424,14 +1547,27 @@ def debubble(times, values, noise, sigma=BUBBLE_DROP_SIGMA):
     4 ends at 126% of the most absorbance its 0.219 mM of substrate could ever
     make. Read `bubble_load` before quoting a rate, and `monotone_bound` for
     the assumption-free bracket on the other side.
+
+    ADDED 2026-09-08: `bubble_gains` on top, independent of the rate model
+    above. A detachment is only ever a loss because chemistry cannot fall, so
+    the falls model above needs no separate check that a fall is real gas
+    before it is worth a rate fit -- `detachments` already did that. A rise
+    has no such free pass; most large rises in this block are the reaction,
+    not gas (`bubble_gains`'s docstring has the count), so this cannot be the
+    falls model with the sign flipped. Each confirmed gain is a direct,
+    measured level shift, not a rate: it needs no bisection and does not
+    interact with `events` or `rate` above, so it cannot move what the falls
+    model already explains, only remove what neither of them did. `events`
+    returned here is still `detachments`' falls alone, unchanged.
     """
     times = np.asarray(times, dtype=float)
     values = np.asarray(values, dtype=float)
     events = detachments(values, noise, sigma=sigma)
     rate = bubble_rate(times, values, events)
-    if not np.isfinite(rate):
-        return values.copy(), events
-    return values - bubble_profile(times, values, events, rate), events
+    reconstructed = (values.copy() if not np.isfinite(rate)
+                     else values - bubble_profile(times, values, events, rate))
+    gains = bubble_gains(times, values, noise, sigma=sigma)
+    return apply_gains(reconstructed, gains), events
 
 
 def debubble_onset(times, values, noise, sigma=BUBBLE_DROP_SIGMA):

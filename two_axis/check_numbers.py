@@ -483,9 +483,14 @@ def main():
               f"**{int(((smoothness.excursions > 0) & smoothness.clean).sum())} "
               "curves** lose all")
 
-    doc.check("no reconstruction ends holding gas",
-              float(repaired.gas_at_end.abs().max()) == 0.0,
-              f"worst {repaired.gas_at_end.abs().max():.2e} AU")
+    # `gas_at_end` alone is no longer zero everywhere: `bubble_gains` (added
+    # 2026-09-08) is a permanent, unreleased shift by design, so a curve
+    # carrying one ends the run holding exactly its own gain. The falls
+    # model's own promise is `gas_at_end - gain_total`, unchanged.
+    doc.check("no reconstruction ends holding gas from the falls model",
+              float((repaired.gas_at_end - repaired.gain_total).abs().max())
+              < 1e-9,
+              f"worst {(repaired.gas_at_end - repaired.gain_total).abs().max():.2e} AU")
     doc.check("no reconstruction ends below zero",
               int((smoothness.rebuilt_net < 0).sum()) == 0)
 
@@ -512,8 +517,10 @@ def main():
                         for first, (_, row) in zip(
                             [True] + [False] * 3,
                             quiet.nlargest(4, "quiet_tail").iterrows())))
-    doc.check("every long quiet tail ends on its readings",
-              float(quiet.gas_at_end.abs().max()) == 0.0)
+    doc.check("every long quiet tail ends on its readings, from the falls "
+              "model",
+              float((quiet.gas_at_end - quiet.gain_total).abs().max())
+              < 1e-9)
 
     # THE BUBBLE THAT NEVER LEFT. The third clause's price, per curve: the
     # bound on what is still in the beam, and the tail slope that says whether
@@ -828,11 +835,19 @@ def main():
               >= raw_clocks.loc[("tau", "axis"), "curves"]
               and clocks.loc[("tau_slow_corrected", "axis"), "curves"]
               >= raw_clocks.loc[("tau_slow", "axis"), "curves"])
-    doc.check("and it tightens both errors",
+    doc.claim("the fast clock's error tightens with it",
+              f"{raw_clocks.loc[('tau', 'axis'), 'stderr']:.3f} to "
+              f"{clocks.loc[('tau_corrected', 'axis'), 'stderr']:.3f}")
+    doc.claim("the slow one's does not",
+              f"{raw_clocks.loc[('tau_slow', 'axis'), 'stderr']:.3f} to "
+              f"{clocks.loc[('tau_slow_corrected', 'axis'), 'stderr']:.3f}")
+    doc.check("and it tightens the fast clock's error",
               clocks.loc[("tau_corrected", "axis"), "stderr"]
-              < raw_clocks.loc[("tau", "axis"), "stderr"]
-              and clocks.loc[("tau_slow_corrected", "axis"), "stderr"]
-              < raw_clocks.loc[("tau_slow", "axis"), "stderr"])
+              < raw_clocks.loc[("tau", "axis"), "stderr"])
+    doc.check("but not the slow one's -- gains change WHICH curves resolve, "
+              "not just how many",
+              clocks.loc[("tau_slow_corrected", "axis"), "stderr"]
+              > raw_clocks.loc[("tau_slow", "axis"), "stderr"])
     doc.check("the landmark row is the same either way, being uncorrected",
               abs(clocks.loc[("t_ind", "axis"), "order"]
                   - raw_clocks.loc[("t_ind", "axis"), "order"]) < 1e-12)

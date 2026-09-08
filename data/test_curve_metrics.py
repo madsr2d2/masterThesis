@@ -23,7 +23,8 @@ from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
                            INITIAL_WINDOW, LAG_THRESHOLD,
                            QUANTISATION_SIGMA, acceleration, curve_noise,
                            initial_rate, line_fit, line_slope, peak_position,
-                           OUTLIER_SIGMA, bubble_drops, bubble_load,
+                           OUTLIER_SIGMA, apply_gains, bubble_drops,
+                           bubble_gains, bubble_load,
                            bubble_profile, bubble_rate, bubble_shortfall,
                            local_outlier_z, OUTLIER_SIGMA,
                            debubble, detachments, isolated_outliers,
@@ -930,8 +931,21 @@ def test_the_bubble_correction():
     untouched, _ = debubble(times, early, noise)
     check("a detachment in the first interval has no affordable rate",
           not np.isfinite(bubble_rate(times, early, detachments(early, noise))))
-    check("and such a curve is returned unchanged",
-          np.array_equal(untouched, early))
+    # THE FALLS MODEL leaves this curve exactly alone -- there is no rate to
+    # apply. `bubble_gains` is not quite as clean beside a fall this extreme:
+    # a 0.03 AU, ~120 sigma drop in the very first interval is far outside
+    # anything the real archive carries, and it distorts `local_outlier_z`'s
+    # local fit for a few readings after it the same way `isolated_outliers`
+    # documents for two adjacent real spikes ("masking") -- z climbs past
+    # +30 sigma at reading 4 from the fit trying to bend around the drop, not
+    # from anything arriving. The whole-archive sweep in this file finds no
+    # such case on a real curve; this is what a fall four orders of magnitude
+    # past anything real does to a test built for something else.
+    check("and the readings the falls model leaves alone are moved by only "
+          "a masking artefact of the planted 120 sigma fall, not a real "
+          "gain",
+          np.abs(untouched - early).max() < 0.001,
+          f"{np.abs(untouched - early).max():.6f}")
 
     # ONE BUBBLE, TWO READINGS. A fall spread over consecutive readings is one
     # detachment; counting it as two gave the second a growth window of zero
@@ -1370,6 +1384,177 @@ def test_the_detachment_snr_floor():
           f"{max(below):.1f} < {DETACHMENT_SNR_FLOOR} <= {min(above):.1f}")
 
 
+def test_bubble_gains():
+    """
+    Gas arriving in the beam, not leaving it -- the rare mirror of a
+    detachment, and why it cannot be found the way one is.
+
+    A fall past `BUBBLE_DROP_SIGMA` needs no further test to be suspect: real
+    chemistry never falls. A rise past the same threshold is not suspect on
+    its own -- most large rises in the two-axis block are the reaction, 809
+    against 303 falls -- so `bubble_gains` needs a rise to pass two tests a
+    fall does not: it must not reverse (recovery, reused from `_is_excursion`
+    on the negated curve) and it must be a KINK against the curve's own local
+    trend (`local_outlier_z`), never merged across readings the way a fall
+    is, because a genuine multi-reading acceleration would merge into one
+    giant false jump if it were.
+    """
+    print("\ngas arriving, not leaving")
+    times = np.arange(0, 3600, 60.0)
+    noise = 1e-4
+    # An ordinary step here is ~0.6 sigma -- comfortably under every
+    # threshold, so a planted event is unambiguous against the background.
+    chemistry = 0.02 + 1e-6 * times
+
+    # A SPIKE UP THAT REVERTS: one reading jumps and the next is back on the
+    # line. The recovery test must reject it -- this is real chemistry (or
+    # noise), not gas that arrived and stayed.
+    perched = chemistry.copy()
+    perched[30] += 0.004
+    check("a spike that reverts is not a gain",
+          bubble_gains(times, perched, noise) == [],
+          f"{bubble_gains(times, perched, noise)}")
+
+    # A PERSISTENT STEP: the level jumps and stays. This is what a gain is
+    # for, and its size should read off almost exactly, net of the ordinary
+    # step the curve was already taking there.
+    step = chemistry.copy()
+    step[30:] += 0.004
+    found = bubble_gains(times, step, noise)
+    check("a persistent step is a gain",
+          len(found) == 1 and found[0][0] == 30, f"{found}")
+    check("  and its size is the jump, not the ordinary step under it",
+          found and abs(found[0][1] - 0.004) < 1e-9,
+          f"{found[0][1]:.6f}" if found else "none")
+
+    rng = np.random.default_rng(0)
+    noisy = step + rng.normal(0, noise, len(times))
+    noisy_found = bubble_gains(times, noisy, noise)
+    check("the same step survives realistic noise",
+          len(noisy_found) == 1 and noisy_found[0][0] == 30
+          and abs(noisy_found[0][1] - 0.004) < 5 * noise,
+          f"{noisy_found}")
+
+    # A SMOOTH, FAST ACCELERATION: real kinetics can rise by many sigma a
+    # step for many consecutive readings. NOT ONE of those steps may score as
+    # a gain -- this is exactly the failure mode `bubble_gains` exists to
+    # avoid, and it is why events are never merged across readings the way a
+    # fall's are.
+    fast = 0.02 + 0.06 * (1 - np.exp(-times / 300.0))
+    check("a smooth acceleration has no gain, at any step",
+          bubble_gains(times, fast, noise) == [],
+          f"{bubble_gains(times, fast, noise)}")
+
+    check("a clean curve has no gain",
+          bubble_gains(times, chemistry, noise) == [])
+
+    # apply_gains is the level shift alone, checked independent of detection.
+    shifted = apply_gains(step, [(30, 0.004)])
+    check("apply_gains lowers everything from its index on, and nothing "
+          "before it",
+          np.allclose(shifted[:30], step[:30])
+          and np.allclose(shifted[30:], step[30:] - 0.004))
+
+    # THE REAL CASE THE KINK TEST WAS BUILT FOR: exp 135 cuvette 5's jump at
+    # 9780 s, and exp 146 cuvette 4's jump near the end of its run -- a
+    # bubble that arrived and never left before the recording stopped, with
+    # no detachment anywhere on the curve.
+    archive_curves = {(c.experiment, c.sample): c
+                      for c in scope.curves(scope.archive())}
+    jump = archive_curves[(135, 5)]
+    found = bubble_gains(np.asarray(jump.times, dtype=float),
+                         np.asarray(jump.absorbance, dtype=float), jump.noise)
+    check("exp 135 cuvette 5's jump at 9780 s is a gain",
+          len(found) == 1 and jump.times[found[0][0]] == 9780.0, f"{found}")
+
+    holding = archive_curves[(146, 4)]
+    check("exp 146 cuvette 4 carries no detachment at all",
+          detachments(holding.absorbance, holding.noise) == [])
+    found = bubble_gains(np.asarray(holding.times, dtype=float),
+                         np.asarray(holding.absorbance, dtype=float),
+                         holding.noise)
+    check("but it does carry a gain, never watched to leave",
+          len(found) == 1, f"{found}")
+
+    # THE NEGATIVE CASE THE MERGE BUG PRODUCED: exp 144 cuvette 2 climbs
+    # 20-30 sigma a step for readings 29-42, real and smooth. Merged into one
+    # span the way a fall's consecutive candidates are, this scored as a
+    # single ~0.034 AU jump -- larger than any real gain found anywhere else
+    # in the block. Unmerged, no gain may fall inside that stretch.
+    fourteen = archive_curves[(144, 2)]
+    found = bubble_gains(np.asarray(fourteen.times, dtype=float),
+                         np.asarray(fourteen.absorbance, dtype=float),
+                         fourteen.noise)
+    check("exp 144 cuvette 2's real 14-reading acceleration is not a gain",
+          not any(29 <= index <= 43 for index, _ in found), f"{found}")
+    check("  and nothing on that curve is anywhere near that size",
+          all(gain < 0.01 for _, gain in found), f"{found}")
+
+    # THE SAME CURVE-LEVEL GATE AS `detachments`. exp 150 cuvette 1 sits
+    # below DETACHMENT_SNR_FLOOR, and the gate excludes it here for the
+    # identical reason -- a curve this weak cannot license a per-event call,
+    # rise or fall alike.
+    weak = archive_curves[(150, 1)]
+    check("exp 150 cuvette 1 carries no gain either, gated by the same "
+          "floor",
+          bubble_gains(np.asarray(weak.times, dtype=float),
+                      np.asarray(weak.absorbance, dtype=float),
+                      weak.noise) == [])
+
+
+def test_debubble_with_gains():
+    """
+    `debubble` folds `bubble_gains` on top of the falls model, and neither
+    guarantee the falls model already had may be weaker for it.
+
+    `worst_at_event` (every detachment corrected in full) and `gas_at_end`
+    being exactly the falls-component's own zero -- not the readings' or a
+    gain's -- are both PROVEN by construction of `unreleased_gas`, not merely
+    observed; this checks they still hold with gains folded in, over the
+    whole two-axis block and not just the curves that carry one.
+    """
+    print("\ndebubble with gains folded in")
+    worst_at_event = []
+    rebuilt_worst = np.inf
+    for curve in scope.curves(scope.TWO_AXIS_BLOCK):
+        times = np.asarray(curve.times, dtype=float)
+        values = np.asarray(curve.absorbance, dtype=float)
+        rebuilt, events = debubble(times, values, curve.noise)
+        for start, stop in events:
+            worst_at_event.append(
+                float(rebuilt[stop] - rebuilt[start]) / curve.noise)
+        if len(rebuilt) > 1:
+            rebuilt_worst = min(rebuilt_worst,
+                                float(np.diff(rebuilt).min()) / curve.noise)
+        gains = bubble_gains(times, values, curve.noise)
+        gain_total = sum(gain for _, gain in gains)
+        held_at_end = float(values[-1] - rebuilt[-1])
+        check(f"exp {curve.experiment} cuvette {curve.sample}: gas held at "
+              "the end is exactly its own gains, nothing from the falls "
+              "model",
+              abs(held_at_end - gain_total) < 1e-9,
+              f"{held_at_end:.6f} against {gain_total:.6f}")
+
+    # THE ONE DOCUMENTED EXCEPTION, unmoved: exp 135 cuvette 6's fall is in
+    # the first interval, and `bubble_rate` returns `inf` for it, so
+    # `debubble` leaves that curve untouched. Gains do not touch it either --
+    # there is no gain on that curve -- so the exception is exactly what it
+    # was before this function existed.
+    check("every detachment is corrected in full, except the one first-"
+          "interval case",
+          min(worst_at_event) > -9.62 and min(worst_at_event) < -9.60,
+          f"{min(worst_at_event):.4f}")
+
+    # THE MERGE BUG'S SIGNATURE: it turned exp 144 cuvette 2's real
+    # acceleration into a false gain that landed in the MIDDLE of a real
+    # detachment's span, producing a step far worse than any real excursion
+    # in the block. Unmerged, the worst step in any reconstruction is back to
+    # the excursion `_is_excursion` deliberately leaves alone.
+    check("no gain corrupts a real detachment's own step",
+          rebuilt_worst > -61.2 and rebuilt_worst < -61.0,
+          f"{rebuilt_worst:.4f}")
+
+
 if __name__ == "__main__":
     test_every_test_is_actually_run()
     test_the_runner_finds_every_gate()
@@ -1391,5 +1576,7 @@ if __name__ == "__main__":
     test_bubble_drop_sigma_enrichment()
     test_the_recovery_depth_extension()
     test_the_detachment_snr_floor()
+    test_bubble_gains()
+    test_debubble_with_gains()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

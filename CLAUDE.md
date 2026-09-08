@@ -468,8 +468,8 @@ Three things follow that are worth not re-deriving.
   1 and carry no measurable rate -- all four substrate rungs of exp 135, plus
   inner rungs of 138, 140, 141, 142, 149 and 150. They are FLAGGED, NOT EXCLUDED.
   The SUBSTRATE order moves under no repair, but the PEROXIDE order does --
-  +0.794 to +0.706 over all live and +0.871 to +0.768 over the strong runs,
-  0.8 and 1.2 sigma -- which is what an artefact made from peroxide requires.
+  +0.794 to +0.696 over all live and +0.871 to +0.756 over the strong runs,
+  0.9 and 1.2 sigma -- which is what an artefact made from peroxide requires.
   Do not repeat the older claim that no order moves.
 - **The early rise is counted by the CATALYST, not the substrate.**
   `curve_metrics.burst_amplitude` reads it off the FITTED CURVE, because the
@@ -554,7 +554,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   one regression -- `joint_peroxide_order` and `joint_buffer_order` are that
   function with the species filled in. Through the LANDMARK both blocks that
   can test it fall short (2.6σ and 3.7σ), and the rate is not first order in
-  peroxide either -- `peroxide_saturation` rejects a = 1 at F = 44 on the
+  peroxide either -- `peroxide_saturation` rejects a = 1 at F = 46 on the
   two-axis ladder. Do not assume "first order in H2O2": that is the
   *unsaturated* limit of the scheme, not a consequence of it.
 - **The +1 does not belong to the landmark, and the clock decides who can be
@@ -563,11 +563,13 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   `signal_control` or spans run lengths can still be asked through them.
   `joint_clocks` runs every clock on an axis BESIDE ITS CONTROL AXIS, and the
   control is the point: the +1 belongs to the activating species, so the
-  substrate axis must MISS it, and it does by 4.7σ to 8.7σ. On the two-axis
+  substrate axis must MISS it, and it does by 3.9σ to 8.5σ. On the two-axis
   block the two routes disagree -- the peroxide axis falls 3.7σ short through
-  the landmark, 2.0σ and 1.5σ through the fitted clocks. **Conclude nothing
+  the landmark, 2.0σ and 0.3σ through the fitted clocks. **Conclude nothing
   from that yet**: `tau_slow` is resolved on 34 of 110 live curves and the
-  estimate moves +0.65 to +0.81 across cuts. Pass `gate=` and not `floor=` for
+  estimate moves +0.87 to +1.26 across cuts -- straddling +1 rather than
+  falling short of it on every cut, but never far enough from it either side
+  to reject it there. Pass `gate=` and not `floor=` for
   a fitted clock -- a floor puts an unresolved constant ON the floor and calls
   it the fastest curve in the block.
 - **CORRECT THE CLOCK, NOT JUST THE RATE.** `vmax_corrected` sat beside `vmax`
@@ -578,11 +580,23 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   is MADE from peroxide, so it inflates the rate's order AND shortens the
   apparent clock, both pushing `d ln v - d ln tau` towards the +1 under test.
   Asked of the readings the block's `tau_slow` row sat 0.3σ from +1; asked of
-  the rebuilt curves, 1.5σ. `frame` now carries `tau_corrected`,
+  the FALLS-corrected curves, 1.4σ. `frame` now carries `tau_corrected`,
   `tau_slow_corrected` and their resolved flags, `joint_clocks` DEFAULTS to
   them, and `JOINT_CLOCKS_RAW` is kept so the difference can be shown. The
-  repair costs no resolution -- it buys some (62 to 68 and 25 to 34 curves),
+  repair costs no resolution -- it buys some (62 to 67 and 25 to 34 curves),
   because the artefact was what those fits could not pin.
+  **ADDED 2026-09-08: `bubble_gains` (below) moves this again, and back.**
+  The falls-only correction was itself part of what pushed `tau_slow` away
+  from +1 -- exp 135 cuvette 4 loses its resolved `tau_slow` once its own
+  gain is removed too, and exps 138 cuvette 2, 141 cuvette 4 and 146
+  cuvette 4 gain one, and asked of the fully-corrected curves the row is
+  back to 0.3σ from +1, matching the readings' own distance almost exactly.
+  The correction still touches individual curves -- 32 of 110 live curves'
+  `tau_slow` differs from `tau_slow_corrected`, 38 of 110 for `tau` -- and it
+  still tightens `tau`'s error (0.196 to 0.146); it does not tighten
+  `tau_slow`'s (0.261 to 0.366), because gains change WHICH curves resolve,
+  not only how many. See `data/test_scope.py::
+  test_the_clocks_are_corrected_like_the_rate`.
 - **That `+1` is not about H2O2.** It holds for ANY species held in excess that
   draws the catalyst into its active form, so it transfers to any axis the
   archive moves. On the BUFFER axis it is MET -- `joint_buffer_order` gives
@@ -659,7 +673,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   order machinery -- `induction.lag_orders` is a wrapper over it. One axis at a
   time is a different regression on an L: the two-axis block carries log[S]
   against log[H2O2] at about -0.5, and a substrate-only fit of the induction
-  clock reads -0.445 +/- 0.104 where the joint fit reads -0.219 +/- 0.111.
+  clock reads -0.385 +/- 0.102 where the joint fit reads -0.148 +/- 0.108.
 - **THE DEPTH IS NOT A BETWEEN-RUN STATISTIC AND THE CLOCK IS.**
   `scope.REPLICATE_RUNS` (exps 2, 4, 5, 7) is four repeats of ONE composition,
   the archive's only four-fold repeat: their depths run 0.388 to 1.000 and their
@@ -675,7 +689,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   the two-axis block's rate order in `[S]` is +0.09 over all 110 live curves
   (+0.01 over the strong runs -- the same flatness), so substrate buys no signal
   there (r = +0.04) and the clock's substrate order survives every control,
-  negative at every floor. The four pH ladders agree at **+0.16 to +0.34 per pH unit**
+  negative at every floor. The four pH ladders agree at **+0.16 to +0.33 per pH unit**
   (chi2 0.95 on 3) -- more alkaline, longer induction.
 - **A LAG IS TWO DIFFERENT THINGS ON THE TWO SUBSTRATES.** "The induction needs
   the catalyst" is a **4OMe** claim: 10 of 49 enzyme-free 4OMe curves show any

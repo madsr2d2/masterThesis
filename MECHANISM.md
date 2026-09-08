@@ -1171,18 +1171,18 @@ otherwise inflate the rate's order and shorten the clock, flattering the +1:
 | clock | curves | order in [H₂O₂] | from +1 | control, [S] |
 |---|---|---|---|---|
 | `t_ind`, windowed | 110 | +0.304 ± 0.188 | 3.7σ | 6.4σ |
-| `tau`, from the fit | 68 | +0.702 ± 0.146 | 2.0σ | 8.7σ |
-| `tau_slow`, from the fit | 34 | +0.646 ± 0.243 | 1.5σ | 6.8σ |
+| `tau`, from the fit | 67 | +0.713 ± 0.146 | 2.0σ | 8.5σ |
+| `tau_slow`, from the fit | 34 | +0.875 ± 0.366 | 0.3σ | 5.0σ |
 
 **The substrate axis is the control and it must miss**, because the alcohol is
 not the activating species and the clock carries no substrate order. It misses
-by 4.7σ to 8.7σ in every cut. A reading where both axes met +1 would be a
+by 3.9σ to 8.5σ in every cut. A reading where both axes met +1 would be a
 regression that had stopped discriminating rather than a mechanism.
 
 **Nothing is concluded from the peroxide column.** `tau_slow` is resolved on 34
 of 110 live curves and 23 of the 77 strong ones, and across cuts the estimate
-moves +0.65 to +0.81 — short of +1 everywhere and nowhere by enough to reject
-it. What the two axes together say is that *something* in excess activates the
+moves +0.87 to +1.26 — straddling +1 rather than falling short of it, but
+never far enough from it either side to reject it. What the two axes together say is that *something* in excess activates the
 catalyst, that the buffer meets the constraint where the peroxide does not, and
 that the archive cannot yet choose between them: `induction.peroxide_crossing`
 finds that of 88 runs, 53 step `[buf]`, 20 step `[H2O2]` and **0 step both**.
@@ -1231,7 +1231,7 @@ bounded algebra, 18–72 % engaged. Whatever the catalyst is waiting for, base
 holds it back and the alcohol pulls it forward.
 
 Two consequences for this document. The rate is **not** first order in H₂O₂ —
-`peroxide_saturation` rejects `a = 1` at F = 44 on the two-axis ladder — so step
+`peroxide_saturation` rejects `a = 1` at F = 46 on the two-axis ladder — so step
 4's pre-equilibrium is saturating, and "first order in H₂O₂" is the
 *unsaturated* limit of the scheme rather than a consequence of it. And every
 buffer order here is an order in **total** buffer: at one pH the acid, the base
