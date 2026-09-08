@@ -48,6 +48,7 @@ buffer/                     the buffer as reagent, confound and candidate
 MECHANISM.md                the 7-step mechanism, its reduction, and the evidence
 FITTING.md                  what has been fitted, and what the fits established
 COMPUTATIONAL.md            quantum-chemistry task register (C1, C5-C8 pending)
+BUBBLES.md                  the O2 artefact: the physics, and debubble/bubble_gains
 DATA_VERIFICATION.md        dated log of every check and every ruling
 computational/hellowater/   ORCA smoke test, proves the toolchain runs
 ```

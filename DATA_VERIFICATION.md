@@ -168,7 +168,8 @@ only raw progress fits. `data/test_curve_metrics.py` gained
 `two_axis/check_numbers.py` had their falls-only `gas_at_end == 0` and
 "clean curve" donor-set checks widened to also exclude gain-carrying curves,
 for the same reason `bubble_recovery`'s own donor filter now does. All 20
-fast gates and the slow optimiser suite pass.
+fast gates pass; the slow optimiser suite (`test_fit_kinetics.py`) was not
+run for this change and its result is not claimed.
 
 ---
 

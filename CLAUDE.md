@@ -585,7 +585,8 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   them, and `JOINT_CLOCKS_RAW` is kept so the difference can be shown. The
   repair costs no resolution -- it buys some (62 to 67 and 25 to 34 curves),
   because the artefact was what those fits could not pin.
-  **ADDED 2026-09-08: `bubble_gains` (below) moves this again, and back.**
+  **ADDED 2026-09-08: `bubble_gains` (`BUBBLES.md` has the full account) moves
+  this again, and back.**
   The falls-only correction was itself part of what pushed `tau_slow` away
   from +1 -- exp 135 cuvette 4 loses its resolved `tau_slow` once its own
   gain is removed too, and exps 138 cuvette 2, 141 cuvette 4 and 146
