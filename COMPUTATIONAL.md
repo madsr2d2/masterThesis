@@ -477,7 +477,8 @@ tell apart from it:
     K(O⁻)–OO–P   →  KD + P–O⁻             the dioxirane, and the buffer back
 
 It is the same shape as `MECHANISM.md`'s autocatalytic step with the buffer
-where the peracid stands, and it has a reason that is not kinetic: closing a
+where the peracid stands — now written into the mechanism itself as **step 6b**
+(added 2026-09-08) — and it has a reason that is not kinetic: closing a
 dioxirane from a Criegee adduct made of plain H₂O₂ means expelling **hydroxide**,
 and that is why the same chemistry elsewhere runs on peroxymonosulfate or a
 peracid instead. A buffer perhydrate would supply the leaving group the reaction

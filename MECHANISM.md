@@ -40,6 +40,8 @@ oxidation by H2O2 up to ~60,000-fold over background.
 | C1 | Cannizzaro-type tetrahedral adduct of A + HOO⁻ |
 | PBA | perbenzoic acid (peroxybenzoic acid) |
 | BA | benzoic acid |
+| P | the buffer's conjugate base (phosphate, pyrophosphate, etc. — see [Buffer chemistry](#buffer-chemistry--the-buffers-are-not-innocent)); not one fixed species, added 2026-09-08 |
+| P–OO⁻ | the buffer's own peroxo adduct ("buffer perhydrate", e.g. peroxymonophosphate), P–OOH deprotonated |
 
 ## The mechanism
 
@@ -120,6 +122,20 @@ autocatalytic kinetics):
    signal control fails. `induction/ANALYSIS.md` §7g.
 4. `K + H2O2 ⇌ KP` — the ketone forms its gem-diol hydroperoxide ("perhydrate")
    with H2O2.
+
+   **Ruled out, 2026-09-08: this pre-equilibrium is not what draws the
+   catalyst into its active form.** For any species X held in excess whose
+   BOUND form activates, `d ln τ/d ln[X] ∈ (−1, 0)` — more X, shorter
+   induction. H2O2 gives the opposite sign wherever it can be measured:
+   `+0.30` to `+0.45` directly (exps 127–131, the two-axis block) and, through
+   pH — which sets `[HOO⁻]` — `+0.12` to `+0.34` on all four of the archive's
+   pH ladders, pooled and agreeing at χ² = 0.95 on 3. That sign is what a
+   species holding the catalyst OFF the path requires, `(0, +1)`, not what an
+   activator requires. **The step itself is not excluded** — KP still forms —
+   only its role as the productive entry into activation is. Whether it
+   survives as an off-path trap (`COMPUTATIONAL.md` C8) is still open.
+   `induction/ANALYSIS.md` §4a–§4b and "What draws the catalyst into its
+   active form."
 5. `KP + S → K + A` — the perhydrate directly oxidizes the alcohol substrate to
    the aldehyde. Hypothesized as the slow, non-autocatalytic "seed" step that
    produces the first trace of A needed to start the autocatalytic loop, before
@@ -146,12 +162,60 @@ autocatalytic kinetics):
    produced in step 2 (not with H2O2/Oxone directly), forming a Criegee-type
    adduct that collapses by expelling benzoic acid as the leaving group and
    leaving a dioxirane at the former ketone carbon.
+
+   **Ruled out, 2026-09-08: this step's own threshold is not the induction
+   either, for the same reason step 5's is not.** PBA is a PRODUCT — it is
+   built up by steps 1–2 from accumulated A — so if reaching full turnover
+   waited on step 6, the induction would end at a fixed PBA/product level
+   across curves of different rates, not at a fixed TIME. It is the same
+   `−0.025 ± 0.109` against the `−1` a product threshold requires, the same
+   3.7σ read the other way (§0 above), and the same absence in every
+   enzyme-free 4OMe curve — a curve with no catalyst can build PBA by steps
+   1–3 but never reaches step 6. **Step 6 itself is not excluded as real
+   chemistry** — nothing here says PBA doesn't convert K to KD once product
+   exists — only its candidacy for timing the observed clock is.
+6b. `K + P-OO⁻ ⇌ K(O⁻)-OO-P → KD + P-O⁻` — the buffer's own peroxo adduct
+    (formed from H2O2 + the buffer's base form, e.g. `H2O2 + HPO4²⁻ ⇌
+    HOO-PO3²⁻ + H2O`) closes to the dioxirane by the same Criegee-type
+    displacement as step 6, expelling the buffer's conjugate base (phosphate,
+    pyrophosphate) as the leaving group instead of benzoate. *(Added
+    2026-09-08.)* Motivated the same way step 6 is: closing a dioxirane from a
+    Criegee adduct made of plain H2O2 means expelling **hydroxide**, a poor
+    leaving group (pKa of water ≈ 15.7 against benzoic acid's 4.2), which is
+    why this same chemistry elsewhere runs on peroxymonosulfate or a peracid
+    rather than H2O2 alone. Unlike step 6, this route needs **no product** and
+    is available from `t = 0` — a leaving-group-competent answer to the
+    question step 5 currently answers only by assertion (how turnover starts
+    before any PBA exists).
+
+    **What is NOT established.** This is a proposed addition, not a measured
+    step. `induction/ANALYSIS.md` §4a–§4b already shows the buffer axis, not
+    the peroxide axis, is what satisfies the pre-equilibrium constraint for
+    *something* drawing the catalyst into its active form — this step gives
+    that "something" a concrete identity — but the kinetics cannot separate a
+    general-base term (order in `[buf]` alone) from this buffer-perhydrate
+    term (order in `[buf][H2O2]`): they differ only by that interaction, and
+    **0 of the archive's 88 runs step both axes at once**
+    (`induction.peroxide_crossing`). `COMPUTATIONAL.md` C9 is the calculation
+    that would decide it — aqueous ΔG° of the phosphate/pyrophosphate
+    perhydrate equilibria and the closure barrier against step 6's own,
+    H2O2-only version — and it pre-registers the same prediction this step
+    makes: pyrophosphate should outperform phosphate as a buffer catalyst at
+    matched pH and matched peroxide, which is also the direction
+    `early_trough/ANALYSIS.md`'s buffer comparison already points (its
+    apparent binding rate constant runs roughly 6× higher in pyrophosphate).
+    The missing experiment is the same one C9 names: a buffer × peroxide grid
+    at one pH.
 7. `KD + S → K + A` — the dioxirane oxidizes the substrate's benzylic C–H bond,
    regenerating free ketone catalyst and producing a fresh molecule of A. Closes
    the catalytic cycle.
 
 Total catalyst is conserved: `[K] + [KP] + [KD] = [enz]0` throughout (no rate
 constant needed to enforce this — it falls out of steps 4–7 by construction).
+Step 6b adds no new catalyst state — it is a second route from `K` to `KD`,
+alongside step 6 — so this law and the reduction below are unaffected by its
+addition; it costs one new rate constant once (if ever) the reduction is
+extended to include it.
 **With step 0 the law is `[Kh] + [Kh⁻] + [K] + [KP] + [KD] = [enz]0`**, and the
 reduction below has not been redone under it: every fit in `FITTING.md` starts
 from a fully active catalyst at `t = 0`, which is the one thing the induction
@@ -644,7 +708,18 @@ benzoate a poor leaving group also makes the peroxyester a *better* substrate
 for anti-periplanar BV migration. No experimental or computational study
 comparing dioxirane-forming barriers across leaving groups appears to exist.
 
-**Step 7 (KD + S → K + A, dioxirane oxidizes the substrate).** Well precedented
+**Step 6b (K + P–OO⁻ ⇌ K(O⁻)–OO–P → KD + P–O⁻, a buffer perhydrate closing to
+the dioxirane).** *Added 2026-09-08, prompted by asking what supplies the
+leaving group before any PBA exists.* Not a new literature claim — it is
+step 6's own reasoning applied one link earlier in the chain. The leaving-group
+penalty above is exactly why a buffer whose conjugate base is a competent
+leaving group (phosphate, pyrophosphate) would matter here: phosphate's
+conjugate acid pKa's (≈2, 7, 12) bracket bisulfate's, so the same Bronsted
+argument that makes benzoate a weak leaving group for step 6 makes
+phosphate/pyrophosphate a plausible strong one for this step. `COMPUTATIONAL.md`
+C9 has the calculation and the four quantities that would settle it; nothing
+here is more than the same reasoning already applied to step 6, redirected at
+a different leaving group.
 by analogy to DMDO (dimethyldioxirane) chemistry: second-order kinetics
 (rate = k[ROH][dioxirane]) for benzylic-alcohol oxidation by dioxiranes are
 established, with KIE evidence (primary KIE ≈ 5.2 at the α-C–H) supporting a
@@ -1186,6 +1261,11 @@ never far enough from it either side to reject it. What the two axes together sa
 catalyst, that the buffer meets the constraint where the peroxide does not, and
 that the archive cannot yet choose between them: `induction.peroxide_crossing`
 finds that of 88 runs, 53 step `[buf]`, 20 step `[H2O2]` and **0 step both**.
+*(Step 6b, added 2026-09-08, is the concrete form "the buffer" takes here — a
+buffer perhydrate closing to the dioxirane, motivated independently by the
+leaving-group problem step 6 already solves with benzoate. It does not add a
+second thing this section can measure; the same crossing experiment decides
+it.)*
 
 **2026-09-05 — and the peroxide axis is not merely unresolved, it is
 unmeasurable here.** Every block in the archive that moves `[H2O2]` has the
@@ -1334,7 +1414,12 @@ signal starvation at the top rung were both excluded rather than assumed
   through the unwindowed clocks, 3.7 through the landmark). Taken at face value
   that says the buffer, not H2O2, is what E -> E* runs on -- which would make
   step 4 the wrong entry point and put a buffer adduct or a general-base
-  deprotonation ahead of it. Three things stop that being a conclusion. The
+  deprotonation ahead of it. **Step 6b (added 2026-09-08) gives the
+  buffer-adduct reading a concrete identity** -- a buffer perhydrate closing
+  directly to the dioxirane -- rather than leaving it as an unnamed
+  possibility; it does not resolve the choice between it and general-base
+  catalysis, which is exactly the ambiguity below. Three things stop that
+  being a conclusion. The
   buffer result is **eight curves**. Every buffer order in this project is an
   order in TOTAL buffer, so it cannot name the acid, the base, or a perhydrate
   of either. And `induction.peroxide_crossing` reports that of 88 runs, 53 step
