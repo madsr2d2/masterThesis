@@ -296,7 +296,7 @@ over all six and gets **77 ± 12 kJ/mol**, and the gate is met either way.
 **C7 now has two more numbers to hit, and they are signs rather than sizes.**
 The induction is *slowed by base* (`d ln τ/d pH = +0.16 to +0.34`, four ladders,
 three buffers, both substrates) and *hurried by the substrate* where the buffer
-is held fixed (`d ln τ/d ln[S] = −0.16 to −0.60`). A gem-diol hydrate whose
+is held fixed (`d ln τ/d ln[S] = −0.19 to −0.70`). A gem-diol hydrate whose
 conjugate base cannot dehydrate reproduces the first; a hydrophobic guest in the
 cavity shifting the hydration equilibrium reproduces the second. **So compute
 the hydrate's pK<sub>a</sub> as well as its ΔG° and barrier**: near 10 puts the
@@ -406,7 +406,7 @@ window a tenth of the run wide, and on exps 135–151 `signal_control` fails, so
 the landmark there is partly measuring the spectrophotometer. `tau` and
 `tau_slow` come from the progress fit instead and are subject to the same
 identity; asked of the O₂-corrected curves they fall **2.0σ and 1.5σ** short of
-+1 rather than 3.7, with the substrate control missing by 4.7–8.5σ as it must
++1 rather than 3.7, with the substrate control missing by 4.7–8.7σ as it must
 (`induction.joint_clocks`). Two consequences for C8. The measured shortfall that
 motivates the trap reading is **route-dependent**, so a calculation that lands
 on a modest K no longer has a 3.7σ discrepancy to explain, only a 1.5σ one. And
@@ -545,7 +545,7 @@ peroxide value.
 `MECHANISM.md` S4 establishes that something in the enzyme-containing cuvette
 catalyses `2 H₂O₂ → 2 H₂O + O₂`. The evidence is kinetic: the gas forms in the
 sample beam and not the reference, which omits only the enzyme (122 falls
-beyond 20σ against 23 rises); its production rate is **+1.473 ± 0.255 in
+beyond 20σ against 23 rises); its production rate is **+1.477 ± 0.258 in
 [H₂O₂] against −0.344 ± 0.093 in [S]** from a fit that never saw a
 concentration; and across the whole archive it appears with both substrates in
 three buffers, with a hard floor of zero detachments below pH 7.5. It is silent

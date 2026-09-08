@@ -327,11 +327,11 @@ Three things follow that are worth not re-deriving.
   **IT IS NOT A PROPERTY OF THE BLOCK, AND pH IS THE TRIGGER RATHER THAN
   PEROXIDE.** `scope.gas_curves` runs the same test over all 402 curves of 88
   experiments, keeping the ones that did NOT bubble because those are the
-  control. It appears with BOTH substrates -- 27 of 58 4OMe against 24 of 68
+  control. It appears with BOTH substrates -- 27 of 58 4OMe against 23 of 68
   BnOH, catalysed, above 40 mM and pH 8, in three buffers
   (`gas_substrate_control`), which is the prediction S4 makes since a catalyst
   decomposing peroxide involves no alcohol. And the archive's median [H2O2] is
-  82.5 mM with 278 of 402 curves above 80, of which only 37 chop: inside every
+  82.5 mM with 278 of 402 curves above 80, of which only 36 chop: inside every
   buffer the rate climbs with pH from a hard floor of ZERO detachments in 270
   hours below pH 7.5, over 23 experiments (`gas_survey`). Use `archive()` or
   `parse_scope("archive")` for the widest scope; nothing else in the project
@@ -377,7 +377,7 @@ Three things follow that are worth not re-deriving.
   **THE BUBBLE THAT NEVER LEFT IS BRACKETED, NOT EXCLUDED.** That price is now
   per curve. `curve_metrics.terminal_gas` bounds what the beam may still hold
   at the last reading -- the fitted rate over the quiet tail, capped by what the
-  tail rose -- and `scope.terminal_bubbles` is the table: 42 of 110 live curves
+  tail rose -- and `scope.terminal_bubbles` is the table: 41 of 110 live curves
   carry one, 12 above a fifth of their rise. The bound CANNOT tell a run that
   ended mid-bubble from one that stopped making gas, because it asks the rate
   and not the readings; `curve_metrics.tail_excess` can, and it is the tail's
@@ -410,7 +410,7 @@ Three things follow that are worth not re-deriving.
   9.3, 6.6, 8.2 and 6.0 sigma, the last two only candidates since the
   2026-09-07 threshold change -- and none is gas: the first falls 0.00206 and
   the next reading climbs 0.00222 back, and an unfiltered repair would have
-  removed 0.0046 AU from a curve that rose 0.0262. 37 of 257 candidate falls
+  removed 0.0046 AU from a curve that rose 0.0262. 27 of 243 candidate falls
   are rejected; two curves lose all of theirs and are returned untouched.
   **The recovery test was widened again on 2026-09-07**, this time to reach
   past the one adjacent reading it always checked: on the block's two
@@ -429,6 +429,24 @@ Three things follow that are worth not re-deriving.
   detachment and confirmed excursion is unmoved.
   `data/test_curve_metrics.py::test_the_recovery_depth_extension` is the
   check, and DATA_VERIFICATION.md 2026-09-07 has the sweep.
+  **Exp 150.1's remaining four did not survive further scrutiny, and no
+  per-event test could resolve them.** Every statistical refinement tried --
+  a second-difference local-noise estimate excluding every other candidate
+  fall on the curve, gated on having enough clean points to be trustworthy --
+  put real, already-confirmed detachments elsewhere in the block (exp 140.4's
+  (55,56), exp 142.4's densely-packed run) BELOW several confirmed excursions
+  on the same metric, so no per-event threshold separates them here. The
+  curve itself is the problem: net/noise 20.7, barely over `live`'s own 20,
+  against 27-143 for its sibling cuvettes. **`DETACHMENT_SNR_FLOOR = 30.0`**
+  excludes a curve's detachments entirely below that ratio, calibrated to a
+  real archive-wide gap -- nothing with a candidate fall sits between exp
+  150.1's 20.7 and exp 131's two cuvettes at 36.8-44.6, which are genuine
+  heavy bubblers (18 and 19 real detachments each) that the floor leaves
+  untouched, and whose own `bubble_load` (6.5-8.3) is as high as exp 150.1's
+  (5.4) -- load alone cannot tell them apart. The floor also catches one dead
+  curve's single mixing-transient candidate (exp 66.3, at the very start of
+  its run). `data/test_curve_metrics.py::test_the_detachment_snr_floor` is
+  the check.
   **`local_outlier_z` CANNOT be used for this**: its window spans the fall, so
   a genuine step flags itself (exp 135 cuvette 2's 0.1196 AU detachment scores
   +130). The test looks only at the two readings either side.
@@ -444,13 +462,13 @@ Three things follow that are worth not re-deriving.
   never bubbled. The ONE survivor is exp 135 cuvette 6, whose fall is in the
   first interval -- no rate explains a bubble grown before the run, and
   `debubble` returns that curve untouched.
-  **`gas_rate_drivers`**: the fitted rate is +1.473 +/- 0.255 in peroxide and
+  **`gas_rate_drivers`**: the fitted rate is +1.477 +/- 0.258 in peroxide and
   -0.344 +/- 0.093 in substrate, from a fit that never saw a concentration.
   **Read `bubble_load` before quoting a rate**: 14 of 110 live curves sit above
   1 and carry no measurable rate -- all four substrate rungs of exp 135, plus
   inner rungs of 138, 140, 141, 142, 149 and 150. They are FLAGGED, NOT EXCLUDED.
   The SUBSTRATE order moves under no repair, but the PEROXIDE order does --
-  +0.794 to +0.705 over all live and +0.871 to +0.768 over the strong runs,
+  +0.794 to +0.706 over all live and +0.871 to +0.768 over the strong runs,
   0.8 and 1.2 sigma -- which is what an artefact made from peroxide requires.
   Do not repeat the older claim that no order moves.
 - **The early rise is counted by the CATALYST, not the substrate.**
@@ -545,7 +563,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   `signal_control` or spans run lengths can still be asked through them.
   `joint_clocks` runs every clock on an axis BESIDE ITS CONTROL AXIS, and the
   control is the point: the +1 belongs to the activating species, so the
-  substrate axis must MISS it, and it does by 4.7σ to 8.5σ. On the two-axis
+  substrate axis must MISS it, and it does by 4.7σ to 8.7σ. On the two-axis
   block the two routes disagree -- the peroxide axis falls 3.7σ short through
   the landmark, 2.0σ and 1.5σ through the fitted clocks. **Conclude nothing
   from that yet**: `tau_slow` is resolved on 34 of 110 live curves and the
@@ -563,7 +581,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   the rebuilt curves, 1.5σ. `frame` now carries `tau_corrected`,
   `tau_slow_corrected` and their resolved flags, `joint_clocks` DEFAULTS to
   them, and `JOINT_CLOCKS_RAW` is kept so the difference can be shown. The
-  repair costs no resolution -- it buys some (62 to 67 and 25 to 34 curves),
+  repair costs no resolution -- it buys some (62 to 68 and 25 to 34 curves),
   because the artefact was what those fits could not pin.
 - **That `+1` is not about H2O2.** It holds for ANY species held in excess that
   draws the catalyst into its active form, so it transfers to any axis the
@@ -641,7 +659,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   order machinery -- `induction.lag_orders` is a wrapper over it. One axis at a
   time is a different regression on an L: the two-axis block carries log[S]
   against log[H2O2] at about -0.5, and a substrate-only fit of the induction
-  clock reads -0.439 +/- 0.106 where the joint fit reads -0.205 +/- 0.113.
+  clock reads -0.445 +/- 0.104 where the joint fit reads -0.219 +/- 0.111.
 - **THE DEPTH IS NOT A BETWEEN-RUN STATISTIC AND THE CLOCK IS.**
   `scope.REPLICATE_RUNS` (exps 2, 4, 5, 7) is four repeats of ONE composition,
   the archive's only four-fold repeat: their depths run 0.388 to 1.000 and their

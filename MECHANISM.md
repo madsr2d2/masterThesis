@@ -738,7 +738,7 @@ against the mechanism.
 
   **It is made from the peroxide and not from the alcohol.** The production rate
   is fitted from the timing and size of the detachments alone -- the fit never
-  sees a concentration -- and comes out **+1.473 +/- 0.255 in [H2O2]** against
+  sees a concentration -- and comes out **+1.477 +/- 0.258 in [H2O2]** against
   **-0.344 +/- 0.093 in [S]** (`scope.gas_rate_drivers`). First order in
   peroxide, weakly negative in substrate: a catalase-like disproportionation
   competing with the productive cycle for the same oxidant, and one the alcohol
@@ -1171,12 +1171,12 @@ otherwise inflate the rate's order and shorten the clock, flattering the +1:
 | clock | curves | order in [H₂O₂] | from +1 | control, [S] |
 |---|---|---|---|---|
 | `t_ind`, windowed | 110 | +0.304 ± 0.188 | 3.7σ | 6.4σ |
-| `tau`, from the fit | 67 | +0.704 ± 0.148 | 2.0σ | 8.5σ |
+| `tau`, from the fit | 68 | +0.702 ± 0.146 | 2.0σ | 8.7σ |
 | `tau_slow`, from the fit | 34 | +0.646 ± 0.243 | 1.5σ | 6.8σ |
 
 **The substrate axis is the control and it must miss**, because the alcohol is
 not the activating species and the clock carries no substrate order. It misses
-by 4.7σ to 8.5σ in every cut. A reading where both axes met +1 would be a
+by 4.7σ to 8.7σ in every cut. A reading where both axes met +1 would be a
 regression that had stopped discriminating rather than a mechanism.
 
 **Nothing is concluded from the peroxide column.** `tau_slow` is resolved on 34

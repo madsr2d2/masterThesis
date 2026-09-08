@@ -20,7 +20,7 @@ both is what this folder is.
 **Figures**: [`index.html`](index.html) is the presentation — ten figures, A
 to J, one per claim below. [`progress_curves.html`](progress_curves.html) carries
 all 119 cuvettes with the form each earned, which is the audit surface for
-every number here. The **48 curves carrying O₂ detachments** are drawn twice
+every number here. The **47 curves carrying O₂ detachments** are drawn twice
 there — the raw readings and the reconstruction, with a fit to each and a rule
 at every detachment — so a fit to the gas cannot pass for a fit to the reaction.
 A curve whose only falls were instrument excursions is drawn once, because
@@ -378,8 +378,8 @@ readings as two bubbles, gave the second a growth window of **zero seconds**,
 skipped it, and left the whole of it in place — −0.0165 AU at 60σ in exp 144
 cuvette 2.
 
-Both are gone. Over the block's **220 detachments**, every one is corrected in
-full: `scope.rebuild_smoothness`'s `worst_at_event` is zero or above on all 47
+Both are gone. Over the block's **216 detachments**, every one is corrected in
+full: `scope.rebuild_smoothness`'s `worst_at_event` is zero or above on all 46
 repairable curves. The single exception is exp 135 cuvette 6, whose fall is in
 the *first interval* — a bubble grown before the run began leaves no rise to
 date it from, no rate explains it, and `debubble` returns that curve untouched
@@ -387,7 +387,7 @@ rather than guessing.
 
 **`rebuilt_worst` is not the guarantee, and it should not be.** The
 reconstructions still fall by up to −61.1σ somewhere, and the curves doing that
-are behaving correctly: those are the **37 falls rejected as instrument
+are behaving correctly: those are the **27 falls rejected as instrument
 excursions**, which the gas model deliberately leaves where they are. The next
 section is why.
 
@@ -428,7 +428,7 @@ window spans the fall, so a genuine step change flags itself — exp 135 cuvette
 of 221 falls including every large one. The excursion test looks only at the
 two readings immediately either side, which no step change can make anomalous.
 
-Of 257 candidate falls, **37 are rejected** and 220 kept. **2 curves** lose all
+Of 243 candidate falls, **27 are rejected** and 216 kept. **2 curves** lose all
 of theirs and are returned exactly as they were read, exps 144.7 and 149.5
 among them. Nothing is deleted: an excursion stays in the readings, visible as
 the instrument problem it is, and `isolated_outliers` is what nominates those.
@@ -453,14 +453,13 @@ Capping the tail at the most the beam had carried *bounded* that without curing
 it, and the residue was visible by eye on this page: exp 149 cuvette 3 sheds
 0.0022 AU once at 5100 s, runs on for another **23 580 s with nothing leaving**,
 and the reconstruction sat that flat 0.0022 AU below its own readings for 82% of
-the run — under a last arm that shows no sign of a bubble at all. Exp 150
-cuvette 1 sat below its readings by **99% of everything it rose**.
+the run — under a last arm that shows no sign of a bubble at all.
 
 **The readings themselves refute the gas that was being subtracted.** If exp 149
 cuvette 4 had gone on making gas at its fitted rate, the tail would have carried
-0.0736 AU of it; that tail rises 0.0041 in total. On **16 of the 47** repairable
+0.0736 AU of it; that tail rises 0.0041 in total. On **15 of the 46** repairable
 curves the rate would have made more gas over the quiet tail than the trace rose
-altogether, and a bubble that keeps growing detaches — **13 of 47** ran more
+altogether, and a bubble that keeps growing detaches — **12 of 46** ran more
 than a full shedding interval past their last detachment without one
 (`curve_metrics.quiet_tail`; exps 149.4 at 14.4, 146.1 at 6.9, 146.3 at 5.9,
 149.2 at 5.7). Those runs stopped making gas, and the last thing they did was
@@ -495,7 +494,7 @@ faster than at any earlier point in the run.
 `scope.terminal_bubbles` measures what is left in. The bound is what the fitted
 rate would have made since the last detachment, capped by what the tail
 actually rose — gas may not be taken off faster than the trace climbed
-(`curve_metrics.terminal_gas`). **42 of the 110 live curves** carry
+(`curve_metrics.terminal_gas`). **41 of the 110 live curves** carry
 one, **12** of them more than a fifth of everything they rose.
 
 | curve | load | bound, AU | of its rise | tail excess, AU/s | ÷ its own gas rate |
@@ -515,8 +514,8 @@ run that stopped hands back one that is not: exp 140 cuvette 4's tail runs
 7.6e-05 AU/s faster, which is 127% of that curve's own fitted gas rate, while
 exp 149 cuvette 4's runs **slower**. Of the 25 curves with a positive excess
 the median is **1.23** of their own rate — the statistic recovers the gas rate
-it never saw. And the long silences line up with the quiet ones: of the **10**
-curves that ran more than two shedding intervals without a detachment, **9**
+it never saw. And the long silences line up with the quiet ones: of the **9**
+curves that ran more than two shedding intervals without a detachment, **8**
 come back negative, which is `unreleased_gas` being simply right on them.
 
 `curve_metrics.tail_excess`, and it is **one-sided**. A curve's own curvature
@@ -551,8 +550,8 @@ The production rate is read off the timing and size of the detachments alone —
 **the fit never sees a concentration** — so what it correlates with is a
 prediction the gas argument makes rather than a parameter it was given.
 
-It is **first order in peroxide, +1.473 ± 0.255** over the 47 live curves that
-carry one, 5.8σ from zero and within 2σ of exactly first order. That is the
+It is **first order in peroxide, +1.477 ± 0.258** over the 46 live curves that
+carry one, 5.7σ from zero and within 2σ of exactly first order. That is the
 catalysed decomposition of H₂O₂, measured a second and independent way: the
 ladder above shows detachments get *more common* with peroxide, and this shows
 the gas is made *faster*, in proportion.
@@ -669,13 +668,13 @@ bubble, because those are the control.
 | substrate | curves | detaching | experiments | buffers | events/h |
 |---|---|---|---|---|---|
 | 4OMe-BnOH | 58 | **27** | 16 | 3 | 1.12 |
-| BnOH | 68 | **24** | 17 | 3 | 1.41 |
+| BnOH | 68 | **23** | 17 | 3 | 1.40 |
 
 So the chop is not benzyl alcohol's business and not this block's.
 
 **And peroxide is not the trigger this block made it look like.** The archive's
 median [H₂O₂] is **82.5 mM** and **278 of 402** curves sit above 80 — if
-peroxide alone did it, most of the archive would chop, and only **37 of those
+peroxide alone did it, most of the archive would chop, and only **36 of those
 278** do. The discriminator is pH, and it holds *inside each buffer*
 (`scope.gas_survey`, catalysed, ≥ 40 mM, detachment events per hour of run):
 
@@ -683,7 +682,7 @@ peroxide alone did it, most of the archive would chop, and only **37 of those
 |---|---|---|---|
 | phosphate | **0 in 250.8 h** (80 curves, 20 exps) | 0 in 33.1 h | 0.301 |
 | pyrophosphate | 0 in 18.9 h | 1.507 | 4.499 |
-| boric | — | 0 in 2.9 h | 1.070 |
+| boric | — | 0 in 2.9 h | 1.060 |
 
 **Zero detachments in 270 hours of catalysed, high-peroxide running below
 pH 7.5**, over 23 experiments, is the strongest single statement this archive
@@ -782,9 +781,9 @@ manufacture a flat substrate order. `scope.bubble_sensitivity`:
 | `vmax` from | n | order in [S] | order in [H₂O₂] |
 |---|---|---|---|
 | the readings | 110 | +0.091 ± 0.052 | +0.794 ± 0.077 |
-| the reconstruction | 110 | +0.098 ± 0.047 | **+0.705 ± 0.069** |
+| the reconstruction | 110 | +0.098 ± 0.047 | **+0.706 ± 0.069** |
 | the monotone bound | 110 | +0.141 ± 0.049 | +0.770 ± 0.072 |
-| the reconstruction, terminal bubble charged to gas | 110 | +0.123 ± 0.049 | +0.707 ± 0.072 |
+| the reconstruction, terminal bubble charged to gas | 110 | +0.124 ± 0.049 | +0.707 ± 0.072 |
 | readings, load ≤ 1 only | 96 | +0.093 ± 0.057 | +0.750 ± 0.081 |
 
 **The substrate order does not move** under any repair — by less than the two
@@ -793,7 +792,7 @@ estimates' errors combined every time — and under the monotone bound it moves
 since the artefact could only have flattened it. §2 stands.
 
 **The peroxide order does move.** The reconstruction takes it from +0.794 to
-+0.705, and on the strong runs alone from +0.871 to +0.768 — about 0.10 either
++0.706, and on the strong runs alone from +0.871 to +0.768 — about 0.10 either
 way, which is 0.8σ and 1.2σ of the two estimates' errors combined and the
 largest shift any repair here produces. That is not the repair failing, it is
 the repair working: the gas is *made from peroxide*, so an uncorrected artefact
@@ -854,13 +853,13 @@ inflates the rate's peroxide order and shortens the apparent clock, and both
 push `d ln v − d ln τ` towards the +1 being tested. Asked of the readings the
 `tau_slow` row sits 0.3σ from +1; asked of the rebuilt curves, 1.5σ. Taking the
 gas out costs no resolution either — it buys some, because the artefact was what
-some of those fits could not pin: 62 to 67 curves for `tau` and 25 to 34 for
+some of those fits could not pin: 62 to 68 curves for `tau` and 25 to 34 for
 `tau_slow`, with smaller errors throughout.
 
 | clock | window | curves | order in [H₂O₂] | from +1 | control, [S] |
 |---|---|---|---|---|---|
 | `t_ind` | a tenth of the run | 110 | +0.304 ± 0.188 | 3.7σ | 6.4σ |
-| `tau` | none, from the fit | 67 | +0.704 ± 0.148 | 2.0σ | 8.5σ |
+| `tau` | none, from the fit | 68 | +0.702 ± 0.146 | 2.0σ | 8.7σ |
 | `tau_slow` | none, from the fit | 34 | **+0.646 ± 0.243** | **1.5σ** | 6.8σ |
 
 *(all 110 live curves, rebuilt; the fitted clocks are gated on being resolved.
@@ -875,7 +874,7 @@ window it falls 2.0σ and 1.5σ short. Over the strong runs alone `tau` gives
 **The substrate axis is the control, and it is the reason any of this counts.**
 The +1 belongs to the species that draws the catalyst into its active form; the
 alcohol does not, and the clock carries no substrate order, so that axis must
-*miss*. It does, in every cut — by 4.7σ to 8.5σ. A reading of this table where
+*miss*. It does, in every cut — by 4.7σ to 8.7σ. A reading of this table where
 both axes met +1 would be a regression that had stopped discriminating.
 
 **No conclusion is drawn from it, and the reason is the count.** `tau_slow` is

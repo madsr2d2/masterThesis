@@ -850,8 +850,36 @@ def monotone_bound(values):
 BUBBLE_RECOVERY_FRACTION = 0.5
 
 
+# Below this net/noise ratio, a curve's OWN detachments are not trusted, no
+# matter what shape they carry. `_is_excursion`'s per-event tests -- recovery
+# against the drop's own size, against a local baseline, extended in depth --
+# all rest on the premise that a curve's noise is characterised well enough
+# for "anomalous" to mean something. On exp 150 cuvette 1 (net/noise 20.7,
+# barely over `live`'s own 20) it is not: local noise in the stretches its
+# candidate falls sit in runs up to 5x the curve's GLOBAL noise estimate, and
+# every per-event test tried -- recovery depth, capped or not, local noise
+# computed with every other candidate excluded -- either missed the noise or
+# caught real gas elsewhere, because a curve this weak puts real detachments
+# and noise excursions at the same size relative to what the instrument can
+# resolve THERE. No per-event statistic can rescue that; the curve itself has
+# to be excluded from the presence question, the way `bubble_load` already
+# excludes curves like it from the rate question.
+#
+# 30.0 is not fit to exp 150 cuvette 1 -- it sits in a genuine gap. Sorted by
+# net/noise, every curve in the archive that carries a candidate fall is
+# either at 20.7 or below (exp 150 cuvette 1 and one dead curve, exp 66
+# cuvette 3) or at 36.8 or above (every other one, including exp 131 cuvettes
+# 1-2 at 36.8-44.6, whose candidate falls are real and dense -- 18 and 19 of
+# them, on a curve whose own bubble_load, 6.5-8.3, is as high as exp 150
+# cuvette 1's 5.4, so bubble_load alone cannot tell them apart). Nothing sits
+# between 20.7 and 36.8. `data/test_curve_metrics.py::
+# test_the_detachment_snr_floor` is the sweep, and DATA_VERIFICATION.md
+# 2026-09-07 has it.
+DETACHMENT_SNR_FLOOR = 30.0
+
+
 def detachments(values, noise, sigma=BUBBLE_DROP_SIGMA,
-                recovery=BUBBLE_RECOVERY_FRACTION):
+                recovery=BUBBLE_RECOVERY_FRACTION, floor=DETACHMENT_SNR_FLOOR):
     """
     The falls of `bubble_drops`, grouped into events: `(start, stop)` index
     pairs, where the reading falls from `start` to `stop`.
@@ -865,11 +893,22 @@ def detachments(values, noise, sigma=BUBBLE_DROP_SIGMA,
     seconds, skipped it, and left the whole of it in the corrected curve --
     -0.0165 AU at 60 sigma on exp 144 cuvette 2, and -0.0200 at 29 sigma on
     exp 140 cuvette 4.
+
+    A curve whose net/noise sits below `floor` carries none, regardless of
+    what `bubble_drops` finds on it -- see `DETACHMENT_SNR_FLOOR` above.
+    `floor` is a parameter (not baked in) so a test can isolate the
+    excursion machinery from the curve-level gate, the way `sigma` and
+    `recovery` already let it isolate the other two.
     """
+    values = np.asarray(values, dtype=float)
+    if len(values) < 2 or not np.isfinite(noise) or noise <= 0:
+        return []
+    net = float(values[-1] - values[0])
+    if net / noise < floor:
+        return []
     drops = bubble_drops(values, noise, sigma=sigma)
     if not len(drops):
         return []
-    values = np.asarray(values, dtype=float)
     events = []
     start = previous = int(drops[0])
     for index in drops[1:]:

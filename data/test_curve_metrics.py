@@ -17,6 +17,7 @@ import sys
 import numpy as np
 
 from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
+                           DETACHMENT_SNR_FLOOR,
                            EXCURSION_RECOVERY_CEILING,
                            EXCURSION_RECOVERY_DEPTH,
                            INITIAL_WINDOW, LAG_THRESHOLD,
@@ -1156,7 +1157,10 @@ def test_bubble_drop_sigma_enrichment():
         values = np.asarray(curve.absorbance, dtype=float)
         noise = curve.noise
         key = (curve.experiment, curve.sample)
-        events = detachments(values, noise, sigma=OLD_CUTOFF)
+        # floor=0: this sweep is about the SIGMA cutoff alone, from before
+        # DETACHMENT_SNR_FLOOR existed -- `test_the_detachment_snr_floor` is
+        # where exp 150 cuvette 1's own exclusion is checked.
+        events = detachments(values, noise, sigma=OLD_CUTOFF, floor=0)
         (bubbling if events else clean).add(key)
         covered = set()
         for start, stop in events:
@@ -1225,12 +1229,15 @@ def test_the_recovery_depth_extension():
     def get(experiment, sample):
         return archive_curves[(experiment, sample)]
 
-    # The two curves the extension was built for.
+    # The two curves the extension was built for. Isolated from
+    # DETACHMENT_SNR_FLOOR (floor=0) so this checks the depth extension on
+    # its own -- the floor's own effect on exp 150 cuvette 1's remaining
+    # four is `test_the_detachment_snr_floor`'s.
     weak_before, weak_after = {}, {}
     for experiment, sample in ((151, 6), (150, 1)):
         curve = get(experiment, sample)
         weak_before[(experiment, sample)] = detachments(
-            curve.absorbance, curve.noise, sigma=BUBBLE_DROP_SIGMA)
+            curve.absorbance, curve.noise, sigma=BUBBLE_DROP_SIGMA, floor=0)
     check("exp 151 cuvette 6 no longer carries any detachment",
           weak_before[(151, 6)] == [], f"{weak_before[(151, 6)]}")
     check("exp 150 cuvette 1 keeps four of its eight",
@@ -1245,7 +1252,7 @@ def test_the_recovery_depth_extension():
     for (experiment, sample), count in pinned_real.items():
         curve = get(experiment, sample)
         events = detachments(curve.absorbance, curve.noise,
-                             sigma=BUBBLE_DROP_SIGMA)
+                             sigma=BUBBLE_DROP_SIGMA, floor=0)
         check(f"exp {experiment} cuvette {sample} keeps its {count} "
               f"real detachments",
               len(events) == count, f"{len(events)}: {events}")
@@ -1281,6 +1288,88 @@ def test_the_recovery_depth_extension():
           _is_excursion(values, event, ceiling=1e9), "")
 
 
+def test_the_detachment_snr_floor():
+    """
+    Why `DETACHMENT_SNR_FLOOR` exists: exp 150 cuvette 1's remaining four
+    "detachments" survived every per-event test tried against them --
+    recovery depth, capped or not, local noise computed with every other
+    candidate fall excluded -- because a curve this weak (net/noise 20.7,
+    barely over `live`'s own 20) puts real gas and noise excursions at the
+    same size relative to what its own noise estimate can resolve. No
+    per-event statistic can tell them apart there; the curve itself has to
+    be excluded from the presence question.
+
+    Kept as a check, not a one-off calculation, so the archive-wide gap the
+    floor sits in cannot silently close.
+    """
+    print("\nwhy DETACHMENT_SNR_FLOOR is 30, not fit to one curve")
+    archive_curves = {(c.experiment, c.sample): c
+                      for c in scope.curves(scope.archive())}
+
+    def get(experiment, sample):
+        return archive_curves[(experiment, sample)]
+
+    # The curve the floor was built for loses all four of its remaining
+    # candidates; the real detachments already validated against every other
+    # test in this file are untouched.
+    weak = get(150, 1)
+    check("exp 150 cuvette 1 carries none",
+          detachments(weak.absorbance, weak.noise, sigma=BUBBLE_DROP_SIGMA)
+          == [], "")
+    weak_snr = float(weak.absorbance[-1] - weak.absorbance[0]) / weak.noise
+    check("  and it sits below the floor",
+          weak_snr < DETACHMENT_SNR_FLOOR, f"{weak_snr:.1f}")
+
+    pinned_real = {
+        (143, 3): 3, (149, 1): 1, (135, 2): 15, (144, 2): 4, (140, 4): 7,
+        (135, 1): 19, (139, 2): 3, (130, 2): 6,
+    }
+    for (experiment, sample), count in pinned_real.items():
+        curve = get(experiment, sample)
+        events = detachments(curve.absorbance, curve.noise,
+                             sigma=BUBBLE_DROP_SIGMA)
+        check(f"exp {experiment} cuvette {sample} still keeps its "
+              f"{count} real detachments", len(events) == count,
+              f"{len(events)}: {events}")
+
+    # THE GAP THE FLOOR SITS IN. Two curves that are genuinely heavy, dense
+    # bubblers -- exp 131 cuvettes 1 and 2, whose own bubble_load (6.5 and
+    # 8.3) is as high as exp 150 cuvette 1's (5.4), so load alone cannot
+    # separate them -- sit at net/noise 36.8-44.6 and keep every one of
+    # their 18 and 19 detachments. Nothing in the archive sits between the
+    # weak curve's 20.7 and the heavy bubblers' 36.8.
+    for experiment, sample, count in ((131, 1, 18), (131, 2, 19)):
+        curve = get(experiment, sample)
+        events = detachments(curve.absorbance, curve.noise,
+                             sigma=BUBBLE_DROP_SIGMA)
+        check(f"exp {experiment} cuvette {sample}, a genuine heavy "
+              f"bubbler, keeps all {count}",
+              len(events) == count, f"{len(events)}")
+        snr = float(curve.absorbance[-1] - curve.absorbance[0]) / curve.noise
+        check("  well above the floor", snr > DETACHMENT_SNR_FLOOR,
+              f"{snr:.1f}")
+
+    # THE GAP ITSELF, over every curve in the archive that carries even a
+    # CANDIDATE fall (bubble_drops, before the excursion test or the floor
+    # are applied) -- the widest population the floor could possibly matter
+    # to, not just the ones that end up confirmed.
+    candidate_snrs = []
+    for curve in archive_curves.values():
+        if not len(bubble_drops(curve.absorbance, curve.noise,
+                                sigma=BUBBLE_DROP_SIGMA)):
+            continue
+        net = float(curve.absorbance[-1] - curve.absorbance[0])
+        if curve.noise > 0 and np.isfinite(net):
+            candidate_snrs.append(net / curve.noise)
+    candidate_snrs.sort()
+    below = [s for s in candidate_snrs if s < DETACHMENT_SNR_FLOOR]
+    above = [s for s in candidate_snrs if s >= DETACHMENT_SNR_FLOOR]
+    check("the floor sits in a real gap, not a hand-picked line",
+          bool(below) and bool(above) and max(below) < DETACHMENT_SNR_FLOOR
+          <= min(above),
+          f"{max(below):.1f} < {DETACHMENT_SNR_FLOOR} <= {min(above):.1f}")
+
+
 if __name__ == "__main__":
     test_every_test_is_actually_run()
     test_the_runner_finds_every_gate()
@@ -1301,5 +1390,6 @@ if __name__ == "__main__":
     test_the_bubble_the_run_never_shed()
     test_bubble_drop_sigma_enrichment()
     test_the_recovery_depth_extension()
+    test_the_detachment_snr_floor()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

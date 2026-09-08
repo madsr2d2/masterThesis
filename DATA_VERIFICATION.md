@@ -8,6 +8,116 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-07 — exp 150.1's remaining four "detachments" were never resolvable per-event; `DETACHMENT_SNR_FLOOR` excludes the curve instead
+
+The depth-extension fix earlier today (previous entry) reduced exp 150.1 from
+8 candidate falls to 4 and exp 151.6 to 0. Asked whether the remaining 4 on
+150.1 were still misclassified noise, inspection showed the same signature as
+before: neighbourhoods that oscillate by comparable amounts on *both* sides of
+the flagged step, not a clean dip. The recovery-depth test missed them because
+its baseline (`_local_step_scale`, the median step size nearby) is itself
+inflated by the same local noise it is supposed to be judging the recovery
+against — on a curve this weak, "ordinary" already means "noisy."
+
+**Every per-event refinement tried failed to separate them from real gas
+elsewhere in the archive.** A second-difference local-noise estimate (the same
+estimator `curve.noise` uses, computed on a window that excludes every OTHER
+candidate fall nearby, not just the current one, with a minimum clean-point
+count so curves with densely-packed real detachments don't contaminate their
+own estimate) put exp 140.4's already-validated real detachment at (55,56)
+*below* three confirmed excursions on the same metric, and put exp 150.1's
+noise events in the same contested band as several real ones. Two other
+amplitude-based candidates (net/noise directly, and cumulative positive
+movement) were tried and rejected before this: net/noise is confounded by
+heavy real bubbling (exp 131's two cuvettes have modest net/noise, 36.8 and
+44.6, purely because their extensive real bubbling suppresses the net reading,
+not because the curves are weak), and cumulative positive movement rewards
+noise directly (a curve that oscillates racks up "positive movement" from every
+up-swing, so 150.1 and 151.6 score *higher* on it than exp 131's genuine heavy
+bubblers). No per-event statistic can rescue a curve at this SNR; the ambiguity
+is in the curve, not in any one fall.
+
+**The fix is a curve-level gate, not another per-event test.**
+`DETACHMENT_SNR_FLOOR = 30.0`: `detachments()` returns nothing for a curve
+whose net/noise sits below it, regardless of what `bubble_drops` finds,
+before `_is_excursion` is ever consulted. The floor sits in a real gap:
+archive-wide, every curve carrying even a candidate fall is either at 20.7 or
+below (exp 150.1, and one dead curve, exp 66.3) or at 36.8 or above (every
+other one). Exp 131's two cuvettes anchor the top of that gap deliberately —
+their own `bubble_load` (6.5 and 8.3) is as high as exp 150.1's (5.4), so
+`bubble_load` alone cannot tell a genuine heavy bubbler from a weak, noisy
+curve; net/noise, at this specific cutoff, can. Nothing between 20.7 and 36.8
+exists to test the boundary further. `floor` is a parameter on `detachments()`
+(default `DETACHMENT_SNR_FLOOR`), not a hidden constant, so tests of the
+recovery-depth extension and the `BUBBLE_DROP_SIGMA` sweep could keep isolating
+their own mechanism (`floor=0`) rather than being reread through this one too.
+`data/test_curve_metrics.py::test_the_detachment_snr_floor` is the check.
+
+**Archive-wide scope: exactly two curves, confirmed by comparing against every
+pinned real detachment and confirmed excursion in the codebase** (exps 143.3,
+149.1, 135.2, 144.2, 140.4, 135.1, 139.2, 130.2, and — specifically added as
+counter-examples for this fix — exp 131's two heavy-bubbling cuvettes, all
+unmoved). Exp 150.1 loses its remaining 4 (now 0 of 8 original candidates
+survive, matching exp 151.6's 0 of 2). Exp 66.3 — not part of the two-axis
+block, not `live`, and already carrying only one candidate fall at the very
+first reading of its run (a mixing transient, not gas) — loses its 1. Total
+detachments archive-wide: 379 → 374.
+
+**Two-axis block.** Detachments 220 → 216, excursions 37 → 27, candidate falls
+257 → 243 (only exp 150.1's own candidates leave the pool; nothing else in the
+block moves). The fitted gas rate moves to +1.477 ± 0.258 in [H₂O₂] (was
++1.473 ± 0.255); the peroxide order under reconstruction moves +0.794 → +0.706
+(was → +0.705), unchanged at 0.8σ; strong runs are untouched (`strong_runs()`
+already excludes exps 149–151). The `tau` joint-clock row gains a curve
+(67 → 68) at +0.702 ± 0.146, missing +1 by 8.7σ through the substrate control
+(was 8.5σ) — `tau` is a per-curve resolved flag on the fitted clock, not tied
+only to exp 150.1's own correction, so removing that correction can resolve a
+fit elsewhere in the block that previously wasn't; `tau_slow`'s row
+(34 curves) is unchanged.
+`terminal_bubbles` falls from 42 to 41 curves. `gas_substrate_control`'s BnOH
+row falls from 24 of 68 to 23 of 68 — entirely exp 66.3, since exp 150.1 sits
+below the survey's own 40 mM/pH 8 cut regardless of this fix — and the
+archive-wide "37 of 278 curves above 80 mM chop" becomes "36 of 278" for the
+same reason. `two_axis/ANALYSIS.md`'s full 240 claims pass; `two_axis/
+index.html` and `progress_curves.html` were rebuilt.
+
+**Induction side moves further than the depth-extension fix did, because
+removing exp 150.1's correction entirely is a bigger change than reducing it
+from 8 events to 4.** Most of `induction/ANALYSIS.md`'s two-axis-derived
+numbers land close to (not identical to) their values from *before* today's
+depth-extension fix, which makes sense: a curve with no correction at all is
+closer to "as read" than one with a partial correction. The BnOH-catalysed lag
+count returns to 75 of 164 (was 76 after the depth-extension fix, 75 before
+it — net no change from where the day started). The two-axis clock's
+within-run orders, its own signal control, the single-axis substrate fit, the
+floor sweep, and route one all move back to within a few hundredths of their
+pre-depth-extension values. **New this round:** §7e's four-pH-ladder table
+moves too, which the depth-extension fix did not touch — the BnOH pyrophosphate
+143–151 ladder's signal collinearity crosses the 0.8 threshold that triggers
+its own bold marker (0.79 → 0.85), its held clock coefficient moves to
++0.413 ± 0.184, and the pooled coefficient across all four ladders moves to
++0.343 ± 0.130 (χ² = 0.99 on 3, was 0.95) — the quoted range, **+0.16 to
++0.34**, is unchanged, since the window-sweep values it's built from (+0.156
+and +0.192 at 0.75× and 0.5× the shared window) don't move. `induction/
+ANALYSIS.md`'s full 216 claims pass; `induction/index.html` was rebuilt
+(`progress_curves.html` came out byte-identical again, as it did for both
+earlier fixes today — it draws only raw progress fits).
+
+**Nothing published changes direction.** Cross-references in `MECHANISM.md`,
+`FITTING.md`, `COMPUTATIONAL.md` and `CLAUDE.md`'s own quoted figures were
+updated to match, including the pH-ladder-range and single-axis-fit bullets
+that the depth-extension fix had moved and this fix moved back. One piece of
+prose, not covered by any check, was corrected while in the neighbourhood:
+`two_axis/ANALYSIS.md` named exp 150 cuvette 1 as an example of a reconstruction
+sitting 99% below its own readings (illustrating why `unreleased_gas` was
+needed, from before either of today's fixes existed) — exp 150.1 now carries
+no reconstruction at all, so the claim is no longer demonstrable from the
+current code, and the sentence was removed rather than left to describe a
+curve that no longer illustrates it. All 20 fast gates and the slow optimiser
+suite pass.
+
+---
+
 ## 2026-09-07 — `_is_excursion` reached only one reading for a recovery; exps 150.1 and 151.6's weakest falls were noise, not gas
 
 Asked whether two of the two-axis block's weakest curves — exp 150.1 and exp
