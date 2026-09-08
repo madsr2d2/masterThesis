@@ -313,12 +313,30 @@ detachments), which a single bubble emptying each time cannot produce.
 `bubble_rate` fixes the one free parameter by bisection (`BISECTION_ROUNDS`
 = 80 halvings) to the *least* rate that pays for every detachment in full
 (`bubble_shortfall(...) ≤ 0`) — an upper bound on what continuous production
-this model can justify, never an inflated one. `gas_rate_drivers` gives the
-fitted rate's own concentration dependence, from a fit that never sees a
-curve's actual concentrations: **+1.477 ± 0.258 in peroxide, -0.344 ± 0.093
-in substrate** — first-order-ish in the oxidant and mildly *negative* in
-substrate, consistent with a side reaction of the peroxide rather than of the
-alcohol.
+this model can justify, never an inflated one. This fit is entirely
+per-curve and entirely blind to composition: it sees only that one curve's
+own detachment timing and sizes, never its `[S]`, `[H2O2]` or anything else
+about what was in the cuvette.
+
+**That blindness is what makes `gas_rate_drivers` an independent check, and
+it works by pooling the fitted rate across many runs, not by fitting it
+across them.** Each of the 46 detaching, rate-bearing curves in the block
+already carries its own `bubble_rate` — one number, fit in isolation from
+that curve's readings alone. `gas_rate_drivers` takes that whole set of 46
+independently-fit numbers and regresses *them*, as data, against each
+curve's own `[S]` and `[H2O2]` — the composition step happens entirely
+*after* the per-curve fitting, on quantities the fitting itself never saw.
+If the block's artefact really is the catalysed decomposition of the
+peroxide, a rate measured this way — one curve's optical evidence at a time,
+concentration-blind — should still come out first order in peroxide and
+flat or negative in substrate once regressed across the runs that carry it.
+It does: **+1.477 ± 0.258 in peroxide, -0.344 ± 0.093 in substrate** —
+first-order-ish in the oxidant, mildly *negative* in substrate, exactly the
+signature of a side reaction competing for the same catalyst rather than one
+that consumes the alcohol. This is the strongest independent support the gas
+argument has, because nothing about how each curve's own rate was fit could
+have produced this pattern by construction — the concentrations were never
+in the room.
 
 ### 4.6 `debubble` itself, and what it guarantees
 
