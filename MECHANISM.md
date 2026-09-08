@@ -1586,13 +1586,544 @@ derivation cannot tell them apart either.
 
 ### 7. Temperature: from τ to a barrier
 
-Not derived here, only located: `arrhenius.activation_parameters` fits
-`ln(rate constant)` (either `1/τ` or a turnover rate) against `1/T` (Arrhenius)
-and against `ln(rate/T)` (Eyring), pooled over rungs with one intercept per
-composition. The **77 ± 12 kJ/mol** barrier and the **126×** "faster than
-turnover" ratio (`activation_contrast`) both come from this fit, and the
-ratio is nothing but `exp(-ΔΔG‡ / RT)` — a ratio of free energies at one
-temperature, so no prefactor or rate law enters it. §5 above.
+`arrhenius.activation_parameters(parameter)` (`parameter` is `"inverse_tau"`
+for the induction, `"v_peak"` for turnover) fits ONE rate constant's own
+temperature series twice, pooled with a free intercept per substrate rung
+(one composition, several temperatures) but a SHARED slope, since the slope
+is the barrier and the rung only sets the level:
+
+```
+Arrhenius:  ln(k)   = -Ea/R  * (1/T) + intercept(rung)
+Eyring:     ln(k/T)  = -ΔH‡/R * (1/T) + [ΔS‡/R + ln(kB/h)]           (rung intercept)
+```
+
+Both are the SAME `lstsq` machinery as §8 below — a design matrix of `1/T`
+alongside one indicator column per rung, no separate global intercept since
+the indicators already sum to 1 — read off as
+
+```
+Ea    = -R * beta[0]
+dH‡   = -R * beta_eyring[0]
+dS‡   = R * (beta_eyring[rung] - ln(kB/h))          at that rung's own composition
+dG‡   = dH‡ - T_ref * dS‡                            T_ref = 298.15 K
+```
+
+`ln(kB/h)` is `LN_BOLTZMANN_OVER_PLANCK`, a physical constant, not fitted —
+so `dS‡` is read directly off the Eyring intercept once that constant is
+subtracted, and it is reported AT the composition of the median rung, because
+different rungs sit at different absolute rate levels and an entropy with no
+composition attached is not a number a calculation can be checked against.
+
+**Why `dG‡`'s error is not `sqrt(dH‡_err² + T·dS‡_err²)`.** `dH‡` and `dS‡`
+come from the SAME fit, off correlated coefficients of the same design
+matrix (`beta_eyring[0]` and `beta_eyring[rung]`), and the compensation
+between them is real: a barrier estimated a little high pairs with an
+entropy estimated a little high too, and the two mostly cancel in `dG‡`.
+Quoting the naive sum overstates the error several-fold. The correct
+propagation writes `dG‡` as ONE linear combination of the fitted vector,
+`dG‡ = -R * (v · beta_eyring)` with `v[0] = 1/T_ref`, `v[rung] = 1`
+elsewhere zero, and uses the fit's own covariance directly:
+
+```
+Var(dG‡) = R² * T_ref² * (v^T Σ v)
+```
+
+where `Σ` is the coefficient covariance `variance * pinv(X^T X)` from the
+SAME regression (§8's normal equations). This is exact, not approximate — it
+is the general formula for the variance of a linear combination of jointly-
+fitted parameters — and it is why the **−11.99 ± 0.62 kJ/mol** gap behind the
+**126×** "faster than turnover" ratio has an error two orders of magnitude
+tighter than naively combining the entropy and enthalpy errors would give.
+
+**The ratio itself is nothing but a ratio of rate constants**, read off two
+free energies at one shared temperature:
+
+```
+rate_ratio = k_induction / k_turnover = exp(-(dG‡_induction - dG‡_turnover) / (R T_ref))
+           = exp(-ΔΔG‡ / R T_ref)
+```
+
+No prefactor and no rate law enters this: the `kB T/h` term is identical for
+both rate constants at the same `T` and cancels exactly, which is what makes
+a free-energy GAP comparable across two differently-shaped observables
+(`1/τ`, a bare relaxation rate, against `v_peak`, a turnover rate with its
+own units) when the two rate constants themselves are not.
+
+## The statistics and kinetics behind the other analysis folders
+
+*(Added 2026-09-08, alongside "The mathematics of the clock" — that section
+is the induction specifically; this one is everything else the analysis
+folders lean on. Same standard: derived, not merely cited, and checked
+numerically before being written down where the derivation is not standard
+textbook material.)*
+
+### 8. The one regression every folder runs: a log-log order with fixed effects
+
+`scope.orders`, `ph_order`, `arm_orders`, `activation_parameters` (§7 above)
+and every folder's own driver regressions are ALL the same design:
+
+```
+y = log(parameter),   X = [log[S], log[H2O2], ..., one 0/1 column per run]
+beta = argmin |y - X beta|^2   =>   beta = (X^T X)^-1 X^T y     (the normal equations)
+```
+
+solved by `np.linalg.lstsq` rather than the explicit inverse (numerically
+safer when columns are near-collinear, same answer). The standard errors
+come from the residuals of THIS SAME FIT, not assumed:
+
+```
+variance = (residual . residual) / (n - rank(X))       # RSS over residual dof
+Sigma    = variance * pinv(X^T X)                       # coefficient covariance
+stderr_i = sqrt(Sigma[i, i])
+```
+
+**Why one indicator column per experiment measures the order "within a run"
+rather than needing a separate, hand-written within-run calculation.** This
+is the Frisch–Waugh–Lovell result: in a regression with both a set of dummy
+columns `D` (one per group) and a continuous regressor `x`, the fitted
+coefficient on `x` is IDENTICAL to what you get by first regressing `x` on
+`D` alone and keeping the residuals, regressing `y` on `D` alone and keeping
+those residuals, and then regressing the second residuals on the first.
+Regressing a variable on a full set of group dummies and keeping the
+residuals is exactly DEMEANING it within each group. So a coefficient from a
+design with one dummy per experiment is, by an exact algebraic identity and
+not an approximation, the coefficient from regressing each cuvette's own
+DEVIATION from its run's mean against the other regressors' deviations from
+their run means — "the order measured only from contrast between cuvettes of
+the same run" is not a description of the intent, it is what the fitted
+number IS.
+
+**Why a column has to be dropped rather than fitted if it does not vary
+within any group.** If a regressor is constant inside every group (e.g.
+`[buf]` in the two-axis block, constant across all seven cuvettes of every
+run), its within-group deviation is zero for every row, so after the FWL
+demeaning above it contributes nothing — the column is in the span of `D`
+and `X^T X` is singular in that direction. `lstsq`/`pinv` do not raise; they
+return SOME coefficient by minimum-norm convention, splitting the true
+"between-run" signal (which lives entirely in the dummies) partly onto the
+constant regressor by numerical accident. `scope._moves` is the guard: it
+checks `ptp(column) > 0` WITHIN each group (not over the whole column) and
+drops any regressor that fails, which is what turned exps 127–131's spurious
+`+2.14 ± 0.18` substrate order (from a column literally constant at 9.47 mM
+inside every one of those runs) into the honest "not identified" it should
+have been, and is why the two-axis block's L has to be read one arm at a
+time (`arm_orders`) rather than as one regression with both concentration
+axes and per-experiment offsets — inside the peroxide arm `[S]` is itself
+constant per run and varies only between runs, and the naive fit returned a
+confident, meaningless `-6.094 ± 0.078`.
+
+**`ph_order` uses the identical machinery with the offset one level finer**:
+one dummy per (ladder, CUVETTE) rather than per experiment, because a pH
+ladder's design matches a physical cuvette position across different runs —
+cuvette 3 of one run and cuvette 3 of the next share substrate and peroxide
+by construction — so the FWL argument now demeans *that* pairing, and the
+slope on `log[HOO⁻]` is read from how each matched cuvette moves as its own
+run's pH changes, with everything else about it (its fixed composition)
+absorbed into its own intercept. Using a per-EXPERIMENT offset instead on a
+between-run design collapses this: `_moves`' logic still passes (pH varies
+"within" nothing, since each experiment is one pH, so a naive per-experiment
+offset absorbs the entire axis and hands back whatever `pinv` distributes to
+it) — which is exactly the failure `induction.lag_ladder` guards against
+separately, and why the boric ladder returned a fictitious `+0.549 ± 0.014`
+before that guard existed.
+
+### 9. The O2 bubble correction (`curve_metrics.debubble`)
+
+Full account in `BUBBLES.md`; this is the algebra. Every reading is split
+
+```
+A_obs(t) = f(t) + b(t)          f non-decreasing, b >= 0 (gas held in the beam)
+```
+
+**Finding candidate falls** (`bubble_drops`) is an amplitude test alone:
+flag any step `values[i+1] - values[i] < -sigma * noise` (`sigma = 6.0`).
+This needs no shape test because the asymmetry is structural — the reaction
+is monotone (benzaldehyde does not un-form), so ANY fall this large already
+exceeds what chemistry can produce.
+
+**Rejecting spikes** (`_is_excursion`): gas that leaves does not come back,
+so a candidate fall is thrown out if an adjacent reading undoes a comparable
+fraction of it. "Comparable" is calibrated against the curve's OWN typical
+step size, not an absolute threshold — `_local_step_scale` is the median
+`|step|` in an 8-reading window either side of the event (excluding the
+event itself), and a recovery only counts if it clears BOTH
+`recovery * drop` (half the drop's own size) AND `sigma_local * baseline`
+(twice that local median). Extended up to 3 readings past the fall, crediting
+recovery only up to the drop's own size (`min(out_k, ceiling*drop)`), because
+without a ceiling a fast, genuine acceleration right after a real detachment
+reads as that detachment reversing itself.
+
+`local_outlier_z` — a leave-one-out local QUADRATIC fit (degree 2, 4
+neighbours each side, widening to 8 if the window is short), scored as
+
+```
+z[i] = (values[i] - polyval(fit_excluding_i, times[i])) / noise
+```
+
+— CANNOT do this job for a fall: its window spans the fall itself, so a
+genuine step change drags the local fit toward itself and scores as its own
+outlier (a real 0.12 AU detachment scores +130). It is exactly right for the
+MIRROR problem, gas arriving (`bubble_gains`): a persistent level jump pulls
+the fit at the point just before it LOW and the point it lands on HIGH
+(`z` of roughly −8 then +10 on a real jump), because a smooth acceleration
+never produces that shape at a single interior step — the same test, applied
+to the case its sibling function cannot handle, for the structurally opposite
+reason.
+
+**The mass-balance recursion** (`bubble_profile`) builds `b(t)` under three
+constraints, and the recursion is exact rather than approximate because each
+one is a `min`/`max` against a quantity that only ever moves one way:
+
+```
+growth_i  = min(rate * dt_i,  max(diff(values)_i, 0))     # cannot outrun the curve
+b_i       = min(b_{i-1} + growth_i,  owed_i)               # cannot exceed what is still owed
+owed_i    = sum of detachment sizes at or after reading i  # falls only, monotone non-increasing
+```
+
+`np.minimum(cumsum(growth), owed)` gives the same answer as applying the cap
+at every step individually because `owed` never RISES and every `growth`
+increment is non-negative — a clipped running sum cannot un-clip itself later
+the way it could if `owed` could increase. This is what makes the whole
+profile computable as one vectorised cumulative sum per stretch between
+detachments rather than a step-by-step loop, which matters because
+`bubble_rate` calls it roughly 80 times per curve (below).
+
+**`bubble_rate` is a bisection on a MONOTONE function, not a fit.**
+`bubble_shortfall(rate)` — the largest amount by which any single detachment
+exceeds what `bubble_profile` had accumulated for it at that rate — is
+monotone NON-INCREASING in `rate` (a higher rate can only ever have banked
+more gas by any given reading, never less), so the set of rates that pay for
+every detachment is a half-line `[rate*, infinity)`, and standard bisection
+finds its left edge to `2^-80` of the initial bracket:
+
+```
+low, high = 0, 4 * max(step) / min(interval)        # high is provably feasible
+repeat 80x: mid = (low+high)/2
+            if shortfall(mid) > 0: low = mid          # mid still infeasible
+            else:                  high = mid          # mid is feasible
+return high
+```
+
+`rate*` is deliberately the LEAST rate that pays for every fall — an upper
+bound on the true chemistry, in the same direction `monotone_bound` already
+takes, never an inflated one — and it is fit blind to composition: nothing
+about `[S]` or `[H2O2]` enters `bubble_shortfall`. `gas_rate_drivers`
+regressing this per-curve, composition-blind number AGAINST composition
+afterward (`+1.477 ± 0.258` in peroxide, `-0.344 ± 0.093` in substrate) is
+therefore an independent check in the same sense a held-out test set is: the
+concentrations were never in the room when the number was made.
+
+**Two purely combinatorial checks close the identification.**
+`bubble_step_asymmetry` counts steps past a z-score threshold in each
+direction (`diff(values)/noise`, `sigma=20`) and compares the counts — no
+model beyond "a symmetric artefact gives roughly equal rises and falls",
+which 122 against 23 rejects outright. `bubble_synchrony` is the same
+coincidence-counting argument behind the birthday problem: if two cuvettes'
+detachment times are independent draws from `n` shared reading intervals,
+and cuvette A has `a` detachments and cuvette B has `b`, the expected number
+of intervals both pick is `a*b/n` (each of A's `a` picks the same interval as
+one of B's `b` with probability `b/n`, summed over `a` picks) — compared
+directly against the observed count of shared timestamps, pair by pair, and
+summed. 23 observed against 21.3 expected is indistinguishable from
+independent, which is what rules out a shared instrument cause (a lamp
+flicker or shutter event would drive every cuvette in a run to detach at the
+identical reading, pushing the observed count far above this null).
+
+### 10. The product-decline model (`product_fate/`, `data/slowdown.py`)
+
+Every catalysed 4OMe curve's rate rises to a maximum and then falls. Three
+candidate shapes, all fitted to the SAME rise `v(1 - e^{-t/τ})` feeding into a
+different fall:
+
+```
+clock:      A' = v(t)·e^{-kt}                    capacity to react decays on its own clock
+sink:       A' = v(t) - k·A                       product is destroyed, first order       [WINS]
+inhibition: A' = v(t) / (1 + A/Ki)                product reversibly blocks the site
+```
+
+All three are solved exactly (`data/slowdown.py`, `_clock_shape`/`_sink_shape`/
+`_inhibition_shape`) rather than integrated numerically:
+
+```
+clock:       (1-e^{-kt})/k - (1-e^{-(k+1/τ)t})/(k+1/τ)
+sink:        (1-e^{-kt})/k - (e^{-t/τ}-e^{-kt})/(k-1/τ)          [linear ODE, integrating factor]
+inhibition:  A = Ki·(sqrt(1 + 2uW(t)) - 1),  u=v/Ki, W(t)=t-τ(1-e^{-t/τ})   [separable, A+A²/(2Ki)=v·W(t)]
+```
+
+fitted on a 2-D grid over `(τ, decay)` with the remaining two parameters
+(offset, amplitude) solved in closed form at every grid node — no nonlinear
+optimiser anywhere in the fit.
+
+**The discrimination that actually decides sink vs inhibition** is not this
+whole-curve fit but a sharper, local one: past the rate's own maximum, two
+2-parameter STRAIGHT LINES through (accumulated product, rolling rate):
+
+```
+sink:        rate       = v0 - k·A          rate LINEAR in product
+inhibition:  1/rate     = 1/v0 + A/(v0·Ki)  1/rate LINEAR in product
+```
+
+A fair comparison because both are 2-parameter lines on identical points
+(`sink_fit`, requiring the tail to span ≥1.5 independent rolling-window
+widths and the rate to have fallen below 85% of its own maximum). Of 29
+curves clearing R² > 0.95: **24 favour sink, 0 favour inhibition, 5 tie**
+(median R² 0.989 against 0.971) — `k = -slope`, and the sink's own steady
+state `plateau = v0/k` is the level `A' = v - kA` runs down to.
+
+**The clock-vs-product test on the FALL is section 3's own algebra, run in
+the opposite direction.** Across curves of different rate,
+
+```
+deceleration_drivers:  log(late_rate / early_rate) = a·log(span) + b·log(product) + c
+```
+
+`a < 0, b = 0` is a clock (decays with elapsed time, regardless of how much
+product a fast curve has made); `a = 0, b < 0` is product control (decays
+with accumulated product, regardless of how long that took) — the identical
+distinction section 3 draws for the RISE, tested the same way. Results
+diverge sharply by population: the temperature series and the 4OMe catalysed
+block are product-controlled (**product coefficient −0.525±0.071** and
+**−0.598±0.053**; a one-dummy-per-experiment fit gives **−0.919±0.161**,
+indistinguishable from the `-1` a pure `1/A` sink predicts), the 4OMe
+ENZYME-FREE curves are a pure clock instead (**span −0.361±0.047, product
++0.025±0.048** — the opposite pattern), and the BnOH two-axis block inverts
+the product sign entirely (**span −0.697±0.136, product +0.283±0.129** —
+positive, i.e. autocatalytic, not decelerating). `product = net/ε` puts both
+substrates on one concentration scale (their extinction coefficients differ
+6.1×). Every negative product coefficient here is a FLOOR and not a ceiling:
+`net` is the rate's own integral, so less deceleration directly means more
+measured product, which pushes `b` toward zero — the bias runs against
+finding product control, not for it.
+
+**The stationary level tests the sink quantitatively, not just in sign.**
+Since sink wins, `A∞ = v(S)/k` — and because production is itself sub-first
+order in `[S]` (already measured on the rate directly, +0.577), `A∞`'s own
+substrate order should match that, not equal `+1`. Measured: **+0.610±0.067**
+over a 37-fold range in `[S]`, 29 curves — an agreement not built into the
+fit. The steady-state competition for the same oxidant between substrate and
+accumulated aldehyde gives a selectivity ratio for free:
+
+```
+k_S[S][Ox] = k_A[A]_inf[Ox]   =>   k_A/k_S = [S]/[A]_inf
+```
+
+**median 54 (IQR 42–81)**, an upper bound (the plateau is only the catalytic
+increment over background) — at 25 °C a barrier gap of `ΔΔG‡ = -RT·ln(k_A/k_S)
+≈ 9.9 kJ/mol`, i.e. the oxidant discriminates the aldehyde from the alcohol by
+under 10 kJ/mol despite reacting with it ~54× faster.
+
+**Correcting the temperature series' own activation energy for the sink.**
+Refitting with `k` PINNED to `sink_activation`'s own Arrhenius prediction at
+each temperature (removing a `(v, k)` degeneracy at fixed `v/k`) gives a
+production rate `v_prod` 6.7% above the raw `v_peak` on the median curve, not
+ordered in `T` — so the correction is a level shift, and a level shift with
+no temperature trend cancels out of an Arrhenius SLOPE: the activation energy
+moves by **−2.96 ± 3.83 kJ/mol**, consistent with zero. `sink_activation`'s
+own barrier is **72.3 ± 10.0 kJ/mol** (3 temperatures only — cold runs never
+turn over enough to measure a sink), with a **window systematic of about
++30 kJ/mol** (72 → 102 sweeping the rolling-rate window from 0.15 to 0.30 of
+the run, because a wide window over-smooths the slow cold curves more than
+the fast warm ones) — quoted as "72 with a systematic of about +30," and the
+null on `v_prod`'s own barrier holds, and gets more robust, at every window
+width.
+
+### 11. The enzyme-free background (`background_reaction/`)
+
+**Five rate estimators, one chosen as headline for a structural reason.**
+`v0_quad` (`A = c + v0·t + a·t²`, `curvature_t = a/se(a)`) is the only one
+with no arbitrary window and no shape assumption beyond "may bend once" —
+`v0_burst` (the same one-phase lag/burst form section 1 uses) was tried and
+explicitly rejected HERE specifically: 4 of 27 curves return a NEGATIVE `v0`
+from a `τ → ∞` degeneracy (a curve close to a straight line kills `τ` and `B`
+but leaves `v0 → v_ss` exactly, so the fit reports whatever noise does with an
+ill-conditioned ratio) — the opposite failure mode from section 1, where the
+same form is the right tool because there IS a resolvable relaxation to find.
+
+**Recovering a buffer order with no design that varies it.** No archive run
+steps `[buf]` at fixed `[S]`; two designs instead trade `[buf]` against `[S]`
+in DIFFERENT proportions, and the difference between what each one reads for
+the substrate order isolates the buffer term algebraically. If the true law
+is `rate ∝ [S]^a [buf]^d` and a titration's own design satisfies
+`log[buf] = g·log[S] + const` (measured `g = -0.487`), fitting `[S]` ALONE
+on that titration returns the CONTAMINATED slope `a' = a + d·g` (substituting
+the collinear relation straight into the log-log fit). With `a` measured
+cleanly elsewhere (`BUFFER_FIXED`, `[buf]` held at 85 mM: `a = +0.321±0.056`)
+and `a'` measured on the confounded titration (`BUFFER_CONFOUNDED`:
+`a' = -0.306±0.111`),
+
+```
+d = (a' - a) / g
+```
+
+gives **d = +1.29 ± 0.25** — a difference of two regressions, not a fit, and
+the only route to this number since no direct design exists. Two more direct
+attempts were tried and rejected on the same collinearity grounds: fitting
+`[S]` and `[buf]` jointly on the confounded titration alone gives errors near
+±0.65 (VIF 8–10, see below); pooling `[buf]` across all six background runs
+looks tight (+0.95±0.44) but `[buf]` there is a near-perfect proxy for pH,
+and including it steals signal from `[HOO⁻]`'s own order.
+
+**The variance inflation factor, used throughout this folder as the
+collinearity gate:**
+
+```
+VIF_i = 1 / (1 - R²_i)
+```
+
+`R²_i` from regressing `log(term_i)` on every OTHER term (plus run
+indicators, if `within=True`). **VIF > 10** is read as "the coefficient is
+arithmetic, not evidence" — the threshold that rejects the joint `[S]`+`[buf]`
+fit above (VIF 8–10) and rejects a species-specific buffer term (`[H2PO4⁻]`
+alone, VIF 30.2) in favour of total `[buf]` (VIF 2.8).
+
+The resulting full rate law, phosphate only:
+
+```
+v ~ [S]^{+0.32} [H2O2]^{+1.49} [HOO⁻]^{+0.82} [buf]^{+1.29}      (v0_quad)
+v ~ [S]^{+0.34} [H2O2]^{+1.14} [HOO⁻]^{+0.84} [buf]^{+1.31}      (vmax)
+```
+
+with a separate, unconfounded cross-check block (4OMe/40 °C, fixed pH and
+`[H2O2]` between experiments so no correction is needed at all):
+**+0.91 ± 0.38** on `[buf]`, agreeing with the anchor.
+
+**Discriminating "general acid/base catalysis" from "a buffer-derived
+peroxo-oxidant"** — the direct predecessor of `COMPUTATIONAL.md` C9's scheme
+and MECHANISM.md's step 6b — cannot be done within one titration (`log[buf]`,
+`log[H2PO4⁻]` and `log[HPO4²⁻]` are the identical variable at one pH,
+correlation 1.000000 there). It is instead asked as a MATCHED-CUVETTE ratio
+across two different buffers at matched `[S]` and `[H2O2]` exactly (exp 65,
+boric, pH 8.51, against exp 67, phosphate, pH 8.01), where the substrate and
+peroxide orders cancel by construction and only the buffer/`[HOO⁻]` orders
+above set the prediction:
+
+```
+predicted ratio = ([buf]_65 / [buf]_67)^{+1.29} * ([HOO-]_65 / [HOO-]_67)^{+0.82}
+```
+
+predicting 1.73–1.89× against an observed 0.36–2.50× across four estimators —
+no systematic excess, so no evidence FOR a borate-specific peroxo boost here,
+though the comparison is weakened by exp 65's own anomalous mid-run break.
+The logic — a matched-condition ratio test, since a single-pH titration
+cannot separate a species from the total it is part of — is exactly what
+`early_trough`'s buffer comparison and C9's proposed experiment both reuse.
+
+### 12. The buffer species test (`buffer/`, `data/buffer_role.py`)
+
+**The two-pH prediction, from Henderson–Hasselbalch alone.** For a buffer of
+`pKa`, the base fraction at pH is `10^(pH-pKa) / (1 + 10^(pH-pKa))`. Phosphate,
+`pKa = 7.20`, at the archive's two titration pH values:
+
+```
+pH 7.00:  base_fraction = 10^(-0.20)/(1+10^(-0.20)) = 0.631/1.631 = 0.387
+pH 7.53:  base_fraction = 10^(+0.33)/(1+10^(+0.33)) = 2.138/3.138 = 0.681
+```
+
+A rate first order in the BASE species predicts the ratio of base
+concentrations between the two pH values, `0.681/0.387 = `**`1.76`**; first
+order in the ACID species predicts `(1-0.681)/(1-0.387) = 0.319/0.613 = `
+**`0.52`**; a rate that only cares about TOTAL buffer (a spectator, e.g. ionic
+strength) predicts **`1.00`** — no free parameter in any of the three,
+exactly `buffer_role.species_prediction`.
+
+**The measured ratio, with covariance-correct error propagation.** Fitting
+`v/[S]^{0.471} = a_run + b_side · [buf]` (one free level per run, one slope
+per side of the pKa split, `0.471` the substrate order that normalises the
+two pH groups' different `[S]`) over the 50–200 mM titrations gives a ratio
+of the two slopes whose error is NOT the naive quadrature sum, because both
+slopes come off the same fit and share covariance:
+
+```
+error = |ratio| * sqrt( (σ_top/top)² + (σ_low/low)² - 2·cov/(top·low) )
+```
+
+Result: **+1.06 ± 0.77** — 0.9σ from general base, 0.7σ from general acid,
+0.1σ from a spectator. **All three survive**, mainly because the buffer-FREE
+route's own rate is ~8× larger past the pKa than below it, so the buffer
+coefficient there inherits 44–127% uncertainty from a much bigger number.
+
+**A second, independent line — the ±1 pre-equilibrium constraint (§4).**
+Applied to the SAME eight curves through `joint_buffer_order`: **+1.094 ±
+0.150**, 0.6σ from the required `+1`, where the peroxide axis misses by
+2.6–3.7σ everywhere it can be measured (§4a). This says something the ratio
+test above cannot — not which species, but that SOMETHING in the buffer
+(rather than in the peroxide) satisfies the shape a pre-equilibrium
+activator requires.
+
+**A third — the buffer-free route's excess climb.** At matched substrate
+(8.251 mM, exps 32 vs 35), the buffer-free rate rises **7.90×** from pH 7.00
+to 7.50, where `[HOO⁻]` alone — first order in itself, by definition — gives
+only **3.23×**. The excess, `+1.79` measured against `+1.02` expected, a
+**2.45×** gap, reads as a second, independently base-dependent step: whatever
+this route runs through has to deprotonate more than one thing (a peroxo
+species AND a Criegee-type adduct, on the working hypothesis).
+
+None of the three settles WHICH species — general base, general acid, and
+the buffer-perhydrate scheme (`H2O2+P⇌P-OOH⇌P-OO⁻+H⁺; K+P-OO⁻⇌K(O⁻)-OO-P→KD+
+P-O⁻`, MECHANISM.md step 6b) are kinetically identical at one pH, differing
+only by a `[buf]x[H2O2]` interaction term that **0 of 88 archive runs step
+both axes of at once**.
+
+### 13. The early trough as a lag, and its rate constant (`early_trough/`)
+
+**Detection is a direct test on the readings, not on the fitted crossover.**
+`curve_metrics.early_trough` smooths the first half of a run with a rolling
+mean, takes its minimum, and scores `z = min / (noise/sqrt(window))`;
+`sustained` drops the single worst reading in that window and requires the
+REMAINING mean to still clear the threshold (a real decline survives losing
+its worst point, a lone spike does not); `genuine` additionally requires no
+overlap with a detected O2 event and survival of `debubble` correction.
+Section 1's algebra is still what LICENSES treating this as a lag rather than
+inventing a new statistic: the one-phase form's rate is
+`v_ss - (B/τ)e^{-t/τ}`, which starts NEGATIVE (`v0 = v_ss - B/τ < 0`)
+whenever `B/τ > v_ss` — a trough IS this form with a deep enough lag — which
+is why the trough's own relaxation time is already sitting in `scope.frame`
+as `tau_fast` (`progress.two.tau1` on a two-phase curve, the one-phase
+`burst.tau` otherwise) and needs no new fitting.
+
+**Extracting a binding rate constant costs one division.** Pseudo-first-order
+under this archive's large excess (`[enz]/[HOO⁻]` of 95–4263 for the
+oxidant-dominated cluster; `[S]` in large excess over `[enz]` for the
+substrate-dominated one):
+
+```
+k_obs = 1/tau_fast                          [s^-1]
+k_on  = k_obs / (excess_mM * 1e-3)          [M^-1 s^-1]
+```
+
+giving **k_on = 0.51–32.7 M⁻¹s⁻¹**, a spread of only 1.8 orders of magnitude
+across 20-fold `[enz]`, four pH units, 15–40 °C, both clusters, both
+substrates and two buffers pooled — 8–9 orders of magnitude below the
+diffusion limit, the signature of a chemically- rather than diffusion-
+controlled step.
+
+**Why the first Arrhenius estimate was retracted, in the numbers.** A
+two-point estimate (exp 19.1 at 15 °C against exp 34.4 at 40 °C) gave
+`Ea = 85.7 kJ/mol`; solving the SAME two points for the Eyring pre-exponential
+implies `A ≈ 2.1×10^15 M⁻¹s⁻¹` — about `2×10⁵×` the diffusion limit
+(`~10^10 M⁻¹s⁻¹`) — and an implied `ΔS‡ = +40 J/mol/K`, POSITIVE, which a
+bimolecular association cannot be (associating two solutes can only ever
+lose translational and rotational freedom). Both checks fail together, which
+is what retracted the number rather than merely flagging it as noisy.
+
+**The honest fit and its own diagnostic for why it can't do better.** Proper
+`arrhenius_fit` (ordinary least squares of `ln(k_on)` on `1/T`, over all 14
+oxidant-cluster curves at their own actual temperatures) gives
+**Ea = 78.9 ± 48.6 kJ/mol**, `t = |slope/stderr| = 1.6` — not significant.
+`same_temperature_spread`: the 12 curves sharing the single most common
+temperature (298.15 K) alone span **1.43 orders of magnitude** in `k_on`,
+against **1.74** spanned by the ENTIRE 15–40 °C range — curve-to-curve
+scatter at one fixed temperature is nearly as wide as the archive's whole
+temperature range, so a real slope and pure scatter are not separable with
+this design, and the fit says so rather than reporting a number anyway.
+
+**The buffer comparison**, geometric mean of `k_on` by buffer identity within
+the oxidant cluster: pyrophosphate runs **~6×** phosphate's, at identical
+`[enz]`-normalisation — read, as in §12, as a fast, buffer-specific
+peroxo-pre-equilibrium (the same species step 6b proposes) setting the size
+of the reactive pool the catalyst's own slower, asymmetric engagement draws
+down. Neither species here has been directly measured; this is inference
+from a rate constant's buffer-dependence, not a spectroscopic identification.
 
 ## Open questions
 
