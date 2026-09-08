@@ -805,3 +805,56 @@ weakest, most drift-dominated runs -- which is exactly why the archive's
 strongest examples by far (exps 4.2, 5.2, part of the four-fold
 `REPLICATE_RUNS`, at -40 to -42 sigma) matter: a different substrate, a
 different buffer, and none of the two-axis block's own caveats.
+
+## What pH does to the reaction
+
+`ph/` reads the archive's four pH ladders (`scope.PH_LADDERS`) for the RATE,
+which none of them had been used for -- they were named 2026-09-05 for the
+induction clock alone (`induction.lag_ph_ladders`). `data/ph_role.py` is the
+machinery.
+
+**The hand-sorted `data/Mads` pH folders are close but not exact.** The
+phosphate folder holds `REPLICATE_RUNS` (exps 2, 4, 5, 7 -- four repeats of
+one composition at pH 6.71, not four ladder rungs) and is missing exp 14
+(same design, filed under `Variable Temperature/` because it doubles as that
+series' 25 °C rung); the boric folder over-includes exp 13, which carries a
+different substrate ladder and buffer concentration than the other nine. The
+pH-11 folder was already correctly excluded (`KNOWN_EXCLUSIONS[85]`). Use
+`scope.PH_LADDERS`, never a hand-sorted folder.
+
+**The rate's order in [HOO-], fit jointly with [S] and pooled with no per-run
+offset (pH is one value per run everywhere in this archive): three of the
+four ladders agree at +0.594 +/- 0.026, chi2 = 0.29 on 2** -- phosphate 4OMe
+and both arms of the two-axis block's own pH ladder, two buffers, two
+substrates. Checked against the two-axis block's own better-powered
+cuvette-matched reading (`scope.ph_order`, +0.554 +/- 0.040) and consistent
+with it.
+
+**The boric ladder does not share that order, and it is not a saturation --
+it is a TURNOVER.** A single log-log fit over its nine runs gives -0.034 +/-
+0.040. Read by run, median `vmax` rises from pH 8.46 to a peak at exp 43
+(pH 9.50) and falls through pH 10.34, below the ladder's own pH 8.98 reading
+-- a rise-then-fall a straight-line fit reports as "flat." Refit below the
+peak: +0.222 +/- 0.037, positive and six standard errors from zero, still
+markedly weaker than the other three ladders'. Boric above pH 8.5 is also
+where the archive's O2 side reaction is heaviest (`scope.gas_survey`: 24 of
+64 curves there detach gas, against a hard floor of zero anywhere below
+pH 7.5), so `vmax_corrected` had to be checked before trusting the decline --
+it moves the two above-peak runs' medians by under a quarter of themselves,
+so the O2 artefact is not the cause. **Whether the turnover is boric's own
+chemistry or a genuine high-pH catalyst effect (exp 85 was ruled unusable at
+pH 11.84 for a possibly related reason) is not resolved**: the archive holds
+no other buffer past pH 9 to separate them, which is the buffer-identity/pH
+confound (`buffer/ANALYSIS.md` S5) applied to a new question rather than
+settled by one.
+
+**The induction clock's own pooled pH order agrees across all four ladders
+where the rate's does not**: +0.326 +/- 0.131 per pH unit, chi2 = 0.95 on 3
+(`induction.lag_ph_ladders` + `pooled_ladder`, quoted back rather than
+recomputed) -- the clock does not see whatever makes boric's rate turn over.
+Between them, the rate, the clock, `early_trough`'s [enz]/[HOO-] driver on
+the OTHER cuvette, and the O2 side reaction's own pH onset are four
+independent readings that all name [HOO-] rather than pH itself or total
+[H2O2] -- with `scope.hoo_consistency`'s 3.4 sigma within/across gap on the
+two-axis block standing as the caveat that [HOO-] is not the whole story even
+where its order is real.

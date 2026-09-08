@@ -283,7 +283,7 @@ def test_the_runner_finds_every_gate():
     check("this module is one of them",
           "data/test_curve_metrics.py" in found)
     check("every folder's check_numbers is one of them",
-          sum(1 for g in found if g.endswith("check_numbers.py")) == 7)
+          sum(1 for g in found if g.endswith("check_numbers.py")) == 8)
 
     # The slow suite is excluded from the routine run but must still EXIST --
     # `gate_paths` raises if it does not, so an optimiser suite cannot go
