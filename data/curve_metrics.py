@@ -1733,3 +1733,64 @@ def bubble_load(values, drops):
     if not len(drops):
         return 0.0
     return float(-np.diff(values)[drops].sum() / net)
+
+
+EARLY_TROUGH_WINDOW = 9
+EARLY_TROUGH_FRACTION = 0.5
+EARLY_TROUGH_CONSEC_SIGMA = 2.0
+EARLY_TROUGH_MIN_CONSEC = 5
+
+
+def early_trough(times, values, noise, window=EARLY_TROUGH_WINDOW,
+                 frac=EARLY_TROUGH_FRACTION, consec_sigma=EARLY_TROUGH_CONSEC_SIGMA,
+                 min_consec=EARLY_TROUGH_MIN_CONSEC):
+    """
+    How far, and where, a curve dips below zero in its own early readings.
+
+    A catalysed curve's absorbance is already reference-subtracted -- the
+    enzyme-free reference cuvette's own reaction is cancelled -- so if the
+    catalyst transiently ties up a reactant the reference does not, the
+    sample's share of whatever background chemistry the two cuvettes share
+    runs slower than the reference's for a while, and the reported curve
+    dips below zero before the catalysed rate overtakes it. `early_trough.py`
+    is the analysis; this is the raw measurement it is built on.
+
+    Smooths the first `frac` of the run with a `window`-reading rolling mean
+    and returns the smoothed minimum, in units of the curve's own noise
+    divided by sqrt(window) -- the same noise-normalisation every z-score in
+    this module uses. `frac` is 0.5 rather than a fixed window in seconds or
+    a smaller run-length fraction: an EARLIER cut can land inside the dip
+    itself on a slow-recovering curve and read only its floor, and one run's
+    worth of exploration found both an absolute-time window and a 0.1-0.2
+    fraction of run length gave the wrong minimum on at least one of the two
+    known clusters (`early_trough.trough_table`'s oxidant-starved and
+    substrate-starved curves recover on very different absolute timescales,
+    4680 s to 28740 s of total run length apart).
+
+    THE SMOOTHED MINIMUM ALONE CANNOT TELL A SUSTAINED DECLINE FROM ONE DEEP
+    OUTLIER READING dragging a rolling mean down -- exp 4.1 and exp 22.2 both
+    clear -6 sigma smoothed and neither is a real dip: only 3 and 4 of the 9
+    raw readings inside their own trough window are individually below
+    `consec_sigma` on their own, against 6-9 of 9 for every curve this
+    project has confirmed as real by eye. `min_consec` is that bar. Returns
+    `sustained=False` rather than excluding the curve, so a caller can see
+    how close a rejected candidate came.
+
+    Returns (z, time, start, sustained); z is nan and start is -1 with fewer
+    than one window's worth of readings in the first half of the run, or a
+    non-finite or non-positive noise.
+    """
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    n = len(values)
+    cut = min(max(int(n * frac), window + 2), n)
+    if cut < window or not np.isfinite(noise) or noise <= 0:
+        return np.nan, np.nan, -1, False
+    kernel = np.ones(window) / window
+    smooth = np.convolve(values[:cut], kernel, mode="valid")
+    start = int(np.argmin(smooth))
+    z = float(smooth[start] / (noise / np.sqrt(window)))
+    segment = values[start:start + window]
+    consecutive = int(np.sum(segment < -consec_sigma * noise))
+    time = float(times[start + window // 2])
+    return z, time, start, consecutive >= min_consec

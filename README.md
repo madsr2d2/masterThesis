@@ -44,6 +44,8 @@ product_fate/               why the 4OMe curves peak and fall, and BnOH's do not
 induction/                  what the induction period is, what it is not, and
                             how it depends on all seven experimental variables
 buffer/                     the buffer as reagent, confound and candidate
+early_trough/                a reference-subtracted dip before the catalysed
+                             rate takes over, and what it tracks
 
 MECHANISM.md                the 7-step mechanism, its reduction, and the evidence
 FITTING.md                  what has been fitted, and what the fits established

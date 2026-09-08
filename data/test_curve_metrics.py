@@ -22,6 +22,7 @@ from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
                            EXCURSION_RECOVERY_DEPTH,
                            INITIAL_WINDOW, LAG_THRESHOLD,
                            QUANTISATION_SIGMA, acceleration, curve_noise,
+                           early_trough,
                            initial_rate, line_fit, line_slope, peak_position,
                            OUTLIER_SIGMA, apply_gains, bubble_drops,
                            bubble_gains, bubble_load,
@@ -282,7 +283,7 @@ def test_the_runner_finds_every_gate():
     check("this module is one of them",
           "data/test_curve_metrics.py" in found)
     check("every folder's check_numbers is one of them",
-          sum(1 for g in found if g.endswith("check_numbers.py")) == 6)
+          sum(1 for g in found if g.endswith("check_numbers.py")) == 7)
 
     # The slow suite is excluded from the routine run but must still EXIST --
     # `gate_paths` raises if it does not, so an optimiser suite cannot go
@@ -1555,6 +1556,73 @@ def test_debubble_with_gains():
           f"{rebuilt_worst:.4f}")
 
 
+def test_early_trough():
+    """
+    `early_trough` finds a sustained decline and rejects a single deep
+    outlier that a smoothed mean alone cannot tell apart from one.
+
+    The two planted cases are calibrated to the two real ones that motivated
+    `sustained`: exp 4.2's genuine dip (9 of 9 readings in its trough window
+    individually clear 2 sigma) against exp 4.1's rejected candidate (3 of
+    9), both at a similar smoothed depth.
+    """
+    print("\nthe early trough: sustained decline against a lone outlier")
+    times = np.arange(0, 3600, 60.0)
+    noise = 2e-4
+
+    # A SUSTAINED DECLINE: every reading in the window is genuinely low, not
+    # just the smoothed mean.
+    declining = np.zeros_like(times)
+    declining[:15] = -0.0015 * (1 - np.exp(-times[:15] / 600.0))
+    declining[15:] = declining[14] + 3e-6 * (times[15:] - times[14])
+    z, t_trough, start, sustained = early_trough(times, declining, noise)
+    check("a sustained decline is found", z < -4.0, f"z={z:.2f}")
+    check("and marked sustained", sustained, f"z={z:.2f}")
+    check("start is within the declining region", 0 <= start < 20,
+          f"start={start}")
+
+    # ONE DEEP OUTLIER, otherwise flat: the smoothed window it sits in can
+    # still average out negative, but only 1 of the WINDOW readings is
+    # individually below the per-reading bar.
+    rng = np.random.default_rng(0)
+    spiky = rng.normal(0.0, noise * 0.3, size=len(times))
+    spiky[10] -= 0.006
+    z_spike, _, _, sustained_spike = early_trough(times, spiky, noise)
+    check("a lone spike can still smooth to a deep z",
+          z_spike < -4.0, f"z={z_spike:.2f}")
+    check("but is not sustained", not sustained_spike,
+          f"z={z_spike:.2f}")
+
+    # CLEAN NOISE: no decline at all.
+    clean = rng.normal(0.0, noise * 0.5, size=len(times))
+    z_clean, _, _, sustained_clean = early_trough(times, clean, noise)
+    check("clean noise is not sustained", not sustained_clean,
+          f"z={z_clean:.2f}")
+
+    # TOO SHORT: fewer readings than one window needs.
+    z_short, t_short, start_short, sustained_short = early_trough(
+        times[:5], declining[:5], noise)
+    check("too few readings returns nan, not a spurious trough",
+          np.isnan(z_short) and start_short == -1 and not sustained_short)
+
+    print("\nthe early trough against two real curves (exp 4.2, exp 4.1)")
+    lookup = {(c.experiment, c.sample): c for c in scope.curves((4,))}
+    real_dip = lookup[(4, 2)]
+    z_real, _, _, sustained_real = early_trough(
+        np.asarray(real_dip.times, dtype=float),
+        np.asarray(real_dip.absorbance, dtype=float), real_dip.noise)
+    check("exp 4.2's real, sustained dip is found",
+          z_real < -30.0 and sustained_real, f"z={z_real:.2f}")
+    near_miss = lookup[(4, 1)]
+    z_near, _, _, sustained_near = early_trough(
+        np.asarray(near_miss.times, dtype=float),
+        np.asarray(near_miss.absorbance, dtype=float), near_miss.noise)
+    check("exp 4.1's smoothed trough also clears -4 sigma",
+          z_near < -4.0, f"z={z_near:.2f}")
+    check("but is rejected as not sustained", not sustained_near,
+          f"z={z_near:.2f}")
+
+
 if __name__ == "__main__":
     test_every_test_is_actually_run()
     test_the_runner_finds_every_gate()
@@ -1578,5 +1646,6 @@ if __name__ == "__main__":
     test_the_detachment_snr_floor()
     test_bubble_gains()
     test_debubble_with_gains()
+    test_early_trough()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

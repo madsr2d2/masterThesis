@@ -8,6 +8,83 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-08 — fifteen curves dip below zero before the catalysed rate takes
+over; the driver is `[enz]/[HOO-]`, not `[enz]/[S]`, in both substrates
+
+**What prompted it.** The derivative-of-fit panel added to `progress_curves.html`
+archive-wide (see the entry below) made a negative fitted initial rate visible
+on several two-axis curves. The first read was that this is `lag_profile`'s
+own known extrapolation artefact — a deep, unconstrained induction lag
+overshooting the physical floor of zero at t=0, which `induction.py` has
+floored for exactly this reason since before this session. That diagnosis
+held for most of the curves it was checked against, but not all: reading the
+RAW READINGS (not the fitted derivative) for exps 151.5, 151.6, 151.7 and
+150.7 by eye showed a genuine, sustained decline over ~10-40 minutes to a
+stable negative plateau, tens of consecutive readings below noise, before the
+run's slow net rise took over — not a fitting artefact at all.
+
+**The mechanism.** A catalysed curve's absorbance is already
+reference-subtracted against an enzyme-free cuvette holding the same
+composition (the same instrument design `BUBBLES.md` relies on for the gas
+argument), so a background reaction the two cuvettes share cancels between
+them only while both see the same free concentration of whatever it runs on.
+If the catalyst engages one reactant fast enough to deplete it measurably in
+the sample cuvette alone, the sample's own share of that shared background
+chemistry runs slower than the reference's for a while, and the reported
+curve dips below zero before the catalysed rate overtakes it.
+
+**Screening for artefacts.** `curve_metrics.early_trough` smooths the first
+half of a run with a 9-reading rolling mean and reports its minimum, in
+noise units. Applied to every live catalysed curve in the archive
+(`scope.archive()`, 311 curves), 17 clear -4 sigma. A smoothed mean alone
+cannot tell a genuine decline from one deep outlier reading dragging it
+down — exps 4.1 and 22.2 both clear -6 sigma smoothed with only 3-4 of their
+9 window readings individually qualifying, against 6-9 of 9 for every
+confirmed real curve. Three independent screens (`early_trough.trough_table`):
+sustained (≥5 of 9 readings individually below 2 sigma), no overlap with a
+detected O2 detachment, and survives `debubble` correction. **15 of 17**
+pass all three; the two curves that carry any O2 event (141.4, 142.4) get
+DEEPER after correction, not weaker, ruling out the gas artefact as the
+explanation rather than merely failing to implicate it.
+
+**The archive-wide test.** Defined `dominance = max([enz]/[S], [enz]/[HOO-])`
+and ran Spearman correlation of the trough depth against log-dominance, by
+substrate, over every scanned curve (not just the fifteen). `[enz]/[HOO-]`
+is significant at p < 1e-4 in BOTH substrates independently
+(rho = -0.621, p = 4.7e-17, n=147 for 4OMe; rho = -0.315, p = 4.0e-5, n=164
+for BnOH); `[enz]/[S]` is not significant in either (p = 0.59 and 0.25). The
+hydroperoxide anion is nanomolar across most of the archive's pH range, so a
+catalyst held at 0.014-0.273 mM is a 100-4000-fold molar excess over it — the
+same regime `MECHANISM.md` S4 and `BUBBLES.md`'s gas already put the catalyst
+in. Twelve of the fifteen genuine curves are this oxidant-dominated kind; the
+remaining three (141.4, 142.4, 143.4) sit at the two-axis block's lowest
+substrate rung (0.216 mM), the one composition where `[enz]/[S]` (6.5-9.7%)
+exceeds `[enz]/[HOO-]` (0.022-0.041) instead — over three orders of magnitude
+below every oxidant-cluster curve's own floor (95).
+
+**What this does not establish.** No headspace or manometric measurement of
+anything exists in this archive, the same limit already stated for the gas —
+so "the catalyst engages the peroxide" is the reading, not an established
+finding, and the archive cannot separate that from some other transient
+change in the catalyst's own resting state. Three of the strongest
+oxidant-cluster curves belong to exp 151, one of the two-axis block's own
+weakest, most drift-dominated runs (`scope.concentration_agreement`) — which
+is why the archive's single strongest examples, exps 4.2 and 5.2 (part of
+the 4OMe `REPLICATE_RUNS` four-fold repeat, at -41.5 and -40.1 sigma), matter:
+a different substrate, a different buffer, and none of the two-axis block's
+caveats apply to them.
+
+**Where it lives.** `curve_metrics.early_trough` (the measurement),
+`data/early_trough.py` (`trough_table`, `dominance`, `dominance_correlation`,
+`cluster` — the classification and archive-wide test), `data/test_curve_metrics.py`
+(`test_early_trough`) and `data/test_early_trough.py` (the full module,
+including a fixed regression on the exact correlation figures above), and
+the new `early_trough/` folder (`ANALYSIS.md`, `build_figures.py`,
+`check_numbers.py`) with its own `progress_curves.html` showing all fifteen
+genuine curves' full fits plus the two rejected candidates as the control.
+All 22 fast gates pass; the slow optimiser suite (`data/test_fit_kinetics.py`)
+was not run for this change and its result is not claimed.
+
 ## 2026-09-08 — a bubble arriving in the beam is a jump the falls model
 never removed; `bubble_gains` is the mirror of `detachments`
 
