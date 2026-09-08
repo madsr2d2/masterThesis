@@ -1361,6 +1361,239 @@ required explanation** and should not be asserted as one. Cuvette position and
 signal starvation at the top rung were both excluded rather than assumed
 (`DATA_VERIFICATION.md`, 2026-08-31).
 
+## The mathematics of the clock
+
+*(Added 2026-09-08, to answer two questions with equations rather than prose:
+what "the induction ends on a clock, not a product level" means as algebra,
+and — if that clock is a reversible step — why drawing material off one side
+of it doesn't automatically change its speed. Nothing here is new chemistry;
+it is the derivation behind numbers already quoted above and implemented in
+`data/summary_kinetics.py`, `data/induction.py` and `data/arrhenius.py`, all
+checked numerically before being written down here.)*
+
+### 1. What a progress-curve fit actually returns
+
+Every curve is fitted to one of two forms (`summary_kinetics.fit_progress`),
+chosen by an F-test between them:
+
+```
+one phase:  A(t) = c + v_ss*t - B*(1 - exp(-t/tau))
+two phase:  A(t) = c + v_ss*t - B1*(1 - exp(-t/tau1)) - B2*(1 - exp(-t/tau2)),  tau1 < tau2
+```
+
+Differentiating the one-phase form gives the fitted RATE directly, with no
+differencing of noisy readings:
+
+```
+dA/dt = v_ss - (B/tau) * exp(-t/tau)
+```
+
+a single exponential relaxation of the rate itself, from `v0 = v_ss - B/tau`
+at `t = 0` to `v_ss` as `t -> infinity`. The SIGN of `B` is the whole of
+`progress_kind`:
+
+    B > 0    v0 < v_ss    a LAG    the rate RISES to v_ss    "the induction"
+    B < 0    v0 > v_ss    a BURST  the rate FALLS to v_ss    §6
+
+`tau` is what every "clock" in this document IS — not a landmark read off a
+rolling window, but the fitted relaxation time of an exponential approach to
+`v_ss`. The two-phase form is the same idea with a second exponential added
+for a curve whose rate overshoots or undershoots `v_ss` before settling
+(`progress_kind` "then fall"/"mixed"); its `tau_fast`/`tau_slow` are the same
+quantity read twice off a curve that needs both.
+
+### 2. Why a single exponential is not a modelling choice
+
+This shape is not chosen because it fits well — it is what ANY set of species
+related by first-order (or pseudo-first-order) steps is REQUIRED to do. Their
+concentrations obey a linear system `dx/dt = M x`, and the general solution is
+a sum of exponentials `exp(lambda_i t)` with `lambda_i` the eigenvalues of
+`M` — a fact about linear algebra, not about chemistry. For the simplest case,
+one reversible step `Kh <=> K` with nothing else touching either side,
+
+```
+d[Kh]/dt = -k0f[Kh] + k0r[K]
+d[K]/dt  = +k0f[Kh] - k0r[K]         [Kh] + [K] = E0   (conserved)
+```
+
+`M` has eigenvalues `0` (the conservation law) and `-(k0f + k0r)`, so
+
+```
+[K](t) = [K]_eq + ([K](0) - [K]_eq) * exp(-(k0f + k0r) t)
+```
+
+for ANY starting point — the relaxation rate is `k0f + k0r` regardless of how
+far from equilibrium the system starts. This is standard chemical-relaxation
+kinetics (the result behind T-jump and P-jump experiments), and it is the
+whole justification for treating a fitted `1/tau` as a rate constant rather
+than a description of one curve. Section 6 below is what happens when the
+"nothing else touches either side" clause is false — which, for step 0, it
+is.
+
+### 3. Clock against threshold, as algebra
+
+§0's "ends on a clock, not a product level" is two regressions, both
+derivable from one assumption about what stops the induction. Let `v` be a
+curve's own steady rate (curves differ because `[S]`, `[H2O2]` etc. differ)
+and `t_ind` its induction time.
+
+**Clock**: `t_ind` is set by an independent process and does not depend on
+`v`. `log(t_ind) = log(tau) + 0 * log(v)` — slope **0**.
+
+**Threshold**: the induction ends when a fixed amount of product `P*` has
+been made. Since the rate during the induction scales with the curve's own
+`v` throughout, `t_ind ~ P*/v`, so `log(t_ind) = log(P*) - log(v)` — slope
+**-1**.
+
+The same assumption, read the other way, asks how much product exists AT the
+landmark, `P(t_ind) ~ v * t_ind`:
+
+**Clock**: `P(t_ind) ~ v * tau`, proportional to `v` — slope **+1**.
+**Threshold**: `P(t_ind) ~ v * (P*/v) = P*`, constant — slope **0** (the
+`+0.42` quoted in §0 is what a *planted* threshold reads back once realistic
+curve-fitting noise is folded in, not the noise-free zero).
+
+Two regressions, opposite predictions, both derived from the same one-line
+model of what ends the lag — which is why agreeing on both
+(`induction/ANALYSIS.md` §3, routes one and two) is stronger evidence than
+either alone.
+
+### 4. The pre-equilibrium bound (the ±1 rule)
+
+For a catalyst drawn into its active form by a species X held in excess,
+`E + X <=> E*`, first order in each direction:
+
+```
+1/τ = k_f[X] + k_r,          [E*]/E₀ = K[X] / (1 + K[X]),   K = k_f/k_r
+```
+
+Differentiating both in `ln[X]`:
+
+```
+d ln v   / d ln[X]  =  1 / (1 + K[X])          in (0, +1], -> 0 saturated
+d ln τ   / d ln[X]  =  -K[X] / (1 + K[X])      in [-1, 0), -> -1 saturated
+```
+
+so their difference is exactly `1` for every `K` and every `[X]` — no free
+parameter to absorb a disagreement, which is what makes
+`induction.joint_order`/`joint_buffer_order` a test rather than a fit
+(numerically confirmed to six decimal places over a grid of `K`, `[X]` before
+this was written down). Turn X into a species that holds the catalyst OFF the
+path instead (a trap, `E + X <=> EX`, only free `E` activates) and the same
+algebra flips sign:
+
+```
+1/τ = k_act / (1 + K[X]),      d ln τ / d ln[X] = +K[X] / (1 + K[X])  in (0, +1)
+```
+
+positive and bounded by 1 — the shape §0's own bounded scheme and Step 4's
+note both use, and the reason a *positive* order falsifies X as the
+activator rather than merely disappointing it.
+
+### 5. The two-state relay (burst and lag as one clock)
+
+`induction.two_state_table` (§6) is the same two-state system with the
+reverse step reinterpreted as TURNOVER rather than a return to rest:
+
+```
+dE*/dt = k_A (E_tot - E*) - k_B E*
+```
+
+`k_A`: activation, E → E*. `k_B`: turnover, pseudo-first-order under this
+archive's saturating substrate. This is the identical linear system as
+section 2's `Kh <=> K` (`k0f -> k_A`, `k0r -> k_B`), so it relaxes at
+
+```
+1/τ = k_A + k_B                        (the SUM — whichever is larger dominates)
+v_ss/E₀ = k_A k_B / (k_A + k_B)        (the steady specific activity)
+```
+
+A lag is this relay started at `E* = 0`; a burst is it started at
+`E* = E_tot` — same two constants, opposite initial condition, which is why
+§6 finds them sharing one shape family. Both `1/τ` and `v_ss/E₀` are measured
+per curve, so `k_A, k_B` are the two roots of
+
+```
+x² - x/τ + (v_ss/E₀)/τ = 0
+```
+
+real only if `b = (v_ss/E₀)·τ ≤ 1/4` — the falsifiable prediction
+`two_state_summary` tests, and the reason a third of the two-axis block's
+pure lag/burst curves (`b > 1/4`, concentrated at high pH) cannot be
+described by a relay this simple at all.
+
+### 6. Does drawing on one side of the clock change its speed?
+
+Yes — and section 2's own derivation says by how much. Step 0 is not
+isolated: `K` is drawn into the catalytic cycle
+(`K + H2O2 <=> KP`, eventually back via steps 5/6/6b/7), so the two-state
+picture of section 2 is too simple as written. Suppose the cycle
+`K <=> KP <=> KD` re-equilibrates FAST compared to `Kh <=> K` itself — the
+same separation of timescales the Stage-3 QSSA reduction already assumes for
+`[KP]`, `[KD]`. Then, from `Kh`'s point of view, the whole active manifold
+`T = [K] + [KP] + [KD]` behaves as one pool, and only the fraction of it
+sitting as free `K` — call it `φ = [K]/T` — is positioned to react back
+through step 0:
+
+```
+d[Kh]/dt = -k0f[Kh] + k0r·φ·T,          T = E0 - [Kh]
+```
+
+linear in `[Kh]` if `φ` is quasi-steady, giving section 2's result again with
+a MODIFIED reverse rate:
+
+```
+1/τ = k0f + k0r·φ
+```
+
+`φ` takes the same FORM as the Stage-3 fraction already derived for `[K]`
+there (reread as a fraction of the active manifold `T` rather than of the
+whole catalyst): `φ = 1 / (1 + K4[H2O2] + (k6/k7)[PBA]/[S])` — SMALLER at
+high `[H2O2]` (more of the pool diverted into `KP`, Step 4's note) and LARGER
+at high `[S]` (`KP`/`KD` convert back to `K` faster, steps 5/6b/7). Both move
+`1/τ` in exactly the directions measured (checked numerically on a toy `φ` of
+this shape before being written down):
+
+    more [H2O2]  ->  smaller φ  ->  smaller 1/τ  ->  LONGER τ    (§4a, the "wrong" sign)
+    more [S]     ->  larger  φ  ->  larger  1/τ  ->  SHORTER τ   ("hurried by the substrate")
+
+The pH sign follows the same shape on the OTHER side of step 0: if the
+resting pool is itself split between reactive `Kh` and trapped diolate `Kh⁻`
+(`Kh <=> Kh⁻ + H⁺`, fast), only the neutral fraction
+`f = [H⁺] / ([H⁺] + Ka)` can proceed forward, giving
+
+```
+1/τ = k0f·f(pH) + k0r·φ([H2O2], [S])
+```
+
+`f` falls as pH rises (more diolate), so `1/τ` falls and `τ` LENGTHENS with
+pH — the third sign, from the same mechanism as the other two: an *apparent*
+rate constant is a *true* rate constant times the fraction of its own pool
+that is actually positioned to react, and whatever changes that fraction
+changes the clock without changing any elementary rate constant at all.
+
+**What this is and is not.** It reproduces the SIGN of all three known
+dependences (pH, `[S]`, `[H2O2]`) from one mechanism — fractional
+availability, not three separate ad hoc stories (cavity binding, a trap, a
+diolate) — which is worth having even though it is not a fit: nobody has
+checked that `φ` and `f`'s actual MAGNITUDES, taken from the Stage-3
+constants elsewhere in this document, reproduce the measured SIZE of any of
+the three orders, only their sign. Until that check is done this is a
+candidate unification, not a result — and it does not by itself choose
+between "substrate binds the cavity" and "substrate speeds turnover, which
+drains the pool" raised above, since both move `φ` the same way and this
+derivation cannot tell them apart either.
+
+### 7. Temperature: from τ to a barrier
+
+Not derived here, only located: `arrhenius.activation_parameters` fits
+`ln(rate constant)` (either `1/τ` or a turnover rate) against `1/T` (Arrhenius)
+and against `ln(rate/T)` (Eyring), pooled over rungs with one intercept per
+composition. The **77 ± 12 kJ/mol** barrier and the **126×** "faster than
+turnover" ratio (`activation_contrast`) both come from this fit, and the
+ratio is nothing but `exp(-ΔΔG‡ / RT)` — a ratio of free energies at one
+temperature, so no prefactor or rate law enters it. §5 above.
+
 ## Open questions
 
 - **Does the catalyst loading move the induction clock?** A unimolecular
