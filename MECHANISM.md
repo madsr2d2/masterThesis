@@ -1371,6 +1371,36 @@ it is the derivation behind numbers already quoted above and implemented in
 `data/summary_kinetics.py`, `data/induction.py` and `data/arrhenius.py`, all
 checked numerically before being written down here.)*
 
+**This is one of TWO fits in this project, and it is not the one in terms of
+the mechanism's rate constants.** Everything below — `τ`, `B`, `v_ss`, and
+everything built on them in this section and the next — comes from the
+PHENOMENOLOGICAL curve fit, justified by section 2's general argument alone:
+any system of species connected by first-order steps relaxes as a sum of
+exponentials, so this shape describes a curve regardless of which of the
+seven steps above actually produced it. It is deliberately agnostic about the
+mechanism, which is why it can be fitted uniformly across all 402 curves.
+
+The OTHER fit, `data/kinetic_model.py` + `data/fit_kinetics.py`
+(`FITTING.md`), integrates the reduced 3-ODE system directly and fits its
+literal rate constants (`k_can, k3, k0, k5', k6`, plus the chromophore ratio
+`r`) to the raw absorbance, with no phenomenological layer in between. **That
+fit does not fit the data** — `FITTING.md`'s F1–F7 register a wrong built-in
+substrate order, a dead enzyme-free fixed point, an observation equation that
+needs `r > 1` against a spectroscopic bracket of `r ~ 0.08–0.33`, two of six
+rate constants that are unidentifiable lower bounds, a 20–24× misfit on the
+one block that supports it at all, and an autocatalytic loop that is inert at
+its own best fit. `FITTING.md`'s own verdict is that this indicts the
+REDUCTION and the OBSERVATION EQUATION more than the seven-step chemistry
+itself — "not yet convicted."
+
+So the two sections below are not a substitute for that fit succeeding, and
+should not be read as though the mechanism has been validated by them: they
+are what makes every curve in the archive measurable and comparable WHILE
+that fit remains broken, and the few places a phenomenological quantity IS
+read as an elementary rate constant (§5, §6, §7) are narrow, explicitly
+flagged hypotheses about one small piece of the mechanism, never a claim that
+the full seven-step model has been fitted.
+
 ### 1. What a progress-curve fit actually returns
 
 Every curve is fitted to one of two forms (`summary_kinetics.fit_progress`),
