@@ -1,0 +1,19 @@
+! freq optTS QM/XTB r2SCAN-3c ALPB(WATER)
+
+%QMMM QMATOMS {14 13 10 12 16 17 19} END
+  Charge_medium -1
+  Mult_medium 1
+END
+
+%geom 
+  Calc_Hess true 
+end
+
+%maxcore 2200
+
+%pal
+   nprocs 12
+end
+
+
+* xyzfile -1 1 TS2_opt.xyz

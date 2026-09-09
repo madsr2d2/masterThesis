@@ -1,0 +1,15 @@
+! xtb goat ALPB(Water) opt freq
+
+%maxcore 2200
+
+%geom
+Calc_Hess true
+END
+
+%pal
+   nprocs 12
+end
+
+* xyzfile 0 1 job.xyz 
+
+  

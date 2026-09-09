@@ -1,0 +1,30 @@
+! r2SCAN-3c ALPB(Water) opt freq
+
+
+
+
+%geom 
+#inhess Read
+#InHessName "job.hess"
+#MaxIter 300
+Calc_Hess true
+#Recalc_Hess 40
+#Scan
+#B 3 2 = 1.562, 1.2, 5 
+#END
+#Constraints
+#{C 8 C}
+#{C 3 C}
+#{C 2 C}
+#{C 0 C}
+#END
+END
+
+%maxcore 2200
+
+%pal
+   nprocs 12
+end
+
+
+* xyzfile 0 1 job.xyz

@@ -1,0 +1,34 @@
+! QM/XTB r2SCAN-3c ALPB(Water) freq opt
+#! XTB ALPB(Water) opt
+
+%QMMM 
+QMATOMS 
+	{133 136 137 139 135 131 134 129 128 130 132} 
+END 
+Charge_total 0
+Mult_total 1
+END
+
+%geom
+Calc_Hess true
+#inhess Read
+#InHessName "job.hess"
+#Scan
+#	B 146 36 = 2.673, 1.2, 5
+#END
+#Constraints
+#	{C 137 C}
+#	{C 135 C}
+#	{C 131 C}
+#	{C 129 C}
+#END
+END
+
+%maxcore 2200
+
+%pal
+   nprocs 12
+end
+
+
+* xyzfile 0 1 job.xyz

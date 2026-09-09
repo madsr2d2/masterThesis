@@ -1,0 +1,17 @@
+! r2SCAN-3c tightscf 
+
+%cpcm
+	smd true
+	SMDSolvent "Water"
+end
+
+
+
+%maxcore 2200
+
+%pal
+   nprocs 12
+end
+
+
+* xyzfile -1 1 job.xyz

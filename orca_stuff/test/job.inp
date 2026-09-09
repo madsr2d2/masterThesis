@@ -1,0 +1,13 @@
+!XTB NEB-TS ALPB(WATER)
+ 
+%neb
+ neb_end_xyzfile "product.xyz"
+end
+
+%maxcore 2200
+
+%pal
+   nprocs 12
+end
+
+* xyzfile 0 1 reactant.xyz
