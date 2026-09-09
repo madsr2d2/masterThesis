@@ -39,6 +39,48 @@ STATUS_STYLE = {
 
 ROTATE_STEP_DEG = 5.0
 
+# Window over which repeated input is folded into one action. Long enough to
+# swallow a held key's repeat rate, short enough that a single press still
+# feels immediate -- which it is, because the first press of a burst is acted
+# on at once (see Coalescer).
+COALESCE_S = 0.12
+
+
+class Coalescer:
+    """Leading-edge-then-trailing debounce for repeated input.
+
+    Acts on the first event immediately, then folds everything arriving within
+    `delay` into a single trailing action. Holding an arrow key otherwise
+    queued one full geometry render -- and one image transmission -- per key
+    repeat, which over ssh arrives faster than it can drain; Textual's output
+    queue is bounded, so a backlog there stalls the writer thread and with it
+    the UI. `owner` is any Textual MessagePump (a widget or the app), whose
+    set_timer keeps the trailing call on the main thread."""
+
+    def __init__(self, owner, delay: float, action) -> None:
+        self._owner = owner
+        self._delay = delay
+        self._action = action
+        self._timer = None
+        self._last_fired = 0.0
+
+    def request(self) -> None:
+        self.cancel()
+        if time.monotonic() - self._last_fired >= self._delay:
+            self._fire()
+        else:
+            self._timer = self._owner.set_timer(self._delay, self._fire)
+
+    def _fire(self) -> None:
+        self._timer = None
+        self._last_fired = time.monotonic()
+        self._action()
+
+    def cancel(self) -> None:
+        if self._timer is not None:
+            self._timer.stop()
+            self._timer = None
+
 
 def format_wall_time(seconds: float | None) -> str:
     if seconds is None:
@@ -247,6 +289,7 @@ class RotatableGeometryImage(Widget):
         self._cycle: int | None = None
         self._request_seq = 0
         self._write_lock = threading.Lock()
+        self._input = Coalescer(self, COALESCE_S, self._on_change)
 
     def render(self) -> str:
         return ""
@@ -274,34 +317,34 @@ class RotatableGeometryImage(Widget):
 
     def action_rotate_left(self) -> None:
         self.azim = (self.azim - ROTATE_STEP_DEG) % 360
-        self._on_change()
+        self._input.request()
 
     def action_rotate_right(self) -> None:
         self.azim = (self.azim + ROTATE_STEP_DEG) % 360
-        self._on_change()
+        self._input.request()
 
     def action_rotate_up(self) -> None:
         # No clamp, same as azim: elev just keeps turning past the pole
         # rather than stopping there (matplotlib's view_init renders that
         # fine -- it's a full tumble, not a fixed "top/bottom" limit).
         self.elev = (self.elev + ROTATE_STEP_DEG) % 360
-        self._on_change()
+        self._input.request()
 
     def action_rotate_down(self) -> None:
         self.elev = (self.elev - ROTATE_STEP_DEG) % 360
-        self._on_change()
+        self._input.request()
 
     def action_toggle_distances(self) -> None:
         self.show_distances = not self.show_distances
-        self._on_change()
+        self._input.request()
 
     def action_zoom_in(self) -> None:
         self.zoom = min(ZOOM_MAX, self.zoom * ZOOM_STEP)
-        self._on_change()
+        self._input.request()
 
     def action_zoom_out(self) -> None:
         self.zoom = max(ZOOM_MIN, self.zoom / ZOOM_STEP)
-        self._on_change()
+        self._input.request()
 
     def action_pan_left(self) -> None:
         self._pan_by(-PAN_STEP, 0.0)
@@ -323,7 +366,7 @@ class RotatableGeometryImage(Widget):
             py + right[1] * dx + up[1] * dy,
             pz + right[2] * dx + up[2] * dy,
         )
-        self._on_change()
+        self._input.request()
 
     def _on_change(self) -> None:
         raise NotImplementedError
@@ -368,9 +411,10 @@ class KittyGeometryImage(RotatableGeometryImage):
         self._heals_since_transmit = 0
 
     def on_resize(self) -> None:
-        self._on_change()
+        self._input.request()
 
     def on_unmount(self) -> None:
+        self._input.cancel()
         self._write(f"\x1b_Ga=d,d=i,i={self.IMAGE_ID}\x1b\\")
 
     def show_job(self, job: Job | None, cycle: int | None = None) -> None:
@@ -379,7 +423,7 @@ class KittyGeometryImage(RotatableGeometryImage):
         self._cycle = cycle
         if is_new_selection:
             self._last_atoms = None
-            self._on_change()
+            self._input.request()
             return
         # Same job, same cycle: the periodic refresh. The parser installs a
         # new list object for each geometry block it accepts, so identity
@@ -505,9 +549,10 @@ class HerdrGeometryImage(RotatableGeometryImage):
         # resizes the pane too -- so this is where the cached value is due for
         # re-probing.
         herdr_graphics.cell_size(refresh=True)
-        self._on_change()
+        self._input.request()
 
     def on_unmount(self) -> None:
+        self._input.cancel()
         if self._settle_timer is not None:
             self._settle_timer.stop()
         herdr_graphics.clear(self.LAYER_ID)
@@ -524,7 +569,7 @@ class HerdrGeometryImage(RotatableGeometryImage):
         self._cycle = cycle
         if is_new_selection:
             self._last_atoms = None
-            self._on_change()
+            self._input.request()
             return
         # A running optimization writes new coordinates between ticks, so a
         # periodic refresh is still worth a redraw -- but only when the
@@ -707,6 +752,11 @@ class MonitorApp(App):
         self._rendered_text: dict[str, str] = {}
         self._tail_state: JobState | None = None
         self._tail_seen = 0
+        self._detail = Coalescer(self, COALESCE_S, self.update_detail)
+        # Held for the duration of a scan. Ticks are 3s apart but a scan can
+        # outlast one on a big tree, and two of them would be mutating the
+        # same JobState objects from two threads.
+        self._scan_lock = threading.Lock()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -774,10 +824,30 @@ class MonitorApp(App):
         self.screen.set_class(self.maximized, "maximized")
 
     def refresh_all(self) -> None:
-        running_cwds = running_orca_cwds()
+        self._scan()
+
+    @work(thread=True, exclusive=True)
+    def _scan(self) -> None:
+        """Read every job's new output, off the main thread.
+
+        The first pass reads each job.out end to end -- 17 MB across this tree
+        -- and it used to run on the main thread inside on_mount, so nothing
+        appeared until it finished. Later passes are cheap, but only because
+        nothing has usually been appended; a job writing hard, or a tree with
+        big outputs, would stall the UI for as long as the parse took."""
+        if not self._scan_lock.acquire(blocking=False):
+            return  # a previous scan is still going; this tick can be skipped
+        try:
+            running_cwds = running_orca_cwds()
+            for job in self.jobs:
+                job.refresh(running_cwds)
+        finally:
+            self._scan_lock.release()
+        self.call_from_thread(self._apply_scan)
+
+    def _apply_scan(self) -> None:
         table = self.query_one("#job_table", DataTable)
         for job in self.jobs:
-            job.refresh(running_cwds)
             neg_eig = "-"
             if job.state.eigen_history:
                 neg_eig = str(job.state.eigen_history[-1][1])
@@ -854,7 +924,10 @@ class MonitorApp(App):
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         if event.row_key.value is not None:
             self.selected_label = event.row_key.value
-        self.update_detail()
+        # Coalesced: scrolling the job list with a held arrow key would
+        # otherwise rebuild the summary, the convergence table, the whole
+        # output tail and the chart once per key repeat.
+        self._detail.request()
 
     def update_detail(self) -> None:
         job = self.selected_job()
