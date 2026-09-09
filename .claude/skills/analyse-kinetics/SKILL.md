@@ -52,9 +52,14 @@ twice and four had diverged; the lag statistic's two copies disagreed on 96 of
 said 34%. `data/test_curve_metrics.py::test_no_duplicate_definitions` now fails
 if a duplicate reappears.
 
-That archive figure is now **37.6%** (151/402), not because the statistic
+That archive figure is now **about 40%** (160/402), not because the statistic
 changed but because the readings did: since 2026-08-31 they come from the
-instrument's own `.rre` files rather than the 0.001 AU `.txt` exports.
+instrument's own `.rre` files rather than the 0.001 AU `.txt` exports, and on
+2026-09-01 the first reading of every run was dropped. **Quote it as "about
+40%", never to three digits** -- `test_curve_metrics.test_lag_statistic` has
+the four-step history and the reason: removing one reading flips the verdict
+on 46 of 402 curves, 24 gaining a lag and 22 losing one, and the net +2 hides
+both.
 **Every one of the 402 curves is now `.rre`** — the last 32, exps 2–32, came in
 when `read_rre` stopped matching only `rate<n>.rre`
 (`data/test_read_rre.py`). So `source` is `rre` throughout and the export's
@@ -122,7 +127,8 @@ joint_clocks(table)       # the +1 rule through every clock, beside its control
 bubble_table()            # every curve's O2 load, and its rate under each repair
 bubble_ladder()           # detachments against [H2O2]: the evidence
 bubble_turnover_control() # and that peroxide alone does not do it
-bubble_synchrony()        # not the lamp: 17 coincidences against 16.0 expected
+bubble_synchrony()        # not the lamp: 23 coincidences over 357 cuvette
+                          #   pairs against 21.3 expected
 bubble_mass_balance()     # what stitching would claim of the substrate
 bubble_recovery()         # recovered vmax / true vmax, at a planted truth
 rebuild_smoothness()      # does a repaired curve look like a clean one?
@@ -170,8 +176,13 @@ gap is the systematic and `curve_metrics.quiet_tail` says which curves carry it.
 
 A FALL THAT COMES STRAIGHT BACK IS NOT GAS. Gas that leaves does not return and
 a bubble cannot grow half its size in one 60 s reading, so `detachments`
-rejects a fall that a single adjacent reading undoes by more than half --
-34 of 214 candidate falls in the block, five curves losing all of theirs.
+rejects a fall that a nearby reading undoes by more than
+`BUBBLE_RECOVERY_FRACTION` -- since 2026-09-07 looking up to THREE readings
+past the fall, not just the adjacent one, and crediting recovery only up to
+the drop's own size. 27 of 243 candidate falls in the block, two curves losing
+all of theirs; archive-wide it is 40 of 414 and five curves. A curve whose
+net/noise sits below `DETACHMENT_SNR_FLOOR` (30.0) carries no detachments at
+all, which is what excludes exp 150.1.
 `local_outlier_z` cannot do this job: its window spans the fall, so a genuine
 step flags itself at +130 sigma. `rebuild_smoothness`'s guarantee is
 `worst_at_event`, NOT `rebuilt_worst`; rejected excursions stay in the curve on
@@ -186,7 +197,8 @@ against -260.4 as read and -5.8 on curves that never bubbled. The one survivor,
 exp 135 cuvette 6, has its fall in the FIRST interval -- a bubble grown before
 the run leaves no rise to date it from, and that curve is returned untouched.
 `gas_rate_drivers` is the independent check on the diagnosis: the fitted rate
-is +1.417 +/- 0.247 in peroxide, from a fit that never saw a concentration.
+is +1.477 +/- 0.258 in peroxide and -0.344 +/- 0.093 in substrate, from a fit
+that never saw a concentration.
 
 **The landmark's failure closes a statistic, not the block.** `signal_control`
 fails here (+0.619 +/- 0.228) and run length spans 9.6x, so `t_ind` -- a
@@ -197,21 +209,28 @@ depend on that statistic: it holds for ANY clock of the activation step, and
 `induction.joint_clocks` asks it through each in turn BESIDE ITS CONTROL AXIS,
 because the +1 belongs to the activating species and the substrate axis must
 miss it. Pass `gate=` and never `floor=` for a fitted clock. On this block the
-two routes disagree -- 3.7 sigma short through the landmark, 2.0 and 1.4 through
-the clocks -- and nothing is concluded from it yet, because `tau_slow` is
-resolved on 33 of 110 curves and the estimate moves +0.67 to +0.85 across cuts.
+two routes disagree -- 3.7 sigma short through the landmark, 2.0 and 0.3
+through the clocks -- and nothing is concluded from it yet, because
+`tau_slow_corrected` is resolved on 34 of 110 curves and the estimate moves
++0.87 to +1.26 across cuts: it STRADDLES +1 rather than falling short of it,
+but never sits far enough either side to reject it there.
 
 **Both sides of that ratio come off the REBUILT curves.** `frame` carries
 `tau_corrected` and `tau_slow_corrected` beside `tau` and `tau_slow`, and
 `joint_clocks` defaults to them with `vmax_corrected`. The gas is made from
 peroxide, so on a peroxide axis leaving it in inflates the rate's order and
-shortens the clock, both flattering the +1: the `tau_slow` row sat 0.3 sigma
-from +1 on the readings and sits 1.4 on the rebuilt curves. A clean curve's
-corrected clock is its raw clock EXACTLY (65 of 65).
+shortens the clock, both flattering the +1. Correcting only the FALLS pushed
+the `tau_slow` row from 0.3 sigma off +1 to 1.4; adding `bubble_gains` -- the
+gas ARRIVING in the beam, not only leaving it (`BUBBLES.md`) -- brings it back
+to 0.3, matching the readings' own distance almost exactly. The correction
+still moves individual curves: `tau_slow` differs from `tau_slow_corrected` on
+32 of 110 live curves and `tau` from `tau_corrected` on 38 of 110. It tightens
+`tau`'s error (0.196 to 0.146) but not `tau_slow`'s (0.261 to 0.366), because
+gains change WHICH curves resolve, not only how many.
 
-**Read `bubble_load` before quoting a rate off this block.** Thirteen of 110
+**Read `bubble_load` before quoting a rate off this block.** Fourteen of 110
 live curves sit above 1 and carry no measurable rate -- all four substrate rungs
-of exp 135, plus inner rungs of 138, 140, 141, 142 and 150. They are FLAGGED,
+of exp 135, plus inner rungs of 138, 140, 141, 142, 149 and 150. They are FLAGGED,
 NOT EXCLUDED: they stay in the frame, the live counts and the curves page.
 Nothing published moves under any repair (`bubble_sensitivity`).
 
@@ -226,6 +245,37 @@ order** -- the weak runs sit at the bottom of the ladder and flatten it, from
 where the fit's offsets cannot absorb it**: `orders(within=True)` carries one
 indicator per experiment, so an axis constant inside every run returns NaN
 rather than a number (`scope._moves`, fixed 2026-09-03).
+
+### The pH ladders, and the other end of the curve
+
+Two modules younger than the rest of this file, both reusing the machinery
+above rather than redefining it:
+
+```python
+import ph_role, early_trough
+ph_role.rate_ladder_table()      # the RATE's order in [HOO-], all four ladders
+ph_role.pooled_rate_order(drop=("boric 4OMe",))   # and pooled without boric
+ph_role.boric_turnover()         # boric rises to pH 9.50 and then FALLS
+ph_role.boric_split_sensitivity()# ...and how much the split point decides that
+ph_role.clock_pooled_order()     # induction.pooled_ladder, quoted back
+early_trough.dominance_correlation()  # the dip's driver: [enz]/[HOO-]
+early_trough.binding_rates()     # k_on off tau_fast, no new fitting
+early_trough.arrhenius_check()   # and why no activation energy is quoted
+```
+
+`scope.PH_LADDERS` is the dict of all four (`PH_LADDER_PHOSPHATE`,
+`PH_LADDER_BORIC`, `PH_LADDER_TWO_AXIS_LOW`/`_HIGH`). **Three of the four agree
+on the rate's order in [HOO-] at +0.594 +/- 0.026** (chi2 0.29 on 2); boric
+does not, and that is a turnover rather than a saturation. **The two
+pyrophosphate ladders ARE the two-axis block** -- they are not independent of
+`two_axis/`, and the ladder that independently corroborates the block is
+phosphate (+0.596 +/- 0.032, 0.83 sigma from `scope.ph_order`'s +0.554).
+
+pH is one value per run everywhere in this archive, so these are `within=False`
+pooled fits with no per-run offset. `[buf]` is fixed BETWEEN runs in every
+ladder, which is what leaves the pH axis clean -- but it moves WITHIN runs in
+the two 4OMe ladders (50-80 and 70-85 mM), collinear with `[S]` at -0.96 and
+-0.97, so a substrate order read there is an order in the [S]/[buf] PAIR.
 
 ## If the quantity you need is missing
 
@@ -271,10 +321,13 @@ a reason that is not substrate. `scope.FREE_BNOH_BUFFER_TITRATIONS` records it.
   define, so the reaction is still on — they are the bottom rung of the pH
   ladder, not a blank. Do not subtract them from anything.
 - **Six runs move with something that is not the reaction.** In exps 136, 137,
-  147, 149, 150 and 151, `scope.concentration_agreement` is 0.61 or below and
-  as low as 0.005: their cuvettes' rates bear almost no relation to their
-  cuvettes' concentrations, while exps 135, 138, 139, 140 and 142 run 0.93 to
-  0.97. Their rates sit at the cell's own drift, a few times 1e-7 AU/s.
+  147, 149, 150 and 151, `scope.concentration_agreement` is 0.57 or below and
+  goes NEGATIVE -- -0.013 on exp 149 and -0.612 on exp 150, so those cuvettes'
+  rates run mildly OPPOSITE to their own compositions -- while exps 135, 138,
+  139, 140 and 142 run 0.92 to 0.97. Their rates sit at the cell's own drift, a
+  few times 1e-7 AU/s. Exp 151 gets no row at all: `concentration_agreement`
+  skips a run with fewer than four live cuvettes, and 151 has three. Absence is
+  therefore a third way to fail this screen, and `strong_runs` treats it as one.
   Every conclusion in FITTING.md is *stronger* with them dropped, so use
   `concentration_agreement` before letting a weak run carry an argument.
 - **Concentrations are mM, time is s**, throughout.

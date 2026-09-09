@@ -275,8 +275,10 @@ beam is not obliged to finish inside one 60 s reading — treating a
 two-reading fall as two separate events dated one of them from a zero-second
 growth window and left the second one's mass entirely uncorrected, in an
 earlier version of this model), then drop any event `_is_excursion` rejects.
-27 of 243 archive-wide candidate falls are rejected as excursions; two
-curves lose every one of theirs and are returned untouched.
+27 of 243 candidate falls **in the two-axis block** are rejected as excursions
+and two curves (144.7, 149.5) lose every one of theirs and are returned
+untouched. Archive-wide the same pipeline sees 40 of 414 rejected and five
+curves emptied, adding exps 3.1, 45.1 and 65.1.
 
 **Grouping consecutive candidates is safe for falls specifically because
 chemistry cannot produce a multi-reading run of large falls at all** — any

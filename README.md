@@ -55,21 +55,46 @@ DATA_VERIFICATION.md        dated log of every check and every ruling
 computational/hellowater/   ORCA smoke test, proves the toolchain runs
 ```
 
-## Running the checks
+## Setting up
 
-From the repository root:
+Python 3.12, and five third-party packages pinned in `requirements.txt`:
 
 ```bash
-python data/validate_dataset.py           # fast: metadata, optics, exclusions
-python data/validate_dataset.py --deep    # adds the five independent chains
-python data/test_validator.py             # fault injection: corrupt, expect a catch
-python data/test_solution_chemistry.py
-python data/test_curve_flags.py
-python data/test_kinetic_model.py
-python data/test_scope.py
-python data/test_fit_kinetics.py
-python data/build_manifest.py --write     # rebuild data/manifest.csv
-python data/build_dossier.py              # rebuild dossier.html
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+`.venv/` is git-ignored, so it is per-clone. Everything below assumes
+`.venv/bin/python`; a bare `python3` on most systems has no pandas and every
+gate will fail at the import line rather than on anything real.
+
+## Running the checks
+
+**One command runs all of them:**
+
+```bash
+.venv/bin/python run_gates.py             # 25 gates in about 80 s, parallel
+.venv/bin/python run_gates.py --all       # adds the optimiser suite (9 min)
+.venv/bin/python run_gates.py --only two_axis
+.venv/bin/python run_gates.py --jobs 1    # serially, when a failure needs reading
+```
+
+It exits non-zero if any gate fails, and it **discovers** the gates rather than
+listing them, so a newly written `test_*.py` or `check_numbers.py` is picked up
+without anyone remembering to add it. Prefer it to the individual commands
+below, which are what it runs:
+
+```bash
+.venv/bin/python data/validate_dataset.py           # fast: metadata, optics, exclusions
+.venv/bin/python data/validate_dataset.py --deep    # adds the five independent chains
+.venv/bin/python data/test_validator.py             # fault injection: corrupt, expect a catch
+.venv/bin/python data/test_solution_chemistry.py
+.venv/bin/python data/test_curve_flags.py
+.venv/bin/python data/test_kinetic_model.py
+.venv/bin/python data/test_scope.py
+.venv/bin/python data/test_fit_kinetics.py
+.venv/bin/python data/build_manifest.py --write     # rebuild data/manifest.csv
+.venv/bin/python data/build_dossier.py              # rebuild dossier.html
 ```
 
 Fitting:

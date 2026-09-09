@@ -8,6 +8,154 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-08 — end-to-end review: six stale numbers in the ungated documents,
+a post-hoc split that was quoted as if it were not one, and a docstring
+premise that was half false
+
+An end-to-end review of the whole analysis. **Nothing computed by a module was
+wrong.** All 25 gates passed before the review and after it, every one of the
+16 published pages rebuilt byte-identically with zero clipped marks, all 66
+tracked Python files compile with no unused imports, and `scope.frame`'s
+memoisation was confirmed to hand out copies that cannot poison the cache.
+The eight folder `ANALYSIS.md` files held 883 claims against the code and all
+883 passed.
+
+Every defect found was in prose or a docstring that **no gate read**, which is
+the finding rather than an aside.
+
+**1. Six stale numbers, all in the three ungated documents.** `CLAUDE.md`,
+`BUBBLES.md` and `.claude/skills/analyse-kinetics/SKILL.md` carry about 480
+numeric tokens between them and had no checker pointed at any of them. Each of
+these was correct when written and was superseded with nothing watching:
+
+| where | said | code says |
+|---|---|---|
+| SKILL.md, MECHANISM.md | lag fraction 37.6%, 151/402 | **160/402**, and `test_lag_statistic` says quote it as "about 40%", never to three digits |
+| SKILL.md | `bubble_synchrony` 17 against 16.0 | **23 over 357 cuvette pairs against 21.296** |
+| SKILL.md | 34 of 214 candidate falls, five curves | **27 of 243, two curves** (block) |
+| SKILL.md | gas rate +1.417 ± 0.247 | **+1.477 ± 0.258** |
+| SKILL.md | joint clocks "2.0 and 1.4" | **2.0σ and 0.34σ**, post-`bubble_gains` |
+| SKILL.md | `tau_slow` resolved 33 of 110, +0.67 to +0.85 | **34 of 110, +0.87 to +1.26** |
+| SKILL.md | `bubble_load` > 1 on thirteen curves | **14**, and it omitted exp 149 from the list |
+
+The lag fraction is the worst of them: it has moved four times (136 → 151 →
+158 → 160) without the statistic changing once, purely as the readings
+improved, and the code's own docstring forbids quoting it precisely. Both
+`MECHANISM.md` and the skill were asserting a two-revision-old value in bold.
+
+**2. `BUBBLES.md` called a block statistic archive-wide.** Line 278 read "27
+of 243 archive-wide candidate falls are rejected as excursions; two curves
+lose every one of theirs." Recomputed through the same three stages
+`detachments` runs (SNR gate, `bubble_drops`, group consecutive, drop
+excursions), 27/243/two is the **two-axis block**. Archive-wide the same
+pipeline sees **40 of 414 rejected and five curves emptied**, adding exps 3.1,
+45.1 and 65.1. One word turned a block count into an archive count and
+understated the archive's candidate falls by 40%. `CLAUDE.md`'s copy was
+correct because it sits inside the two-axis section and omits the word.
+
+**3. `ph/ANALYSIS.md` §2 overstated the independence of its own cross-check.**
+It called the comparison "two independent methods" and described the
+pyrophosphate ladders as ones "`../two_axis/` does not touch at all."
+`PH_LADDER_TWO_AXIS_LOW` and `_HIGH` **are** exps 136-142 and 143-151 — the
+two-axis block, read along its second design. They carry **35.9% of the
+weight** in the pooled +0.594 ± 0.026, and the +0.554 ± 0.040 it was checked
+against is read off those same curves.
+
+The finding survives; only the framing was wrong. The genuinely independent
+comparison is the phosphate ladder alone: **+0.596 ± 0.032 on nine runs
+sharing no experiment with the block, 0.83σ from the block's own
+cuvette-matched +0.554 ± 0.040** — a different buffer and a different
+substrate. `ph_role.independent_check` computes it and
+`test_only_phosphate_can_corroborate_the_two_axis_block` pins the overlap so a
+future edit cannot quietly reclaim independence. `CLAUDE.md` and this log had
+both described the overlap correctly; only the folder document overreached.
+
+**4. The boric split was chosen off the data and quoted as if it were not.**
+`BORIC_TURNOVER_SPLIT = 9.51` sits just above the ladder's observed peak, and
+the order below it was published as **+0.222 ± 0.037, "six standard errors
+from zero."** Sweeping the split across every cut that falls between two runs
+near the peak:
+
+| split | runs below | order in [HOO-] | σ |
+|---|---|---|---|
+| 9.01 | 2 | +0.481 ± 0.023 | 21.2 |
+| 9.24 | 3 | +0.353 ± 0.044 | 8.1 |
+| 9.41 | 4 | +0.259 ± 0.044 | 5.8 |
+| 9.51 *(published)* | 6 | +0.222 ± 0.037 | 6.0 |
+| 9.71 | 7 | +0.186 ± 0.035 | 5.3 |
+| 10.08 | 8 | +0.056 ± 0.043 | 1.3 |
+
+The estimate moves by a factor of nine and significance collapses from 21σ to
+1.3, while the quoted error stays near ±0.04. This is the same failure
+`slowdown.sink_window_sensitivity` already prices for the sink's 72 kJ/mol and
+`induction.lag_window_sweep` for the clock's pooled order, and this project's
+own rule is to quote the range. It is now **+0.22 with a split systematic of
+about +0.26/−0.17**. `ph_role.boric_split_sensitivity` is the sweep.
+
+**What survives the choice is what section 3 actually argues**: the order
+below the peak is positive at every split and weaker than the other three
+ladders' shared +0.594 at every split, including 9.24 — boric's own pKa, a
+split chosen without reference to the peak.
+
+**5. `_ladder_scope`'s docstring rested the pooled fit on a premise that is
+half false.** It said `[buf]` "sits exactly fixed inside all four ladders …
+with no within-ladder spread." Checked:
+
+- **Between runs it is fixed** — 80.0 mM across phosphate, 85.0 across boric,
+  75.013 across both pyrophosphate arms. This is the half that matters, and it
+  is why the pH order is clean: pH is a between-run axis here, so a buffer term
+  that does not move between runs cannot contaminate it. Adding `buf` as a
+  third term confirms it — `order_hoo` moves by 0.002 on phosphate and 0.001 on
+  boric, and the buffer order is unresolved either way.
+- **Within runs it is not** — the phosphate ladder steps it 50–80 mM and boric
+  70–85 mM, four distinct values each, because substrate volume displaced
+  buffer volume. `log[S]` and `log[buf]` run at **−0.960 and −0.974** inside
+  those two ladders, which is the archive-wide pairing
+  `induction.composition_collinearity` measures. So the `s0` column
+  `ph_role` reports for phosphate and boric **is an order in the [S]/[buf]
+  pair, not in substrate** — a caveat CLAUDE.md already states for 4OMe runs
+  generally and the folder had not carried across.
+
+Since `buffer/` measures a real total-buffer order on the rate, an unexamined
+buffer axis was a live confound rather than a nuisance; it is now checked both
+ways in `test_the_buffer_axis_cannot_move_the_ph_order` rather than asserted
+in a docstring.
+
+**6. The environment was undocumented and the documented commands failed.**
+There was no `requirements.txt`, `pyproject.toml` or `setup.py` anywhere, no
+mention of the git-ignored `.venv/`, and `README.md` and `CLAUDE.md` both said
+`python data/validate_dataset.py`. There is no `python` on PATH and the system
+`python3` has no pandas, so a fresh clone gets `ModuleNotFoundError` on 23 of
+25 gates — which reads as a broken repository and is not. `requirements.txt`
+now pins the five third-party packages the published numbers were computed
+under (numpy 2.5.2, pandas 3.0.5, scipy 1.18.1, xlrd 2.0.2, matplotlib
+3.11.1), README has the two lines that build the venv, and every documented
+command uses `.venv/bin/python`.
+
+### What changed
+
+- `test_root_documents.py`, a new gate: the document contract applied to
+  `CLAUDE.md`, `BUBBLES.md`, `MECHANISM.md`, `FITTING.md` and the
+  `analyse-kinetics` skill, 42 claims. Discovered by `run_gates.py` like any
+  other, taking the routine suite to **25 gates in about 80 s**.
+- `doc_check.Checker` takes `document_label`, so a checker over five root
+  documents no longer reports a pass on an "ANALYSIS.md" that does not exist.
+- `ph_role.boric_split_sensitivity` and `ph_role.independent_check`, with
+  three new tests in `data/test_ph_role.py`.
+- `ph/check_numbers.py` grew from 22 claims to 36 — it had the thinnest
+  coverage of any folder (7.0 claims per 100 document lines against a median
+  of 11.4), which is why items 3–5 were all in that folder.
+- The stale numbers corrected in `MECHANISM.md`, `BUBBLES.md` and the skill,
+  and the skill given a section on `ph_role` and `early_trough`, neither of
+  which it mentioned at all despite both being current analysis modules.
+- The skill's `concentration_agreement` paragraph corrected: the floor is
+  **−0.612** (exp 150) and not "as low as 0.005", the strong runs span 0.92 to
+  0.97 and not 0.93 to 0.97, and exp 151 gets no row at all because the
+  function skips a run with fewer than four live cuvettes — a third way to
+  fail the screen, which `strong_runs` happens to treat correctly.
+
+---
+
 ## 2026-09-08 — a new `ph/` folder: the rate's order in [HOO-], across all
 four pH ladders for the first time, and a genuine turnover in one of them
 

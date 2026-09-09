@@ -60,22 +60,76 @@ def main():
                   f"{bold}{row.order_hoo:+.3f} ± {row.stderr_hoo:.3f}{bold} |")
     pooled_all = ph_role.pooled_rate_order()
     pooled_three = ph_role.pooled_rate_order(drop=("boric 4OMe",))
-    doc.claim("pooled over all four", f"**+{pooled_all['pooled']:.3f} ± "
-              f"{pooled_all['stderr']:.3f}**" if pooled_all["pooled"] > 0
-              else f"**{pooled_all['pooled']:+.3f} ± {pooled_all['stderr']:.3f}**")
+    # NOT bolded in the document: chi2 = 174 on 3 means the +/- is not an
+    # uncertainty, so the value is quoted as a contrast and not argued for.
+    doc.claim("pooled over all four", f"+{pooled_all['pooled']:.3f} ± "
+              f"{pooled_all['stderr']:.3f}")
     doc.claim("its chi2", f"χ² = **{pooled_all['chi2']:.0f}** on "
               f"{pooled_all['dof']}")
     doc.claim("pooled without boric", f"**+{pooled_three['pooled']:.3f} ± "
               f"{pooled_three['stderr']:.3f}**")
     doc.claim("its chi2", f"χ² = **{pooled_three['chi2']:.2f}** on "
               f"{pooled_three['dof']}")
-    published = scope.ph_order(parameter="vmax", scope=scope.strong_runs())
+
+    # ---- and which of the three can actually corroborate the block ---------
+    # Two of them ARE exps 136-151. The document says so, gives the weight they
+    # carry, and makes its independent comparison the phosphate ladder alone.
+    independent = ph_role.independent_check()
+    doc.claim("the two-axis ladders' weight in the pool",
+              f"**{100 * independent['two_axis_share']:.1f}% of the weight**")
+    doc.claim("and phosphate's share",
+              f"the other {100 * independent['weight_share']['phosphate 4OMe']:.1f}%")
+    doc.check("the two pyrophosphate ladders really are the two-axis block",
+              set(scope.PH_LADDER_TWO_AXIS_LOW) <= set(scope.TWO_AXIS_BLOCK)
+              and set(scope.PH_LADDER_TWO_AXIS_HIGH) <= set(scope.TWO_AXIS_BLOCK))
+    doc.check("and the phosphate ladder shares no experiment with it",
+              not independent["shares_experiments_with_block"])
+    doc.claim("phosphate alone, the independent row",
+              f"**+{independent['phosphate_order']:.3f} ± "
+              f"{independent['phosphate_stderr']:.3f}**")
     doc.claim("the two-axis block's own reading",
-              f"**+{published.loc['pooled', 'order']:.3f} ± "
-              f"{published.loc['pooled', 'stderr']:.3f}**")
-    doc.check("the two methods agree within one combined stderr",
-              abs(pooled_three["pooled"] - published.loc["pooled", "order"])
-              < (pooled_three["stderr"] + published.loc["pooled", "stderr"]))
+              f"**+{independent['block_order']:.3f} ± "
+              f"{independent['block_stderr']:.3f}**")
+    doc.claim("and the distance between them",
+              f"**{independent['sigma']:.2f}σ**")
+    doc.check("that distance is under one combined standard error",
+              independent["sigma"] < 1.0, f"{independent['sigma']:.3f}")
+
+    # ---- the [S] column is an order in the [S]/[buf] pair on the 4OMe rows --
+    # `_ladder_scope`'s docstring claimed [buf] was fixed inside every ladder.
+    # It is fixed BETWEEN runs (which is what protects the pH axis) and not
+    # within them, so this is checked both ways rather than asserted.
+    for name, low, high in (("phosphate 4OMe", 50.0, 80.0),
+                            ("boric 4OMe", 70.0, 85.0)):
+        block = scope.frame(scope.PH_LADDERS[name])
+        block = block[block.live]
+        by_run = block.groupby("experiment").buf.first()
+        doc.check(f"{name}: [buf] is fixed BETWEEN runs",
+                  by_run.nunique() == 1, f"{sorted(by_run.unique())}")
+        doc.check(f"{name}: and steps within them, {low:.0f}-{high:.0f} mM",
+                  abs(block.buf.min() - low) < 0.001
+                  and abs(block.buf.max() - high) < 0.001
+                  and block.buf.nunique() == 4,
+                  f"{sorted(block.buf.unique())}")
+        pair = np.corrcoef(np.log(block.s0), np.log(block.buf))[0, 1]
+        doc.claim(f"{name}: the [S]/[buf] collinearity", f"−{abs(pair):.3f}")
+    for name in ("pyrophosphate BnOH 136-142", "pyrophosphate BnOH 143-151"):
+        block = scope.frame(scope.PH_LADDERS[name])
+        doc.check(f"{name}: [buf] is fixed outright",
+                  block[block.live].buf.nunique() == 1)
+    # And that saying so costs the [HOO-] column nothing.
+    for name, moved in (("phosphate 4OMe", 0.002), ("boric 4OMe", 0.001)):
+        block = scope.frame(ph_role._ladder_scope(scope.PH_LADDERS[name]))
+        block = block[block.live]
+        base = scope.orders("vmax", frame=block, terms=("s0", "hoo"),
+                            within=False)
+        with_buf = scope.orders("vmax", frame=block,
+                                terms=("s0", "hoo", "buf"), within=False)
+        doc.check(f"{name}: adding [buf] moves order_hoo by {moved:.3f}",
+                  abs(base["order_hoo"] - with_buf["order_hoo"]) < moved + 5e-4,
+                  f"{abs(base['order_hoo'] - with_buf['order_hoo']):.4f}")
+        doc.check(f"{name}: and returns an unresolved buffer order",
+                  abs(with_buf["order_buf"]) < 2 * with_buf["stderr_buf"])
 
     print("\nsection 3: the boric ladder turns over")
     turnover = ph_role.boric_turnover()
@@ -95,12 +149,32 @@ def main():
     doc.check("exps 44 and 49's medians",
               abs(medians.loc[44] - 8.1e-5) < 0.05e-5
               and abs(medians.loc[49] - 6.6e-5) < 0.05e-5)
+    # NOT bolded any more: the split that produces it was chosen off the same
+    # medians it is fitted to, and the sweep below is what the document argues.
     doc.claim("the refit below the peak",
-              f"**+{turnover['below']['hoo']['slope']:.3f} ± "
-              f"{turnover['below']['hoo']['stderr']:.3f}**")
-    doc.check("six standard errors from zero",
-              turnover["below"]["hoo"]["slope"]
-              > 6 * turnover["below"]["hoo"]["stderr"])
+              f"+{turnover['below']['hoo']['slope']:.3f} ± "
+              f"{turnover['below']['hoo']['stderr']:.3f}")
+
+    # ---- and the split it depends on, swept ---------------------------------
+    sweep = ph_role.boric_split_sensitivity()
+    for split, row in sweep["table"].iterrows():
+        published = " *(published)*" if abs(split - ph_role.BORIC_TURNOVER_SPLIT) < 1e-9 else ""
+        doc.claim(f"the split at {split:.2f}",
+                  f"| {split:.2f}{published} | {int(row.runs)} | "
+                  f"+{row.order_hoo:.3f} ± {row.stderr_hoo:.3f} | "
+                  f"{row.sigma:.1f} |")
+    doc.claim("the range the estimate spans",
+              f"**+{sweep['low']:.2f} to +{sweep['high']:.2f}**")
+    doc.claim("how it should be quoted",
+              f"**+{sweep['published']:.2f} with a split systematic of about "
+              f"+{sweep['systematic_up']:.2f}/−{sweep['systematic_down']:.2f}**")
+    doc.check("the sign survives every split",
+              sweep["sign_stable"])
+    doc.check("and every split stays under the other ladders' shared order",
+              sweep["always_weaker_than_pooled"])
+    doc.check("the span really is about a factor of nine",
+              8.0 < sweep["high"] / sweep["low"] < 9.5,
+              f"{sweep['high'] / sweep['low']:.2f}x")
     doc.claim("vmax_corrected barely moves it",
               "8.1 → 9.4 × 10⁻⁵ and\n6.6 → 7.0 × 10⁻⁵")
     above = turnover["above_by_experiment"]

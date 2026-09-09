@@ -109,28 +109,36 @@ four files when the scoped figures are 100.0% / 94.1%.
 
 ## Before trusting anything
 
+**Use `.venv/bin/python`, not `python`.** The interpreter is a git-ignored
+per-clone venv built from `requirements.txt` (`README.md` has the two lines);
+a bare `python3` has no pandas and every gate then fails at its import line
+rather than on anything real, which reads as 23 broken gates and is not.
+
 ```bash
-python data/validate_dataset.py --deep    # 0 errors expected
-python data/test_curve_metrics.py         # duplicate guard + the lag statistic
-python data/test_scope.py                 # the order machinery and the pH ladders
-python data/test_fit_kinetics.py          # selection, scope, parameter recovery (9 min)
-python data/test_validator.py             # fault injection
-python data/test_slowdown.py              # the slowdown models and their regressions
-python data/test_induction.py             # the induction landmark and its controls
-python data/test_buffer_role.py           # the species test, planted both ways
-python test_doc_check.py                  # the contract every check_numbers runs on
+.venv/bin/python data/validate_dataset.py --deep    # 0 errors expected
+.venv/bin/python data/test_curve_metrics.py         # duplicate guard + the lag statistic
+.venv/bin/python data/test_scope.py                 # the order machinery and the pH ladders
+.venv/bin/python data/test_fit_kinetics.py          # selection, scope, parameter recovery (9 min)
+.venv/bin/python data/test_validator.py             # fault injection
+.venv/bin/python data/test_slowdown.py              # the slowdown models and their regressions
+.venv/bin/python data/test_induction.py             # the induction landmark and its controls
+.venv/bin/python data/test_buffer_role.py           # the species test, planted both ways
+.venv/bin/python data/test_ph_role.py               # the four pH ladders and the boric split
+.venv/bin/python test_doc_check.py                  # the contract every check_numbers runs on
 ```
 
-Or all of it, which is what `python run_gates.py` is for -- **20 gates in about
-40 seconds**, non-zero if any fails, `--all` to add the slow optimiser suite
-(9 minutes, and it IS the wall time), `--only two_axis` to narrow and
-`--jobs 1` when a failure needs reading in order. Gates run in PARALLEL because
-they are independent processes: nothing here builds a page, and the only three
-that write anything write into their own `tempfile` directories. **It DISCOVERS the gates rather than listing
-them.** The list above named 9 and the repository has 20: `test_curve_flags`,
+Or all of it, which is what `.venv/bin/python run_gates.py` is for -- **25
+gates in about 80 seconds**, non-zero if any fails, `--all` to add the slow
+optimiser suite (26 gates, 9 minutes, and it IS the wall time), `--only
+two_axis` to narrow and `--jobs 1` when a failure needs reading in order.
+Gates run in PARALLEL because they are independent processes: nothing here
+builds a page, and the only three that write anything write into their own
+`tempfile` directories. **It DISCOVERS the gates rather than listing
+them.** The list above named 10 and the repository has 25: `test_curve_flags`,
 `test_curve_screen`, `test_kinetic_model`, `test_read_rre`,
 `test_solution_chemistry` and `test_summary_kinetics` were in the tree and in
-no documented suite. A hardcoded list is a list that drifts.
+no documented suite. A hardcoded list is a list that drifts -- this paragraph
+said 20 until 2026-09-08, four gates after it stopped being true.
 
 And each analysis folder's own `check_numbers.py`, which re-derives every number
 in its `ANALYSIS.md` from the modules. About twenty seconds each.
@@ -146,12 +154,31 @@ and this frame is passed into five folders. `_gas_curves` is the same pattern.
 
 Units: concentrations mM, time s.
 
-## One contract for the folder documents
+## One contract for the folder documents -- and for the root ones
 
 `doc_check.py` is the comparison behind every `check_numbers.py`. There were
 five copies of it until 2026-09-02 and no two were the same -- 7 substitutions
 in `background_reaction`, 17 in `induction` -- so five documents were held to
 five standards, and the folder with the most numbers ran the weakest one.
+
+**THE CONTRACT STOPPED AT THE FOLDER BOUNDARY UNTIL 2026-09-08, AND THAT IS
+WHERE THE DRIFT WENT.** Eight `check_numbers.py` held 883 claims against eight
+`ANALYSIS.md` files, and the ROOT documents -- the ones read FIRST -- had
+almost nothing: `background_reaction` and `two_axis` each check a handful of
+strings in `MECHANISM.md` and `FITTING.md`, and **CLAUDE.md, BUBBLES.md and
+`.claude/skills/analyse-kinetics/SKILL.md` had no gate at all**, between them
+about 480 numeric tokens. An end-to-end review found six stale numbers living
+there and nowhere else: the skill quoting a lag fraction of 37.6% (151/402)
+two revisions after the code moved to 160/402 -- a figure
+`test_lag_statistic`'s own docstring says never to quote to three digits --
+MECHANISM.md quoting the same superseded value in bold, and the skill's
+`bubble_synchrony`, gas-rate order, `bubble_load` count, `tau_slow` resolution
+and joint-clock sigma all frozen at pre-correction values. BUBBLES.md called
+the two-axis block's 27-of-243 excursion count ARCHIVE-WIDE, where the archive
+is 40 of 414. None was wrong when written; each was superseded with nothing
+watching. `test_root_documents.py` is the gate, 42 claims, and it is
+discovered by `run_gates.py` like any other. **A number that reaches CLAUDE.md,
+BUBBLES.md or the skill now needs a claim in it.**
 
 - **Typography folds; emphasis does not.** A hyphen against U+2212, `tau`
   against `τ`, `10-5` against `10⁻⁵`, backticks, a rewrapped line: all noise.

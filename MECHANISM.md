@@ -455,13 +455,20 @@ every rate constant, at both `E0 = 0` and `E0 > 0`, produced **not one**
 accelerating curve at `r <= 1`. At `r > 1` acceleration appears immediately, up
 to 4.7x the initial slope.
 
-*(The 52% figure in the table above was re-measured on 2026-08-31 over the 402
-curves the fitting code selects, by the same smoothed method, and comes out at
-**37.6%** — 151/402. The selections differ: the n = 326 above predates the
+*(The 52% figure in the table above was re-measured over the 402 curves the
+fitting code selects, by the same smoothed method, and comes out at **about
+40%** — 160/402. The selections differ: the n = 326 above predates the
 carbonate rule, the exclusions of exps 50, 64 and 85, and the cuvette exclusions
-of 25,2 and 25,4. The figure was 136/402 until 2026-08-31, when the readings
-moved to the instrument's own .rre files; the export's 0.001 AU rounding had
-been flattening fifteen lags below the threshold.)*
+of 25,2 and 25,4. It has moved four times, none of them because the statistic
+changed: 136/402 until 2026-08-31, when the readings moved to the instrument's
+own .rre files and the export's 0.001 AU rounding stopped flattening lags below
+the threshold; 151/402 once `rate<n>.rre` was adopted; 158/402 once
+`mads_t<n>.rre` was too; 160/402 from 2026-09-01, when the first reading of
+every run was dropped. **Quote it as "about 40%", never to three digits** —
+that last step removes one reading and flips the verdict on 46 of 402 curves,
+24 gaining a lag and 22 losing one, with the net +2 hiding both.
+`FITTING.md` has the table and `test_curve_metrics.test_lag_statistic` the
+check.)*
 
 **And the first fit shows the error runs the other way.** Fitted on
 BnOH/25 C/phosphate, the model at its best-fit `r = 1.52` lags in 19 of 23

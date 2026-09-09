@@ -103,10 +103,16 @@ class Checker:
     to; pass `document=` for any other.
     """
 
-    def __init__(self, default, label=None):
+    def __init__(self, default, label=None, document_label=None):
         self.default = default
         self.label = label or os.path.basename(os.path.dirname(
             os.path.abspath(default)))
+        # What `summary` calls the thing it just checked. Eight folders check
+        # an `ANALYSIS.md` and that stayed hardcoded until 2026-09-08, when
+        # `test_root_documents.py` started checking CLAUDE.md, BUBBLES.md,
+        # MECHANISM.md, FITTING.md and the skill -- and reported a pass on a
+        # "root documents/ANALYSIS.md" that does not exist.
+        self.document_label = document_label or "ANALYSIS.md"
         self.failures = []
         self.claims = 0
         self._cache = {}
@@ -205,6 +211,6 @@ class Checker:
             for item in self.failures:
                 print(f"  - {item}")
             return 1
-        print(f"{self.label}/ANALYSIS.md agrees with the code "
+        print(f"{self.label}/{self.document_label} agrees with the code "
               f"({self.claims} claims)")
         return 0

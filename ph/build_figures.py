@@ -49,6 +49,18 @@ def _turnover():
 
 
 @functools.cache
+def _independent():
+    """Which ladder can corroborate the block, and how far it lands from it."""
+    return ph_role.independent_check()
+
+
+@functools.cache
+def _split():
+    """The boric order's dependence on where the ladder is cut."""
+    return ph_role.boric_split_sensitivity()
+
+
+@functools.cache
 def _clock_rows():
     return induction.lag_ph_ladders()
 
@@ -107,6 +119,7 @@ def figure_ladder_orders():
     pooled_all = ph_role.pooled_rate_order()
     pooled_three = ph_role.pooled_rate_order(drop=("boric 4OMe",))
     published = scope.ph_order(parameter="vmax", scope=scope.strong_runs())
+    independent = _independent()
     rows = [(LADDER_LABEL[name], table.loc[name].order_hoo,
             table.loc[name].stderr_hoo, LADDER_COLOUR[name])
            for name in table.index]
@@ -145,8 +158,11 @@ def figure_ladder_orders():
         f"Point estimates ± 1 stderr for each of the four ladders "
         f"(`ph_role.rate_ladder_table`), the pooled fit without boric "
         f"(dashed, χ² = {pooled_three['chi2']:.2f} on {pooled_three['dof']}) "
-        f"and, in black, the two-axis block's own independent cuvette-matched "
-        f"reading over the same strong runs. Boric's order "
+        f"and, in black, the two-axis block's own cuvette-matched reading over "
+        f"the same strong runs -- which the two pyrophosphate rows are NOT "
+        f"independent of, being that block read along its second design; the "
+        f"independent corroboration is the phosphate row, "
+        f"{independent['sigma']:.2f}σ away. Boric's order "
         f"({table.loc['boric 4OMe'].order_hoo:+.3f} ± "
         f"{table.loc['boric 4OMe'].stderr_hoo:.3f}) is the reason a pool of "
         f"all four has χ² = {pooled_all['chi2']:.0f} on {pooled_all['dof']}.")
@@ -274,6 +290,8 @@ def build_index():
     published = scope.ph_order(parameter="vmax", scope=scope.strong_runs())
     clock_pooled = ph_role.clock_pooled_order()
     turnover = _turnover()
+    independent = _independent()
+    split = _split()
 
     hero = f"""
 <div class='hero'>
@@ -347,11 +365,18 @@ that part at 3.4σ — [HOO⁻] is not the whole story even where it is real.</p
 <h2>7 · What this settles, and what it does not</h2>
 <p><strong>Settled.</strong> The rate's order in [HOO⁻] is
 +{pooled_three['pooled']:.3f} ± {pooled_three['stderr']:.3f} in phosphate and
-pyrophosphate, checked against the two-axis block's own independent
+pyrophosphate. Two of those three ladders <em>are</em> the two-axis block
+({100 * independent['two_axis_share']:.1f}% of the pooled weight), so the
+independent corroboration is the phosphate ladder alone —
++{independent['phosphate_order']:.3f} ± {independent['phosphate_stderr']:.3f}
+on nine runs sharing no experiment with the block,
+{independent['sigma']:.2f}σ from its cuvette-matched
 +{published.loc['pooled', 'order']:.3f} ± {published.loc['pooled', 'stderr']:.3f}.
 The boric ladder does not share it, and the O2 side reaction is ruled out as
-the cause of its decline. The clock's order agrees across all four ladders
-where the rate's does not.</p>
+the cause of its decline — though the order below its peak spans
++{split['low']:.2f} to +{split['high']:.2f} depending on where the ladder is
+cut, so it is quoted as a range. The clock's order agrees across all four
+ladders where the rate's does not.</p>
 <p><strong>Not settled.</strong> Whether boric's turnover is the buffer or a
 genuine high-pH instability the way exp 85 showed at pH 11.84 — the archive
 holds no other buffer above pH 9 to separate them, which is

@@ -1,0 +1,31 @@
+# Everything the pipeline imports that is not in the standard library.
+#
+# The gates are the point of this file. `python run_gates.py` is the one
+# command that says whether the analysis still holds, and until 2026-09-08
+# there was no record anywhere of what it needed to run -- the working
+# interpreter was an untracked `.venv/` and the documented commands failed on
+# a fresh clone with `ModuleNotFoundError: No module named 'pandas'`. See
+# README.md for the two lines that build it.
+#
+# Pinned to the versions the published numbers in every ANALYSIS.md were
+# computed under, on Python 3.12. Loosen deliberately, not by accident: the
+# archive-wide statistics are sensitive to floating-point detail in the
+# optimiser (`data/test_fit_kinetics.py` recovers planted parameters and is
+# the gate that would notice).
+
+numpy==2.5.2
+pandas==3.0.5
+scipy==1.18.1
+
+# pandas.read_excel on the archive's .xls workbooks -- data/verify_buffer.py,
+# verify_enzyme.py, verify_enzyme_stock.py, verify_rate_workbook.py and
+# build_dossier.py all read the delivered sheets directly, which is what makes
+# them independent of data/experiment_data.csv.
+xlrd==2.0.2
+
+# The review dossiers and the fit plots (data/plot_fit.py, plot_kinetics.py,
+# build_dossier.py, curve_dossier.py). The PUBLISHED figures do not use it --
+# svgplot.py writes SVG by hand and figure_kit.py is what every folder's
+# build_figures.py draws with -- so a matplotlib-less install still runs every
+# gate and rebuilds every page.
+matplotlib==3.11.1

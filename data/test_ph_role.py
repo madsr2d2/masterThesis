@@ -17,11 +17,10 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import induction
 import ph_role
 import scope
 from ph_role import (boric_turnover, pooled_rate_order, rate_ladder,
-                     rate_ladder_table, rate_ladders)
+                     rate_ladder_table)
 
 FAILURES = []
 
@@ -148,6 +147,110 @@ def test_the_boric_ladder_turns_over_rather_than_saturating():
           f"{above}")
 
 
+def test_the_split_decides_the_boric_order_more_than_its_error_does():
+    """
+    `boric_turnover`'s +0.222 +/- 0.037 is one point on a steep curve.
+
+    The split was chosen off the same medians the order is fitted to, so the
+    sweep is what may be quoted. This test pins BOTH halves: that the estimate
+    really does move far more than its own error (so the sweep cannot be
+    dropped as decoration), and that the two things section 3 concludes -- the
+    sign, and being weaker than the other three ladders -- survive every split.
+    """
+    print("\nthe boric split, swept")
+    sweep = ph_role.boric_split_sensitivity()
+    table = sweep["table"]
+    check("every plausible split is fitted", len(table) == 6, f"{len(table)}")
+    check("the estimate moves further than its own error",
+          sweep["span"] > 5 * sweep["published_stderr"],
+          f"span {sweep['span']:.3f} against stderr "
+          f"{sweep['published_stderr']:.3f}")
+    check("...by about a factor of nine",
+          8.0 < sweep["high"] / sweep["low"] < 9.5,
+          f"{sweep['high'] / sweep['low']:.2f}x")
+    check("the published split is one of the swept ones",
+          ph_role.BORIC_TURNOVER_SPLIT in table.index)
+    check("the sign is stable across every split", sweep["sign_stable"],
+          f"{table.order_hoo.to_dict()}")
+    check("every split stays under the other three ladders' shared order",
+          sweep["always_weaker_than_pooled"])
+    check("the order falls as the split rises -- it is a turnover, so "
+          "including more of the decline can only weaken it",
+          list(table.order_hoo) == sorted(table.order_hoo, reverse=True),
+          f"{list(table.order_hoo.round(3))}")
+
+
+def test_the_buffer_axis_cannot_move_the_ph_order():
+    """
+    `[buf]` is fixed BETWEEN runs and steps WITHIN them, and only the first
+    matters for pH.
+
+    `_ladder_scope`'s docstring claimed it was fixed outright. It is not, in
+    the two 4OMe ladders -- and since `buffer/` measures a real total-buffer
+    order on the rate, an unexamined buffer axis is a live confound rather
+    than a nuisance. pH is a between-run axis here, so what protects it is
+    that `[buf]` does not move between runs; this checks that directly, and
+    then checks that adding `buf` to the fit costs the [HOO-] column nothing.
+    """
+    print("\n[buf]: fixed between runs, stepped within them")
+    for name in scope.PH_LADDERS:
+        block = scope.frame(scope.PH_LADDERS[name])
+        block = block[block.live]
+        by_run = block.groupby("experiment").buf.first()
+        check(f"{name}: one [buf] per ladder, between runs",
+              by_run.nunique() == 1, f"{sorted(by_run.unique())}")
+    for name, low, high in (("phosphate 4OMe", 50.0, 80.0),
+                            ("boric 4OMe", 70.0, 85.0)):
+        block = scope.frame(scope.PH_LADDERS[name])
+        block = block[block.live]
+        check(f"{name}: but four values within a run, {low:.0f}-{high:.0f} mM",
+              block.buf.nunique() == 4
+              and abs(block.buf.min() - low) < 1e-6
+              and abs(block.buf.max() - high) < 1e-6,
+              f"{sorted(block.buf.unique())}")
+        pair = float(np.corrcoef(np.log(block.s0), np.log(block.buf))[0, 1])
+        check(f"{name}: log[S] and log[buf] are collinear -- the s0 column "
+              f"is an order in the PAIR",
+              pair < -0.95, f"{pair:+.3f}")
+        base = scope.orders("vmax", frame=block, terms=("s0", "hoo"),
+                            within=False)
+        with_buf = scope.orders("vmax", frame=block,
+                                terms=("s0", "hoo", "buf"), within=False)
+        check(f"{name}: adding [buf] leaves order_hoo alone",
+              abs(base["order_hoo"] - with_buf["order_hoo"]) < 0.005,
+              f"{base['order_hoo']:+.4f} -> {with_buf['order_hoo']:+.4f}")
+        check(f"{name}: and cannot resolve a buffer order of its own",
+              abs(with_buf["order_buf"]) < 2 * with_buf["stderr_buf"],
+              f"{with_buf['order_buf']:+.3f} +/- {with_buf['stderr_buf']:.3f}")
+
+
+def test_only_phosphate_can_corroborate_the_two_axis_block():
+    """
+    Two of the three agreeing ladders ARE exps 136-151.
+
+    Pooling them with phosphate and comparing the pool to `scope.ph_order`
+    compares a number to part of itself. `independent_check` is the honest
+    version, and this pins the overlap so a future edit cannot quietly call
+    the pooled number an independent confirmation again.
+    """
+    print("\nwhich ladder actually checks the block")
+    result = ph_role.independent_check()
+    check("both pyrophosphate ladders are inside the two-axis block",
+          set(scope.PH_LADDER_TWO_AXIS_LOW) <= set(scope.TWO_AXIS_BLOCK)
+          and set(scope.PH_LADDER_TWO_AXIS_HIGH) <= set(scope.TWO_AXIS_BLOCK))
+    check("so they carry a third of the pooled weight, not none of it",
+          0.30 < result["two_axis_share"] < 0.42,
+          f"{result['two_axis_share']:.3f}")
+    check("the phosphate ladder shares NO experiment with the block",
+          not result["shares_experiments_with_block"],
+          f"{sorted(set(scope.PH_LADDER_PHOSPHATE) & set(scope.TWO_AXIS_BLOCK))}")
+    check("and it lands within one combined stderr of the block's own reading",
+          result["sigma"] < 1.0,
+          f"{result['phosphate_order']:+.4f} +/- {result['phosphate_stderr']:.4f} "
+          f"against {result['block_order']:+.4f} +/- {result['block_stderr']:.4f}"
+          f" = {result['sigma']:.2f} sigma")
+
+
 def test_regressions():
     """The published numbers, locked down. `python data/ph_role.py` prints them."""
     print("\nthe archive's own four ladders")
@@ -200,6 +303,9 @@ if __name__ == "__main__":
     test_a_flat_ladder_reads_as_flat_and_not_as_noise()
     test_the_two_axis_ladders_are_filtered_to_strong_runs()
     test_the_boric_ladder_turns_over_rather_than_saturating()
+    test_the_split_decides_the_boric_order_more_than_its_error_does()
+    test_the_buffer_axis_cannot_move_the_ph_order()
+    test_only_phosphate_can_corroborate_the_two_axis_block()
     test_regressions()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)

@@ -16,7 +16,6 @@ Related: `induction.lag_ph_ladders`/`pooled_ladder` own the clock's pH order
 this module's cruder pooled fit is checked against; `buffer/ANALYSIS.md` S5
 owns why buffer identity cannot be separated from pH anywhere in this archive.
 """
-import functools
 import os
 import sys
 
@@ -41,10 +40,25 @@ def _ladder_scope(experiments):
     """
     The runs a rate order should actually be read over.
 
-    `[buf]` sits exactly fixed inside all four ladders (checked once, by
-    hand, when this module was written -- 80.0, 85.0 and 75.013 mM with no
-    within-ladder spread), so there is no confound there to filter for. The
-    one filter that DOES apply is `scope.strong_runs()`, and only where a
+    `[buf]` is fixed BETWEEN the runs of every ladder -- 80.0 mM across
+    phosphate, 85.0 across boric, 75.013 across both pyrophosphate arms -- and
+    that is the fact the pH axis rests on: pH is a between-run axis here, so a
+    buffer term that does not move between runs cannot contaminate it. Adding
+    `buf` to `terms` confirms it, moving `order_hoo` by 0.002 on phosphate and
+    0.001 on boric while returning an unresolved buffer order either way
+    (`test_ph_role.test_the_buffer_axis_cannot_move_the_ph_order`).
+
+    IT IS NOT FIXED WITHIN A RUN, and the earlier wording here claimed it was.
+    The two 4OMe ladders step it across their cuvettes -- 50-80 mM in
+    phosphate, 70-85 in boric, four distinct values each -- because substrate
+    volume displaced buffer volume, which is the archive-wide pairing
+    `induction.composition_collinearity` measures. Inside these two ladders
+    log[S] and log[buf] run at -0.960 and -0.974, so **the `s0` coefficient
+    this module reports for phosphate and boric is an order in the [S]/[buf]
+    PAIR, not in substrate alone.** The [HOO-] coefficient, which is what this
+    folder concludes from, is unaffected.
+
+    The one filter that DOES apply is `scope.strong_runs()`, and only where a
     ladder is a subset of the two-axis block: `concentration_agreement`
     is built on that block's L design (both axes moving inside a run) and
     returns NaN off it, so it has nothing to say about the phosphate or
@@ -156,6 +170,102 @@ def boric_turnover(split=BORIC_TURNOVER_SPLIT):
                       "median_vmax": float(g.vmax.median()),
                       "median_vmax_corrected": float(g.vmax_corrected.median())}
             for exp, g in above.groupby("experiment")},
+    }
+
+
+# Where to cut the boric ladder is an ANALYST'S CHOICE, and the order below the
+# cut depends on it far more than on its own standard error, so the choice has
+# to be priced the way `slowdown.sink_window_sensitivity` and
+# `induction.lag_window_sweep` price theirs. These are the six splits that fall
+# between two runs of the ladder anywhere near its peak; below 9.01 there is
+# only one run left to fit and above 10.08 there is nothing left above the cut.
+BORIC_SPLITS = (9.01, 9.24, 9.41, 9.51, 9.71, 10.08)
+
+
+def boric_split_sensitivity(splits=BORIC_SPLITS):
+    """
+    The boric below-peak order at every plausible split, and the range it spans.
+
+    THE ONE NUMBER THIS FOLDER MUST NOT QUOTE ALONE is `boric_turnover`'s
+    +0.222 +/- 0.037. The split that produces it was chosen by looking at the
+    same medians the order is then fitted to, and the estimate moves by a
+    factor of nine across the splits that were equally available -- +0.481 at
+    9.01 down to +0.056 at 10.08, with significance running 21.2 sigma down to
+    1.3. The standard error reflects none of that, exactly as
+    `sink_window_sensitivity`'s 72 kJ/mol did not reflect its own +30
+    systematic. Quote the RANGE, and the sign, which is what is robust: every
+    split from 9.01 to 9.71 gives a positive order weaker than the +0.594 the
+    other three ladders share.
+
+    Returns one row per split plus `span`, `sign_stable` and the published
+    split's own row, so a document can quote "+0.22, moving +0.06 to +0.48
+    across the split" rather than "+0.222 +/- 0.037".
+    """
+    rows = []
+    for split in splits:
+        below = boric_turnover(split=split)["below"]
+        slope, stderr = below["hoo"]["slope"], below["hoo"]["stderr"]
+        rows.append({"split": float(split), "runs": below["runs"],
+                     "curves": below["curves"], "order_hoo": slope,
+                     "stderr_hoo": stderr,
+                     "sigma": slope / stderr if stderr > 0 else np.nan})
+    table = pd.DataFrame(rows).set_index("split")
+    return {
+        "table": table,
+        "low": float(table.order_hoo.min()),
+        "high": float(table.order_hoo.max()),
+        "span": float(table.order_hoo.max() - table.order_hoo.min()),
+        "published": float(table.loc[BORIC_TURNOVER_SPLIT, "order_hoo"]),
+        "published_stderr": float(table.loc[BORIC_TURNOVER_SPLIT, "stderr_hoo"]),
+        # The systematic the split carries, as a one-sided pair around the
+        # published value -- the shape `sink_window_sensitivity` reports in.
+        "systematic_up": float(table.order_hoo.max()
+                               - table.loc[BORIC_TURNOVER_SPLIT, "order_hoo"]),
+        "systematic_down": float(table.loc[BORIC_TURNOVER_SPLIT, "order_hoo"]
+                                 - table.order_hoo.min()),
+        "sign_stable": bool((table.order_hoo > 0).all()),
+        # ...and that even the strongest split stays under the other ladders'
+        # shared order, which is the claim the turnover section actually makes.
+        "always_weaker_than_pooled": bool(
+            (table.order_hoo < pooled_rate_order(drop=("boric 4OMe",))["pooled"]
+             ).all()),
+    }
+
+
+def independent_check():
+    """
+    Which of this folder's ladders can corroborate `../two_axis/`, and which
+    cannot because they ARE it.
+
+    `PH_LADDER_TWO_AXIS_LOW`/`_HIGH` are exps 136-151 -- the two-axis block
+    read along its second design -- so pooling them with phosphate and then
+    comparing the pool to `scope.ph_order` compares a number to part of
+    itself. This reports the weight each ladder carries in the pool, and the
+    comparison that is actually independent: the phosphate ladder alone,
+    which shares no experiment with the block at all.
+    """
+    results = rate_ladders()
+    kept = [r for r in results if r["ladder"] != "boric 4OMe"]
+    weights = {r["ladder"]: 1.0 / r["hoo"]["stderr"] ** 2 for r in kept}
+    total = sum(weights.values())
+    block = scope.ph_order(parameter="vmax", scope=scope.strong_runs())
+    phosphate = next(r for r in kept if r["ladder"] == "phosphate 4OMe")
+    order, stderr = phosphate["hoo"]["slope"], phosphate["hoo"]["stderr"]
+    block_order = float(block.loc["pooled", "order"])
+    block_stderr = float(block.loc["pooled", "stderr"])
+    combined = float(np.hypot(stderr, block_stderr))
+    return {
+        "weight_share": {name: w / total for name, w in weights.items()},
+        "two_axis_share": sum(w for name, w in weights.items()
+                              if name.startswith("pyrophosphate")) / total,
+        "phosphate_order": order, "phosphate_stderr": stderr,
+        "phosphate_experiments": tuple(scope.PH_LADDER_PHOSPHATE),
+        "shares_experiments_with_block": bool(
+            set(scope.PH_LADDER_PHOSPHATE) & set(scope.TWO_AXIS_BLOCK)),
+        "block_order": block_order, "block_stderr": block_stderr,
+        "difference": abs(order - block_order),
+        "combined_stderr": combined,
+        "sigma": abs(order - block_order) / combined,
     }
 
 

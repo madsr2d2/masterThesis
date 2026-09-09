@@ -89,25 +89,49 @@ whatever they are pooled into.
 | two-axis high (strong) | 5 | 7.60–9.73 | +0.042 ± 0.069 | **+0.570 ± 0.057** |
 | boric 4OMe | 9 | 8.46–10.34 | +0.611 ± 0.097 | −0.034 ± 0.040 |
 
-Pooled inverse-variance over all four: **+0.411 ± 0.022**, χ² = **174** on 3
-degrees of freedom — nowhere close to consistent. Drop the boric row and the
-other three collapse onto one number: **+0.594 ± 0.026**, χ² = **0.29** on 2 —
-three ladders in two buffers, on two substrates, effectively reading the same
-order.
+**The `[S]` column is an order in the [S]/[buf] pair on the two 4OMe rows.**
+`[buf]` is fixed between the runs of every ladder — 80.0, 85.0 and 75.013 mM —
+which is what leaves the pH axis clean, since pH is a between-run axis here.
+But it steps *within* the runs of the phosphate and boric ladders (50–80 and
+70–85 mM, four values each), collinear with `log[S]` at −0.960 and −0.974,
+because substrate volume displaced buffer volume. That is the archive-wide
+pairing `induction.composition_collinearity` measures, and it is why this
+folder concludes from the [HOO⁻] column and not the `[S]` one. Adding `buf` as
+a third term moves `order_hoo` by 0.002 and 0.001 and returns an unresolved
+buffer order either way.
 
-**This checks against the two-axis block's own, better-powered reading.**
-`scope.ph_order`, which matches cuvettes one-for-one across the seven-
-composition ladder instead of pooling without an offset, already puts the
-pooled two-axis order at **+0.554 ± 0.040** over the same strong runs
-(`../two_axis/ANALYSIS.md`, `MECHANISM.md`). This folder's cruder fit —
-+0.594 ± 0.026 pooled with phosphate — lands within one combined standard
-error of it. The two independent methods agree; the outlier is the fourth
-ladder, not the method.
+Pooled inverse-variance over all four: +0.411 ± 0.022, χ² = **174** on 3
+degrees of freedom — nowhere close to consistent, so that ± is not a real
+uncertainty and the value is quoted only as the contrast it makes. Drop the
+boric row and the other three collapse onto one number: **+0.594 ± 0.026**,
+χ² = **0.29** on 2 — three ladders in two buffers, on two substrates,
+effectively reading the same order.
 
-**A half order in [HOO⁻] is what the archive's other reading of this axis
-already found**, and this folder's phosphate and pyrophosphate numbers are a
-second, independent confirmation of it from ladders `../two_axis/` does not
-touch at all.
+**Two of those three ladders are not independent of `../two_axis/`, and the
+one that is carries the corroboration.** `PH_LADDER_TWO_AXIS_LOW` and `_HIGH`
+are exps 136–142 and 143–151 — the two-axis block itself, read along its
+second design. They contribute **35.9% of the weight** in the pooled
++0.594 ± 0.026 (phosphate carries the other 64.1%), so that pooled number and
+the block's own reading share curves and cannot check each other.
+
+The comparison that *is* independent is the phosphate ladder alone:
+
+| | order in [HOO⁻] | shares experiments with the block? |
+|---|---|---|
+| phosphate 4OMe, this folder | **+0.596 ± 0.032** | no — exps 8–22, 4OMe, phosphate |
+| `scope.ph_order`, strong runs | **+0.554 ± 0.040** | it *is* the block |
+
+The two differ by 0.042 against a combined standard error of 0.051 — **0.83σ**.
+Nine phosphate runs on the other substrate, in another buffer, sharing not one
+experiment with exps 135–151, land on the order the block measures by matching
+cuvettes one-for-one. That is the second reading of this axis, and the two
+pyrophosphate rows are better read as a consistency check that the pooled
+method reproduces the cuvette-matched one on the same curves (it does) than as
+new evidence.
+
+**A half order in [HOO⁻] is therefore the archive's answer on two independent
+substrate/buffer systems**, not one — with the outlier being the fourth ladder,
+not the method.
 
 ## 3. The boric ladder turns over, and it is not the O2 side reaction
 
@@ -119,10 +143,33 @@ section 2's boric row is. Read by experiment, median `vmax` **rises** from
 from pH 8.98 on.
 
 Refitting the six runs at or below the peak (`ph_role.boric_turnover`) gives
-**+0.222 ± 0.037** in [HOO⁻] — positive, six standard errors from zero, and
-still markedly weaker than phosphate or pyrophosphate's +0.57 to +0.62. The
-two runs above the peak are too few to fit a slope at all, so their decline is
-reported as what it is rather than forced into one.
++0.222 ± 0.037 in [HOO⁻] — but **that ± is not the uncertainty that matters,
+and the split it comes from was chosen by looking at the medians above.**
+Where the ladder is cut is an analyst's choice, and the order below the cut
+depends on it far more than on its own standard error
+(`ph_role.boric_split_sensitivity`):
+
+| split | runs below | order in [HOO⁻] | σ from zero |
+|---|---|---|---|
+| 9.01 | 2 | +0.481 ± 0.023 | 21.2 |
+| 9.24 | 3 | +0.353 ± 0.044 | 8.1 |
+| 9.41 | 4 | +0.259 ± 0.044 | 5.8 |
+| 9.51 *(published)* | 6 | +0.222 ± 0.037 | 6.0 |
+| 9.71 | 7 | +0.186 ± 0.035 | 5.3 |
+| 10.08 | 8 | +0.056 ± 0.043 | 1.3 |
+
+The estimate spans **+0.06 to +0.48** — a factor of nine — while its quoted
+error stays near ±0.04. Quote it as **+0.22 with a split systematic of about
++0.26/−0.17**, never as +0.222 ± 0.037; this is the same discipline
+`slowdown.sink_window_sensitivity` imposes on the sink's 72 kJ/mol and
+`induction.lag_window_sweep` on the clock's pooled order.
+
+**What survives the choice is the sign and the comparison**, and both are what
+this section actually argues: the order below the peak is positive at every
+split, and weaker than the +0.594 the other three ladders share at every split
+— including the two splits chosen without reference to the peak at all
+(9.24 is boric's own pKa). The two runs above the peak are too few to fit a
+slope, so their decline is reported as medians rather than forced into one.
 
 **This is not the O2 side reaction reading as a rate decline.** Boric buffer
 is exactly where the archive's gas artefact is heaviest at high pH
@@ -230,12 +277,16 @@ alone.
   replicate quadruplet from the phosphate set, add exp 14 to it, drop exp 13
   from the boric set. The pH-11 folder was already correctly excluded.
 - The catalysed rate's order in [HOO⁻] is **+0.594 ± 0.026** in phosphate and
-  pyrophosphate (χ² = 0.29 on 2, three ladders, two buffers, two substrates),
-  checked against and consistent with the two-axis block's own independent,
-  cuvette-matched +0.554 ± 0.040.
+  pyrophosphate (χ² = 0.29 on 2, three ladders, two buffers, two substrates).
+  Two of those three ladders **are** the two-axis block, so the independent
+  corroboration is the phosphate ladder alone — +0.596 ± 0.032 on nine runs
+  sharing no experiment with the block, **0.83σ** from its cuvette-matched
+  +0.554 ± 0.040 (§2).
 - The boric ladder does **not** share that order: it turns over near pH 9.5,
   and `vmax_corrected` rules out the O2 side reaction as the cause of the
-  decline above it.
+  decline above it. The order below the peak is positive and weaker than the
+  other three ladders' at every split tried, but its magnitude is set by where
+  the ladder is cut (+0.06 to +0.48), so it is quoted as a range (§3).
 - The induction clock's order in pH, +0.326 ± 0.131 per pH unit, agrees across
   all four ladders (χ² = 0.95 on 3) where the rate's does not.
 - Three independent measurements — the rate, the clock, and the early
