@@ -82,6 +82,65 @@ def main() -> None:
     print("plateaued RMS gradient over 20 cycles:", feed_synthetic_cycles(plateaued=True).possibly_stalled())
     print("steadily improving RMS gradient over 20 cycles:", feed_synthetic_cycles(plateaued=False).possibly_stalled())
 
+    print("\n--- prefilter coverage ---")
+    if check_markers():
+        sys.exit(1)
+
+
+# One line per marker `feed_line` reads, and the field it must land in. The
+# parser runs its patterns behind literal prefilters (`_RARE_MARKERS_RE`,
+# `_CONV_HINT_RE`), so a pattern whose literal is missing from its prefilter
+# would simply stop matching -- silently, and only on real output. This is the
+# check that says so: it drives the whole path, prefilter included, rather
+# than inspecting the regexes.
+MARKER_CASES = [
+    ("         *              GEOMETRY OPTIMIZATION CYCLE   7            *",
+     lambda s: s.cycle == 7),
+    ("        Hessian has     1 negative eigenvalue",
+     lambda s: list(s.eigen_history)[-1][1] == 1),
+    ("There was an error in the QM2 calculation",
+     lambda s: s.qm2_error_count == 1),
+    ("ORCA finished by error termination in SCF",
+     lambda s: s.crashed_marker),
+    ("Aborting the run", lambda s: s.crashed_marker),
+    ("TERMINATING THE RUN", lambda s: s.crashed_marker),
+    ("                 ****ORCA TERMINATED NORMALLY****",
+     lambda s: s.normal_completion),
+    ("      ***        THE OPTIMIZATION HAS CONVERGED     ***",
+     lambda s: s.opt_converged),
+    ("                    *** OPTIMIZATION RUN DONE ***",
+     lambda s: s.opt_converged),
+    ("FINAL SINGLE POINT ENERGY      -418.878772917932",
+     lambda s: s.final_energy == -418.878772917932),
+    ("TOTAL RUN TIME: 0 days 1 hours 2 minutes 3 seconds 456 msec",
+     lambda s: s.wall_time_s == 3723.456),
+    ("QM1 Subsystem      ...  128 129 130",
+     lambda s: s.qm_atom_indices == {128, 129, 130}),
+    ("          Energy change      -0.0000038757            0.0000050000      NO",
+     lambda s: s._pending_step.get("energy_change") == (-3.8757e-06, 5e-06, False)),
+    ("          RMS gradient        0.0004500000            0.0001000000      NO",
+     lambda s: s._pending_step.get("rms_grad") == (0.00045, 0.0001, False)),
+    ("          MAX gradient        0.0025000000            0.0003000000      NO",
+     lambda s: s._pending_step.get("max_grad") == (0.0025, 0.0003, False)),
+    ("          RMS step            0.0020825435            0.0020000000      NO",
+     lambda s: s._pending_step.get("rms_step") == (0.0020825435, 0.002, False)),
+    ("          MAX step            0.0192646101            0.0040000000      YES",
+     lambda s: s._pending_step.get("max_step") == (0.0192646101, 0.004, True)),
+]
+
+
+def check_markers() -> int:
+    failures = 0
+    for line, holds in MARKER_CASES:
+        state = JobState(path=Path("/nonexistent"), stem="job")
+        state.feed_line(line)
+        if not holds(state):
+            failures += 1
+            print(f"  FAIL not read past the prefilter: {line.strip()!r}")
+    label = "all read" if not failures else f"{failures} NOT READ"
+    print(f"marker lines reaching their parser ({len(MARKER_CASES)} cases): {label}")
+    return failures
+
 
 def feed_synthetic_cycles(plateaued: bool) -> JobState:
     state = JobState(path=Path("/nonexistent"), stem="job")

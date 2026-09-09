@@ -40,6 +40,20 @@ _SCF_ITER_RE = re.compile(r"^\s*(\d+)\s+(-?\d+\.\d{4,})\s+-?\d+\.\d+e[+-]\d+")
 _QM1_HEADER_RE = re.compile(r"^QM1 Subsystem\s*\.\.\.\s*(.*)$")
 _INDEX_LINE_RE = re.compile(r"^\d+(?:\s+\d+)*$")
 
+# Prefilters. Each is the union of the LITERAL substrings its group's patterns
+# require, so a line that fails it cannot match any of them -- they narrow the
+# work without deciding anything. Keep them in step with the patterns above:
+# adding a marker pattern without adding its literal here would silently stop
+# that marker being seen. `parser` has no gate of its own, so
+# `computational/monitor/validate.py` is where that is checked.
+_RARE_MARKERS_RE = re.compile(
+    r"GEOMETRY OPTIMIZATION CYCLE|Hessian has|error in the QM2 calculation"
+    r"|Aborting|TERMINATING THE RUN|ORCA finished by error termination"
+    r"|ORCA TERMINATED NORMALLY|OPTIMIZATION HAS CONVERGED|OPTIMIZATION RUN DONE"
+    r"|FINAL SINGLE POINT ENERGY|TOTAL RUN TIME"
+)
+_CONV_HINT_RE = re.compile(r"gradient|step|Energy change")
+
 _NUM = r"(-?[\d.]+(?:[eE][-+]?\d+)?)"
 
 # label -> (regex, GeometryStep value/tol/conv attribute names)
@@ -140,6 +154,37 @@ class JobState:
         self.tail.append(line.rstrip("\n"))
         self.lines_seen += 1
 
+        # Almost nothing in a job.out matches almost any of these patterns --
+        # of 249,401 lines in this project's largest output, the cycle banner
+        # hits 85 times and the crash, QM2-error and eigenvalue markers zero --
+        # yet all of them used to run against all of it: ~13 re.search calls a
+        # line, 3.2 million in total, to parse 16.6 MB. The two prefilters
+        # below decide in one pass each whether the group is worth trying.
+        if _RARE_MARKERS_RE.search(line):
+            self._feed_marker(line)
+
+        if self._in_qm1_composition or "QM1 Subsystem" in line:
+            self._feed_qm1(line.strip())
+
+        if self.cycle == 0:
+            m = _SCF_ITER_RE.match(line)
+            if m:
+                self.scf_iterations.append((int(m.group(1)), float(m.group(2))))
+
+        if _CONV_HINT_RE.search(line):
+            for label, (rx, *_attrs) in _CONV_ITEMS.items():
+                m = rx.search(line)
+                if m:
+                    value, tol, conv = float(m.group(1)), float(m.group(2)), m.group(3) == "YES"
+                    self._pending_step[label] = (value, tol, conv)
+                    if len(self._pending_step) == len(_CONV_ITEMS):
+                        self._finish_step()
+
+        self._feed_blocks(line, line.strip())
+
+    def _feed_marker(self, line: str) -> None:
+        """The one-off and per-cycle markers, reached only when the prefilter
+        says one of their literals is present."""
         m = _CYCLE_RE.search(line)
         if m:
             self.cycle = int(m.group(1))
@@ -154,17 +199,6 @@ class JobState:
         if _CRASH_RE.search(line):
             self.crashed_marker = True
             self.crash_lines.append(line.strip())
-
-        m = _QM1_HEADER_RE.match(line.strip())
-        if m:
-            self.qm_atom_indices = {int(tok) for tok in m.group(1).split()}
-            self._in_qm1_composition = True
-        elif self._in_qm1_composition:
-            stripped = line.strip()
-            if _INDEX_LINE_RE.match(stripped):
-                self.qm_atom_indices.update(int(tok) for tok in stripped.split())
-            else:
-                self._in_qm1_composition = False
 
         if _NORMAL_DONE_RE.search(line):
             self.normal_completion = True
@@ -181,17 +215,32 @@ class JobState:
                 else:
                     self.cycle_energies.append((self.cycle, self.final_energy))
 
-        if self.cycle == 0:
-            m = _SCF_ITER_RE.match(line)
-            if m:
-                self.scf_iterations.append((int(m.group(1)), float(m.group(2))))
-
         m = _RUNTIME_RE.search(line)
         if m:
             d, h, mi, s, ms = (int(x) for x in m.groups())
             self.wall_time_s = d * 86400 + h * 3600 + mi * 60 + s + ms / 1000
 
-        if _FREQ_HEADER_RE.match(line.strip()):
+    def _feed_qm1(self, stripped: str) -> None:
+        """The QM1 header and its continuation lines. Kept out of the marker
+        prefilter because the continuations are bare digits, which carry no
+        literal to filter on -- the `_in_qm1_composition` flag is the cheap
+        test that admits them."""
+        m = _QM1_HEADER_RE.match(stripped)
+        if m:
+            self.qm_atom_indices = {int(tok) for tok in m.group(1).split()}
+            self._in_qm1_composition = True
+        elif self._in_qm1_composition:
+            if _INDEX_LINE_RE.match(stripped):
+                self.qm_atom_indices.update(int(tok) for tok in stripped.split())
+            else:
+                self._in_qm1_composition = False
+
+    def _feed_blocks(self, line: str, stripped: str) -> None:
+        """The frequency and geometry block state machines. Both need their
+        own flag checked on every line, so neither can sit behind a prefilter
+        -- but they can share the one strip() the three of them used to do
+        separately."""
+        if _FREQ_HEADER_RE.match(stripped):
             self._in_freq_block = True
             self._freq_imaginary_count = 0
             self._freq_seen_line = False
@@ -200,7 +249,7 @@ class JobState:
                 self._freq_seen_line = True
                 if "imaginary mode" in line:
                     self._freq_imaginary_count += 1
-            elif line.strip() == "":
+            elif stripped == "":
                 pass
             elif not self._freq_seen_line:
                 # preamble between the header and the first numbered mode --
@@ -213,11 +262,10 @@ class JobState:
                 self._in_freq_block = False
                 self.n_imaginary = self._freq_imaginary_count
 
-        if _GEOM_HEADER_RE.match(line.strip()):
+        if _GEOM_HEADER_RE.match(stripped):
             self._in_geom_block = True
             self._pending_atoms = []
         elif self._in_geom_block:
-            stripped = line.strip()
             m = _GEOM_ATOM_RE.match(line)
             if m:
                 el, x, y, z = m.group(1), float(m.group(2)), float(m.group(3)), float(m.group(4))
@@ -248,14 +296,6 @@ class JobState:
                 self._in_geom_block = False
             else:
                 self._in_geom_block = False
-
-        for label, (rx, *_attrs) in _CONV_ITEMS.items():
-            m = rx.search(line)
-            if m:
-                value, tol, conv = float(m.group(1)), float(m.group(2)), m.group(3) == "YES"
-                self._pending_step[label] = (value, tol, conv)
-                if len(self._pending_step) == len(_CONV_ITEMS):
-                    self._finish_step()
 
     def _finish_step(self) -> None:
         step = GeometryStep(cycle=self.cycle)
