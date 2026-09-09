@@ -32,6 +32,13 @@ _GEOM_ATOM_RE = re.compile(
     r"^\s*([A-Za-z]{1,2})\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s*$"
 )
 _SCF_ITER_RE = re.compile(r"^\s*(\d+)\s+(-?\d+\.\d{4,})\s+-?\d+\.\d+e[+-]\d+")
+# A multilayer (QM/MM, QM/XTB, ONIOM) job prints this ONCE at startup, under
+# "Composition of different systems (atoms start counting at 0):" -- the
+# high-level ("QM1") layer's 0-based atom indices within the FULL system's
+# coordinate list, wrapped across as many indented continuation lines as
+# needed. Everything not in this set is the lower-level layer.
+_QM1_HEADER_RE = re.compile(r"^QM1 Subsystem\s*\.\.\.\s*(.*)$")
+_INDEX_LINE_RE = re.compile(r"^\d+(?:\s+\d+)*$")
 
 _NUM = r"(-?[\d.]+(?:[eE][-+]?\d+)?)"
 
@@ -91,6 +98,10 @@ class JobState:
     # geometry. Keyed by the same `cycle` value as cycle_energies, updated the
     # same "replace if same cycle repeats, else append" way.
     geometry_history: deque = field(default_factory=lambda: deque(maxlen=HISTORY_LEN))
+    # 0-based indices of the high-level ("QM1") layer within `atoms`, for a
+    # multilayer (QM/MM, QM/XTB, ONIOM) job -- None for an ordinary job with
+    # no layering at all, in which case every atom renders as the QM layer.
+    qm_atom_indices: set | None = None
 
     _pending_step: dict = field(default_factory=dict)
     _in_freq_block: bool = False
@@ -98,6 +109,7 @@ class JobState:
     _freq_seen_line: bool = False
     _in_geom_block: bool = False
     _pending_atoms: list = field(default_factory=list)
+    _in_qm1_composition: bool = False
 
     def feed_line(self, line: str) -> None:
         self.tail.append(line.rstrip("\n"))
@@ -116,6 +128,17 @@ class JobState:
         if _CRASH_RE.search(line):
             self.crashed_marker = True
             self.crash_lines.append(line.strip())
+
+        m = _QM1_HEADER_RE.match(line.strip())
+        if m:
+            self.qm_atom_indices = {int(tok) for tok in m.group(1).split()}
+            self._in_qm1_composition = True
+        elif self._in_qm1_composition:
+            stripped = line.strip()
+            if _INDEX_LINE_RE.match(stripped):
+                self.qm_atom_indices.update(int(tok) for tok in stripped.split())
+            else:
+                self._in_qm1_composition = False
 
         if _NORMAL_DONE_RE.search(line):
             self.normal_completion = True
@@ -177,11 +200,25 @@ class JobState:
                 self._pending_atoms.append((el, x, y, z))
             elif stripped == "":
                 if self._pending_atoms:
-                    self.atoms = self._pending_atoms
-                    if self.geometry_history and self.geometry_history[-1][0] == self.cycle:
-                        self.geometry_history[-1] = (self.cycle, self._pending_atoms)
-                    else:
+                    # A multilayer job (QM/MM, QM/XTB, ONIOM) prints THREE of
+                    # these identically-headed blocks per cycle: the full
+                    # system first, then the QM-region-only subset (twice)
+                    # while ORCA sets up the embedded calculation -- e.g. 140
+                    # atoms, then 14, then 14 again, all under the same
+                    # generic "CARTESIAN COORDINATES (ANGSTROEM)" header with
+                    # no other marker distinguishing them. Keeping "whichever
+                    # printed last" (the old behaviour) kept the QM-only
+                    # subset and silently dropped every other layer. Keep the
+                    # LARGEST block seen for this cycle instead -- the full
+                    # system is always a superset of any QM-region subset, so
+                    # it's always the biggest.
+                    same_cycle = self.geometry_history and self.geometry_history[-1][0] == self.cycle
+                    if not same_cycle:
+                        self.atoms = self._pending_atoms
                         self.geometry_history.append((self.cycle, self._pending_atoms))
+                    elif len(self._pending_atoms) > len(self.geometry_history[-1][1]):
+                        self.atoms = self._pending_atoms
+                        self.geometry_history[-1] = (self.cycle, self._pending_atoms)
                 self._in_geom_block = False
             else:
                 self._in_geom_block = False

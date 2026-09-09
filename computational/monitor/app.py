@@ -36,7 +36,7 @@ STATUS_STYLE = {
     Status.CRASHED: "bold red",
 }
 
-ROTATE_STEP_DEG = 15.0
+ROTATE_STEP_DEG = 5.0
 
 
 def format_wall_time(seconds: float | None) -> str:
@@ -350,7 +350,7 @@ class KittyGeometryImage(RotatableGeometryImage):
 
         image = geometry_render.render(
             atoms, elev=self.elev, azim=self.azim, show_distances=self.show_distances,
-            zoom=self.zoom, pan=self.pan,
+            zoom=self.zoom, pan=self.pan, qm_atom_indices=self._job.state.qm_atom_indices,
         )
         buf = io.BytesIO()
         image.convert("RGB").save(buf, format="PNG")
@@ -451,7 +451,7 @@ class HerdrGeometryImage(RotatableGeometryImage):
             return
         image = geometry_render.render(
             atoms, elev=self.elev, azim=self.azim, show_distances=self.show_distances,
-            zoom=self.zoom, pan=self.pan,
+            zoom=self.zoom, pan=self.pan, qm_atom_indices=self._job.state.qm_atom_indices,
         )
         image.thumbnail((max(1, region.width * cells.width_px), max(1, region.height * cells.height_px)))
         max_bytes = (

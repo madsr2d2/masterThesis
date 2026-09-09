@@ -57,30 +57,66 @@ def render(
     show_distances: bool = False,
     zoom: float = 1.0,
     pan: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    qm_atom_indices: set[int] | None = None,
 ) -> Image.Image:
     """Ball-and-stick render of a geometry. Not to scale of any published
     figure -- this feeds a terminal halfcell widget whose real resolution is
-    the panel's own cell count, so the source only needs to out-resolve that."""
+    the panel's own cell count, so the source only needs to out-resolve that.
+
+    `qm_atom_indices` (0-based, matching ORCA's own numbering) marks a
+    multilayer (QM/MM, QM/XTB, ONIOM) job's high-level layer: those atoms get
+    the full ball-and-stick treatment (sphere, index label, bond distances);
+    every other atom -- the lower-level layer -- gets drawn wireframe-only
+    (thin bond lines, no sphere, no label), so a 100+-atom MM environment
+    doesn't drown out the QM region the panel exists to show. None (an
+    ordinary, non-multilayer job) treats every atom as the QM layer, i.e.
+    the plain ball-and-stick rendering this always did."""
+    is_multilayer = qm_atom_indices is not None and 0 < len(qm_atom_indices) < len(atoms)
+
+    def is_qm(index: int) -> bool:
+        return not is_multilayer or index in qm_atom_indices
+
     fig = plt.figure(figsize=(6, 5), dpi=dpi)
     ax = fig.add_subplot(111, projection="3d")
+    # Orthographic, not the mplot3d default perspective: parallel bonds stay
+    # parallel and a farther atom doesn't shrink relative to a nearer one,
+    # which makes rotation easier to read as a rigid tumble rather than a
+    # constantly-reshaping shape.
+    ax.set_proj_type("ortho")
     fig.patch.set_facecolor("#1e1e1e")
     ax.set_facecolor("#1e1e1e")
 
     coords = np.array([(x, y, z) for _, x, y, z in atoms])
-    bonds = []
+    bonds = []  # QM-QM bonds only -- these are the ones show_distances labels
     for (i1, a1), (i2, a2) in itertools.combinations(enumerate(atoms), 2):
-        _, x1, y1, z1 = a1
-        _, x2, y2, z2 = a2
+        e1, x1, y1, z1 = a1
+        e2, x2, y2, z2 = a2
+        if e1 == "H" and e2 == "H":
+            continue  # never a real bond in this project's chemistry -- just clutter
         d = np.linalg.norm([x1 - x2, y1 - y2, z1 - z2])
-        if d < BOND_CUTOFF:
+        if d >= BOND_CUTOFF:
+            continue
+        if is_qm(i1) and is_qm(i2):
             ax.plot([x1, x2], [y1, y2], [z1, z2], color="#cccccc", linewidth=2, zorder=1)
             bonds.append((x1, y1, z1, x2, y2, z2, d))
+        else:
+            # Wireframe atoms get no sphere to carry their element colour, so
+            # each half of the bond is coloured from its own endpoint --
+            # the same ELEMENT_COLORS the ball-and-stick spheres use -- to
+            # keep elements distinguishable without one.
+            mx, my, mz = (x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2
+            c1 = ELEMENT_COLORS.get(e1, DEFAULT_ELEMENT_COLOR)
+            c2 = ELEMENT_COLORS.get(e2, DEFAULT_ELEMENT_COLOR)
+            ax.plot([x1, mx], [y1, my], [z1, mz], color=c1, linewidth=1.0, alpha=0.7, zorder=1)
+            ax.plot([mx, x2], [my, y2], [mz, z2], color=c2, linewidth=1.0, alpha=0.7, zorder=1)
 
-    for element, x, y, z in atoms:
+    for index, (element, x, y, z) in enumerate(atoms):
+        if not is_qm(index):
+            continue
         color = ELEMENT_COLORS.get(element, DEFAULT_ELEMENT_COLOR)
         radius = ELEMENT_RADII.get(element, DEFAULT_ELEMENT_RADIUS)
         ax.scatter(
-            [x], [y], [z], s=(radius * 400) ** 1.1, color=color,
+            [x], [y], [z], s=(radius * 180) ** 1.1, color=color,
             edgecolor="black", linewidth=0.5, depthshade=True, zorder=2,
         )
 
@@ -123,12 +159,14 @@ def render(
     # out from behind its own atom as you rotated. `_OVERLAY_ZORDER` is
     # picked far above anything that reassignment could ever produce.
     for index, (_, x, y, z) in enumerate(atoms):
+        if not is_qm(index):
+            continue
         lx, ly, _ = proj3d.proj_transform(x, y, z, ax.get_proj())
         ax.annotate(
             str(index), xy=(lx, ly), xycoords="data", ha="center", va="center",
-            color="white", fontsize=13, fontweight="bold", zorder=_OVERLAY_ZORDER,
-            path_effects=[pe.withStroke(linewidth=3, foreground="black")],
-            bbox=dict(boxstyle="round,pad=0.15,rounding_size=0.4", fc="black", ec="none", alpha=0.65),
+            color="white", fontsize=7, fontweight="bold", zorder=_OVERLAY_ZORDER,
+            path_effects=[pe.withStroke(linewidth=2, foreground="black")],
+            bbox=dict(boxstyle="round,pad=0.1,rounding_size=0.3", fc="black", ec="none", alpha=0.65),
         )
 
     if show_distances:
@@ -137,9 +175,9 @@ def render(
             lx, ly, _ = proj3d.proj_transform(mx, my, mz, ax.get_proj())
             ax.annotate(
                 f"{d:.2f}", xy=(lx, ly), xycoords="data", ha="center", va="center",
-                color="#ffe066", fontsize=10, fontweight="bold", zorder=_OVERLAY_ZORDER - 1,
-                path_effects=[pe.withStroke(linewidth=3, foreground="black")],
-                bbox=dict(boxstyle="round,pad=0.15,rounding_size=0.4", fc="black", ec="none", alpha=0.65),
+                color="#ffe066", fontsize=7, fontweight="bold", zorder=_OVERLAY_ZORDER - 1,
+                path_effects=[pe.withStroke(linewidth=2, foreground="black")],
+                bbox=dict(boxstyle="round,pad=0.1,rounding_size=0.3", fc="black", ec="none", alpha=0.65),
             )
 
     buf = io.BytesIO()
