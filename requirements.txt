@@ -29,3 +29,14 @@ xlrd==2.0.2
 # build_figures.py draws with -- so a matplotlib-less install still runs every
 # gate and rebuilds every page.
 matplotlib==3.11.1
+
+# computational/monitor/ -- the ORCA job-status TUI. textual is the terminal UI
+# toolkit; psutil matches a live orca process to a job directory by its cwd;
+# plotext/textual-plotext draw the convergence charts in the detail pane. The
+# geometry panel's pixel graphics are hand-rolled (herdr's own pane.graphics
+# API under herdr; raw Kitty protocol, absolute placement, outside it) --
+# no image-widget library needed for either path.
+textual==8.2.8
+psutil==7.2.2
+plotext==5.3.2
+textual-plotext==1.0.1
