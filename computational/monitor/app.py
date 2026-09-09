@@ -4,6 +4,7 @@ import base64
 import io
 import threading
 import time
+from itertools import islice
 from pathlib import Path
 
 from rich.text import Text
@@ -16,7 +17,7 @@ from textual_plotext import PlotextPlot
 
 from . import geometry_render, herdr_graphics
 from .discovery import discover_jobs, relative_label, short_label
-from .parser import JobState, new_state, update_job
+from .parser import TAIL_LINES, JobState, new_state, update_job
 from .procs import running_orca_cwds
 from .status import Status, compute_status
 
@@ -99,9 +100,39 @@ class ConvergencePlot(PlotextPlot):
         # optimization writes more cycles, rather than freezing wherever it
         # happened to be the first time a multi-point series appeared.
         self._following_latest = True
+        self._signature: tuple | None = ()
+
+    def _record_signature(self) -> None:
+        """Snapshot what is now drawn, so an unchanged tick can skip the
+        rebuild. Taken AFTER plotting because the body can move
+        `selected_index` itself (a new cycle while following the latest)."""
+        self._signature = (
+            None
+            if self._job is None
+            else (
+                len(self._job.state.cycle_energies),
+                len(self._job.state.scf_iterations),
+                self.selected_index,
+            )
+        )
 
     def show_job(self, job: Job | None) -> None:
         is_new_selection = job is not self._job
+        # Rebuilding tears down and replots the whole plotext figure and then
+        # refreshes the widget -- a repaint of the chart pane. On a tick where
+        # no new point arrived and the ring has not moved there is nothing to
+        # redraw, and this ran unconditionally every 3 seconds.
+        signature = (
+            None
+            if job is None
+            else (
+                len(job.state.cycle_energies),
+                len(job.state.scf_iterations),
+                self.selected_index,
+            )
+        )
+        if not is_new_selection and signature == self._signature:
+            return
         self._job = job
         self.plt.clear_data()
         self.plt.clear_figure()
@@ -109,6 +140,7 @@ class ConvergencePlot(PlotextPlot):
             self._xs = []
             self.selected_index = None
             self._following_latest = True
+            self._record_signature()
             self.refresh()
             return
 
@@ -145,6 +177,7 @@ class ConvergencePlot(PlotextPlot):
             self._xs = []
             self.selected_index = None
             self._following_latest = True
+        self._record_signature()
         self.refresh()
 
     def selected_cycle(self) -> int | None:
@@ -310,12 +343,29 @@ class KittyGeometryImage(RotatableGeometryImage):
     Textual's own repaints, and raw escape sequences injected into the
     ordinary character grid are not -- Textual can and will overwrite this
     region on any repaint nearby (focus change, row selection, the periodic
-    refresh), which is why every trigger below, including that periodic
-    refresh, unconditionally re-sends the image rather than only sending it
-    on change: it is a self-heal, not just a redraw."""
+    refresh), so the placement has to be re-asserted on every tick as a
+    self-heal.
+
+    Re-asserting it does NOT mean re-sending the pixels, which is what this
+    used to do: ~58 KB of base64 every 3 seconds whether or not the picture
+    had changed, about 155 kbit/s of ssh traffic for a screen sitting still.
+    The Kitty protocol separates transmission from placement, so the pixels go
+    once and each self-heal is a ~50-byte `a=p` re-placement of an image the
+    terminal already holds. RETRANSMIT_EVERY bounds the one risk in that --
+    if the terminal ever drops the stored image, place-only would leave the
+    pane blank -- to one minute, at 1/20th of the old traffic."""
 
     IMAGE_ID = 1
     KITTY_CHUNK = 4096
+    RETRANSMIT_EVERY = 20  # self-heal ticks between full re-transmissions
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._last_atoms: list | None = None
+        # Region the currently-stored image was rendered for. Placing it into
+        # a different one would scale the wrong pixels into the wrong box.
+        self._placed_region: tuple[int, int, int, int] | None = None
+        self._heals_since_transmit = 0
 
     def on_resize(self) -> None:
         self._on_change()
@@ -324,9 +374,46 @@ class KittyGeometryImage(RotatableGeometryImage):
         self._write(f"\x1b_Ga=d,d=i,i={self.IMAGE_ID}\x1b\\")
 
     def show_job(self, job: Job | None, cycle: int | None = None) -> None:
+        is_new_selection = job is not self._job or cycle != self._cycle
         self._job = job
         self._cycle = cycle
-        self._on_change()
+        if is_new_selection:
+            self._last_atoms = None
+            self._on_change()
+            return
+        # Same job, same cycle: the periodic refresh. The parser installs a
+        # new list object for each geometry block it accepts, so identity
+        # answers "did the picture change?" -- and when it did not, all that
+        # is owed is the self-heal placement.
+        atoms = self._atoms_for(job, cycle)
+        if atoms is not self._last_atoms:
+            self._last_atoms = atoms
+            self._on_change()
+            return
+        self._heal()
+
+    def _heal(self) -> None:
+        region = self.content_region
+        if region.width <= 0 or region.height <= 0:
+            return
+        self._heals_since_transmit += 1
+        if (
+            self._placed_region != (region.x, region.y, region.width, region.height)
+            or self._heals_since_transmit >= self.RETRANSMIT_EVERY
+        ):
+            self._on_change()
+            return
+        self._write(self._placement(region))
+
+    def _placement(self, region) -> str:
+        """Re-place the already-transmitted image. `q=2` suppresses the
+        terminal's per-command acknowledgement, which otherwise comes back up
+        the wire and lands in Textual's own input parser."""
+        return (
+            f"\x1b[s\x1b[{region.y + 1};{region.x + 1}H"
+            f"\x1b_Ga=p,i={self.IMAGE_ID},q=2,c={region.width},r={region.height}\x1b\\"
+            "\x1b[u"
+        )
 
     def _on_change(self) -> None:
         self._push(self._next_seq())
@@ -365,7 +452,7 @@ class KittyGeometryImage(RotatableGeometryImage):
         chunks = [data_b64[i : i + self.KITTY_CHUNK] for i in range(0, len(data_b64), self.KITTY_CHUNK)] or [""]
         sequence = [f"\x1b[s\x1b[{region.y + 1};{region.x + 1}H"]
         for i, chunk in enumerate(chunks):
-            controls = []
+            controls = ["q=2"]
             if i == 0:
                 controls += ["a=T", "f=100", "t=d", f"i={self.IMAGE_ID}", f"c={region.width}", f"r={region.height}"]
             controls.append("m=1" if i != len(chunks) - 1 else "m=0")
@@ -376,6 +463,19 @@ class KittyGeometryImage(RotatableGeometryImage):
             if self._is_stale(seq):
                 return
             self._write("".join(sequence))
+            # `a=T` stores under IMAGE_ID as well as displaying, so later
+            # self-heals can re-place these pixels instead of resending them.
+            self._placed_region = (region.x, region.y, region.width, region.height)
+            self._heals_since_transmit = 0
+
+
+def _fit_to_budget(width: int, height: int, max_rgba_bytes: int) -> tuple[int, int]:
+    """Shrink a pixel size to fit a raw-RGBA byte budget, keeping its shape."""
+    raw = width * height * 4
+    if raw <= max_rgba_bytes:
+        return width, height
+    scale = (max_rgba_bytes / raw) ** 0.5
+    return max(1, int(width * scale)), max(1, int(height * scale))
 
 
 class HerdrGeometryImage(RotatableGeometryImage):
@@ -401,6 +501,10 @@ class HerdrGeometryImage(RotatableGeometryImage):
         self._last_atoms: list | None = None
 
     def on_resize(self) -> None:
+        # A font-size change is the only thing that moves the cell size, and it
+        # resizes the pane too -- so this is where the cached value is due for
+        # re-probing.
+        herdr_graphics.cell_size(refresh=True)
         self._on_change()
 
     def on_unmount(self) -> None:
@@ -473,13 +577,23 @@ class HerdrGeometryImage(RotatableGeometryImage):
         cells = herdr_graphics.cell_size()
         if cells is None:
             return
+        max_bytes = (
+            herdr_graphics.PREVIEW_MAX_RGBA_BYTES if quality == "preview" else herdr_graphics.MAX_RGBA_BYTES
+        )
+        # Render straight to the size that will actually be sent. The pane's
+        # pixel extent is the ceiling, and the RGBA byte budget is usually the
+        # tighter one -- a preview frame lands near 100px on its side, so
+        # drawing it at 900x750 and then throwing 98% of the pixels away was
+        # paying full render cost on the one path that exists to be fast.
+        target = _fit_to_budget(
+            max(1, region.width * cells.width_px),
+            max(1, region.height * cells.height_px),
+            max_bytes,
+        )
         image = geometry_render.render(
             atoms, elev=self.elev, azim=self.azim, show_distances=self.show_distances,
             zoom=self.zoom, pan=self.pan, qm_atom_indices=job.state.qm_atom_indices,
-        )
-        image.thumbnail((max(1, region.width * cells.width_px), max(1, region.height * cells.height_px)))
-        max_bytes = (
-            herdr_graphics.PREVIEW_MAX_RGBA_BYTES if quality == "preview" else herdr_graphics.MAX_RGBA_BYTES
+            size_px=target,
         )
         with self._write_lock:
             if self._is_stale(seq):
@@ -585,6 +699,14 @@ class MonitorApp(App):
         self.selected_label: str | None = None
         self.maximized = False
         self.use_herdr_graphics = herdr_graphics.available()
+        # What each pane is currently SHOWING. Every widget update dirties the
+        # widget and a dirty widget is a repaint, which over ssh is the whole
+        # cost of a tick on which nothing actually changed -- so each of these
+        # exists to let an unchanged pane be left alone entirely.
+        self._rendered_rows: dict[str, tuple] = {}
+        self._rendered_text: dict[str, str] = {}
+        self._tail_state: JobState | None = None
+        self._tail_seen = 0
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -599,7 +721,13 @@ class MonitorApp(App):
                 yield Static(id="summary")
                 yield ConvergencePlot(id="chart")
                 yield Static(id="convergence")
-                yield RichLog(id="tail", wrap=False, highlight=False, markup=False)
+                # max_lines matches the parser's own tail window: the log is
+                # appended to rather than cleared and rewritten, so it needs
+                # its own bound to stay the same length.
+                yield RichLog(
+                    id="tail", wrap=False, highlight=False, markup=False,
+                    max_lines=TAIL_LINES,
+                )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -653,19 +781,69 @@ class MonitorApp(App):
             neg_eig = "-"
             if job.state.eigen_history:
                 neg_eig = str(job.state.eigen_history[-1][1])
-            style = STATUS_STYLE[job.status]
+            cells = (
+                job.status.value,
+                str(job.state.cycle),
+                neg_eig,
+                format_wall_time(job.wall_time_s),
+            )
+            # Every one of these was rewritten every tick regardless of whether
+            # anything had moved -- on this tree that is 15 jobs x 4 cells with,
+            # typically, zero jobs whose data had actually changed, and each
+            # update_cell repaints the whole table.
+            if self._rendered_rows.get(job.label) == cells:
+                continue
+            self._rendered_rows[job.label] = cells
+            status, cycle, neg, wall = cells
             table.update_cell(
                 job.label,
                 "status",
-                Text(job.status.value, style=style),
+                Text(status, style=STATUS_STYLE[job.status]),
                 update_width=False,
             )
-            table.update_cell(job.label, "cycle", str(job.state.cycle))
-            table.update_cell(job.label, "neg_eig", neg_eig)
-            table.update_cell(
-                job.label, "wall_time", format_wall_time(job.wall_time_s)
-            )
+            table.update_cell(job.label, "cycle", cycle)
+            table.update_cell(job.label, "neg_eig", neg)
+            table.update_cell(job.label, "wall_time", wall)
         self.update_detail()
+
+    def _show_text(self, widget: Static, text: str) -> None:
+        """Update a Static only when its content actually differs."""
+        if self._rendered_text.get(widget.id) == text:
+            return
+        self._rendered_text[widget.id] = text
+        widget.update(text)
+
+    def _show_tail(self, tail: RichLog, job: Job | None) -> None:
+        """Bring the output tail up to date with the fewest writes.
+
+        This used to clear the log and rewrite all 300 lines on every tick and
+        every cursor move. Now a genuine selection change rewrites it and
+        everything else appends only the lines the parser has read since --
+        usually none at all, and on a running job a handful."""
+        state = job.state if job is not None else None
+        if state is not self._tail_state:
+            self._tail_state = state
+            self._tail_seen = state.lines_seen if state is not None else 0
+            tail.clear()
+            if state is not None:
+                for line in state.tail:
+                    tail.write(line)
+            return
+        if state is None:
+            return
+        new_lines = state.lines_seen - self._tail_seen
+        if new_lines == 0:
+            return
+        self._tail_seen = state.lines_seen
+        if new_lines < 0 or new_lines >= len(state.tail):
+            # A re-run reset the counter, or more arrived than the deque holds:
+            # nothing to append onto, so redraw the window we have.
+            tail.clear()
+            for line in state.tail:
+                tail.write(line)
+            return
+        for line in islice(state.tail, len(state.tail) - new_lines, None):
+            tail.write(line)
 
     def selected_job(self) -> Job | None:
         for job in self.jobs:
@@ -690,8 +868,9 @@ class MonitorApp(App):
         geometry.show_job(job, cycle=chart.selected_cycle())
 
         if job is None:
-            summary.update("No job selected")
-            convergence.update("")
+            self._show_text(summary, "No job selected")
+            self._show_text(convergence, "")
+            self._show_tail(tail, None)
             return
 
         state = job.state
@@ -715,7 +894,7 @@ class MonitorApp(App):
             lines.append("[bold red]crash markers:[/bold red]")
             for cl in state.crash_lines:
                 lines.append(f"  {cl}")
-        summary.update("\n".join(lines))
+        self._show_text(summary, "\n".join(lines))
 
         if state.convergence_history:
             rows = ["[b]cycle   item             value          tolerance      conv[/b]"]
@@ -735,13 +914,11 @@ class MonitorApp(App):
                         f"{step.cycle:>5}   {name:<15} {val:>13.7f}  {tol:>13.7f}  "
                         f"[{color}]{mark}[/{color}]"
                     )
-            convergence.update("\n".join(rows))
+            self._show_text(convergence, "\n".join(rows))
         else:
-            convergence.update("[dim]no geometry convergence data yet[/dim]")
+            self._show_text(convergence, "[dim]no geometry convergence data yet[/dim]")
 
-        tail.clear()
-        for line in state.tail:
-            tail.write(line)
+        self._show_tail(tail, job)
 
 
 def main() -> None:

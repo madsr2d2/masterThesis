@@ -94,6 +94,10 @@ class JobState:
     n_imaginary: int | None = None
     wall_time_s: float | None = None
     tail: deque = field(default_factory=lambda: deque(maxlen=TAIL_LINES))
+    # Monotonic count of lines ever fed. `tail` is a bounded deque, so it
+    # cannot say how much of itself is new; this can, which is what lets the
+    # UI append the new lines instead of clearing and rewriting all of them.
+    lines_seen: int = 0
     cycle_energies: deque = field(default_factory=lambda: deque(maxlen=HISTORY_LEN))
     scf_iterations: deque = field(default_factory=lambda: deque(maxlen=HISTORY_LEN))
     atoms: list = field(default_factory=list)
@@ -134,6 +138,7 @@ class JobState:
 
     def feed_line(self, line: str) -> None:
         self.tail.append(line.rstrip("\n"))
+        self.lines_seen += 1
 
         m = _CYCLE_RE.search(line)
         if m:

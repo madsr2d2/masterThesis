@@ -65,6 +65,7 @@ def render(
     zoom: float = 1.0,
     pan: tuple[float, float, float] = (0.0, 0.0, 0.0),
     qm_atom_indices: set[int] | None = None,
+    size_px: tuple[int, int] | None = None,
 ) -> Image.Image:
     """Ball-and-stick render of a geometry. Not to scale of any published
     figure -- this feeds a terminal halfcell widget whose real resolution is
@@ -77,12 +78,31 @@ def render(
     (thin bond lines, no sphere, no label), so a 100+-atom MM environment
     doesn't drown out the QM region the panel exists to show. None (an
     ordinary, non-multilayer job) treats every atom as the QM layer, i.e.
-    the plain ball-and-stick rendering this always did."""
+    the plain ball-and-stick rendering this always did.
+
+    `size_px` renders straight to a target pixel size instead of the default
+    900x750. A caller that is going to downscale the result anyway -- the
+    herdr backend's low-latency preview frame most of all, which lands around
+    100px on its side -- should ask for the size it wants rather than pay to
+    draw pixels it will throw away."""
+    figsize = (6.0, 5.0)
+    if size_px is not None:
+        # Scale by DPI, keeping the figure's size in INCHES fixed. Fonts,
+        # line widths and marker sizes are all in points, i.e. inches, so this
+        # shrinks them along with the frame -- exactly as downscaling the big
+        # render did. Deriving figsize from a fixed dpi instead would hold
+        # them at their absolute size, and a 118px preview would be almost
+        # entirely atom-number label.
+        width_px = max(int(size_px[0]), 1)
+        height_px = max(int(size_px[1]), 1)
+        figsize = (6.0, 6.0 * height_px / width_px)
+        dpi = width_px / 6.0
+
     if not atoms:
         # Both call sites guard this, but the signature is all-defaults and
         # the framing maths below (ptp/mean over the coordinates) raises on an
         # empty array rather than producing an empty picture.
-        fig = plt.figure(figsize=(6, 5), dpi=dpi)
+        fig = plt.figure(figsize=figsize, dpi=dpi)
         fig.patch.set_facecolor("#1e1e1e")
         buf = io.BytesIO()
         fig.savefig(buf, format="png", facecolor=fig.get_facecolor())
@@ -102,7 +122,7 @@ def render(
     else:
         qm_mask = np.ones(n_atoms, dtype=bool)
 
-    fig = plt.figure(figsize=(6, 5), dpi=dpi)
+    fig = plt.figure(figsize=figsize, dpi=dpi)
     ax = fig.add_subplot(111, projection="3d")
     # Orthographic, not the mplot3d default perspective: parallel bonds stay
     # parallel and a farther atom doesn't shrink relative to a nearer one,

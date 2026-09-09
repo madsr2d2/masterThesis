@@ -80,7 +80,27 @@ class CellSize:
     height_px: int
 
 
-def cell_size() -> CellSize | None:
+_cell_size: CellSize | None = None
+_cell_size_probed = False
+
+
+def cell_size(*, refresh: bool = False) -> CellSize | None:
+    """Pixel size of one terminal cell, cached.
+
+    This was probed on EVERY frame, which put a full request/response over the
+    herdr socket in front of every rotation before the image was even
+    rendered -- a round trip of pure latency on a link where latency is the
+    thing being economised. It only changes when the terminal's font size
+    does, which also resizes the pane, so `refresh=True` from a resize handler
+    is the invalidation this needs."""
+    global _cell_size, _cell_size_probed
+    if _cell_size_probed and not refresh:
+        return _cell_size
+    _cell_size, _cell_size_probed = _probe_cell_size(), True
+    return _cell_size
+
+
+def _probe_cell_size() -> CellSize | None:
     endpoint = _endpoint()
     if endpoint is None:
         return None
