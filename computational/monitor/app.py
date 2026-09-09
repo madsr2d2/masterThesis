@@ -45,6 +45,10 @@ ROTATE_STEP_DEG = 5.0
 # on at once (see Coalescer).
 COALESCE_S = 0.12
 
+# Linear size of the herdr backend's interim preview frame, as a fraction of
+# the pane. At a typical pane this is ~336x238 and ~20 KB of PNG.
+PREVIEW_SCALE = 0.35
+
 
 class Coalescer:
     """Leading-edge-then-trailing debounce for repeated input.
@@ -513,15 +517,6 @@ class KittyGeometryImage(RotatableGeometryImage):
             self._heals_since_transmit = 0
 
 
-def _fit_to_budget(width: int, height: int, max_rgba_bytes: int) -> tuple[int, int]:
-    """Shrink a pixel size to fit a raw-RGBA byte budget, keeping its shape."""
-    raw = width * height * 4
-    if raw <= max_rgba_bytes:
-        return width, height
-    scale = (max_rgba_bytes / raw) ** 0.5
-    return max(1, int(width * scale)), max(1, int(height * scale))
-
-
 class HerdrGeometryImage(RotatableGeometryImage):
     """Real pixel image of the latest geometry, drawn by herdr itself as a
     compositor layer over this widget's own screen region (herdr 0.9.0+'s
@@ -537,6 +532,12 @@ class HerdrGeometryImage(RotatableGeometryImage):
     # one size that has to compromise between "responsive to rotate" and
     # "sharp at rest", every change fires an immediate small preview and
     # schedules one full-quality frame once input goes quiet.
+    #
+    # PNG cut a full-quality frame from ~638 KB to ~31 KB, which on the local
+    # socket is 194 ms down to 7 ms -- enough that the preview looks
+    # unnecessary. It is kept because that measurement was taken WITHOUT ssh
+    # in the path, and the link this exists for cannot be measured from here.
+    # A preview costs one cheap render and about 20 KB.
     SETTLE_DELAY_S = 0.35
 
     def __init__(self, *args, **kwargs):
@@ -622,19 +623,17 @@ class HerdrGeometryImage(RotatableGeometryImage):
         cells = herdr_graphics.cell_size()
         if cells is None:
             return
-        max_bytes = (
-            herdr_graphics.PREVIEW_MAX_RGBA_BYTES if quality == "preview" else herdr_graphics.MAX_RGBA_BYTES
-        )
-        # Render straight to the size that will actually be sent. The pane's
-        # pixel extent is the ceiling, and the RGBA byte budget is usually the
-        # tighter one -- a preview frame lands near 100px on its side, so
-        # drawing it at 900x750 and then throwing 98% of the pixels away was
-        # paying full render cost on the one path that exists to be fast.
-        target = _fit_to_budget(
-            max(1, region.width * cells.width_px),
-            max(1, region.height * cells.height_px),
-            max_bytes,
-        )
+        # Render straight to the size that will actually be sent, which for a
+        # full-quality frame is now simply the pane's own pixel extent. It
+        # used to be whatever a 480 KB raw-RGBA budget allowed -- about
+        # 411x291, well under the pane -- and that budget went away with the
+        # switch to PNG, which carries a full-resolution frame in ~95 KB.
+        width = max(1, region.width * cells.width_px)
+        height = max(1, region.height * cells.height_px)
+        if quality == "preview":
+            width = max(1, int(width * PREVIEW_SCALE))
+            height = max(1, int(height * PREVIEW_SCALE))
+        target = (width, height)
         image = geometry_render.render(
             atoms, elev=self.elev, azim=self.azim, show_distances=self.show_distances,
             zoom=self.zoom, pan=self.pan, qm_atom_indices=job.state.qm_atom_indices,
@@ -650,7 +649,6 @@ class HerdrGeometryImage(RotatableGeometryImage):
                 viewport_col=region.x,
                 viewport_row=region.y,
                 layer_id=self.LAYER_ID,
-                max_bytes=max_bytes,
             )
 
 

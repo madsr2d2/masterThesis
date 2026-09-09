@@ -1,14 +1,25 @@
 """Client for herdr's own pane.graphics.* socket API (herdr 0.9.0+). Real
 pixel images, composited by herdr itself over a screen region -- not a
 terminal image protocol (Sixel/Kitty), which do not survive this project's
-herdr+ssh transport. See computational/CLAUDE.md-adjacent conversation
-history for why: herdr 0.8.2's graphics API existed in schema but its
+herdr+ssh transport. herdr 0.8.2's graphics API existed in schema but its
 cell-size negotiation never completed (`cell_size_unavailable`); 0.9.0 fixed
-it, and raw `rgba` data works where `png` format still renders solid black
-(PNG decoding appears unfinished as of 0.9.0)."""
+it.
+
+Frames go as `png`. This module used to send raw `rgba` on the finding that
+`png` "renders solid black" -- that was retested against herdr 0.9.0 on
+2026-09-09 and PNG now displays correctly, so the note it rested on is gone.
+The format is the whole ballgame on a slow link: the same 411x291 frame is
+30,956 bytes of base64 as PNG against 637,872 as RGBA, a factor of 20.6, and
+round-trips in 7.4 ms against 193.9 ms. That 193.9 ms is the "~100-200 ms"
+this module used to attribute to herdr's relay of a full-quality frame; it
+was the payload all along.
+
+Supported formats are `png`, `rgb`, `rgba` and `bgra` -- herdr's own error
+text enumerates them."""
 from __future__ import annotations
 
 import base64
+import io
 import json
 import os
 import socket
@@ -19,28 +30,40 @@ from PIL import Image
 
 _TIMEOUT_S = 2.0
 
-# The socket API rejects a frame with "image_too_large" somewhere between
-# 498,436 bytes (works) and 547,600 bytes (rejected) of raw RGBA -- measured
-# by a direct sweep against the running herdr server, not documented anywhere.
-# Above roughly 850,000 bytes the connection is dropped outright mid-write
-# instead of getting a clean error.
-MAX_RGBA_BYTES = 480_000
+# The socket API rejects a frame with "image_too_large" between 679,828 bytes
+# (accepted) and 719,996 bytes (rejected) of base64 payload, and drops the
+# connection outright above roughly 1.5 MB instead of answering. Measured by
+# direct sweep against the running server; not documented anywhere.
+#
+# The limit is on the PAYLOAD, not the picture: a 2400x1700 frame -- 16.3 MB
+# once decoded -- is accepted happily at 281,740 bytes of PNG. So there is no
+# resolution ceiling worth designing around any more, only a byte one, and a
+# geometry frame at full pane resolution is about 95,000 bytes. This cap
+# exists to keep a pathological frame from tripping the limit, not because
+# anything normal approaches it.
+MAX_PNG_B64_BYTES = 600_000
 
-# A frame this size (or the ~50,000-byte range generally) round-trips in
-# single-digit milliseconds -- also measured directly. The real cost at
-# MAX_RGBA_BYTES is the ~100-200ms herdr spends relaying the frame to the
-# outer terminal over ssh, which is data-transfer time, not fixed overhead,
-# so a small interim frame is genuinely fast rather than merely "smaller."
-PREVIEW_MAX_RGBA_BYTES = 40_000
+
+def _encode_png(image: Image.Image) -> str:
+    buf = io.BytesIO()
+    image.convert("RGB").save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-def _clamp_to_budget(image: Image.Image, max_bytes: int) -> Image.Image:
-    raw_bytes = image.width * image.height * 4
-    if raw_bytes <= max_bytes:
-        return image
-    scale = (max_bytes / raw_bytes) ** 0.5
-    new_size = (max(1, int(image.width * scale)), max(1, int(image.height * scale)))
-    return image.resize(new_size)
+def _encode_within(image: Image.Image, max_b64_bytes: int) -> tuple[str, Image.Image]:
+    """PNG the image, shrinking it until the payload fits.
+
+    Compression makes the encoded size unpredictable from the pixel count --
+    a molecule on a flat background compresses about 100x, noise not at all --
+    so the only honest way to respect a byte cap is to encode and look."""
+    data = _encode_png(image)
+    while len(data) > max_b64_bytes and min(image.width, image.height) > 16:
+        image = image.resize(
+            (max(1, image.width * 3 // 4), max(1, image.height * 3 // 4)),
+            Image.LANCZOS,
+        )
+        data = _encode_png(image)
+    return data, image
 
 
 def _endpoint() -> tuple[str, str] | None:
@@ -127,21 +150,20 @@ def set_image(
     viewport_col: int,
     viewport_row: int,
     layer_id: str,
-    max_bytes: int = MAX_RGBA_BYTES,
+    max_b64_bytes: int = MAX_PNG_B64_BYTES,
 ) -> bool:
     endpoint = _endpoint()
     if endpoint is None or grid_cols <= 0 or grid_rows <= 0:
         return False
     _, pane_id = endpoint
-    rgba = _clamp_to_budget(image.convert("RGBA"), max_bytes)
-    data_b64 = base64.b64encode(rgba.tobytes()).decode("ascii")
+    data_b64, sent = _encode_within(image, max_b64_bytes)
     response = _call(
         "pane.graphics.set",
         {
             "pane_id": pane_id,
-            "format": "rgba",
-            "image_width": rgba.width,
-            "image_height": rgba.height,
+            "format": "png",
+            "image_width": sent.width,
+            "image_height": sent.height,
             "data_base64": data_b64,
             "layer_id": layer_id,
             "placement": {
