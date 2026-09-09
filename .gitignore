@@ -27,3 +27,74 @@ figures/
 # are what the calculation produced, and those are still tracked. Removed from
 # the tree on 2026-09-04; still in history, so a clone still pays for them.
 *_D[0-9][0-9][0-9][0-9][0-9].TDDFTGuess.gbw
+
+# orca_stuff/ -- computational setup for the mechanism calculations. The
+# calculations themselves run on the homelab server, so only the job
+# definitions are tracked here: the .inp files and the small structures they
+# chain between steps (job.xyz etc., ~13 MB total). Everything ORCA/xtb write
+# as output or scratch is homelab-local and regenerates by rerunning the .inp
+# against the tracked geometry -- some of it runs into gigabytes (GOAT
+# conformer trajectories alone are 50 MB each, and cat/ alone had 3.6 GB of
+# per-step ONIOM *.grad.tmp scratch across 77k files).
+
+# third-party source trees and build products -- not thesis data
+orca_stuff/openchemistry/
+orca_stuff/comp_chem/
+orca_stuff/build/
+
+# ORCA output and scratch
+orca_stuff/**/*.out
+orca_stuff/**/*.gbw
+orca_stuff/**/*.gbw1
+orca_stuff/**/*.gbw2
+orca_stuff/**/*.ges
+orca_stuff/**/*.densities
+orca_stuff/**/*.densitiesinfo
+orca_stuff/**/*.hess
+orca_stuff/**/*.cpcm
+orca_stuff/**/*.cpcm_corr
+orca_stuff/**/*.engrad
+orca_stuff/**/*.cis
+orca_stuff/**/*.opt
+orca_stuff/**/*.property.txt
+orca_stuff/**/*.bibtex
+orca_stuff/**/*.smd.out
+orca_stuff/**/*.tmp
+orca_stuff/**/*.tmp.[0-9]*
+orca_stuff/**/*.interp
+orca_stuff/**/*.grd
+orca_stuff/**/*.cosmo
+orca_stuff/**/*.dat
+orca_stuff/**/*_trj.xyz
+orca_stuff/**/*allxyz*
+orca_stuff/**/*goat*.xyz
+orca_stuff/**/*ensemble*.xyz
+orca_stuff/**/*.gz
+
+# xtb scratch and its own conformer-search/optimiser output
+orca_stuff/**/*xtbrestart*
+orca_stuff/**/*xtberr*
+orca_stuff/**/*xtbtopo.mol*
+orca_stuff/**/xtbopt.log
+orca_stuff/**/xtbopt.xyz
+orca_stuff/**/xtbpath*.xyz
+orca_stuff/**/xtblast.xyz
+orca_stuff/**/.xtboptok
+orca_stuff/**/*charges*
+orca_stuff/**/*wbo*
+orca_stuff/**/*lastscf*
+orca_stuff/**/*carthess*
+orca_stuff/**/*.bas[0-9]
+orca_stuff/**/*hostnames*
+orca_stuff/**/*.cjson
+orca_stuff/**/*lastout*
+orca_stuff/**/*vibspectrum*
+orca_stuff/**/*pcgrad*
+orca_stuff/**/*lastint*
+orca_stuff/**/*lastgrad*
+orca_stuff/**/*lastprop*
+orca_stuff/**/*gradient*
+orca_stuff/**/*Gradients*
+orca_stuff/**/*Dipoles*
+orca_stuff/**/*smd_h2o*
+orca_stuff/**/*debug_info*
