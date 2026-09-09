@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 STALL_WINDOW = 15
@@ -78,6 +78,10 @@ class JobState:
     stem: str = "job"
     has_out: bool = False
     offset: int = 0
+    # st_ino of the job.out `offset` counts into. A re-run that replaces the
+    # file by rename gets a new inode at the same-or-larger size, which the
+    # size check alone cannot see -- see `update_job`.
+    inode: int | None = None
     cycle: int = 0
     convergence_history: deque = field(default_factory=lambda: deque(maxlen=HISTORY_LEN))
     eigen_history: deque = field(default_factory=lambda: deque(maxlen=HISTORY_LEN))
@@ -110,6 +114,23 @@ class JobState:
     _in_geom_block: bool = False
     _pending_atoms: list = field(default_factory=list)
     _in_qm1_composition: bool = False
+
+    _IDENTITY_FIELDS = frozenset({"path", "stem", "has_out", "offset", "inode"})
+
+    def reset_for_restart(self) -> None:
+        """Drop everything derived from the file's CONTENTS, keeping only the
+        job's identity and the caller's fresh file bookkeeping.
+
+        A re-run recreates job.out from scratch, and without this every
+        content-derived field -- the status above all -- stays frozen at the
+        previous run's final values for the rest of the session. Reading the
+        replacement values off a fresh instance rather than restating them
+        here means a field added to this dataclass is reset automatically
+        instead of being silently kept across a restart."""
+        fresh = JobState(path=self.path, stem=self.stem)
+        for f in fields(self):
+            if f.name not in self._IDENTITY_FIELDS:
+                setattr(self, f.name, getattr(fresh, f.name))
 
     def feed_line(self, line: str) -> None:
         self.tail.append(line.rstrip("\n"))
@@ -192,12 +213,12 @@ class JobState:
             self._pending_atoms = []
         elif self._in_geom_block:
             stripped = line.strip()
-            if stripped and set(stripped) == {"-"}:
-                pass  # the header's dashed underline
-            elif _GEOM_ATOM_RE.match(line):
-                m = _GEOM_ATOM_RE.match(line)
+            m = _GEOM_ATOM_RE.match(line)
+            if m:
                 el, x, y, z = m.group(1), float(m.group(2)), float(m.group(3)), float(m.group(4))
                 self._pending_atoms.append((el, x, y, z))
+            elif stripped and set(stripped) == {"-"}:
+                pass  # the header's dashed underline
             elif stripped == "":
                 if self._pending_atoms:
                     # A multilayer job (QM/MM, QM/XTB, ONIOM) prints THREE of
@@ -242,10 +263,12 @@ class JobState:
         self._pending_step = {}
 
     def possibly_stalled(self) -> bool:
-        history = list(self.convergence_history)
+        history = self.convergence_history
         if len(history) < STALL_WINDOW:
             return False
-        recent = history[-STALL_WINDOW:]
+        # Index the deque from its end rather than copying all HISTORY_LEN
+        # entries out just to slice the last STALL_WINDOW of them.
+        recent = [history[i] for i in range(len(history) - STALL_WINDOW, len(history))]
         grads = [s.rms_grad for s in recent if s.rms_grad is not None]
         if len(grads) < STALL_WINDOW:
             return False
@@ -280,9 +303,28 @@ def read_new_lines(path: Path, offset: int) -> tuple[list[str], int]:
 
 def update_job(state: JobState) -> None:
     out_path = state.path / f"{state.stem}.out"
-    state.has_out = out_path.exists()
-    if not state.has_out:
+    try:
+        st = out_path.stat()
+    except OSError:
+        state.has_out = False
         return
+    state.has_out = True
+
+    # A re-run recreates job.out from scratch -- the single most common thing
+    # this tool watches somebody do. `offset` only ever grew, so the seek
+    # landed past EOF and returned nothing forever after: the pane kept
+    # showing the PREVIOUS run's cycle, geometry and (worst) its "crashed" or
+    # "converged" status for the rest of the session, and never recovered as
+    # the new run wrote output. A shrunk file catches a truncate-in-place; the
+    # inode catches a rename-and-replace, which can land at a larger size.
+    if st.st_size < state.offset or (state.inode is not None and st.st_ino != state.inode):
+        state.reset_for_restart()
+        state.offset = 0
+    state.inode = st.st_ino
+
+    if st.st_size == state.offset:
+        return  # nothing appended -- the common case, so don't even open it
+
     lines, new_offset = read_new_lines(out_path, state.offset)
     state.offset = new_offset
     for line in lines:

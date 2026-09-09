@@ -71,6 +71,18 @@ def render(
     doesn't drown out the QM region the panel exists to show. None (an
     ordinary, non-multilayer job) treats every atom as the QM layer, i.e.
     the plain ball-and-stick rendering this always did."""
+    if not atoms:
+        # Both call sites guard this, but the signature is all-defaults and
+        # the framing maths below (ptp/mean over the coordinates) raises on an
+        # empty array rather than producing an empty picture.
+        fig = plt.figure(figsize=(6, 5), dpi=dpi)
+        fig.patch.set_facecolor("#1e1e1e")
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", facecolor=fig.get_facecolor())
+        plt.close(fig)
+        buf.seek(0)
+        return Image.open(buf)
+
     is_multilayer = qm_atom_indices is not None and 0 < len(qm_atom_indices) < len(atoms)
 
     def is_qm(index: int) -> bool:

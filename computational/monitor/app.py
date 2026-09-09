@@ -338,7 +338,13 @@ class KittyGeometryImage(RotatableGeometryImage):
 
     @work(thread=True, exclusive=True)
     def _push(self, seq: int) -> None:
-        atoms = self._atoms_for(self._job, self._cycle)
+        # Bind the selection ONCE. This body runs in a worker thread while the
+        # main thread can still be reassigning `_job`/`_cycle` underneath it,
+        # so reading them more than once could pair one job's atoms with
+        # another job's QM indices -- or, if the selection cleared in between,
+        # dereference None and kill the worker.
+        job, cycle = self._job, self._cycle
+        atoms = self._atoms_for(job, cycle)
         if not atoms:
             with self._write_lock:
                 if not self._is_stale(seq):
@@ -350,7 +356,7 @@ class KittyGeometryImage(RotatableGeometryImage):
 
         image = geometry_render.render(
             atoms, elev=self.elev, azim=self.azim, show_distances=self.show_distances,
-            zoom=self.zoom, pan=self.pan, qm_atom_indices=self._job.state.qm_atom_indices,
+            zoom=self.zoom, pan=self.pan, qm_atom_indices=job.state.qm_atom_indices,
         )
         buf = io.BytesIO()
         image.convert("RGB").save(buf, format="PNG")
@@ -392,7 +398,7 @@ class HerdrGeometryImage(RotatableGeometryImage):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._settle_timer = None
-        self._last_fingerprint: tuple[int, int] | None = None
+        self._last_atoms: list | None = None
 
     def on_resize(self) -> None:
         self._on_change()
@@ -413,7 +419,7 @@ class HerdrGeometryImage(RotatableGeometryImage):
         self._job = job
         self._cycle = cycle
         if is_new_selection:
-            self._last_fingerprint = None
+            self._last_atoms = None
             self._on_change()
             return
         # A running optimization writes new coordinates between ticks, so a
@@ -421,23 +427,41 @@ class HerdrGeometryImage(RotatableGeometryImage):
         # geometry actually shown advanced, not unconditionally every 3s. A
         # scrubbed-to historical geometry is frozen (its cycle is fixed), so
         # this also makes the periodic tick a no-op while reviewing one.
+        #
+        # The parser installs a NEW list object for every geometry block it
+        # accepts, so object identity is exactly the question being asked --
+        # "was the geometry replaced?" -- where the old
+        # (len(atoms), cycle) fingerprint was blind to fresh coordinates
+        # arriving at an unchanged atom count and cycle number.
         atoms = self._atoms_for(job, cycle)
-        fingerprint = (len(atoms), cycle if cycle is not None else job.state.cycle) if job is not None else None
-        if fingerprint == self._last_fingerprint:
+        if atoms is self._last_atoms:
             return
-        self._last_fingerprint = fingerprint
+        self._last_atoms = atoms
         self._push(self._next_seq(), quality="full")
 
     def _on_change(self) -> None:
         if self._settle_timer is not None:
             self._settle_timer.stop()
-        seq = self._next_seq()
-        self._push(seq, quality="preview")
-        self._settle_timer = self.set_timer(self.SETTLE_DELAY_S, lambda: self._push(seq, quality="full"))
+        self._push(self._next_seq(), quality="preview")
+        self._settle_timer = self.set_timer(self.SETTLE_DELAY_S, self._push_settled)
+
+    def _push_settled(self) -> None:
+        """The deferred full-quality frame, on a FRESH sequence number.
+
+        Reusing the seq `_on_change` captured meant anything that bumped
+        `_request_seq` inside the settle window -- the periodic refresh's own
+        full-quality push, most easily -- made this frame stale before it was
+        ever sent, so it was dropped and the pane sat at preview resolution
+        until the next interaction. When this fires it IS the newest intent:
+        anything the user did since would have stopped the timer."""
+        self._settle_timer = None
+        self._push(self._next_seq(), quality="full")
 
     @work(thread=True, exclusive=True)
     def _push(self, seq: int, quality: str = "full") -> None:
-        atoms = self._atoms_for(self._job, self._cycle)
+        # Bound once, for the reason given on KittyGeometryImage._push.
+        job, cycle = self._job, self._cycle
+        atoms = self._atoms_for(job, cycle)
         if not atoms:
             with self._write_lock:
                 if not self._is_stale(seq):
@@ -451,7 +475,7 @@ class HerdrGeometryImage(RotatableGeometryImage):
             return
         image = geometry_render.render(
             atoms, elev=self.elev, azim=self.azim, show_distances=self.show_distances,
-            zoom=self.zoom, pan=self.pan, qm_atom_indices=self._job.state.qm_atom_indices,
+            zoom=self.zoom, pan=self.pan, qm_atom_indices=job.state.qm_atom_indices,
         )
         image.thumbnail((max(1, region.width * cells.width_px), max(1, region.height * cells.height_px)))
         max_bytes = (
