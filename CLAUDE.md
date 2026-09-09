@@ -138,7 +138,7 @@ them.** The list above named 10 and the repository has 25: `test_curve_flags`,
 `test_curve_screen`, `test_kinetic_model`, `test_read_rre`,
 `test_solution_chemistry` and `test_summary_kinetics` were in the tree and in
 no documented suite. A hardcoded list is a list that drifts -- this paragraph
-said 20 until 2026-09-08, four gates after it stopped being true.
+said 20 until 2026-09-09, four gates after it stopped being true.
 
 And each analysis folder's own `check_numbers.py`, which re-derives every number
 in its `ANALYSIS.md` from the modules. About twenty seconds each.
@@ -161,7 +161,7 @@ five copies of it until 2026-09-02 and no two were the same -- 7 substitutions
 in `background_reaction`, 17 in `induction` -- so five documents were held to
 five standards, and the folder with the most numbers ran the weakest one.
 
-**THE CONTRACT STOPPED AT THE FOLDER BOUNDARY UNTIL 2026-09-08, AND THAT IS
+**THE CONTRACT STOPPED AT THE FOLDER BOUNDARY UNTIL 2026-09-09, AND THAT IS
 WHERE THE DRIFT WENT.** Eight `check_numbers.py` held 883 claims against eight
 `ANALYSIS.md` files, and the ROOT documents -- the ones read FIRST -- had
 almost nothing: `background_reaction` and `two_axis` each check a handful of

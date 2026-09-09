@@ -8,7 +8,7 @@ quantum-chemistry tasks.
 
 ---
 
-## 2026-09-08 — end-to-end review: six stale numbers in the ungated documents,
+## 2026-09-09 — end-to-end review: six stale numbers in the ungated documents,
 a post-hoc split that was quoted as if it were not one, and a docstring
 premise that was half false
 
