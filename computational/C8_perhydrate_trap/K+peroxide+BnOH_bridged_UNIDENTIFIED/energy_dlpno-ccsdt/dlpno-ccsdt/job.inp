@@ -1,0 +1,49 @@
+# High-level term of the DLPNO-CCSD(T):r2SCAN-3c ONIOM-style energy correction
+# (COMPUTATIONAL.md C8: K + HOO- -> KP). See ../r2scan3c/job.inp for the full
+# composite-correction formula and the low-level term it pairs with.
+#
+# Level and basis follow the ORCA project's own worked example for accurate
+# reaction/activation energies (ORCA 6.1 Tutorials, "Calculating accurate
+# energy barriers": https://www.faccts.de/docs/orca/6.1/tutorials/react/actibar.html),
+# which refines a cheap DFT-optimized geometry with a
+# "!DLPNO-CCSD(T) DEF2-TZVPP DEF2-TZVPP/C" single point rather than trusting
+# any DFT functional for the final barrier. That tutorial's own justification
+# is quantitative, not just "more expensive is better": density functionals
+# (including range-separated hybrids such as wB97X-D on def2-TZVP) carry an
+# RMSE of roughly 5 kcal/mol (~20 kJ/mol) against CCSD(T)-quality barriers,
+# which sits right at COMPUTATIONAL.md's C7 gate (+/-20 kJ/mol) and is far
+# wider than C8's target window (a 4 kJ/mol-wide band on ΔG of perhydrate
+# formation) -- so for this project a DFT single point cannot be trusted to
+# discriminate the C8 branches on its own; DLPNO-CCSD(T) can.
+#
+# Run on the QM-region fragment only (job.xyz =
+# ../../geometry_r2scan3c-xtb/ts/job.QMRegion.xyz, 11 atoms, net charge -1),
+# not the full 147-atom embedded system -- DLPNO-CCSD(T) on the whole catalyst
+# is not attempted; only the correction term is.
+#
+# CPCM(water), TightSCF: matching COMPUTATIONAL.md's existing convention for
+# every other isolated-species task in the register, so this number sits on
+# the same footing as the rest.
+#
+# nprocs 8, not the machine's full 32 logical threads: benchmarked in place on
+# this exact job (2026-09-09, homelab, i9-14900K, 8 P-cores/16 E-cores, 125 GB
+# RAM) -- 8 ranks: 43.5 s wall; 16 ranks: 51.5 s; 24 ranks: 50.8 s. More ranks
+# is SLOWER here, not faster: past the 8 physical P-cores, ranks either land
+# on SMT siblings sharing one P-core's FP/vector units or on the slower
+# E-cores, and MPI syncs the whole run to the slowest rank. This is a property
+# of the hybrid P/E chip, not of DLPNO-CCSD(T) -- an 11-atom fragment simply
+# doesn't have enough work to hide that imbalance. maxcore 4000 MB is already
+# generous: the run's own MDCI module peaked at 1178 MB/core, so 8x4000 MB
+# (32 GB) leaves most of the 125 GB free for other jobs to run concurrently --
+# that, not a bigger nprocs on one job, is how this machine's capacity
+# actually gets used across the C7-C10 family.
+
+! DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C CPCM(Water) TightSCF
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile -1 1 job.xyz

@@ -1,0 +1,69 @@
+# Transition state for K + H2O2 (2 waters, Grotthuss relay) -> KP
+# (COMPUTATIONAL.md C8 item 1). See ../rc/job.inp for the full identification
+# note (confirmed by direct connectivity analysis 2026-09-09) and the
+# solvation/resource corrections applied here; both files carry the same
+# fixes for the same reasons, not repeated in full below.
+#
+# The relay this TS captures (RC -> TS bond-length evidence, all four
+# centres moving at once):
+#   H2O2's own proton (H135) transfers to water 2 (O134)
+#   water 2's own proton (H133) transfers to water 1 (O132)
+#   water 1's own proton (H131) transfers to the ketone oxygen (O130)
+#   H2O2's now-deprotonated oxygen (O136) simultaneously attacks the ketone
+#     carbon (C129), forming the new C-O bond
+# -- a four-centre concerted Grotthuss relay, not a bare HOO- addition and
+# not a hydroxide-expulsion step. See conversation record 2026-09-09 for the
+# full RC/TS bond-length table.
+#
+# Corrections from the orca_stuff version, 2026-09-09:
+# 1. ALPB(Water) -> ddCOSMO(Water): so the QM1 (r2SCAN-3c) region -- where this
+#    entire four-centre relay lives -- is actually solvated, not just the
+#    QM2/xtb scaffold. See ../rc/job.inp for the manual citation.
+# 2. Added Recalc_Hess 10: this project's first three attempts at a
+#    different TS in this same QM/XTB style (K+peroxide+BnOH_bridged_
+#    UNIDENTIFIED/, before its geometry was found to be misidentified)
+#    plateaued for 40+ cycles on a single initial Hessian, and a second
+#    attempt seeded from the drifted geometry then had 60% of its
+#    displacement gradients fail outright. Recalc_Hess 10 (ORCA 6.1 manual,
+#    "4.3. Transition State Searches": recommended when "the PES near the
+#    TS can be very far from ideal for a Newton-Raphson step") refreshes the
+#    exact Hessian periodically rather than trusting one RFO-updated
+#    approximation for the whole search. Cheap here: each displacement
+#    gradient on this QM region runs ~1.5 s, so a full recompute is on the
+#    order of a couple of minutes at nprocs 8.
+# 3. nprocs 12 / maxcore 2200 -> nprocs 8 / maxcore 4000: homelab-benchmarked
+#    (COMPUTATIONAL.md Conventions, 2026-09-09).
+#
+# QM region unchanged from the version that already produced a QMRegion.xyz
+# cleanly (no boundary/link-atom problem here). Geometry (job.xyz) is a warm
+# start from that same prior run's converged ALPB-level TS
+# (alpb_uncorrected/job_converged_alpb.xyz) rather than a fresh scan guess --
+# solvation mainly changes electronics/energetics, not gross geometry, so
+# this should already be close to the ddCOSMO-level TS. alpb_uncorrected/
+# also holds an abandoned SMD-solvation attempt (sp_abandoned_smd_attempt/)
+# from before this correction; plain CPCM/SMD are both rejected outright by
+# ORCA for QM/XTB (see ../rc/job.inp) -- ddCOSMO was chosen because the
+# manual is explicit it gets the same C-PCM/B-style propagation to QM1.
+
+! QM/XTB r2SCAN-3c ddCOSMO(Water) OptTS Freq TightSCF
+
+%QMMM
+QMATOMS
+	{128 129 130 131 138 132 133 139 134 135 136 137}
+END
+Charge_total 0
+Mult_total 1
+END
+
+%geom
+Calc_Hess true
+Recalc_Hess 10
+END
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

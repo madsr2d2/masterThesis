@@ -1,0 +1,45 @@
+# Low-level term of the DLPNO-CCSD(T):r2SCAN-3c ONIOM-style energy correction
+# (COMPUTATIONAL.md C8: K + HOO- -> KP).
+#
+# This is a single point on the QM-region fragment ALONE (extracted+capped by
+# ORCA's own QM/XTB run: ../../geometry_r2scan3c-xtb/ts/job.QMRegion.xyz, 11
+# atoms, net charge -1 from the HOO- oxygen), at the SAME method used for the
+# full-system QM/XTB
+# geometry/TS/Hessian step (r2SCAN-3c/ALPB(water)). Its only purpose is to be
+# subtracted from the DLPNO-CCSD(T) fragment energy in ../dlpno-ccsdt/, giving
+# a correction added on top of the full embedded r2SCAN-3c/xtb energy:
+#
+#   E_final = E(r2SCAN-3c/xtb, full 147-atom system)
+#           + [ E(DLPNO-CCSD(T), fragment) - E(r2SCAN-3c, fragment) ]
+#
+# This is ORCA's documented QM1/QM2 subtractive-embedding formula applied as a
+# post-hoc correction rather than a full three-layer rerun (DLPNO-CCSD(T) is
+# supported as a QM/QM2 high level -- ORCA 6.1 manual, Multiscale Simulations,
+# section 6.1: https://orca-manual.mpi-muelheim.mpg.de/contents/multiscalesimulations/qmmm-general.html).
+#
+# Solvent switches from ALPB(water) (the geometry tier's xtb-native continuum)
+# to CPCM(water) here, matching the level COMPUTATIONAL.md already commits to
+# for every isolated-molecule task (C1, C4-C6, C9) -- so this fragment energy
+# is on the same footing as the rest of the register, not a one-off choice.
+#
+# r2SCAN-3c: Grimme group composite method, J. Chem. Phys. 154, 064103 (2021)
+# https://pubs.aip.org/aip/jcp/article-abstract/154/6/064103/199831 --
+# "on par with or more accurate than M06-2X-D3(0)/TZP" for geometries and
+# reaction energies at a fraction of the cost; this SP call is only to provide
+# the subtraction term, not a claim about r2SCAN-3c's own accuracy on this
+# reaction (see the DLPNO-CCSD(T) job for that discussion).
+
+# nprocs 8 / maxcore 4000: benchmarked on ../dlpno-ccsdt/job.inp, the
+# expensive half of this pair -- see the note there. 8 physical P-cores beat
+# 16 and 24 ranks on this machine's hybrid P/E chip; kept the same here so
+# both terms of the correction run under identical resource settings.
+
+! r2SCAN-3c CPCM(Water) TightSCF
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile -1 1 job.xyz

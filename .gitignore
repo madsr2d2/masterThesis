@@ -47,6 +47,7 @@ orca_stuff/**/*.out
 orca_stuff/**/*.gbw
 orca_stuff/**/*.gbw1
 orca_stuff/**/*.gbw2
+orca_stuff/**/*.loc
 orca_stuff/**/*.ges
 orca_stuff/**/*.densities
 orca_stuff/**/*.densitiesinfo
@@ -98,3 +99,66 @@ orca_stuff/**/*Gradients*
 orca_stuff/**/*Dipoles*
 orca_stuff/**/*smd_h2o*
 orca_stuff/**/*debug_info*
+
+# computational/ -- the curated, permanent home for the C1-C10 register's
+# calculations (COMPUTATIONAL.md), as opposed to orca_stuff/'s raw homelab
+# staging import. Same "outputs stay homelab-local, only .inp/.xyz are
+# tracked" policy as above; gitignore has no brace-expansion, so the same
+# ~55 patterns are repeated here rather than shared. Keep the two lists in
+# sync if either changes. Deliberately does NOT extend to uvvis/, which
+# tracks its ORCA outputs in full by prior, separate decision.
+computational/**/*.out
+computational/**/*.gbw
+computational/**/*.gbw1
+computational/**/*.gbw2
+computational/**/*.loc
+computational/**/*.ges
+computational/**/*.densities
+computational/**/*.densitiesinfo
+computational/**/*.hess
+computational/**/*.cpcm
+computational/**/*.cpcm_corr
+computational/**/*.engrad
+computational/**/*.cis
+computational/**/*.opt
+computational/**/*.property.txt
+computational/**/*.bibtex
+computational/**/*.smd.out
+computational/**/*.tmp
+computational/**/*.tmp.[0-9]*
+computational/**/*.interp
+computational/**/*.grd
+computational/**/*.cosmo
+computational/**/*.dat
+computational/**/*_trj.xyz
+computational/**/*allxyz*
+computational/**/*goat*.xyz
+computational/**/*ensemble*.xyz
+computational/**/*.gz
+computational/**/*xtbrestart*
+computational/**/*xtberr*
+computational/**/*xtbtopo.mol*
+computational/**/xtbopt.log
+computational/**/xtbopt.xyz
+computational/**/xtbpath*.xyz
+computational/**/xtblast.xyz
+computational/**/.xtboptok
+computational/**/*charges*
+computational/**/*wbo*
+computational/**/*lastscf*
+computational/**/*carthess*
+computational/**/*.bas[0-9]
+computational/**/*hostnames*
+computational/**/*.cjson
+computational/**/*lastout*
+computational/**/*vibspectrum*
+computational/**/*pcgrad*
+computational/**/*lastint*
+computational/**/*lastgrad*
+computational/**/*lastprop*
+computational/**/*gradient*
+computational/**/*Gradients*
+computational/**/*Dipoles*
+computational/**/*smd_h2o*
+computational/**/*debug_info*
+computational/**/*_D[0-9][0-9][0-9][0-9][0-9].TDDFTGuess.gbw

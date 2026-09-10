@@ -19,12 +19,99 @@ not worth running.
   without a gate is reported as an estimate, never as a number.
 - Log entries are appended newest-first under [Log](#log), with the input files
   and the ORCA version used.
+- **File layout, since 2026-09-09.** `computational/` is the curated, permanent
+  home for this register's calculations — `orca_stuff/` was only ever the raw
+  import of what had been run on the homelab before this layout existed, and
+  is not being migrated wholesale (its still-relevant work moves over task by
+  task as it's revisited). Layout: `computational/C<n>_<slug>/<reaction>/`,
+  where `<reaction>` names the species using `MECHANISM.md`'s own shorthand
+  (`K+HOO-_to_KP`, not an ad hoc English or SMILES-like name — `orca_stuff` has
+  `catOO+BnOH`, `catHO2(-)+BnOH` and `cat_HO2(-)+Bnal` side by side, close
+  enough to confuse). Species geometries reused across tasks (isolated K, Kh,
+  KP, HOO⁻, H₂O₂, …) live once in `computational/species/`, not copied per
+  task. Each reaction folder carries its own pipeline stages as real
+  subdirectories rather than overwriting one `job.inp` in place through scan →
+  TS-guess → optTS → IRC — `orca_stuff`'s `catHO2(-)+BnOH/TS/` lost that
+  history except for what ORCA's own incidental `.out.v###.xyz` versioning
+  happened to preserve:
+  - `geometry_<method>/{rc,ts,pc,irc}/` — the QM/XTB geometry/TS/Hessian tier
+    (currently `r2scan3c-xtb`, i.e. `r2SCAN-3c` QM region on GFN-xTB, both in
+    `ALPB(water)`).
+  - `energy_<method>/` — a single-point energy refinement, when the geometry
+    tier's method isn't trusted for the final number (see C7/C8 note below).
+  Outputs and scratch stay homelab-local, same policy as `orca_stuff/` and the
+  same reasoning (`.gitignore` carries a matching pattern block) — only
+  `.inp` and the small `.xyz` chains they need are tracked. `uvvis/` predates
+  this convention, tracks its ORCA output in full by a separate prior
+  decision, and is not covered by any of the above.
+- **Two-tier method for anything using the full 130-atom catalyst**, settled
+  2026-09-09, worked example `K+H2O2_water-relay_to_KP` (C8 item 1). Geometry,
+  TS search and Hessian: `QM/XTB`, `r2SCAN-3c` on the reactive QM region,
+  GFN-xTB on the rest — cheap enough to run repeatedly on a 130+-atom
+  macrocycle, and r2SCAN-3c is benchmarked "on par with or more accurate than
+  M06-2X-D3(0)/TZP" for geometries (Grimme group, *J. Chem. Phys.* **154**,
+  064103 (2021)). **Solvent for this tier is `ddCOSMO(water)`, not `ALPB`** —
+  ALPB only solvates the QM2 (xtb) layer, leaving the QM1 (r2SCAN-3c) reactive
+  region in vacuum electrostatics regardless of what the keyword says (ORCA
+  6.1 manual, Multiscale Simulations: "If the ALPB model or CPCM-X are
+  requested [within QM/XTB], the solvation effect is just included in the
+  calculation for the large QM2 system"). Plain `CPCM`/`SMD` are not an
+  option here at all — ORCA aborts at input-check for QM/XTB with "This is
+  not implemented. Provide respective ALPB, ddCOSMO or CPCMX keyword
+  instead." ddCOSMO is the one of those three the manual confirms gets
+  cavity-charge propagation into QM1 (the same "C-PCM/B" scheme it describes
+  for real QM1/QM2 pairs). Final energies: **do not trust the geometry tier's
+  functional for ΔG/ΔG‡** — density functionals (r2SCAN-3c included) carry an
+  RMSE of roughly 5 kcal/mol (~20 kJ/mol) against CCSD(T)-quality barriers,
+  which is at C7's own gate width and wider than C8's 4 kJ/mol target window.
+  Instead take a `DLPNO-CCSD(T)/def2-TZVPP` (+ `def2-TZVPP/C`) single point on
+  just the extracted+capped QM-region fragment (ORCA writes this out itself as
+  `job.QMRegion.xyz`), at both `r2SCAN-3c` and `DLPNO-CCSD(T)`, and add the
+  difference as an ONIOM-style correction to the full embedded energy —
+  ORCA's own documented QM1/QM2 subtractive scheme, applied post hoc rather
+  than as a full three-layer rerun. `CPCM(water)` here — this tier is an
+  isolated small-molecule fragment, not an embedded QM/XTB run, so plain CPCM
+  applies fine and matches the level every isolated-species task (C1, C4–C6,
+  C9) already commits to. Protocol follows ORCA's own worked example
+  ("Calculating accurate energy barriers", ORCA 6.1 Tutorials).
+  **Resources**: benchmarked in place on the homelab (i9-14900K, 8 P-cores /
+  16 E-cores, 125 GB RAM) — `nprocs 8` beat `16` and `24` on the DLPNO-CCSD(T)
+  fragment job (43.5 s vs 51.5 s vs 50.8 s wall); past the physical P-core
+  count, ranks either share a P-core's SMT sibling or land on a slower E-core,
+  and MPI syncs to the slowest rank. `maxcore 4000` is already generous (the
+  pilot's own peak use was 1178 MB/rank). A single small-fragment job cannot
+  usefully take more of this machine than that — using the rest of it means
+  running further reactions' jobs concurrently, not raising one job's
+  `nprocs`.
+- **Never trust one initial Hessian across a long optimization — use
+  `Recalc_Hess`.** `Calc_Hess true` alone computes an exact numerical Hessian
+  at cycle 0 and then lets the optimizer's own RFO update approximate it for
+  every subsequent step; on this project's floppy 130-atom macrocycle that
+  approximation drifts. First seen on a TS search (`K+peroxide+BnOH_bridged_
+  UNIDENTIFIED/`, since found to be mis-scoped — see below — but the
+  optimizer pathology is real regardless): plateaued 40+ cycles with no
+  gradient improvement despite the negative-eigenvalue count looking healthy.
+  Seen again, milder, on a plain ground-state minimization
+  (`K+H2O2_water-relay_to_KP/geometry_r2scan3c-xtb/rc/`): converged steadily
+  through cycle ~111 then started *regressing* (RMS/MAX gradient both got
+  worse, not better) by cycle 131. Add `Recalc_Hess N` in `%geom` alongside
+  `Calc_Hess true` (ORCA 6.1 manual, "4.3. Transition State Searches":
+  recommended when "the PES near the TS can be very far from ideal for a
+  Newton-Raphson step") — **`N=10` for a TS search, `N=50` for a plain
+  minimization**; minimizations don't drift as fast (BFGS/RFO for a minimum
+  is more forgiving than eigenvector-following for a saddle) and each
+  recompute costs real wall time (roughly a couple of minutes on this QM
+  region size at `nprocs 8`, cheap enough to afford every 10 cycles on a TS,
+  wasteful more often than every 50 on a minimization). When restarting a
+  run that's drifted, seed from its own latest geometry rather than from
+  scratch — killing and resuming with the fix costs one Hessian recompute,
+  not the cycles already made.
 
 ## Environment
 
 | | |
 |---|---|
-| ORCA | 6.1.0 — `~/orca_6_1_0/orca`, aliased as `orca` |
+| ORCA | 6.1.1 — `~/orca_6_1_1/orca` (in `$PATH`); `~/orca_6_0_1/orca` also present, unused |
 | verified working | yes, HF/def2-SVP water single point (`computational/hellowater/`) |
 | xtb / CREST / Psi4 / NWChem / Gaussian | not installed |
 | pyscf / ASE / RDKit / cclib | not installed |

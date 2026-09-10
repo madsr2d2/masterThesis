@@ -1,0 +1,72 @@
+# Transition state for K + HOO- -> KP (COMPUTATIONAL.md C8), catalyst = the
+# full 130-atom active-site-ketone macrocycle (../../species/K, once that's
+# populated), HOO- from the pre-reaction complex in ../rc/.
+#
+# Attempt 2, 2026-09-09. Attempt 1 (identical input, seeded from the scan
+# guess) plateaued: negative-eigenvalue count settled at 1 by cycle ~119 but
+# RMS/MAX gradient never improved from cycle 84 through 127 -- see
+# attempt1_stalled/README.md. Killed and restarted from attempt 1's own
+# cycle-127 geometry (this file's job.xyz) rather than the original scan
+# guess -- Calc_Hess true below means this recomputes its own fresh Hessian
+# regardless, so the only change from attempt 1 is the starting geometry.
+#
+# Geometry: originally job.009.xyz from ../scan's relaxed xtb-level angle scan
+# (A 130 128 129, 112 -> 75 deg, 10 steps), the scan's own energy maximum,
+# E = -278.526207878820 (xtb/ALPB(water)) -- now superseded by attempt 1's
+# cycle-127 geometry as this file's job.xyz. See ../scan/job.inp for the scan
+# and ../legacy_pre-reorg/README.md for why an older, unreconstructable
+# IRC/TS attempt in this folder was set aside rather than reused.
+#
+# Method: QM/XTB, r2SCAN-3c on the reactive QM region / GFN-xTB on the rest of
+# the macrocycle, ALPB(water) -- the geometry/TS/Hessian tier established for
+# this project 2026-09-09 (COMPUTATIONAL.md Conventions). Not the final
+# energy: r2SCAN-3c systematically underestimates barrier heights relative to
+# CCSD(T) (no exact exchange), which is why C8's own 4 kJ/mol-wide gate needs
+# the DLPNO-CCSD(T) fragment correction run separately once this converges
+# (see ../../energy_dlpno-ccsdt/, built on the OLD guess geometry -- rerun it
+# on this TS's own job.QMRegion.xyz once optimised).
+#
+# QM region: the 8 atoms the original catHO2(-)+BnOH/TS/job.inp declared
+# before this reorg, PLUS atom 132. The 8-atom list turned out to have never
+# actually been run -- it aborts at multiscale setup, because atom 146's only
+# boundary partner (132) is a hydrogen and ORCA refuses to cut there ("Cannot
+# cut boundaries with hydrogen atoms. Please include atom 132 in the QM
+# region." -- its own suggested fix, taken verbatim; 132 is monovalent so this
+# adds no further boundary). ORCA also warns atom 128 has two link atoms (120,
+# 124) -- non-fatal, left as is. Charge -1, singlet: matches the whole system
+# (net charge sits entirely on HOO-'s deprotonated oxygen, inside the QM
+# region).
+#
+# Calc_Hess true: fresh analytic/numeric Hessian at this level rather than
+# reading the old job.xtbhess.xyz in ../legacy_pre-reorg/ -- that Hessian's
+# own geometry doesn't match this one (see the README there), so it would be
+# an inconsistent starting curvature, not a time-saver.
+#
+# nprocs 8 / maxcore 4000: same homelab-benchmarked settings as the fragment
+# jobs (COMPUTATIONAL.md Conventions, 2026-09-09) -- this system is much
+# bigger (147 atoms total) but the QM/XTB partition keeps the expensive
+# (r2SCAN-3c) part small, so the same core count should still be
+# communication-bound rather than compute-bound; revisit if wall time says
+# otherwise.
+
+! QM/XTB r2SCAN-3c ALPB(Water) OptTS Freq TightSCF
+
+%QMMM
+QMATOMS
+	{146 130 128 131 137 139 136 133 132}
+END
+Charge_total -1
+Mult_total 1
+END
+
+%geom
+Calc_Hess true
+END
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile -1 1 job.xyz
