@@ -69,6 +69,22 @@ against `scope.py`'s own selections:
 | two-axis low | BnOH | pyrophosphate | 7 (5 strong) | 6.95–9.43 | seven cuvettes matched across runs |
 | two-axis high | BnOH | pyrophosphate | 9 (5 strong) | 5.47–9.73 | seven cuvettes matched across runs |
 
+**Two more BnOH-in-boric sources exist, both too small for `PH_LADDERS` but
+not too small to show.** `data/Mads/done/Boric acid buffer BnOH/` holds exps
+60–62 at 0.014 mM chemzyme (`scope.PH_LADDER_BORIC_BNOH`, §3b) — a genuine
+BnOH pH ladder in boric buffer that an earlier version of a comment in
+`scope.py` wrongly asserted could not exist. `data/Mads/good data BnOH/`
+holds exp 50 alongside the two-axis block's own exps 135–151: it is BnOH in
+boric buffer too, at 0.28 mM chemzyme — the SAME loading `PH_LADDER_BORIC`
+itself uses — but `build_manifest.KNOWN_EXCLUSIONS[50]` rules it a
+reaction-direction failure (all four curves descend with no ordering by
+substrate at all), and its same-composition, same-pH repeat, exp 55, is
+clean. Exp 55 and its own composition partner exp 51 (pH 9.01) are
+`scope.BORIC_BNOH_HIGH_ENZYME_PAIR` (§3c) — two pH points, not three, and
+already named elsewhere in `scope.py` as half of `SUBSTRATE_PAIRS`, so
+neither curve is new to the project, only to this folder's own pH-vs-rate
+reading of them. Both sets are on the curves page in full.
+
 ## 2. The rate's order in [HOO⁻]: three ladders agree, one does not
 
 `[buf]` sits exactly fixed inside every one of the four ladders (80.0, 85.0
@@ -194,7 +210,7 @@ runs has corr([S], vmax) between 0.91 and 1.00 within itself
 the way exp 85's was. **Whether the same cause is responsible is not
 established**; see section 7.
 
-### 3a. The turnover is not only `Vmax` — `Km` is rising too
+### 3a. The turnover is not only `Vmax` — and `Km` turns over too, not just up
 
 Section 3's "median vmax" is read at whatever `[S]` each cuvette happened to
 carry, not at saturation, so a decline in it is not automatically a decline in
@@ -202,13 +218,18 @@ carry, not at saturation, so a decline in it is not automatically a decline in
 Michaelis-Menten (`ph_role.ladder_mm_table`, profiling `Km` the way
 `summary_kinetics.profile_km` profiles the same parameter in its own log-log
 form) resolves a per-experiment `Km` on **7 of the 9 runs** — exps 43
-(pH 9.50) and 45 (pH 9.70) do not (`km_resolved` false; exp 43's fit has
-R² = −0.001, no MM signal at all) and are excluded from what follows.
+(pH 9.50) and 45 (pH 9.70) do not (`km_resolved` false, the profile reaching
+both edges of its own grid) and are excluded from what follows.
 
-`Km` **rises across the whole ladder, with no peak** — 2.96 mM at pH 8.46 to
-14.2 mM at pH 10.34, roughly a fivefold increase — while `Vmax` itself turns
-over, peaking near pH 9.2–9.5 and falling by less than section 3's raw
-statistic does.
+**Read off `v_peak_corrected`, not `v_peak`.** The fitted rate and the fit
+itself are read off the debubbled curve (`scope.py`'s `v_peak_corrected`
+column, off the exact fit `tau_corrected` already uses), not the raw
+readings: exps 44 and 49, the ladder's two highest-pH runs, are also two of
+the archive's heaviest boric gassers (`scope.gas_survey`), and leaving their
+own O2 in moves both `Vmax` and `Km` at exactly those rungs. Exp 43's own fit
+improves once its own worst-gassing cuvette is corrected too — its R² turns
+positive, **+0.65**, against a negative value uncorrected — though its `Km`
+stays unresolved either way.
 
 | experiment | pH | `Vmax` (AU/s) | `Km` (mM) |
 |---|---|---|---|
@@ -216,39 +237,99 @@ statistic does.
 | 42 | 8.98 | 3.34 × 10⁻⁴ | 5.56 |
 | 46 | 9.23 | 4.45 × 10⁻⁴ | 8.13 |
 | 47 | 9.40 | 3.16 × 10⁻⁴ | 5.18 |
-| 48 | 9.51 | 4.67 × 10⁻⁴ | 10.46 |
-| 44 | 10.07 | 3.58 × 10⁻⁴ | 11.87 |
-| 49 | 10.34 | 3.34 × 10⁻⁴ | 14.22 |
+| 48 | 9.51 | 4.74 × 10⁻⁴ | 10.65 |
+| 44 | 10.07 | 1.90 × 10⁻⁴ | 4.56 |
+| 49 | 10.34 | 2.06 × 10⁻⁴ | 6.66 |
 
-`ph_role.boric_vmax_km_decomposition` prices the two effects apart: holding
-ONE parameter at exp 41's own value (the lowest-pH resolved rung) and letting
-the OTHER move as fitted, evaluated at each run's own cuvette concentrations —
-every boric run shares the same substrate ladder, so this is not comparing
-different `[S]` sets.
+**`Km` does not simply climb with pH — it turns over, at the same rung
+`Vmax` does.** Both peak together at exp 48 (pH 9.51: `Km` 10.65 mM, `Vmax`
+4.74 × 10⁻⁴ AU/s) and both fall over the ladder's top two rungs. This revises
+the uncorrected reading: there, exps 44 and 49's own uncorrected gas inflated
+their fitted `Km` past exp 48's (11.9 and 14.2 mM against 10.5), which read
+as a `Km` still climbing to the ladder's own top rung. Debubbled, it does
+not — the two rungs' own gas was the reason it looked like it did.
+
+`ph_role.boric_vmax_km_decomposition` prices the two effects apart the same
+way as before: holding ONE parameter at exp 41's own value (the lowest-pH
+resolved rung) and letting the OTHER move as fitted, evaluated at each run's
+own cuvette concentrations — every boric run shares the same substrate
+ladder, so this is not comparing different `[S]` sets.
 
 | series | what moves | peak → last rung |
 |---|---|---|
-| raw `v_peak`, as measured | both | **−51.6%** |
-| `Vmax` alone | `Km` held at exp 41's value | **−28.5%** |
-| `Km` alone | `Vmax` held at exp 41's value | **−62.3%**, peaking at the ladder's own lowest pH |
+| debubbled `v_peak`, as measured | both | **−47.4%**, peaking at exp 46 (pH 9.23) |
+| `Vmax` alone | `Km` held at exp 41's value | **−56.6%**, peaking at exp 48 (pH 9.51) |
+| `Km` alone | `Vmax` held at exp 41's value | **−35.3%**, peaking at exp 41, the ladder's own lowest pH |
 
-**`Vmax` alone reproduces the peak; `Km` alone does not.** `Km`'s own fit is
-noisy enough between adjacent rungs that it is not perfectly monotone (exp 47
-dips below exp 46), but its counterfactual's maximum sits at exp 41 — the
-ladder's own LOWEST pH — not somewhere in the middle the way the raw
-statistic's and `Vmax`'s own do. A rising `Km` can only shrink the rate read
-at a fixed, sub-saturating `[S]`, so the ladder's RISE at low pH is entirely a
-`Vmax` effect, and its FALL at high pH is a
-mixture of both — which is why the raw statistic falls further (−51.6%) than
-`Vmax` alone does (−28.5%): the substrate ladder is falling further behind a
-climbing `Km` at the same time `Vmax` is easing off its own peak.
+**`Vmax` alone now falls FURTHER than the measured statistic does — the
+opposite of the uncorrected reading.** `Km`'s own fall over the top two
+rungs is why: once `Km` is past its own peak, a FALLING `Km` at fixed `Vmax`
+*raises* the rate read at a fixed, sub-saturating `[S]`, so `Km`'s decline
+there partly OFFSETS `Vmax`'s rather than compounding it — which is why the
+measured decline (−47.4%) is milder than `Vmax` acting alone would produce
+(−56.6%). `Km` alone's own counterfactual maximum still sits at exp 41, the
+ladder's lowest pH, exactly as it did uncorrected: that counterfactual holds
+`Vmax` fixed and lets `Km` climb, and a climbing `Km` can only ever shrink
+the rate at fixed sub-saturating `[S]`, so its own peak has to sit where
+`Km` is smallest regardless of what the real ladder does above the split.
 
-**The ladder does not support one `Km` held fixed across it, either.**
-`ph_role.ladder_mm_shared` fits one `Km` shared across all nine runs (`Vmax`
-free per run) and cannot resolve it — the profile runs to the grid floor —
-and that shared value sits inside **0 of the 7** resolved individual rungs'
-own 95% intervals. A model that lets only `Vmax` move with pH and holds `Km`
-fixed is rejected by this ladder, not merely unconfirmed.
+**The ladder now supports one `Km` held fixed across it, where it did not
+before.** `ph_role.ladder_mm_shared` fits one `Km` shared across all nine
+runs (`Vmax` free per run) and now resolves it — **5.87 mM (3.24–12.31 mM)**
+— against the grid-floor, unresolved fit the uncorrected readings gave. Six
+of the seven resolved rungs' own 95% intervals contain it; only exp 41, the
+ladder's lowest-pH rung and its most tightly resolved `Km` (2.66–3.36 mM),
+sits outside it. That single disagreement — not a ladder-wide climb — is the
+one `Km`-vs-pH signal this ladder still supports once the gas is removed.
+
+### 3b. The other substrate's own boric ladder (exps 60-62) is too sparse to extend this
+
+BnOH's own pH ladder in boric buffer — `scope.PH_LADDER_BORIC_BNOH`, exps 60
+(pH 8.51), 61 (pH 8.75) and 62 (pH 9.00), one fixed `[enz]` (0.014 mM) and the
+same four-point substrate ladder across all three runs — sat outside this
+folder until now: an earlier version of a comment in `scope.py` wrongly
+claimed the two-axis block's own pyrophosphate ladders were "the only pH
+ladders in the archive on the other substrate." They were not, and this is
+the ladder that comment missed. It carries no O2 detachments at all (zero
+`bubble_events` on all twelve live cuvettes), consistent with
+`scope.gas_survey` needing pH above about 8.5 for the side reaction and this
+ladder barely reaching it — `v_peak_corrected` is identical to `v_peak` here.
+
+Only exp 60 (pH 8.51) resolves its own `Km` (4.48 mM); exp 61's profile
+reaches the grid's own ceiling, and so does exp 62's, whose top cuvette sits
+an order of magnitude above its own neighbours' trend for a reason these
+readings alone cannot diagnose. Three runs with one resolved `Km` is not
+enough to ask whether `Vmax` or `Km` moves with pH here — a shared-`Km` fit
+or a decomposition both need more than one resolved rung to mean anything, so
+neither is attempted, and it is why this ladder is kept out of
+`scope.PH_LADDERS`: three points cannot be pooled into the four-ladder order
+without a size the fit cannot support. Its own progress curves and
+per-experiment MM panels are on the curves page in full.
+
+### 3c. BnOH in boric buffer at `PH_LADDER_BORIC`'s own enzyme loading (exps 51, 55) — two points, one of them very gassy
+
+The other BnOH-in-boric enzyme tier, `scope.BORIC_BNOH_HIGH_ENZYME_PAIR`,
+sits at ~0.28 mM chemzyme — essentially the SAME loading as
+`PH_LADDER_BORIC` (0.270 mM), not a third one — at two pH points: exp 51
+(pH 9.01) and exp 55 (pH 9.70, the clean repeat of the excluded exp 50; §1).
+Each resolves its own per-experiment fit: exp 51's `Vmax` is
+1.24 × 10⁻⁴ AU/s (`Km` unresolved, the profile reaching the grid's own
+ceiling); exp 55's is 0.98 × 10⁻⁴ AU/s, with `Km` resolved at 15.8 mM
+(7.3–72.1 mM). Exp 55's own lowest-`[S]` cuvette carries **25** O2
+detachments — the heaviest single cuvette this whole folder's ladders carry
+— and correcting it drops that cuvette's own `v_peak` almost sixfold
+(7.5 × 10⁻⁵ to 1.2 × 10⁻⁵ AU/s); its other three cuvettes carry at most one
+event each.
+
+Two points cannot support an order or a shared-`Km` fit any more than
+exps 60–62's three could, so none is attempted. What the pair DOES show,
+for what a two-point comparison is worth: the debubbled rate falls from
+pH 9.01 to pH 9.70, the same direction `PH_LADDER_BORIC` itself falls in
+above its own pH 9.5 peak (§3) — a pointer in the same direction as the
+4OMe finding, at the SAME enzyme loading, on the OTHER substrate, and
+nothing stronger than that. `early_trough.arrhenius_check`'s own retraction
+of a two-point activation energy is the standing reason not to read more
+into two points than they can carry.
 
 ## 4. The induction clock's own pH order, quoted back
 
@@ -343,15 +424,19 @@ alone.
   decline above it. The order below the peak is positive and weaker than the
   other three ladders' at every split tried, but its magnitude is set by where
   the ladder is cut (+0.06 to +0.48), so it is quoted as a range (§3).
-- **The turnover is a mixture, not a pure `Vmax` effect.** Per-experiment
-  Michaelis-Menten fits resolve `Km` on 7 of the 9 boric runs, and it rises
-  close to fivefold across the ladder (2.96 to 14.2 mM), reaching its own
-  maximum at the ladder's TOP rung rather than turning over the way `Vmax`
-  does, while `Vmax` itself turns over but by less than half the raw statistic's own
-  decline (−28.5% against −51.6%, peak to last rung). A model that holds `Km`
-  fixed across the ladder is actively rejected, not merely unconfirmed — the
-  shared value sits inside none of the seven resolved rungs' own intervals
-  (§3a).
+- **The turnover is a mixture, and debubbling the fit flips which half
+  dominates.** Per-experiment Michaelis-Menten fits, read off the debubbled
+  rate (`v_peak_corrected`), resolve `Km` on 7 of the 9 boric runs. `Km` and
+  `Vmax` turn over TOGETHER, peaking at the same rung (exp 48, pH 9.51),
+  rather than `Km` climbing to the ladder's own top rung the way the
+  uncorrected fit suggested — the two rungs the uncorrected fit was leaning
+  on (exps 44, 49) are the ladder's two heaviest boric gassers. Priced apart, `Vmax` alone
+  now falls FURTHER than the measured statistic (−56.6% against −47.4%, peak
+  to last rung), because `Km`'s own fall past its peak partly offsets
+  `Vmax`'s decline rather than compounding it. The ladder now supports one
+  shared `Km` (5.87 mM, resolved) where the uncorrected fit could not — six
+  of the seven resolved rungs' own intervals contain it, and only the
+  lowest-pH rung (exp 41) disagrees (§3a).
 - The induction clock's order in pH, +0.326 ± 0.131 per pH unit, agrees across
   all four ladders (χ² = 0.95 on 3) where the rate's does not.
 - Three independent measurements — the rate, the clock, and the early
@@ -368,12 +453,22 @@ alone.
   consistent with one ladder alone; the archive holds no other buffer above
   pH 9 to separate them, which is exactly `../buffer/ANALYSIS.md` §5's finding
   that buffer identity and pH cannot be told apart anywhere in this archive.
-- **What makes `Km` rise** is entirely open. Borate is also known to form
-  esters with 1,2- and 1,3-diols and, more weakly, with simple alcohols —
-  a borate–benzyl-alcohol adduct at high pH would lower the *free* substrate
-  concentration the catalyst sees without touching `Vmax`, which is the shape
-  §3a finds, but nothing in this archive measures free versus bound alcohol
-  and this is a candidate, not a finding.
+- **What `Km`'s own turnover means** is open in a different direction than it
+  was. A borate–benzyl-alcohol ester lowering the *free* substrate
+  concentration at high pH was floated as a candidate for a `Km` that kept
+  climbing; debubbled, `Km` peaks and falls together with `Vmax` instead,
+  which a simple free-substrate-sequestration story does not predict on its
+  own. Nothing in this archive measures free versus bound alcohol, so this is
+  a candidate revised, not a finding either way.
+- **The other substrate's own boric ladder (§3b, §3c) cannot yet be compared
+  to this.** Exps 60-62 show no O2 artefact to correct for and share the
+  design this section reads, but two of its three runs do not resolve their
+  own `Km` at all; the second enzyme tier (exps 51, 55) is two points, one
+  of them the folder's own heaviest single-cuvette gasser. Whether BnOH's
+  `Vmax`/`Km` turn over the same way 4OMe's do in the same buffer is open,
+  not merely unmeasured to a lower precision — though the pair's own rate
+  falling from pH 9.01 to 9.70 points the same direction 4OMe's turnover
+  does past its peak.
 - **Whether [HOO⁻] is the whole story even where its order is real.**
   `hoo_consistency`'s 3.4σ gap on the two-axis block says no, on the block
   where it is best measured.

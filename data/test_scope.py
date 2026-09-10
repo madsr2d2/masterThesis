@@ -1361,6 +1361,55 @@ def test_v0_fit_is_the_chosen_forms_own_rate_at_t_zero():
           fitted_trough < 0.0, f"{fitted_trough:.3e}")
 
 
+def test_v_peak_and_v0_fit_are_debubbled_like_the_rest_of_the_frame():
+    """
+    `v_peak`/`v0_fit` are fitted to the raw readings, the same way `vmax`,
+    `tau` and `tau_slow` were before `vmax_corrected`/`tau_corrected` existed
+    -- so a pH ladder read through them confounds pH with how much gas that
+    run made, since `scope.gas_survey` says gas production itself rises
+    steeply with pH. `v_peak_corrected`/`v0_fit_corrected` are the fix, off
+    the exact `progress_fixed` fit `tau_corrected` already uses, so this is a
+    wiring check rather than a new statistical claim: recompute both
+    independently from the curve's own readings and confirm `scope.frame`
+    agrees, then confirm a curve with no detachment is untouched.
+    """
+    print("\nv_peak/v0_fit get the same debubble treatment as vmax/tau")
+    import fit_dataset
+
+    gassy = scope.frame(scope.PH_LADDER_BORIC)
+    gassy_row = gassy[(gassy.experiment == 43) & (gassy["sample"] == 1)].iloc[0]
+    check("exp 43.1 actually carries detachments, or this test proves nothing",
+          gassy_row.bubble_events > 0, f"{gassy_row.bubble_events}")
+
+    curve = scope.curves_of(43)[0]
+    assert curve.sample == 1
+    times = np.asarray(curve.times, dtype=float)
+    values = np.asarray(curve.absorbance, dtype=float)
+    floor = fit_dataset.source_floor(curve.source)
+    corrected, _ = curve_metrics.debubble(times, values, curve.noise)
+    progress_fixed = summary_kinetics.fit_progress(times, corrected)
+    expected_peak = float(progress_fixed.peak_rate[0])
+    expected_v0 = float(progress_fixed.rate(np.array([0.0]))[0])
+
+    check("v_peak_corrected matches an independent refit of the debubbled curve",
+          abs(gassy_row.v_peak_corrected - expected_peak) < 1e-12,
+          f"{gassy_row.v_peak_corrected} vs {expected_peak}")
+    check("v0_fit_corrected matches it too",
+          abs(gassy_row.v0_fit_corrected - expected_v0) < 1e-12,
+          f"{gassy_row.v0_fit_corrected} vs {expected_v0}")
+    check("and the correction actually moved the peak on this curve",
+          abs(gassy_row.v_peak - gassy_row.v_peak_corrected)
+          > 0.2 * abs(gassy_row.v_peak),
+          f"{gassy_row.v_peak:.3e} -> {gassy_row.v_peak_corrected:.3e}")
+
+    clean = scope.frame(scope.PH_LADDER_BORIC)
+    clean_row = clean[clean.bubble_events == 0].iloc[0]
+    check("a curve with no detachment is returned unchanged",
+          clean_row.v_peak == clean_row.v_peak_corrected
+          and clean_row.v0_fit == clean_row.v0_fit_corrected,
+          f"{clean_row.v_peak} vs {clean_row.v_peak_corrected}")
+
+
 def test_mm_fit_recovers_a_planted_vmax_and_km():
     """
     `mm_fit` profiles Km on a grid and solves Vmax in closed form at each
@@ -1448,6 +1497,7 @@ if __name__ == "__main__":
     test_the_enzyme_control_is_too_small_to_decide_anything()
     test_the_turnover_control_is_confounded_with_ph()
     test_v0_fit_is_the_chosen_forms_own_rate_at_t_zero()
+    test_v_peak_and_v0_fit_are_debubbled_like_the_rest_of_the_frame()
     test_mm_fit_recovers_a_planted_vmax_and_km()
     test_mm_ladder_shares_one_km_across_groups()
     print(f"\n{len(FAILURES)} failures")

@@ -334,16 +334,37 @@ def clock_pooled_order(response="lag_half_s"):
 # actually built to ask. `scope.mm_fit`/`mm_ladder` do the fitting; this module
 # only selects the rows and normalises Vmax by the catalyst.
 #
-# ONLY THE TWO 4OMe LADDERS. The two pyrophosphate (two-axis block) ladders
-# are not "one substrate ladder per run" the way phosphate/boric are -- each
-# of their runs is one ARM of the block's L (`scope.arm_orders`), so half of
-# them hold [S] fixed and step [H2O2] instead, and a per-experiment fit
-# against s0 on a peroxide-arm run has no substrate contrast to fit at all.
-# `scope.ph_order`/`arm_orders` already read that design correctly; this is
-# not a second, worse way to ask the same question of it.
+# ONLY THE THREE LADDERS WHERE A RUN IS A SUBSTRATE LADDER. The two
+# pyrophosphate (two-axis block) ladders are not "one substrate ladder per
+# run" the way phosphate/boric are -- each of their runs is one ARM of the
+# block's L (`scope.arm_orders`), so half of them hold [S] fixed and step
+# [H2O2] instead, and a per-experiment fit against s0 on a peroxide-arm run
+# has no substrate contrast to fit at all. `scope.ph_order`/`arm_orders`
+# already read that design correctly; this is not a second, worse way to ask
+# the same question of it.
+#
+# "boric BnOH" (`scope.PH_LADDER_BORIC_BNOH`, exps 60-62) is the other
+# substrate's own boric ladder -- three rungs, not nine, but the same
+# per-experiment design -- and deliberately absent from `scope.PH_LADDERS`
+# (see that constant's comment): folding a three-point ladder into the
+# four-ladder pooled [HOO-] order would move an already-published number
+# this addition is not asking to redo. The MM reading has no such number to
+# disturb, so it belongs here.
+#
+# "boric BnOH (0.28 mM)" (`scope.BORIC_BNOH_HIGH_ENZYME_PAIR`, exps 51 and
+# 55) is the SAME substrate ladder's other enzyme tier, at the loading
+# `PH_LADDER_BORIC` itself uses -- just two pH points, one short of
+# `PH_LADDER_MINIMUM`, because the run that would have made it three
+# (exp 50) is a validated exclusion. Each experiment still gets its own
+# per-experiment (Vmax, Km) fit here -- that needs only one run's own
+# substrate ladder -- but no shared-Km fit or decomposition is attempted on
+# it, for the same reason none is attempted on "boric BnOH" beyond noting
+# the split.
 MM_LADDERS = {
     "phosphate 4OMe": scope.PH_LADDER_PHOSPHATE,
     "boric 4OMe": scope.PH_LADDER_BORIC,
+    "boric BnOH": scope.PH_LADDER_BORIC_BNOH,
+    "boric BnOH (0.28 mM)": scope.BORIC_BNOH_HIGH_ENZYME_PAIR,
 }
 
 
@@ -351,18 +372,28 @@ def _mm_frame(experiments, response):
     """
     The ladder's own cuvettes, restricted the way `response` requires.
 
-    `v_peak` is safe on every live curve -- it is the fitted peak rate,
-    defined the same way whichever shape the curve earned. `v0_fit` (the
-    fitted rate at t = 0, off that same model) is restricted to
-    `v0_fit_resolved` cuvettes and carries whether each surviving one is a
-    VALIDATED early trough (`early_trough.trough_table`) rather than an
-    unresolved or merely noisy fit -- it is left unfloored either way, since
-    a genuine trough is a real negative rate and not something to clamp.
+    `v_peak`/`v_peak_corrected` are safe on every live curve -- both are the
+    fitted peak rate, defined the same way whichever shape the curve earned,
+    the second off the debubbled readings (`scope.v_peak_corrected`). Use
+    the corrected pair on any pH question: `scope.gas_survey` finds gas
+    production itself rises steeply with pH, so an uncorrected fit here
+    would confound the pH axis this module reads with how much gas each run
+    made -- boric above pH 8.5 is exactly where that gas is heaviest.
+
+    `v0_fit`/`v0_fit_corrected` (the fitted rate at t = 0, off the matching
+    model) are each restricted to their OWN `_resolved` column and carry
+    whether each surviving cuvette is a VALIDATED early trough
+    (`early_trough.trough_table`) rather than an unresolved or merely noisy
+    fit -- left unfloored either way, since a genuine trough is a real
+    negative rate and not something to clamp, and debubbling does not touch
+    it: `early_trough` already screens troughs against detachments.
     """
     data = scope.frame(tuple(experiments))
-    if response != "v0_fit":
+    if response not in ("v0_fit", "v0_fit_corrected"):
         return data[data.live]
-    data = data[data.live & data.v0_fit_resolved].copy()
+    resolved_column = ("v0_fit_resolved" if response == "v0_fit"
+                       else "v0_fit_resolved_corrected")
+    data = data[data.live & data[resolved_column]].copy()
     troughs = early_trough.trough_table()
     genuine = set(zip(troughs.loc[troughs.genuine, "experiment"],
                       troughs.loc[troughs.genuine, "sample"]))
@@ -371,7 +402,7 @@ def _mm_frame(experiments, response):
     return data
 
 
-def ladder_mm_table(experiments, response="v_peak", frame=None):
+def ladder_mm_table(experiments, response="v_peak_corrected", frame=None):
     """
     Per-experiment (Vmax, Km) across one pH ladder's own substrate rungs.
 
@@ -408,7 +439,7 @@ def ladder_mm_table(experiments, response="v_peak", frame=None):
     return pd.DataFrame(rows).sort_values("pH").reset_index(drop=True)
 
 
-def ladder_mm_shared(experiments, response="v_peak", frame=None):
+def ladder_mm_shared(experiments, response="v_peak_corrected", frame=None):
     """One Km shared across a whole ladder: `scope.mm_ladder`, tabulated."""
     data = _mm_frame(experiments, response) if frame is None else frame
     return scope.mm_ladder(data, response)
@@ -457,7 +488,7 @@ def km_enzyme_check(table):
     return {"n": int(len(resolved)), "corr": corr}
 
 
-def boric_vmax_km_decomposition(response="v_peak", ladder=None, frame=None):
+def boric_vmax_km_decomposition(response="v_peak_corrected", ladder=None, frame=None):
     """
     Is the boric ladder's high-pH decline a real Vmax turnover, a rising Km,
     or both?
@@ -508,7 +539,7 @@ def boric_vmax_km_decomposition(response="v_peak", ladder=None, frame=None):
     return {"table": out, "drops": drops}
 
 
-def mm_ladder_report(name, experiments, response="v_peak"):
+def mm_ladder_report(name, experiments, response="v_peak_corrected"):
     """One ladder's full MM reading: per-experiment table plus both checks."""
     table = ladder_mm_table(experiments, response)
     shared = ladder_mm_shared(experiments, response)
@@ -554,7 +585,7 @@ def main():
     print("\nthe Michaelis-Menten reading: per-experiment Vmax/Km, "
          "vs pooling one Km across the ladder")
     for name, experiments in MM_LADDERS.items():
-        for response in ("v_peak", "v0_fit"):
+        for response in ("v_peak_corrected", "v0_fit_corrected"):
             report = mm_ladder_report(name, experiments, response)
             print(f"\n{name}, {response}")
             print(report["table"][

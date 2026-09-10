@@ -44,6 +44,16 @@ def main():
               and 13 not in scope.PH_LADDER_BORIC)
     doc.check("exp 85's ruling covers the whole hand-sorted pH-11 set",
               "86-109" in build_manifest.KNOWN_EXCLUSIONS[85])
+    doc.check("PH_LADDER_BORIC_BNOH is exps 60-62",
+              scope.PH_LADDER_BORIC_BNOH == (60, 61, 62))
+    doc.check("exp 50 is a validated reaction-direction exclusion",
+              50 in build_manifest.KNOWN_EXCLUSIONS
+              and "reaction-direction" in build_manifest.KNOWN_EXCLUSIONS[50])
+    doc.check("BORIC_BNOH_HIGH_ENZYME_PAIR is exps 51 and 55, not 50",
+              scope.BORIC_BNOH_HIGH_ENZYME_PAIR == (51, 55))
+    doc.check("both are also SUBSTRATE_PAIRS' own BnOH half",
+              (42, 51) in scope.SUBSTRATE_PAIRS
+              and (45, 55) in scope.SUBSTRATE_PAIRS)
 
     print("\nsection 2: the rate's order in [HOO-]")
     table = ph_role.rate_ladder_table()
@@ -188,26 +198,25 @@ def main():
                   frame[(frame.experiment == e) & frame.live].vmax)[0, 1])
                   >= 0.91 for e in scope.PH_LADDER_BORIC))
 
-    print("\nsection 3a: the turnover is not only Vmax -- Km is rising too")
-    mm_table = ph_role.ladder_mm_table(scope.PH_LADDER_BORIC, response="v_peak")
+    print("\nsection 3a: the turnover is not only Vmax -- and Km turns over too")
+    mm_table = ph_role.ladder_mm_table(scope.PH_LADDER_BORIC,
+                                       response="v_peak_corrected")
     resolved = mm_table[mm_table.km_resolved].sort_values("pH")
     doc.check("7 of 9 boric rungs resolve their own km",
               len(resolved) == 7 and set(mm_table.experiment) - set(resolved.experiment)
               == {43, 45}, f"{len(resolved)} resolved, unresolved "
               f"{sorted(set(mm_table.experiment) - set(resolved.experiment))}")
     exp43 = mm_table.set_index("experiment").loc[43]
-    doc.check("exp 43's fit has no MM signal at all",
-              exp43.r2 < 0, f"R^2 = {exp43.r2:.4f}")
-    doc.claim("km's own range",
-              f"2.96 mM at pH 8.46 to\n14.2 mM at pH 10.34")
-    doc.check("km at the lowest and highest resolved pH",
-              abs(resolved.iloc[0].km - 2.96) < 0.01
-              and abs(resolved.iloc[-1].km - 14.2) < 0.05,
-              f"{resolved.iloc[0].km:.3f} to {resolved.iloc[-1].km:.3f}")
+    doc.claim("exp 43's improved fit", "**+0.65**")
+    doc.check("exp 43's r2 is now positive, off the debubbled rate",
+              exp43.r2 > 0.6, f"R^2 = {exp43.r2:.4f}")
+    doc.check("and its km is still unresolved either way",
+              not exp43.km_resolved)
+
     for exp, mantissa, km in (("41", "1.28", "2.96"), ("42", "3.34", "5.56"),
                              ("46", "4.45", "8.13"), ("47", "3.16", "5.18"),
-                             ("48", "4.67", "10.46"), ("44", "3.58", "11.87"),
-                             ("49", "3.34", "14.22")):
+                             ("48", "4.74", "10.65"), ("44", "1.90", "4.56"),
+                             ("49", "2.06", "6.66")):
         row = resolved.set_index("experiment").loc[int(exp)]
         doc.claim(f"exp {exp}'s row",
                   f"| {exp} | {row.pH:.2f} | {mantissa} × 10⁻⁴ | {km} |")
@@ -215,39 +224,122 @@ def main():
                   abs(row.vmax - float(mantissa) * 1e-4) < 0.005e-4
                   and abs(row.km - float(km)) < 0.005,
                   f"{row.vmax:.3e}, {row.km:.3f}")
+    doc.check("Km and Vmax both peak at exp 48, pH 9.51",
+              resolved.set_index("experiment").km.idxmax() == 48
+              and resolved.set_index("experiment").vmax.idxmax() == 48)
 
     decomposition = ph_role.boric_vmax_km_decomposition()
     drops = decomposition["drops"]
-    doc.claim("the raw statistic's own drop", f"**−51.6%**")
-    doc.check("raw drop, peak to last rung",
-              abs(drops["raw"] * 100 - 51.6) < 0.1, f"{drops['raw'] * 100:.1f}%")
-    doc.claim("vmax alone", f"**−28.5%**")
-    doc.check("vmax-only drop",
-              abs(drops["vmax_only"] * 100 - 28.5) < 0.1,
-              f"{drops['vmax_only'] * 100:.1f}%")
+    decomp_table = decomposition["table"].set_index("experiment")
+    doc.claim("the measured statistic's own drop", f"**−47.4%**")
+    doc.check("raw drop, peak to last rung, peaking at exp 46",
+              abs(drops["raw"] * 100 - 47.4) < 0.1
+              and decomp_table.raw.idxmax() == 46,
+              f"{drops['raw'] * 100:.1f}%, peak at exp {decomp_table.raw.idxmax()}")
+    doc.claim("vmax alone", f"**−56.6%**, peaking at exp 48 (pH 9.51)")
+    doc.check("vmax-only drop, peaking at exp 48",
+              abs(drops["vmax_only"] * 100 - 56.6) < 0.1
+              and decomp_table.vmax_only.idxmax() == 48,
+              f"{drops['vmax_only'] * 100:.1f}%, peak at exp {decomp_table.vmax_only.idxmax()}")
     doc.claim("km alone",
-              f"**−62.3%**, peaking at the ladder's own lowest pH")
+              f"**−35.3%**, peaking at exp 41, the ladder's own lowest pH")
     doc.check("km-only drop",
-              abs(drops["km_only"] * 100 - 62.3) < 0.1,
+              abs(drops["km_only"] * 100 - 35.3) < 0.1,
               f"{drops['km_only'] * 100:.1f}%")
-    km_only = decomposition["table"].set_index("experiment").km_only
     doc.check("km-only's own maximum sits at exp 41, the lowest pH",
-              km_only.idxmax() == 41, f"peak at exp {km_only.idxmax()}")
-    doc.check("km itself is not perfectly monotone (exp 47 dips below 46)",
-              resolved.set_index("experiment").km.loc[47]
-              < resolved.set_index("experiment").km.loc[46])
-    doc.check("but km's own maximum sits at the top rung, exp 49",
-              resolved.set_index("experiment").km.idxmax() == 49)
+              decomp_table.km_only.idxmax() == 41, f"peak at exp {decomp_table.km_only.idxmax()}")
+    doc.check("vmax alone now falls further than the measured statistic",
+              drops["vmax_only"] > drops["raw"],
+              f"{drops['vmax_only'] * 100:.1f}% against {drops['raw'] * 100:.1f}%")
 
     shared_boric = ph_role.ladder_mm_shared(scope.PH_LADDER_BORIC,
-                                            response="v_peak")
+                                            response="v_peak_corrected")
     shared_diag = ph_role.km_shared_diagnostic(mm_table, shared_boric)
-    doc.check("the shared km fit is unresolved",
-              not shared_boric["km_resolved"])
-    doc.claim("how many resolved rungs the shared value sits inside",
-              f"**0 of the 7**")
-    doc.check("0 of 7 resolved rungs contain the shared km",
-              shared_diag["agree"] == 0 and shared_diag["resolved"] == 7)
+    doc.check("the shared km fit now resolves",
+              shared_boric["km_resolved"])
+    doc.claim("the shared value", "**5.87 mM (3.24–12.31 mM)**")
+    doc.check("shared km and its interval",
+              abs(shared_boric["km"] - 5.87) < 0.01
+              and abs(shared_boric["km_interval"][0] - 3.24) < 0.01
+              and abs(shared_boric["km_interval"][1] - 12.31) < 0.01,
+              f"{shared_boric['km']:.3f} "
+              f"({shared_boric['km_interval'][0]:.3f}-"
+              f"{shared_boric['km_interval'][1]:.3f})")
+    doc.claim("how many resolved rungs the shared value sits inside now",
+              f"Six of the seven")
+    doc.check("6 of 7 resolved rungs contain the shared km, only exp 41 outside",
+              shared_diag["agree"] == 6 and shared_diag["resolved"] == 7
+              and not (resolved.set_index("experiment").loc[41].km_low
+                       <= shared_boric["km"]
+                       <= resolved.set_index("experiment").loc[41].km_high))
+
+    print("\nsection 3b: the boric BnOH ladder (exps 60-62) is too sparse")
+    doc.check("PH_LADDER_BORIC_BNOH is exps 60-62, not in PH_LADDERS",
+              scope.PH_LADDER_BORIC_BNOH == (60, 61, 62)
+              and "boric BnOH" not in scope.PH_LADDERS)
+    bnoh_frame = scope.frame(scope.PH_LADDER_BORIC_BNOH)
+    bnoh_live = bnoh_frame[bnoh_frame.live]
+    doc.claim("one fixed enzyme loading", "(0.014 mM)")
+    doc.check("[enz] is fixed at 0.014 mM across the ladder",
+              bnoh_live.e0.nunique() == 1
+              and abs(bnoh_live.e0.iloc[0] - 0.014) < 1e-6)
+    doc.claim("no detachments at all",
+              "zero\n`bubble_events` on all twelve live cuvettes")
+    doc.check("twelve live cuvettes, none carrying a detachment",
+              len(bnoh_live) == 12 and int(bnoh_live.bubble_events.sum()) == 0)
+    doc.check("v_peak_corrected equals v_peak with no gas to correct",
+              bool((bnoh_live.v_peak == bnoh_live.v_peak_corrected).all()))
+    bnoh_table = ph_role.ladder_mm_table(scope.PH_LADDER_BORIC_BNOH,
+                                         response="v_peak_corrected")
+    doc.check("only one of three runs resolves its own km",
+              int(bnoh_table.km_resolved.sum()) == 1
+              and bool(bnoh_table.set_index("experiment").loc[60].km_resolved))
+    doc.claim("exp 60's own km", "(4.48 mM)")
+    doc.check("exp 60's km against the claim",
+              abs(bnoh_table.set_index("experiment").loc[60].km - 4.48) < 0.01)
+    exp62 = bnoh_frame[(bnoh_frame.experiment == 62) & bnoh_frame.live]
+    exp62_by_s0 = exp62.sort_values("s0")
+    doc.check("exp 62's top cuvette sits an order of magnitude above its "
+              "neighbour",
+              exp62_by_s0.v_peak_corrected.iloc[-1]
+              / exp62_by_s0.v_peak_corrected.iloc[-2] > 5,
+              f"{exp62_by_s0.v_peak_corrected.iloc[-1] / exp62_by_s0.v_peak_corrected.iloc[-2]:.1f}x")
+
+    print("\nsection 3c: the high-enzyme boric BnOH pair (exps 51, 55)")
+    doc.check("the pair is not in PH_LADDERS or PH_LADDER_BORIC_BNOH",
+              "boric BnOH (0.28 mM)" not in scope.PH_LADDERS
+              and not set(scope.BORIC_BNOH_HIGH_ENZYME_PAIR)
+              & set(scope.PH_LADDER_BORIC_BNOH))
+    pair_frame = scope.frame(scope.BORIC_BNOH_HIGH_ENZYME_PAIR)
+    pair_live = pair_frame[pair_frame.live]
+    doc.check("both runs sit at essentially PH_LADDER_BORIC's own loading",
+              bool((abs(pair_live.e0 - 0.28) < 0.01).all())
+              and abs(0.28 - 0.270) < 0.02)
+    pair_table = ph_role.ladder_mm_table(scope.BORIC_BNOH_HIGH_ENZYME_PAIR,
+                                         response="v_peak_corrected")
+    by_exp = pair_table.set_index("experiment")
+    doc.claim("exp 51's own vmax", "1.24 × 10⁻⁴ AU/s")
+    doc.check("exp 51's vmax and unresolved km",
+              abs(by_exp.loc[51].vmax - 1.24e-4) < 0.005e-4
+              and not by_exp.loc[51].km_resolved)
+    doc.claim("exp 55's own vmax and km",
+              "0.98 × 10⁻⁴ AU/s, with `Km` resolved at 15.8 mM\n(7.3–72.1 mM)")
+    doc.check("exp 55's vmax, km and interval",
+              abs(by_exp.loc[55].vmax - 0.98e-4) < 0.005e-4
+              and by_exp.loc[55].km_resolved
+              and abs(by_exp.loc[55].km - 15.8) < 0.1
+              and abs(by_exp.loc[55].km_low - 7.3) < 0.1
+              and abs(by_exp.loc[55].km_high - 72.1) < 0.1)
+    exp55 = pair_live[pair_live.experiment == 55].sort_values("s0")
+    doc.claim("exp 55's worst cuvette", "**25** O2\ndetachments")
+    doc.check("exp 55's lowest-S cuvette carries 25 events, others at most 1",
+              int(exp55.iloc[0].bubble_events) == 25
+              and (exp55.iloc[1:].bubble_events <= 1).all())
+    doc.check("correcting it drops that cuvette's v_peak almost sixfold",
+              exp55.iloc[0].v_peak / exp55.iloc[0].v_peak_corrected > 5.9,
+              f"{exp55.iloc[0].v_peak:.3e} -> {exp55.iloc[0].v_peak_corrected:.3e}")
+    doc.check("the pair's own rate falls from pH 9.01 to pH 9.70",
+              by_exp.loc[51].vmax > by_exp.loc[55].vmax)
 
     print("\nsection 4: the induction clock's own pH order")
     clock_rows = induction.lag_ph_ladders()
@@ -331,15 +423,23 @@ def main():
     print("\nthe figures the document promises")
     doc.figures(os.path.join(HERE, "index.html"))
 
-    print("\nthe curves page draws every live cuvette of all four ladders")
+    print("\nthe curves page draws every live cuvette of all six ladders")
     page = io.open(os.path.join(HERE, "progress_curves.html"),
                    encoding="utf-8").read()
     drawn = page.count("<div class='fig panel'>")
     live = 0
-    for name, exps in scope.PH_LADDERS.items():
+    # The four `scope.PH_LADDERS` plus `PH_LADDER_BORIC_BNOH` and
+    # `BORIC_BNOH_HIGH_ENZYME_PAIR`, neither in that dict on purpose (see
+    # their comments in scope.py) but both still drawn in full --
+    # `build_figures.CURVE_PAGE_LADDERS` is the same union, kept here as
+    # scope constants rather than imported to avoid a second definition of
+    # that page-only dict.
+    for exps in (list(scope.PH_LADDERS.values())
+                 + [scope.PH_LADDER_BORIC_BNOH,
+                    scope.BORIC_BNOH_HIGH_ENZYME_PAIR]):
         block = scope.frame(exps)
         live += int(block.live.sum())
-    doc.check("one panel per live cuvette across the four ladders",
+    doc.check("one panel per live cuvette across the six ladders",
               drawn == live, f"{drawn} panels, {live} live cuvettes")
 
     print("\nthe figures: no data point drawn outside its own frame")

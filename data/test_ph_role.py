@@ -329,7 +329,7 @@ def test_the_decomposition_attributes_a_pure_km_decline_to_km_alone():
     planted = _mm_planted_frame(vmax_values=[1e-4] * 5,
                                 km_values=[1.0, 2.0, 4.0, 8.0, 16.0])
     result = ph_role.boric_vmax_km_decomposition(
-        ladder=(1, 2, 3, 4, 5), frame=planted)
+        response="v_peak", ladder=(1, 2, 3, 4, 5), frame=planted)
     drops = result["drops"]
     check("the raw statistic declines",
           drops["raw"] > 0.3, f"{drops['raw']:.3f}")
@@ -346,7 +346,7 @@ def test_the_decomposition_attributes_a_pure_vmax_decline_to_vmax_alone():
     planted = _mm_planted_frame(vmax_values=[1e-4, 2e-4, 3e-4, 2e-4, 1e-4],
                                km_values=[3.0] * 5)
     result = ph_role.boric_vmax_km_decomposition(
-        ladder=(1, 2, 3, 4, 5), frame=planted)
+        response="v_peak", ladder=(1, 2, 3, 4, 5), frame=planted)
     drops = result["drops"]
     check("the raw statistic turns over and declines from its peak",
           drops["raw"] > 0.3, f"{drops['raw']:.3f}")

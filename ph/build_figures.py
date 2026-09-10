@@ -29,12 +29,19 @@ LADDER_COLOUR = {
     "boric 4OMe": CATEGORY[1],
     "pyrophosphate BnOH 136-142": CATEGORY[2],
     "pyrophosphate BnOH 143-151": CATEGORY[2],
+    # Same buffer as "boric 4OMe", different substrate -- not one of the
+    # four `scope.PH_LADDERS` (see that dict's comment), so it draws with
+    # boric's own colour rather than a fourth hue CATEGORY does not have.
+    "boric BnOH": CATEGORY[1],
+    "boric BnOH (0.28 mM)": CATEGORY[1],
 }
 LADDER_LABEL = {
     "phosphate 4OMe": "phosphate, 4OMe",
     "boric 4OMe": "boric, 4OMe",
     "pyrophosphate BnOH 136-142": "pyrophosphate, BnOH (low arm)",
     "pyrophosphate BnOH 143-151": "pyrophosphate, BnOH (high arm)",
+    "boric BnOH": "boric, BnOH",
+    "boric BnOH (0.28 mM)": "boric, BnOH (0.28 mM enzyme)",
 }
 
 
@@ -243,7 +250,8 @@ def figure_gas_onset():
 
 def _mm_fit_panel(row, group, colour):
     """
-    One experiment's own MM fit: `v_peak` against [S], the fit if resolved.
+    One experiment's own MM fit: `v_peak_corrected` against [S], the fit if
+    resolved.
 
     DATA FIRST, FIT ON TOP -- `progress_overlay`'s own convention, so the
     points are drawn before the line and the line stays thin enough not to
@@ -251,9 +259,15 @@ def _mm_fit_panel(row, group, colour):
     and extend far enough in x and y to hold the fitted line as well as the
     points, so a fit that has not yet saturated by the ladder's own top
     rung is never clipped off the top of its own panel.
+
+    `v_peak_corrected`, not `v_peak`: the readings still carry any O2 the run
+    detached, and gas production itself rises with pH, so an uncorrected fit
+    confounds the pH axis this panel exists to read with how gassy each run
+    was. `scope.v_peak_corrected` is the debubbled fit; see its column
+    comment in `scope.py` and `ph_role._mm_frame`.
     """
     s0 = group.s0.to_numpy(dtype=float)
-    y = group.v_peak.to_numpy(dtype=float)
+    y = group.v_peak_corrected.to_numpy(dtype=float)
     top_x = float(s0.max()) * 1.15
     smooth = np.linspace(0.0, top_x, 200)
     fit_line = (row.vmax * smooth / (row.km + smooth)
@@ -261,7 +275,7 @@ def _mm_fit_panel(row, group, colour):
     top_y = max(float(y.max()),
                float(fit_line.max()) if fit_line is not None else 0.0) * 1.15
     axes = Axes(300, 210, (0.0, top_x), (0.0, max(top_y, 1e-8)),
-               pad=(58, 12, 34, 8))
+               pad=(58, 12, 34, 22))
     axes.points(s0, y, colour, radius=3.8, stroke="white", stroke_width=0.8)
     if fit_line is not None:
         axes.line(smooth, fit_line, colour, width=1.6)
@@ -272,20 +286,21 @@ def _mm_fit_panel(row, group, colour):
         caption = (f"Km unresolved -- profile reaches the grid "
                   f"({row.km_low:.3g}–{row.km_high:.3g} mM)")
     return fig(
-        axes.render("[S], mM", "v_peak, AU/s",
+        axes.render("[S], mM", "v_peak_corrected, AU/s",
                     f"exp {int(row.experiment)} · pH {row.pH:.2f}"),
         caption)
 
 
 def build_mm_section(name, experiments):
     """
-    The per-experiment Michaelis-Menten fit behind ANALYSIS.md §3a: `v_peak`
-    against [S], one panel per pH rung, with the fitted curve where `Km`
-    resolves. `v0_fit` is not shown -- restricted to `v0_fit_resolved`
-    cuvettes, most rungs keep only 1-4 of their 4 cuvettes, too few to fit
-    independently (`ph_role.ladder_mm_table`, response="v0_fit").
+    The per-experiment Michaelis-Menten fit behind ANALYSIS.md §3a:
+    `v_peak_corrected` against [S], one panel per pH rung, with the fitted
+    curve where `Km` resolves. `v0_fit_corrected` is not shown -- restricted
+    to its own `_resolved` cuvettes, most rungs keep only 1-4 of their 4
+    cuvettes, too few to fit independently
+    (`ph_role.ladder_mm_table`, response="v0_fit_corrected").
     """
-    table = ph_role.ladder_mm_table(experiments, response="v_peak")
+    table = ph_role.ladder_mm_table(experiments, response="v_peak_corrected")
     data = scope.frame(tuple(experiments))
     data = data[data.live]
     colour = LADDER_COLOUR[name]
@@ -293,17 +308,30 @@ def build_mm_section(name, experiments):
                             colour)
              for row in table.sort_values("pH").itertuples()]
     return (f"<p class='lede'>Per-experiment MM fit, {LADDER_LABEL[name]}: "
-           f"each panel is one run's own four-cuvette substrate ladder "
-           f"(`ph_role.ladder_mm_table`). {len(panels)} panels, one per "
-           f"pH rung.</p><div class='grid three'>"
+           f"each panel is one run's own four-cuvette substrate ladder, off "
+           f"the debubbled fitted rate (`ph_role.ladder_mm_table`). "
+           f"{len(panels)} panels, one per pH rung.</p><div class='grid three'>"
            + "".join(panels) + "</div>")
 
 
+# The curves page's own ladder list: `scope.PH_LADDERS`' four plus "boric
+# BnOH" (`scope.PH_LADDER_BORIC_BNOH`) and "boric BnOH (0.28 mM)"
+# (`scope.BORIC_BNOH_HIGH_ENZYME_PAIR`), neither of which is in that dict --
+# see their comments in scope.py -- because pooling either into the
+# four-ladder [HOO-] order would move an already-published number. A curves
+# page showing fewer than every live cuvette of a named ladder is exactly
+# the failure `check_numbers.py`'s one-panel-per-curve count exists to
+# catch, so both ladders' own cuvettes get a section here too.
+CURVE_PAGE_LADDERS = dict(scope.PH_LADDERS)
+CURVE_PAGE_LADDERS["boric BnOH"] = scope.PH_LADDER_BORIC_BNOH
+CURVE_PAGE_LADDERS["boric BnOH (0.28 mM)"] = scope.BORIC_BNOH_HIGH_ENZYME_PAIR
+
+
 def build_curves_page():
-    """Every live cuvette of all four pH ladders, in pH order within each."""
+    """Every live cuvette of all six pH ladders, in pH order within each."""
     sections = []
     total = 0
-    for name, exps in scope.PH_LADDERS.items():
+    for name, exps in CURVE_PAGE_LADDERS.items():
         frame = scope.frame(exps)
         lookup = {(c.experiment, c.sample): c for c in scope.curves(exps)}
         panels = []
@@ -340,14 +368,20 @@ def build_curves_page():
         section += "<div class='grid three'>" + "".join(panels) + "</div>"
         sections.append(section)
     body = (f"<p class='lede'>All {total} live cuvettes of the archive's "
-            "four pH ladders (`scope.PH_LADDERS`), grouped by ladder and "
-            "sorted by pH within each. The rust line is whichever form the "
-            "curve earned, from `summary_kinetics.fit_progress`; nothing is "
-            "excluded. Phosphate and boric also carry their own "
+            "four pH ladders (`scope.PH_LADDERS`) plus BnOH's own boric "
+            "buffer runs, in two enzyme tiers: `scope.PH_LADDER_BORIC_BNOH` "
+            "(exps 60-62, 0.014 mM) and `scope.BORIC_BNOH_HIGH_ENZYME_PAIR` "
+            "(exps 51 and 55, 0.28 mM -- the loading `PH_LADDER_BORIC` "
+            "itself uses), neither pooled into the four-ladder order, "
+            "grouped by ladder and sorted by pH within each. The rust line is "
+            "whichever form the curve earned, from "
+            "`summary_kinetics.fit_progress`; nothing is excluded. Every "
+            "ladder except the two pyrophosphate arms also carries its own "
             "per-experiment Michaelis-Menten fit ahead of the cuvette grid "
-            "(ANALYSIS.md §3a).</p>" + "".join(sections))
+            "(ANALYSIS.md §3a-§3c).</p>" + "".join(sections))
     return styled("The pH ladders — every progress curve", body,
-                 "Phosphate and boric 4OMe, pyrophosphate BnOH (135-151)")
+                 "Phosphate and boric 4OMe, boric BnOH (two enzyme tiers), "
+                 "pyrophosphate BnOH (135-151)")
 
 
 def build_index():

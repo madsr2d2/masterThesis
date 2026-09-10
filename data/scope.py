@@ -359,6 +359,22 @@ def _frame(scope):
             # two) are pinned, not whether the value looks plausible.
             "v0_fit": float(progress.rate(np.array([0.0]))[0]),
             "v0_fit_resolved": bool(progress.chosen.resolved),
+            # THE SAME TWO, OFF THE REBUILT CURVE. `v_peak` and `v0_fit` are
+            # fitted to `values` -- the readings with any O2 still in them --
+            # so on a curve that detaches gas they are biased exactly the way
+            # `vmax`/`tau`/`tau_slow` were before `vmax_corrected` existed.
+            # `progress_fixed` is already computed above for the corrected
+            # clocks; this is the same fit's peak and its rate at t = 0,
+            # costing nothing new. Use these on any pH-ladder question, since
+            # gas production rises steeply with pH (`scope.gas_survey`) and
+            # both boric 4OMe ladder runs above pH 8.5 and the two-axis
+            # block's own high-pH arm sit exactly where the artefact is
+            # heaviest -- an uncorrected fit there confounds "pH" with "how
+            # much gas this run made".
+            "v_peak_corrected": float(progress_fixed.peak_rate[0]),
+            "v_peak_corrected_time": float(progress_fixed.peak_rate[1]),
+            "v0_fit_corrected": float(progress_fixed.rate(np.array([0.0]))[0]),
+            "v0_fit_resolved_corrected": bool(progress_fixed.chosen.resolved),
             "tau_fast": float(progress.two.tau1 if progress.phases == 2
                               else burst.tau),
             "tau_slow": float(progress.two.tau2 if progress.phases == 2
@@ -2989,8 +3005,10 @@ PH_LADDER_BORIC = (41, 42, 46, 47, 43, 48, 45, 49, 44)
 
 # The two-axis block's own pH ladders, as `ph_ladders` defines them: one set of
 # seven compositions each, so a cuvette is matched across runs. BnOH /
-# pyrophosphate / 25 C, and the only pH ladders in the archive on the other
-# substrate. Read with one offset per CUVETTE, not per run.
+# pyrophosphate / 25 C. NOT the only pH ladders on this substrate -- an
+# earlier version of this comment claimed that, and PH_LADDER_BORIC_BNOH
+# below is BnOH too, in a different buffer. Read with one offset per
+# CUVETTE, not per run.
 PH_LADDER_TWO_AXIS_LOW = (136, 137, 138, 139, 140, 141, 142)
 PH_LADDER_TWO_AXIS_HIGH = (143, 144, 145, 146, 147, 148, 149, 150, 151)
 
@@ -3000,6 +3018,40 @@ PH_LADDERS = {
     "pyrophosphate BnOH 136-142": PH_LADDER_TWO_AXIS_LOW,
     "pyrophosphate BnOH 143-151": PH_LADDER_TWO_AXIS_HIGH,
 }
+
+# BnOH / boric / 25 C / 122.426 mM H2O2 / 0.014 mM chemzyme, pH 8.51 to 9.00.
+# Three runs sharing the four-rung 0.596-7.751 mM substrate ladder and a
+# buffer that is cuvette-matched across all three (90/80/70/60 mM). Found by
+# checking `data/Mads/done/Boric acid buffer BnOH/` against this module: exps
+# 60, 61 and 62 carry that exact composition and were never named here, which
+# is what the (now corrected) comment above on PH_LADDER_TWO_AXIS_LOW/_HIGH
+# had been asserting could not exist. Two near-composition runs in the same
+# folder are NOT rungs of it -- exp 59 and exp 66 share the pH-8.51 point but
+# double the enzyme to 0.028 mM (66 also reorders and widens the substrate
+# grid). Exp 55 is not a near-composition run at all: it is the OTHER boric
+# BnOH enzyme tier, `BORIC_BNOH_HIGH_ENZYME_PAIR` below. This ladder is
+# deliberately NOT in `PH_LADDERS`: pooling it into the four-ladder [HOO-]
+# order this module's `rate_ladder`/`pooled_rate_order` quote would move that
+# already-published number, which this constant's addition is not asking to
+# redo. It is read by `ph_role.MM_LADDERS`, the per-experiment
+# Michaelis-Menten machinery, where a three-rung ladder is exactly what that
+# fit needs.
+PH_LADDER_BORIC_BNOH = (60, 61, 62)
+
+# BnOH / boric / 25 C / 82.5 mM H2O2 / ~0.28 mM chemzyme -- the SAME loading
+# `PH_LADDER_BORIC` uses (0.270 mM), not a third tier. Two pH points, not
+# three: exp 51 (pH 9.01) and exp 55 (pH 9.70). Exp 55 is not the second rung
+# of a three-run design -- it is a same-day repeat of exp 50, which sits at
+# the identical composition and pH and is `build_manifest.KNOWN_EXCLUSIONS`'
+# entry for reaction-direction failure (all four curves descend with no
+# ordering by substrate, rho = 0.00 against +1.00 for a healthy run); exp 55
+# is the clean run its own manifest entry points to. Below
+# `PH_LADDER_MINIMUM`, so no order or shared-Km fit is attempted on it -- it
+# is also `SUBSTRATE_PAIRS`' own BnOH half (exp 51 pairs with exp 42, exp 55
+# with exp 45, both 4OMe at essentially the same pH and enzyme loading), so
+# these two curves are not new to the archive, only to this folder's own
+# pH-vs-rate reading of them.
+BORIC_BNOH_HIGH_ENZYME_PAIR = (51, 55)
 
 # The [enz] spread inside PH_LADDER_PHOSPHATE, as a ratio. Quoted so that a
 # reader can see the ladder is not perfectly matched rather than discovering it.
