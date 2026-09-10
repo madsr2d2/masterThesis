@@ -38,7 +38,7 @@ sys.path.insert(0, REPOSITORY)
 import curve_metrics
 import scope
 from figure_kit import (ARRIVAL_BAND_COLOUR, EVENT_BAND_COLOUR, MUTED,
-                        panel, progress_axes, styled, write_pages)
+                        panel, styled, write_pages)
 
 DOCUMENT = "detection_review.html"
 
@@ -96,8 +96,7 @@ def _draw(curve, events, arrivals, window=None):
         shift = low
     else:
         shift = 0
-    axes, _ = progress_axes(times, values, limit=140, width=330, height=170,
-                            pad=(56, 12, 30, 20))
+    axes = _window_axes(times, values)
 
     def band(lo_index, hi_index, colour):
         # OVERLAP FIRST, THEN CLAMP, and in that order for a reason: clamping
@@ -118,8 +117,39 @@ def _draw(curve, events, arrivals, window=None):
         band(start, stop, EVENT_BAND_COLOUR)
     for index, _gain in arrivals:
         band(index - 1, index, ARRIVAL_BAND_COLOUR)
-    axes.line(times, values, MUTED, width=0.8, opacity=0.55)
+    axes.line(times, values, MUTED, width=0.9, opacity=0.6)
+    axes.points(times, values, MUTED, radius=2.4, opacity=0.9,
+                stroke="white", stroke_width=0.7)
     return axes.render("time, s", "absorbance")
+
+
+def _window_axes(times, values, width=330, height=190, pad=(62, 14, 32, 16)):
+    """
+    Axes fitted to the stretch being drawn, not to the whole run.
+
+    NOT `figure_kit.progress_axes`, and that is the whole point. Its limits are
+    the whole-curve convention -- x from t = 0, y always including zero -- which
+    is right for a progress panel and wrong here twice over: a window at
+    readings 215-230 of a 300-reading run puts every mark in the last 7% of the
+    x axis, and an absorbance of 0.05-0.08 drawn from zero flattens the feature
+    into a horizontal line. Both are exactly the detail this page exists to
+    show, so the axes fit the data and a margin instead.
+
+    The y margin is 8% of the drawn range, floored at the curve's own step
+    scale so a stretch that happens to be flat does not get magnified into
+    noise-looking scatter.
+    """
+    from svgplot import Axes
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    span = float(times[-1] - times[0]) or 1.0
+    low, high = float(values.min()), float(values.max())
+    margin = max((high - low) * 0.08,
+                 float(np.median(np.abs(np.diff(values)))) if len(values) > 1
+                 else 0.0, 1e-5)
+    return Axes(width, height,
+                (float(times[0]) - span * 0.02, float(times[-1]) + span * 0.02),
+                (low - margin, high + margin), pad=pad)
 
 
 def _pair(curve, before, after, window, heading, note):
