@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import curve_metrics
 import induction
 import scope
+import summary_kinetics
 
 FAILURES = []
 
@@ -1316,6 +1317,107 @@ def test_the_memoised_frame_hands_out_a_copy():
           time.time() - warm < 0.5, f"{time.time() - warm:.3f}s")
 
 
+def test_v0_fit_is_the_chosen_forms_own_rate_at_t_zero():
+    """
+    `v0_fit` has to be whichever form `ProgressFit` chose, evaluated at its
+    own t = 0 -- not a separate fit. One phase has this on file already
+    (`BurstFit.v0 = v_ss - B/tau`); two phases does not store it, so this is
+    the only check that `.rate([0.0])` agrees with the closed form there.
+    """
+    print("\nv0_fit is the chosen form's own rate at t = 0")
+    points = 60
+    one = summary_kinetics.BurstFit(
+        c=0.0, v_ss=2e-5, B=8e-6, tau=600.0, v0=2e-5 - 8e-6 / 600.0,
+        lag_time=np.nan, sse=0.0, rms=0.0, tau_interval=(500.0, 700.0),
+        resolved=True, points=points)
+    progress_one = summary_kinetics.ProgressFit(
+        phases=1, one=one, two=None, f_statistic=0.0, reason="planted")
+    fitted_one = float(progress_one.rate(np.array([0.0]))[0])
+    check("one phase: rate(0) matches BurstFit.v0",
+          abs(fitted_one - one.v0) < 1e-12, f"{fitted_one} vs {one.v0}")
+
+    two = summary_kinetics.TwoPhaseFit(
+        c=0.0, v_ss=3e-5, B1=1e-5, tau1=200.0, B2=-4e-6, tau2=4000.0,
+        sse=0.0, rms=0.0, v_ss_stderr=0.0, tau2_interval=(3000.0, 5000.0),
+        resolved=True, points=points)
+    progress_two = summary_kinetics.ProgressFit(
+        phases=2, one=one, two=two, f_statistic=99.0, reason="planted")
+    fitted_two = float(progress_two.rate(np.array([0.0]))[0])
+    expected_two = two.v_ss - two.B1 / two.tau1 - two.B2 / two.tau2
+    check("two phases: rate(0) matches the closed form",
+          abs(fitted_two - expected_two) < 1e-12,
+          f"{fitted_two} vs {expected_two}")
+
+    # The whole reason it is left unfloored: a genuine early_trough curve's
+    # fitted rate at t=0 is meant to come out negative.
+    trough = summary_kinetics.BurstFit(
+        c=0.0, v_ss=1e-5, B=1e-2, tau=300.0, v0=1e-5 - 1e-2 / 300.0,
+        lag_time=np.nan, sse=0.0, rms=0.0, tau_interval=(250.0, 350.0),
+        resolved=True, points=points)
+    progress_trough = summary_kinetics.ProgressFit(
+        phases=1, one=trough, two=None, f_statistic=0.0, reason="planted")
+    fitted_trough = float(progress_trough.rate(np.array([0.0]))[0])
+    check("a genuine trough's rate(0) is negative, and stays that way",
+          fitted_trough < 0.0, f"{fitted_trough:.3e}")
+
+
+def test_mm_fit_recovers_a_planted_vmax_and_km():
+    """
+    `mm_fit` profiles Km on a grid and solves Vmax in closed form at each
+    point -- this is the check that the profile actually lands on the
+    planted pair rather than returning a number that merely fits.
+    """
+    print("\nmm_fit recovers a planted (Vmax, Km)")
+    rng = np.random.default_rng(1)
+    s0 = np.array([0.5, 1.0, 2.0, 4.0, 8.0, 16.0])
+    vmax_true, km_true = 3e-5, 2.0
+    clean = vmax_true * s0 / (km_true + s0)
+    noisy = clean * (1 + rng.normal(0, 0.01, size=len(s0)))
+
+    fit = scope.mm_fit(s0, noisy)
+    check("vmax recovered within 5%",
+          abs(fit["vmax"] / vmax_true - 1) < 0.05, f"{fit['vmax']:.3e}")
+    check("km recovered within 15%",
+          abs(fit["km"] / km_true - 1) < 0.15, f"{fit['km']:.3f}")
+    check("km_resolved on a clean planted ladder",
+          fit["km_resolved"], f"{fit['km_interval']}")
+
+    short = scope.mm_fit(s0[:2], noisy[:2])
+    check("fewer than 3 points returns nan rather than a fabricated fit",
+          np.isnan(short["vmax"]) and np.isnan(short["km"]))
+
+    flat = scope.mm_fit(np.full(5, 3.0), noisy[:5])
+    check("no substrate contrast at all leaves km unresolved",
+          not flat["km_resolved"], f"{flat['km_interval']}")
+
+
+def test_mm_ladder_shares_one_km_across_groups():
+    """
+    Plants the same Km in every group and a different Vmax in each --
+    `mm_ladder` has to recover one shared Km and each group's own Vmax.
+    """
+    print("\nmm_ladder shares one km across experiments, one vmax each")
+    rng = np.random.default_rng(2)
+    s0 = np.array([0.5, 1.0, 2.0, 4.0, 8.0])
+    km_true = 1.5
+    vmax_true = {1: 1e-5, 2: 2e-5, 3: 4e-5}
+    rows = []
+    for experiment, vmax in vmax_true.items():
+        clean = vmax * s0 / (km_true + s0)
+        noisy = clean * (1 + rng.normal(0, 0.01, size=len(s0)))
+        for value, s in zip(noisy, s0):
+            rows.append({"experiment": experiment, "s0": s, "v_peak": value})
+    data = pd.DataFrame(rows)
+
+    fit = scope.mm_ladder(data, "v_peak")
+    check("shared km recovered within 15%",
+          abs(fit["km"] / km_true - 1) < 0.15, f"{fit['km']:.3f}")
+    for experiment, vmax in vmax_true.items():
+        check(f"experiment {experiment}'s own vmax recovered within 5%",
+              abs(fit["vmax"][experiment] / vmax - 1) < 0.05,
+              f"{fit['vmax'][experiment]:.3e}")
+
+
 if __name__ == "__main__":
     test_the_memoised_frame_hands_out_a_copy()
     test_an_axis_the_offsets_absorb_is_not_reported()
@@ -1345,5 +1447,8 @@ if __name__ == "__main__":
     test_the_gas_is_not_a_property_of_one_block()
     test_the_enzyme_control_is_too_small_to_decide_anything()
     test_the_turnover_control_is_confounded_with_ph()
+    test_v0_fit_is_the_chosen_forms_own_rate_at_t_zero()
+    test_mm_fit_recovers_a_planted_vmax_and_km()
+    test_mm_ladder_shares_one_km_across_groups()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)

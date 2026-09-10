@@ -241,12 +241,72 @@ def figure_gas_onset():
         "in section 3, and not the explanation.")
 
 
+def _mm_fit_panel(row, group, colour):
+    """
+    One experiment's own MM fit: `v_peak` against [S], the fit if resolved.
+
+    DATA FIRST, FIT ON TOP -- `progress_overlay`'s own convention, so the
+    points are drawn before the line and the line stays thin enough not to
+    bury them. The axes always include y=0 (an MM curve passes through it)
+    and extend far enough in x and y to hold the fitted line as well as the
+    points, so a fit that has not yet saturated by the ladder's own top
+    rung is never clipped off the top of its own panel.
+    """
+    s0 = group.s0.to_numpy(dtype=float)
+    y = group.v_peak.to_numpy(dtype=float)
+    top_x = float(s0.max()) * 1.15
+    smooth = np.linspace(0.0, top_x, 200)
+    fit_line = (row.vmax * smooth / (row.km + smooth)
+               if row.km_resolved else None)
+    top_y = max(float(y.max()),
+               float(fit_line.max()) if fit_line is not None else 0.0) * 1.15
+    axes = Axes(300, 210, (0.0, top_x), (0.0, max(top_y, 1e-8)),
+               pad=(58, 12, 34, 8))
+    axes.points(s0, y, colour, radius=3.8, stroke="white", stroke_width=0.8)
+    if fit_line is not None:
+        axes.line(smooth, fit_line, colour, width=1.6)
+        caption = (f"Vmax {row.vmax:.2e} AU/s · Km {row.km:.2f} "
+                  f"({row.km_low:.2f}–{row.km_high:.2f}) mM · "
+                  f"R² {row.r2:.2f}")
+    else:
+        caption = (f"Km unresolved -- profile reaches the grid "
+                  f"({row.km_low:.3g}–{row.km_high:.3g} mM)")
+    return fig(
+        axes.render("[S], mM", "v_peak, AU/s",
+                    f"exp {int(row.experiment)} · pH {row.pH:.2f}"),
+        caption)
+
+
+def build_mm_section(name, experiments):
+    """
+    The per-experiment Michaelis-Menten fit behind ANALYSIS.md §3a: `v_peak`
+    against [S], one panel per pH rung, with the fitted curve where `Km`
+    resolves. `v0_fit` is not shown -- restricted to `v0_fit_resolved`
+    cuvettes, most rungs keep only 1-4 of their 4 cuvettes, too few to fit
+    independently (`ph_role.ladder_mm_table`, response="v0_fit").
+    """
+    table = ph_role.ladder_mm_table(experiments, response="v_peak")
+    data = scope.frame(tuple(experiments))
+    data = data[data.live]
+    colour = LADDER_COLOUR[name]
+    panels = [_mm_fit_panel(row, data[data.experiment == row.experiment],
+                            colour)
+             for row in table.sort_values("pH").itertuples()]
+    return (f"<p class='lede'>Per-experiment MM fit, {LADDER_LABEL[name]}: "
+           f"each panel is one run's own four-cuvette substrate ladder "
+           f"(`ph_role.ladder_mm_table`). {len(panels)} panels, one per "
+           f"pH rung.</p><div class='grid three'>"
+           + "".join(panels) + "</div>")
+
+
 def build_curves_page():
     """Every live cuvette of all four pH ladders, in pH order within each."""
-    panels = []
+    sections = []
+    total = 0
     for name, exps in scope.PH_LADDERS.items():
         frame = scope.frame(exps)
         lookup = {(c.experiment, c.sample): c for c in scope.curves(exps)}
+        panels = []
         for row in frame[frame.live].sort_values(
                 ["pH", "experiment", "s0"]).itertuples():
             curve = lookup.get((row.experiment, row.sample))
@@ -273,12 +333,19 @@ def build_curves_page():
                 f"{esc(str(row.progress_kind))} · vmax {row.vmax:.2e}"
                 + f" · bubble_load {row.bubble_load:.2f}"
                 if hasattr(row, "bubble_load") else ""))
-    body = (f"<p class='lede'>All {len(panels)} live cuvettes of the "
-            "archive's four pH ladders (`scope.PH_LADDERS`), grouped by "
-            "ladder and sorted by pH within each. The rust line is whichever "
-            "form the curve earned, from `summary_kinetics.fit_progress`; "
-            "nothing is excluded.</p>"
-            "<div class='grid three'>" + "".join(panels) + "</div>")
+        total += len(panels)
+        section = f"<h2>{esc(LADDER_LABEL[name])}</h2>"
+        if name in ph_role.MM_LADDERS:
+            section += build_mm_section(name, exps)
+        section += "<div class='grid three'>" + "".join(panels) + "</div>"
+        sections.append(section)
+    body = (f"<p class='lede'>All {total} live cuvettes of the archive's "
+            "four pH ladders (`scope.PH_LADDERS`), grouped by ladder and "
+            "sorted by pH within each. The rust line is whichever form the "
+            "curve earned, from `summary_kinetics.fit_progress`; nothing is "
+            "excluded. Phosphate and boric also carry their own "
+            "per-experiment Michaelis-Menten fit ahead of the cuvette grid "
+            "(ANALYSIS.md §3a).</p>" + "".join(sections))
     return styled("The pH ladders — every progress curve", body,
                  "Phosphate and boric 4OMe, pyrophosphate BnOH (135-151)")
 

@@ -251,6 +251,112 @@ def test_only_phosphate_can_corroborate_the_two_axis_block():
           f" = {result['sigma']:.2f} sigma")
 
 
+def test_ladder_mm_recovers_planted_vmax_and_km():
+    """
+    A planted MM ladder: Vmax varies with pH, Km fixed across it -- the
+    shape `ladder_mm_table`/`ladder_mm_shared` are meant to recover, on data
+    built the same way `_planted_ladder` builds one for the power-law fit.
+    """
+    print("\na planted MM ladder: Vmax varies with pH, Km fixed")
+    rng = np.random.default_rng(11)
+    s0_values = (1.85, 3.70, 5.55, 7.40)
+    km_true = 2.5
+    rows = []
+    for experiment, pH in zip((1, 2, 3, 4, 5), (6.0, 6.75, 7.5, 8.25, 9.0)):
+        vmax_true = 1e-5 * 10 ** (0.5 * (pH - 7.0))
+        for sample, s0 in enumerate(s0_values, start=1):
+            clean = vmax_true * s0 / (km_true + s0)
+            noisy = clean * float(np.exp(rng.normal(0.0, 0.02)))
+            rows.append({"experiment": experiment, "sample": sample,
+                        "pH": pH, "s0": s0, "e0": 0.2, "v_peak": noisy,
+                        "live": True})
+    planted = pd.DataFrame(rows)
+
+    table = ph_role.ladder_mm_table((1, 2, 3, 4, 5), response="v_peak",
+                                    frame=planted)
+    check("every rung recovers km within 20%",
+          bool((abs(table.km / km_true - 1) < 0.20).all()),
+          f"{table.km.tolist()}")
+    check("every rung is resolved on a clean planted ladder",
+          bool(table.km_resolved.all()), f"{table.km_resolved.tolist()}")
+
+    shared = ph_role.ladder_mm_shared((1, 2, 3, 4, 5), response="v_peak",
+                                      frame=planted)
+    check("the shared fit recovers km too",
+          abs(shared["km"] / km_true - 1) < 0.15, f"{shared['km']:.3f}")
+
+    diag = ph_role.km_shared_diagnostic(table, shared)
+    check("the shared km sits inside every rung's own interval",
+          diag["agree"] == diag["resolved"], f"{diag['agree']}/{diag['resolved']}")
+
+
+def test_km_enzyme_check_detects_a_planted_dependence():
+    """
+    `km_enzyme_check` has to be a real test, not a rubber stamp: plant Km
+    rising in direct proportion to [enz] and it must read a strong positive
+    correlation.
+    """
+    print("\nkm_enzyme_check sees a planted km-vs-[enz] dependence")
+    rows = [{"experiment": i, "enz": enz, "km": 1.0 * enz, "km_resolved": True}
+           for i, enz in enumerate((0.05, 0.1, 0.2, 0.4, 0.8), start=1)]
+    table = pd.DataFrame(rows)
+    result = ph_role.km_enzyme_check(table)
+    check("a planted proportional dependence reads strongly positive",
+          result["corr"] > 0.99, f"{result['corr']}")
+    check("fewer than 3 resolved rows refuses rather than guessing",
+          np.isnan(ph_role.km_enzyme_check(table.iloc[:1])["corr"]))
+
+
+def _mm_planted_frame(vmax_values, km_values, s0_values=(1.5, 3.0, 4.5, 6.0)):
+    """A tiny planted MM ladder: same [S] set in every run, as boric's is."""
+    rows = []
+    for experiment, (vmax, km) in enumerate(zip(vmax_values, km_values),
+                                            start=1):
+        for sample, s0 in enumerate(s0_values, start=1):
+            rows.append({"experiment": experiment, "sample": sample,
+                        "pH": float(experiment), "s0": s0, "e0": 0.27,
+                        "v_peak": vmax * s0 / (km + s0), "live": True})
+    return pd.DataFrame(rows)
+
+
+def test_the_decomposition_attributes_a_pure_km_decline_to_km_alone():
+    """
+    Plant Vmax FLAT and Km rising -- the raw statistic must decline, and the
+    decomposition has to say the decline is all Km's: `km_only` should
+    reproduce it and `vmax_only` should not move at all.
+    """
+    print("\na pure Km-driven decline is attributed to Km, not Vmax")
+    planted = _mm_planted_frame(vmax_values=[1e-4] * 5,
+                                km_values=[1.0, 2.0, 4.0, 8.0, 16.0])
+    result = ph_role.boric_vmax_km_decomposition(
+        ladder=(1, 2, 3, 4, 5), frame=planted)
+    drops = result["drops"]
+    check("the raw statistic declines",
+          drops["raw"] > 0.3, f"{drops['raw']:.3f}")
+    check("km_only reproduces the raw decline",
+          abs(drops["km_only"] - drops["raw"]) < 0.02,
+          f"{drops['km_only']:.3f} vs {drops['raw']:.3f}")
+    check("vmax_only shows essentially no decline",
+          drops["vmax_only"] < 0.01, f"{drops['vmax_only']:.4f}")
+
+
+def test_the_decomposition_attributes_a_pure_vmax_decline_to_vmax_alone():
+    """The mirror image: Km flat, Vmax turning over -- vmax_only carries it."""
+    print("\na pure Vmax-driven decline is attributed to Vmax, not Km")
+    planted = _mm_planted_frame(vmax_values=[1e-4, 2e-4, 3e-4, 2e-4, 1e-4],
+                               km_values=[3.0] * 5)
+    result = ph_role.boric_vmax_km_decomposition(
+        ladder=(1, 2, 3, 4, 5), frame=planted)
+    drops = result["drops"]
+    check("the raw statistic turns over and declines from its peak",
+          drops["raw"] > 0.3, f"{drops['raw']:.3f}")
+    check("vmax_only reproduces the raw decline",
+          abs(drops["vmax_only"] - drops["raw"]) < 0.02,
+          f"{drops['vmax_only']:.3f} vs {drops['raw']:.3f}")
+    check("km_only shows essentially no decline",
+          drops["km_only"] < 0.01, f"{drops['km_only']:.4f}")
+
+
 def test_regressions():
     """The published numbers, locked down. `python data/ph_role.py` prints them."""
     print("\nthe archive's own four ladders")
@@ -306,6 +412,10 @@ if __name__ == "__main__":
     test_the_split_decides_the_boric_order_more_than_its_error_does()
     test_the_buffer_axis_cannot_move_the_ph_order()
     test_only_phosphate_can_corroborate_the_two_axis_block()
+    test_ladder_mm_recovers_planted_vmax_and_km()
+    test_km_enzyme_check_detects_a_planted_dependence()
+    test_the_decomposition_attributes_a_pure_km_decline_to_km_alone()
+    test_the_decomposition_attributes_a_pure_vmax_decline_to_vmax_alone()
     test_regressions()
     print(f"\n{len(FAILURES)} failures")
     sys.exit(1 if FAILURES else 0)

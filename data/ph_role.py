@@ -24,6 +24,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import early_trough
 import induction
 import scope
 
@@ -324,6 +325,201 @@ def clock_pooled_order(response="lag_half_s"):
                                    response=response, controlled=True)
 
 
+# ---------------------------------------------------------------------------
+# The Michaelis-Menten reading of the same two ladders: each experiment fixes
+# pH/[H2O2] and steps [S] over its own cuvettes, which is a within-experiment
+# design for a saturating fit, not for a pooled power-law order. `rate_ladder`
+# above answers "what order in [S] and [HOO-]"; this answers "what is the
+# saturating Vmax, and does it move with pH" -- the question the ladders were
+# actually built to ask. `scope.mm_fit`/`mm_ladder` do the fitting; this module
+# only selects the rows and normalises Vmax by the catalyst.
+#
+# ONLY THE TWO 4OMe LADDERS. The two pyrophosphate (two-axis block) ladders
+# are not "one substrate ladder per run" the way phosphate/boric are -- each
+# of their runs is one ARM of the block's L (`scope.arm_orders`), so half of
+# them hold [S] fixed and step [H2O2] instead, and a per-experiment fit
+# against s0 on a peroxide-arm run has no substrate contrast to fit at all.
+# `scope.ph_order`/`arm_orders` already read that design correctly; this is
+# not a second, worse way to ask the same question of it.
+MM_LADDERS = {
+    "phosphate 4OMe": scope.PH_LADDER_PHOSPHATE,
+    "boric 4OMe": scope.PH_LADDER_BORIC,
+}
+
+
+def _mm_frame(experiments, response):
+    """
+    The ladder's own cuvettes, restricted the way `response` requires.
+
+    `v_peak` is safe on every live curve -- it is the fitted peak rate,
+    defined the same way whichever shape the curve earned. `v0_fit` (the
+    fitted rate at t = 0, off that same model) is restricted to
+    `v0_fit_resolved` cuvettes and carries whether each surviving one is a
+    VALIDATED early trough (`early_trough.trough_table`) rather than an
+    unresolved or merely noisy fit -- it is left unfloored either way, since
+    a genuine trough is a real negative rate and not something to clamp.
+    """
+    data = scope.frame(tuple(experiments))
+    if response != "v0_fit":
+        return data[data.live]
+    data = data[data.live & data.v0_fit_resolved].copy()
+    troughs = early_trough.trough_table()
+    genuine = set(zip(troughs.loc[troughs.genuine, "experiment"],
+                      troughs.loc[troughs.genuine, "sample"]))
+    data["trough_genuine"] = [(e, s) in genuine
+                             for e, s in zip(data.experiment, data["sample"])]
+    return data
+
+
+def ladder_mm_table(experiments, response="v_peak", frame=None):
+    """
+    Per-experiment (Vmax, Km) across one pH ladder's own substrate rungs.
+
+    Each row is one experiment: `vmax`/`km` come straight off `scope.mm_fit`
+    on that experiment's own cuvettes, `kcat = vmax/[enz]` corrects for the
+    catalyst loading not being quite fixed across the phosphate ladder
+    (`scope.PH_LADDER_ENZYME_SPREAD`, a 1.6x spread). `km` is deliberately
+    NOT divided by `[enz]` -- simple Michaelis-Menten predicts Km carries no
+    [enz] dependence at all, which `km_enzyme_check` below tests rather than
+    assumes. `km_resolved` says whether that experiment's own four cuvettes
+    locate a half-saturation point inside the profiled grid; a `False` here
+    is a real risk on this archive; do not read `km`/`km_low`/`km_high` off
+    a row where it is False as anything but "unconstrained".
+    """
+    data = _mm_frame(experiments, response) if frame is None else frame
+    rows = []
+    for exp, group in data.groupby("experiment"):
+        fit = scope.mm_fit(group.s0.to_numpy(dtype=float),
+                           group[response].to_numpy(dtype=float))
+        enz = float(group.e0.median())
+        row = {
+            "experiment": int(exp), "pH": float(group.pH.iloc[0]),
+            "enz": enz, "n": fit["n"],
+            "vmax": fit["vmax"], "vmax_stderr": fit["vmax_stderr"],
+            "km": fit["km"], "km_low": fit["km_interval"][0],
+            "km_high": fit["km_interval"][1], "km_resolved": fit["km_resolved"],
+            "r2": fit["r2"],
+            "kcat": fit["vmax"] / enz if enz > 0 else np.nan,
+            "kcat_stderr": fit["vmax_stderr"] / enz if enz > 0 else np.nan,
+        }
+        if "trough_genuine" in group.columns:
+            row["troughs"] = int(group.trough_genuine.sum())
+        rows.append(row)
+    return pd.DataFrame(rows).sort_values("pH").reset_index(drop=True)
+
+
+def ladder_mm_shared(experiments, response="v_peak", frame=None):
+    """One Km shared across a whole ladder: `scope.mm_ladder`, tabulated."""
+    data = _mm_frame(experiments, response) if frame is None else frame
+    return scope.mm_ladder(data, response)
+
+
+def km_shared_diagnostic(table, shared):
+    """
+    Does the ladder agree on one Km, or does every rung want its own?
+
+    Rather than manufacture a parametric error out of a profiled interval,
+    this asks what the interval was built to answer: does the shared Km sit
+    inside each RESOLVED experiment's own 95% interval. An unresolved
+    experiment's interval reaches the grid edge and would "agree" with
+    almost anything, so it is counted but not asked.
+    """
+    resolved = table[table.km_resolved]
+    if len(resolved) == 0:
+        return {"resolved": 0, "total": int(len(table)), "agree": 0,
+                "shared_km": shared["km"],
+                "shared_km_interval": shared["km_interval"]}
+    agree = int(((resolved.km_low <= shared["km"])
+                & (shared["km"] <= resolved.km_high)).sum())
+    return {"resolved": int(len(resolved)), "total": int(len(table)),
+            "agree": agree, "shared_km": shared["km"],
+            "shared_km_interval": shared["km_interval"]}
+
+
+def km_enzyme_check(table):
+    """
+    Does Km move with [enz]? Simple Michaelis-Menten says it should not --
+    Km is a ratio of rate constants, not a quantity the total catalyst
+    concentration is supposed to touch. This is the check in place of
+    dividing Km by [enz]: a real correlation here is evidence against the
+    free-ligand approximation (this archive's catalyst loadings, 0.014-0.28
+    mM, are not obviously far below the literature's own Km of about
+    1.25 mM), not something to normalise away.
+
+    Only over `km_resolved` rows -- correlating against an unconstrained
+    interval's arbitrary grid point would be noise dressed as a measurement.
+    """
+    resolved = table[table.km_resolved & (table.km > 0) & (table.enz > 0)]
+    if len(resolved) < 3:
+        return {"n": int(len(resolved)), "corr": np.nan}
+    corr = float(np.corrcoef(np.log(resolved.enz.to_numpy(dtype=float)),
+                             np.log(resolved.km.to_numpy(dtype=float)))[0, 1])
+    return {"n": int(len(resolved)), "corr": corr}
+
+
+def boric_vmax_km_decomposition(response="v_peak", ladder=None, frame=None):
+    """
+    Is the boric ladder's high-pH decline a real Vmax turnover, a rising Km,
+    or both?
+
+    `ladder_mm_table` shows the boric ladder's Km rising close to
+    monotonically with pH (resolved on 7 of 9 rungs) alongside a genuine but
+    much SHALLOWER Vmax turnover than the raw statistic's own decline. This
+    prices the two apart: holding ONE parameter at the lowest-pH resolved
+    rung's own value and letting the OTHER move as fitted, evaluated at each
+    experiment's own cuvette concentrations -- the same substrate ladder
+    every boric run shares, so this is not comparing different [S] sets.
+
+    Returns `{"table": ..., "drops": ...}`. `table` has one row per resolved
+    experiment: `vmax`, `km`, `raw` (the response's own median over that
+    run's cuvettes), `vmax_only` (Km held fixed, Vmax as fitted) and
+    `km_only` (Vmax held fixed, Km as fitted). `drops` is each of those four
+    series' own peak-to-last-rung fractional fall.
+
+    EXCLUDES unresolved rungs. An unresolved fit's Km sits on the profile
+    grid's floor, which is a fit failure and not a low Km -- folding it in
+    inflates whichever counterfactual reads it (checked by hand: including
+    exp 43 here turns `km_only`'s monotone decline into a false spike).
+    """
+    ladder = MM_LADDERS["boric 4OMe"] if ladder is None else ladder
+    table = ladder_mm_table(ladder, response, frame=frame)
+    table = table[table.km_resolved].sort_values("pH").reset_index(drop=True)
+    if len(table) < 2:
+        return {"table": pd.DataFrame(), "drops": {}}
+    data = scope.frame(tuple(ladder)) if frame is None else frame
+    data = data[data.live]
+    km_low, vmax_low = float(table.iloc[0].km), float(table.iloc[0].vmax)
+    rows = []
+    for _, r in table.iterrows():
+        group = data[data.experiment == r.experiment]
+        s = group.s0.to_numpy(dtype=float)
+        raw = float(group[response].median())
+        rows.append({
+            "experiment": int(r.experiment), "pH": float(r.pH),
+            "vmax": float(r.vmax), "km": float(r.km), "raw": raw,
+            "vmax_only": float(np.median(r.vmax * s / (km_low + s))),
+            "km_only": float(np.median(vmax_low * s / (r.km + s))),
+        })
+    out = pd.DataFrame(rows)
+    drops = {}
+    for column in ("raw", "vmax", "vmax_only", "km_only"):
+        peak, last = out[column].max(), out[column].iloc[-1]
+        drops[column] = float(1 - last / peak) if peak else np.nan
+    return {"table": out, "drops": drops}
+
+
+def mm_ladder_report(name, experiments, response="v_peak"):
+    """One ladder's full MM reading: per-experiment table plus both checks."""
+    table = ladder_mm_table(experiments, response)
+    shared = ladder_mm_shared(experiments, response)
+    return {
+        "ladder": name, "response": response, "table": table,
+        "shared": shared,
+        "km_shared_diagnostic": km_shared_diagnostic(table, shared),
+        "km_enzyme_check": km_enzyme_check(table),
+    }
+
+
 def main():
     table = rate_ladder_table()
     print("the rate's order in [HOO-], per ladder")
@@ -354,6 +550,40 @@ def main():
         print(f"  exp {exp}, pH {row['pH']:.2f}: median vmax "
              f"{row['median_vmax']:.3e}, corrected "
              f"{row['median_vmax_corrected']:.3e}")
+
+    print("\nthe Michaelis-Menten reading: per-experiment Vmax/Km, "
+         "vs pooling one Km across the ladder")
+    for name, experiments in MM_LADDERS.items():
+        for response in ("v_peak", "v0_fit"):
+            report = mm_ladder_report(name, experiments, response)
+            print(f"\n{name}, {response}")
+            print(report["table"][
+                ["experiment", "pH", "enz", "n", "kcat", "kcat_stderr",
+                 "km", "km_low", "km_high", "km_resolved"]
+            ].to_string(index=False, float_format=lambda v: f"{v:.4g}"))
+            shared = report["shared"]
+            diag = report["km_shared_diagnostic"]
+            print(f"  shared km = {shared['km']:.4g} "
+                 f"({shared['km_interval'][0]:.4g}-"
+                 f"{shared['km_interval'][1]:.4g}), resolved "
+                 f"{shared['km_resolved']}; {diag['agree']}/{diag['resolved']} "
+                 f"resolved rungs' own interval contains it "
+                 f"({diag['total']} rungs total)")
+            check = report["km_enzyme_check"]
+            print(f"  km vs [enz], log-log corr over {check['n']} resolved "
+                 f"rungs: {check['corr']:+.3f}"
+                 if np.isfinite(check["corr"]) else
+                 f"  km vs [enz]: too few resolved rungs ({check['n']})")
+
+    decomposition = boric_vmax_km_decomposition()
+    print("\nthe boric decline: how much is Vmax turning over, "
+         "and how much is Km rising")
+    print(decomposition["table"][
+        ["experiment", "pH", "vmax", "km", "raw", "vmax_only", "km_only"]
+    ].to_string(index=False, float_format=lambda v: f"{v:.4g}"))
+    for column, drop in decomposition["drops"].items():
+        print(f"  {column}: {drop * 100:.1f}% down from its own peak "
+             f"to the last rung")
     return 0
 
 

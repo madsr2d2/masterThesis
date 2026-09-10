@@ -47,7 +47,7 @@ from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
 from fit_dataset import (TWO_AXIS_BLOCK, TWO_AXIS_GROUP, build_curves,
                          in_block, source_floor)
 from solution_chemistry import dominant_buffer_pair
-from summary_kinetics import fit_burst_bounded, fit_progress
+from summary_kinetics import CHI2_95, fit_burst_bounded, fit_progress
 
 # A run's own cuvettes have to move an axis by at least this much before that
 # axis counts as measured inside the run rather than across experiments.
@@ -347,6 +347,18 @@ def _frame(scope):
             # fit, and it comes out NEGATIVE on two of the 35 C curves.
             "v_peak": float(peak_fitted),
             "v_peak_time": float(peak_fitted_time),
+            # THE FITTED RATE AT t = 0, off the exact same model as `v_peak` --
+            # analytic, not a window average, so it does not carry the bias
+            # the plain window-based `v0` above has when the rate genuinely
+            # changes across that window (a lag or a burst). UNFLOORED:
+            # early_trough/ has 17 curves whose fitted rate here is genuinely
+            # negative -- a validated dip, not noise -- so clamping this at
+            # zero would erase exactly the finding that module reports.
+            # `v0_fit_resolved` mirrors `tau_slow_resolved`'s guard: whether
+            # the chosen form's own parameters (tau on one phase, tau2 on
+            # two) are pinned, not whether the value looks plausible.
+            "v0_fit": float(progress.rate(np.array([0.0]))[0]),
+            "v0_fit_resolved": bool(progress.chosen.resolved),
             "tau_fast": float(progress.two.tau1 if progress.phases == 2
                               else burst.tau),
             "tau_slow": float(progress.two.tau2 if progress.phases == 2
@@ -924,6 +936,132 @@ def order_table(scope=TWO_AXIS_BLOCK, parameters=ORDER_PARAMETERS):
     return pd.DataFrame(rows).set_index(["parameter", "fit"])
 
 
+# ---------------------------------------------------------------------------
+# The Michaelis-Menten form, fit the way the pH ladders were actually
+# designed to be read: [S] varied over one experiment's own cuvettes at fixed
+# pH/[H2O2], so each experiment earns its own (Vmax, Km), and it is THOSE
+# per-experiment values that a between-run axis like pH gets plotted against
+# -- not a single power-law order pooled across every cuvette of every run,
+# which is what `orders`/`ph_role.rate_ladder` do instead and answer a
+# different question (an apparent order, assuming no saturation, rather than
+# the saturating limit itself).
+#
+# Km is the fit's one nonlinear parameter, so it is profiled on a log grid
+# and Vmax solved in closed form at each point -- v = Vmax.x with
+# x = s0/(Km+s0) is linear in Vmax once Km is fixed -- exactly the convention
+# `summary_kinetics.profile_km` uses for the same parameter in its own
+# (different) log-log form.
+MM_KM_LOW = 1e-3
+MM_KM_HIGH = 3e2
+MM_KM_POINTS = 700
+
+
+def mm_fit(s0, response, low=MM_KM_LOW, high=MM_KM_HIGH, points=MM_KM_POINTS):
+    """
+    Fit v = Vmax.s0/(Km+s0) to one experiment's own cuvettes.
+
+    Returns a dict: vmax, vmax_stderr, km, km_interval (the 95%
+    profile-likelihood interval on Km, same chi2 convention as
+    `summary_kinetics.profile_km`), km_resolved (False when that interval
+    reaches either end of the grid -- the cuvettes present do not locate a
+    half-saturation point, which is a real risk here since every pH ladder in
+    this archive offers only four substrate rungs per run), r2, n.
+
+    Needs at least 3 finite, positive-[S] points -- two to fit Vmax and Km,
+    one left over for a residual.
+    """
+    s0 = np.asarray(s0, dtype=float)
+    response = np.asarray(response, dtype=float)
+    keep = np.isfinite(s0) & np.isfinite(response) & (s0 > 0)
+    s0, response = s0[keep], response[keep]
+    n = len(s0)
+    blank = {"vmax": np.nan, "vmax_stderr": np.nan, "km": np.nan,
+            "km_interval": (np.nan, np.nan), "km_resolved": False,
+            "r2": np.nan, "n": n}
+    if n < 3:
+        return blank
+    grid = np.logspace(np.log10(low), np.log10(high), points)
+    x_grid = s0[:, None] / (grid[None, :] + s0[:, None])
+    denom = np.sum(x_grid ** 2, axis=0)
+    vmax_grid = np.divide(np.sum(x_grid * response[:, None], axis=0), denom,
+                          out=np.full(len(grid), np.nan), where=denom > 0)
+    sse_grid = np.sum((response[:, None] - vmax_grid[None, :] * x_grid) ** 2,
+                      axis=0)
+    if not np.any(np.isfinite(sse_grid)):
+        return blank
+    best = int(np.nanargmin(sse_grid))
+    km, vmax, sse = float(grid[best]), float(vmax_grid[best]), float(sse_grid[best])
+    degrees = max(1, n - 2)
+    variance = sse / degrees
+    x_best = s0 / (km + s0)
+    vmax_stderr = float(np.sqrt(variance / np.sum(x_best ** 2)))
+    inside = grid[sse_grid <= sse * (1 + CHI2_95 / degrees)]
+    km_low, km_high = ((float(inside.min()), float(inside.max())) if len(inside)
+                       else (np.nan, np.nan))
+    resolved = bool(np.isfinite(km_low) and km_low > grid[0] * 1.05
+                    and km_high < grid[-1] * 0.95)
+    total = float(np.sum((response - response.mean()) ** 2))
+    r2 = float(1 - sse / total) if total > 0 else np.nan
+    return {"vmax": vmax, "vmax_stderr": vmax_stderr, "km": km,
+            "km_interval": (km_low, km_high), "km_resolved": resolved,
+            "r2": r2, "n": n}
+
+
+def mm_ladder(data, response, group="experiment",
+             low=MM_KM_LOW, high=MM_KM_HIGH, points=MM_KM_POINTS):
+    """
+    One Km shared across every group in `data`, one Vmax per group.
+
+    The check `mm_fit`'s per-experiment answer needs: whether four cuvettes
+    each are enough to locate Km, or whether the ladder only agrees on one
+    when every rung is asked to share it. Profiled the same way as `mm_fit`,
+    over a block-diagonal design (each group's own Vmax multiplies only its
+    own rows), so it is still linear in the Vmax's once Km is fixed.
+
+    Returns km, km_interval, km_resolved, vmax ({group: value}), vmax_stderr
+    ({group: value}), r2, n.
+    """
+    s0 = data.s0.to_numpy(dtype=float)
+    y = data[response].to_numpy(dtype=float)
+    codes = data[group].to_numpy()
+    keep = np.isfinite(s0) & np.isfinite(y) & (s0 > 0)
+    s0, y, codes = s0[keep], y[keep], codes[keep]
+    labels = sorted(pd.unique(codes))
+    n = len(s0)
+    blank = {"km": np.nan, "km_interval": (np.nan, np.nan),
+            "km_resolved": False, "vmax": {}, "vmax_stderr": {},
+            "r2": np.nan, "n": n}
+    if n < len(labels) + 1 or not labels:
+        return blank
+    grid = np.logspace(np.log10(low), np.log10(high), points)
+    sse_grid = np.empty(len(grid))
+    betas = [None] * len(grid)
+    for index, km in enumerate(grid):
+        x = s0 / (km + s0)
+        design = np.column_stack([(codes == g) * x for g in labels])
+        beta, *_ = np.linalg.lstsq(design, y, rcond=None)
+        residual = y - design @ beta
+        sse_grid[index] = float(residual @ residual)
+        betas[index] = beta
+    best = int(np.argmin(sse_grid))
+    km, beta, sse = float(grid[best]), betas[best], float(sse_grid[best])
+    degrees = max(1, n - len(labels) - 1)
+    variance = sse / degrees
+    x = s0 / (km + s0)
+    design = np.column_stack([(codes == g) * x for g in labels])
+    covariance = variance * np.linalg.pinv(design.T @ design)
+    inside = grid[sse_grid <= sse * (1 + CHI2_95 / degrees)]
+    km_low, km_high = ((float(inside.min()), float(inside.max())) if len(inside)
+                       else (np.nan, np.nan))
+    resolved = bool(np.isfinite(km_low) and km_low > grid[0] * 1.05
+                    and km_high < grid[-1] * 0.95)
+    total = float(np.sum((y - y.mean()) ** 2))
+    r2 = float(1 - sse / total) if total > 0 else np.nan
+    vmax = {g: float(b) for g, b in zip(labels, beta)}
+    vmax_stderr = {g: float(np.sqrt(max(covariance[i, i], 0.0)))
+                  for i, g in enumerate(labels)}
+    return {"km": km, "km_interval": (km_low, km_high), "km_resolved": resolved,
+            "vmax": vmax, "vmax_stderr": vmax_stderr, "r2": r2, "n": n}
 
 
 # ---------------------------------------------------------------------------

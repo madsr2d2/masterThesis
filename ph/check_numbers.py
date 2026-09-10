@@ -188,6 +188,67 @@ def main():
                   frame[(frame.experiment == e) & frame.live].vmax)[0, 1])
                   >= 0.91 for e in scope.PH_LADDER_BORIC))
 
+    print("\nsection 3a: the turnover is not only Vmax -- Km is rising too")
+    mm_table = ph_role.ladder_mm_table(scope.PH_LADDER_BORIC, response="v_peak")
+    resolved = mm_table[mm_table.km_resolved].sort_values("pH")
+    doc.check("7 of 9 boric rungs resolve their own km",
+              len(resolved) == 7 and set(mm_table.experiment) - set(resolved.experiment)
+              == {43, 45}, f"{len(resolved)} resolved, unresolved "
+              f"{sorted(set(mm_table.experiment) - set(resolved.experiment))}")
+    exp43 = mm_table.set_index("experiment").loc[43]
+    doc.check("exp 43's fit has no MM signal at all",
+              exp43.r2 < 0, f"R^2 = {exp43.r2:.4f}")
+    doc.claim("km's own range",
+              f"2.96 mM at pH 8.46 to\n14.2 mM at pH 10.34")
+    doc.check("km at the lowest and highest resolved pH",
+              abs(resolved.iloc[0].km - 2.96) < 0.01
+              and abs(resolved.iloc[-1].km - 14.2) < 0.05,
+              f"{resolved.iloc[0].km:.3f} to {resolved.iloc[-1].km:.3f}")
+    for exp, mantissa, km in (("41", "1.28", "2.96"), ("42", "3.34", "5.56"),
+                             ("46", "4.45", "8.13"), ("47", "3.16", "5.18"),
+                             ("48", "4.67", "10.46"), ("44", "3.58", "11.87"),
+                             ("49", "3.34", "14.22")):
+        row = resolved.set_index("experiment").loc[int(exp)]
+        doc.claim(f"exp {exp}'s row",
+                  f"| {exp} | {row.pH:.2f} | {mantissa} × 10⁻⁴ | {km} |")
+        doc.check(f"exp {exp}: vmax and km against the table",
+                  abs(row.vmax - float(mantissa) * 1e-4) < 0.005e-4
+                  and abs(row.km - float(km)) < 0.005,
+                  f"{row.vmax:.3e}, {row.km:.3f}")
+
+    decomposition = ph_role.boric_vmax_km_decomposition()
+    drops = decomposition["drops"]
+    doc.claim("the raw statistic's own drop", f"**−51.6%**")
+    doc.check("raw drop, peak to last rung",
+              abs(drops["raw"] * 100 - 51.6) < 0.1, f"{drops['raw'] * 100:.1f}%")
+    doc.claim("vmax alone", f"**−28.5%**")
+    doc.check("vmax-only drop",
+              abs(drops["vmax_only"] * 100 - 28.5) < 0.1,
+              f"{drops['vmax_only'] * 100:.1f}%")
+    doc.claim("km alone",
+              f"**−62.3%**, peaking at the ladder's own lowest pH")
+    doc.check("km-only drop",
+              abs(drops["km_only"] * 100 - 62.3) < 0.1,
+              f"{drops['km_only'] * 100:.1f}%")
+    km_only = decomposition["table"].set_index("experiment").km_only
+    doc.check("km-only's own maximum sits at exp 41, the lowest pH",
+              km_only.idxmax() == 41, f"peak at exp {km_only.idxmax()}")
+    doc.check("km itself is not perfectly monotone (exp 47 dips below 46)",
+              resolved.set_index("experiment").km.loc[47]
+              < resolved.set_index("experiment").km.loc[46])
+    doc.check("but km's own maximum sits at the top rung, exp 49",
+              resolved.set_index("experiment").km.idxmax() == 49)
+
+    shared_boric = ph_role.ladder_mm_shared(scope.PH_LADDER_BORIC,
+                                            response="v_peak")
+    shared_diag = ph_role.km_shared_diagnostic(mm_table, shared_boric)
+    doc.check("the shared km fit is unresolved",
+              not shared_boric["km_resolved"])
+    doc.claim("how many resolved rungs the shared value sits inside",
+              f"**0 of the 7**")
+    doc.check("0 of 7 resolved rungs contain the shared km",
+              shared_diag["agree"] == 0 and shared_diag["resolved"] == 7)
+
     print("\nsection 4: the induction clock's own pH order")
     clock_rows = induction.lag_ph_ladders()
     by_name = {row["ladder"]: row for row in clock_rows}
