@@ -23,6 +23,7 @@ point of the module.
     python data/scope.py              # print the summary
     python data/scope.py --design     # the per-experiment design table
 """
+import dataclasses
 import functools
 import itertools
 
@@ -78,6 +79,173 @@ def curves(scope=TWO_AXIS_BLOCK):
                   key=lambda c: (c.experiment, c.sample))
 
 
+@dataclasses.dataclass(frozen=True)
+class CurveFit:
+    """
+    Everything one curve's SHAPE and its GAS are read from, in one object.
+
+    THE FRAME IS THIS OBJECT FLATTENED, AND THE PANEL DRAWS THIS OBJECT. Until
+    2026-09-12 those were two computations. `_frame` fitted every curve and
+    threw the fits away, keeping only scalars; every `build_curves_page` then
+    called `figure_kit.progress_overlay`, which refitted from scratch. Two
+    fits of the same curve is not merely the 18 s of a `two_axis/` build --
+    nothing could assert that the fit a panel DREW was the fit the footer
+    QUOTED, and that gap was already live: the panels marked a vertical
+    labelled "tau" taken from `fit_burst_bounded` (the ONE-phase form) on 36
+    of the block's 110 live curves whose drawn rust line was
+    `fit_progress`'s TWO-phase form, whose own clocks are `tau_fast` and
+    `tau_slow`. On exp 137.5 that rule read 179 s against the drawn fit's
+    431 s and 6562 s. See `figure_kit.progress_panel`, which is now the only
+    thing that draws a progress curve, and `test_progress_panels.py`.
+
+    The two fits are BOTH here because they answer different questions and
+    the panel draws both: `progress` is the readings' own form and
+    `progress_corrected` the rebuilt series', and CLAUDE.md's rule is that a
+    clock is read off the second. `burst`/`burst_corrected` are the
+    one-phase bounded form, which is where `frame`'s `tau` and `v_ss` come
+    from -- they are NOT the drawn `progress` fit's clocks, and a panel that
+    marks one has to say which form it belongs to.
+
+    ARRAYS ARE READ-ONLY. `frame` hands out a copy for the reason its own
+    docstring gives; this hands out the object itself, so the arrays are
+    frozen instead. An lru_cache handing out a writable array is one in-place
+    edit from a silent wrong answer, and this one reaches eight folders.
+    """
+    experiment: int
+    sample: int
+    times: np.ndarray
+    values: np.ndarray             # the readings, as recorded
+    corrected: np.ndarray          # `debubble`'s non-decreasing chemistry
+    noise: float
+    floor: float
+    # The gas, as the detection layer reports it. `events` and `arrivals` are
+    # (start, stop) index spans -- the readings the beam was shedding or
+    # taking gas on across -- so a page can shade the SPAN rather than draw a
+    # rule at one reading and imply the event was instantaneous.
+    events: tuple                  # detachments, (start, stop) index pairs
+    arrivals: tuple                # admitted arrivals, (start, index) pairs
+    released: tuple                # split_arrivals' first half, (index, gain)
+    unreleased: tuple              # ...and its second, the gas never shed
+    gas_rate: float
+    terminal_held: float
+    # How long the run went after its LAST detachment, in its own shedding
+    # intervals -- `curve_metrics.quiet_tail`. Past about 1 the run may simply
+    # have ended mid-bubble, which is where `debubble`'s "only gas watched to
+    # leave" clause stops being exactly right and starts being a systematic.
+    # The span itself starts at `times[events[-1][1]]`; a panel shades it.
+    quiet_intervals: float
+    # The four fits. `chosen` below is the one a panel's residual and
+    # derivative strips are read against.
+    progress: object               # fit_progress on the readings
+    progress_corrected: object     # ...and on the rebuilt series
+    burst: object                  # fit_burst_bounded on the readings
+    burst_corrected: object        # ...and on the rebuilt series
+
+    @property
+    def chopped(self):
+        """Whether the beam moved gas at all -- either direction."""
+        return bool(self.events) or bool(self.arrivals)
+
+    @property
+    def chemistry(self):
+        """
+        The series standing in for the reaction, and the fit to it.
+
+        The rebuilt series where there is gas to take out, the readings
+        otherwise -- and on a curve with no detachment `debubble` returns the
+        readings unchanged, so the two branches agree by construction rather
+        than by coincidence.
+        """
+        if self.events:
+            return self.corrected, self.progress_corrected
+        return self.values, self.progress_corrected
+
+    def residual(self):
+        """(chemistry - its own fit) / noise, the middle strip of a panel."""
+        values, fit = self.chemistry
+        return (values - fit.predict(self.times)) / self.noise
+
+
+_FITS = {}
+
+
+def curve_fit(curve):
+    """
+    One curve's `CurveFit`, memoised on (experiment, sample).
+
+    Keyed on the pair and not on the object because `Curve` holds numpy
+    arrays and is unhashable, and because `curves()` rebuilds it on every
+    call -- the archive is deterministic, so the pair identifies it.
+    """
+    key = (int(curve.experiment), int(curve.sample))
+    if key in _FITS:
+        return _FITS[key]
+    times = np.asarray(curve.times, dtype=float)
+    values = np.asarray(curve.absorbance, dtype=float)
+    # curve.noise, not a fresh curve_noise call: build_curves floors it by the
+    # curve's SOURCE, and a .rre curve floored at the .txt export's
+    # quantisation reports 2.4x its real noise.
+    noise = curve.noise
+    # The same floor has to reach the RATES, not just the noise. Every
+    # standard error here divides by one line_fit floors, and until
+    # 2026-09-01 that floor was hardcoded at the export's quantisation for
+    # every curve. See fit_dataset.source_floor.
+    floor = source_floor(curve.source)
+    # THE GAS. O2 from the catalysed decomposition of the peroxide grows on the
+    # window and detaches, so the readings carry a sawtooth no kinetic form can
+    # hold. `debubble` splits them into a non-decreasing chemistry and a gas
+    # made at a steady rate; `curve_metrics.bubble_profile` has the case
+    # against stitching, which is the repair that suggests itself and the one
+    # that makes it worse.
+    events = detachments(values, noise)
+    arrival_pairs = bubble_arrivals(times, values, noise, events)
+    released, unreleased = split_arrivals(arrival_pairs, events)
+    gas_rate = bubble_rate(times, values, events, arrivals=released)
+    corrected, _ = debubble(times, values, noise)
+    # An arrival's EXTENT lives only on `arrival_candidates`: `bubble_arrivals`
+    # reports (index, gain) and index is the LAST reading of the jump, so a
+    # page drawing from that alone would put a rule at the end of an event it
+    # never showed the width of.
+    arrivals = tuple(
+        (int(row["start"]), int(row["index"]))
+        for row in arrival_candidates(times, values, noise, events)
+        if row["admitted"])
+    held, _ = terminal_gas(times, corrected, events, gas_rate)
+    for array in (times, values, corrected):
+        array.setflags(write=False)
+    fit = CurveFit(
+        experiment=int(curve.experiment), sample=int(curve.sample),
+        times=times, values=values, corrected=corrected,
+        noise=float(noise), floor=float(floor),
+        events=tuple((int(a), int(b)) for a, b in events),
+        arrivals=arrivals,
+        released=tuple((int(i), float(g)) for i, g in released),
+        unreleased=tuple((int(i), float(g)) for i, g in unreleased),
+        gas_rate=float(gas_rate), terminal_held=float(held),
+        quiet_intervals=float(quiet_tail(times, events)),
+        # No `floor` argument to fit_progress: its `floor` is the TAU GRID
+        # start as a fraction of the run, not a noise floor. Passing the
+        # source floor set the grid to [span, 2*span] and made every curve
+        # look two-phase.
+        progress=fit_progress(times, values),
+        progress_corrected=fit_progress(times, corrected),
+        burst=fit_burst_bounded(times, values, noise_floor=floor),
+        burst_corrected=fit_burst_bounded(times, corrected, noise_floor=floor))
+    _FITS[key] = fit
+    return fit
+
+
+def fits(scope=TWO_AXIS_BLOCK):
+    """
+    `{(experiment, sample): CurveFit}` for a block -- what the panels draw.
+
+    The companion to `frame`: same curves, same fits, one computation. A
+    builder pairs them by (experiment, sample) so the rule it draws and the
+    number it prints come from the same object.
+    """
+    return {(c.experiment, c.sample): curve_fit(c) for c in curves(scope)}
+
+
 def frame(scope=TWO_AXIS_BLOCK):
     """
     One row per curve of the block, with every derived quantity attached.
@@ -126,37 +294,24 @@ def _frame(scope):
     """`frame`'s work, memoised on the scope. Call `frame`, not this."""
     rows = []
     for curve in curves(scope):
-        times = np.asarray(curve.times, dtype=float)
-        values = np.asarray(curve.absorbance, dtype=float)
-        # curve.noise, not a fresh curve_noise call: build_curves floors it
-        # by the curve's SOURCE, and a .rre curve floored at the .txt
-        # export's quantisation reports 2.4x its real noise.
-        noise = curve.noise
-        # The same floor has to reach the RATES, not just the noise. Every one
-        # of these divides by a standard error that line_fit floors, and until
-        # 2026-09-01 that floor was hardcoded at the export's quantisation for
-        # every curve -- suppressing the acceleration z on the .rre data this
-        # scope is entirely made of. See fit_dataset.source_floor.
-        floor = source_floor(curve.source)
+        # THE SHAPE AND THE GAS COME FROM `curve_fit`, which is also what the
+        # curves pages draw. Both used to be computed here and again in every
+        # folder's builder, so nothing could assert the drawn fit was the
+        # tabulated one -- see CurveFit.
+        shape = curve_fit(curve)
+        times, values, noise, floor = (shape.times, shape.values,
+                                       shape.noise, shape.floor)
         net = float(values[-1] - values[0])
         v0, v0_stderr, v0_rms = initial_rate(times, values, floor=floor)
         peak = peak_position(values, times)
         accel_z, accel_where = acceleration(times, values, floor=floor)
         vmax, vmax_stderr, vmax_where = peak_rate(times, values, floor=floor)
-        # THE GAS. O2 from the catalysed decomposition of the peroxide grows on
-        # the window and detaches, so the readings carry a sawtooth that no
-        # kinetic form can hold. `debubble` splits the readings into a
-        # non-decreasing chemistry and a gas made at a steady rate, and
-        # `monotone_bound` brackets it from the assumption-free side;
-        # `bubble_load` says which of the two a curve is entitled to.
-        # curve_metrics.bubble_profile has the case against stitching, which
-        # is the repair that suggests itself and the one that makes it worse.
+        # THE GAS, off `curve_fit` above. `monotone_bound` brackets it from
+        # the assumption-free side and `bubble_load` says which of the two a
+        # curve is entitled to.
         drops = bubble_drops(values, noise)
-        events = detachments(values, noise)
-        arrivals = bubble_arrivals(times, values, noise, events)
-        released, gains = split_arrivals(arrivals, events)
-        gas_rate = bubble_rate(times, values, events, arrivals=released)
-        corrected, _ = debubble(times, values, noise)
+        events, gas_rate = list(shape.events), shape.gas_rate
+        corrected = shape.corrected
         vmax_corrected, _, vmax_corrected_where = peak_rate(
             times, corrected, floor=floor)
         # THE CLOCKS GET THE SAME TREATMENT AS THE RATE. `vmax_corrected` sat
@@ -169,8 +324,8 @@ def _frame(scope):
         # clock, both of which push `d ln v - d ln tau` towards the +1 that
         # `induction.joint_clocks` tests. Fitting the same two forms to the
         # rebuilt series costs 8 ms a curve and removes the excuse.
-        progress_fixed = fit_progress(times, corrected)
-        burst_fixed = fit_burst_bounded(times, corrected, noise_floor=floor)
+        progress_fixed = shape.progress_corrected
+        burst_fixed = shape.burst_corrected
         span = float(times[-1] - times[0])
         lag_depth, lag_half, lag_peak, lag_start = progress_fixed.lag_profile(span)
         vmax_monotone, _, _ = peak_rate(
@@ -182,7 +337,8 @@ def _frame(scope):
         # `vmax_terminal` is the rate with all of it charged to gas. It is the
         # far side of a bracket and not a better estimate: an accelerating
         # curve ends steeper than it began for reasons that are not gas.
-        held, stripped = terminal_gas(times, corrected, events, gas_rate)
+        _, stripped = terminal_gas(times, corrected, events, gas_rate)
+        held = shape.terminal_held
         vmax_terminal, _, _ = peak_rate(times, stripped, floor=floor)
         # Three more rate estimators, so that "does this conclusion depend on
         # how the rate was measured" is a groupby rather than an argument.
@@ -219,7 +375,7 @@ def _frame(scope):
         # No `floor` argument: fit_progress's `floor` is the TAU GRID start as a
         # fraction of the run, not a noise floor. Passing the source floor here
         # set the grid to [span, 2*span] and made every curve look two-phase.
-        progress = fit_progress(times, values)
+        progress = shape.progress
         peak_fitted, peak_fitted_time = progress.peak_rate
         lag_depth_raw, lag_half_raw, _, _ = progress.lag_profile(span)
         # How much the curve put on before it stopped rising, off the FITTED
@@ -228,7 +384,7 @@ def _frame(scope):
         # out of any comparison between runs of different length.
         burst_rise, burst_at, burst_bounded = burst_amplitude(
             times, progress.predict(times))
-        burst = fit_burst_bounded(times, values, noise_floor=floor)
+        burst = shape.burst
         burst_pred = (burst.c + burst.v_ss * times
                       - burst.B * (1.0 - np.exp(-times / burst.tau)))
         burst_resid = model_residual(values, burst_pred, 4, noise)
@@ -463,10 +619,10 @@ def _frame(scope):
             # never shed, still in the beam at the end, and the whole of what
             # `rebuild_smoothness`'s `gas_at_end` measures. See
             # DATA_VERIFICATION.md 2026-09-08 and 2026-09-10.
-            "arrival_events": int(len(released)),
-            "arrival_total": float(sum(g for _, g in released)),
-            "gain_events": int(len(gains)),
-            "gain_total": float(sum(g for _, g in gains)),
+            "arrival_events": int(len(shape.released)),
+            "arrival_total": float(sum(g for _, g in shape.released)),
+            "gain_events": int(len(shape.unreleased)),
+            "gain_total": float(sum(g for _, g in shape.unreleased)),
             "gas_rate": gas_rate,
             "vmax_corrected": vmax_corrected,
             # WHERE the corrected rate peaks, in seconds, so a curves page can

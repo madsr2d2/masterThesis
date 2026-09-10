@@ -1066,16 +1066,35 @@ def main():
     doc.check("the corrected rate is marked wherever it moved",
               page.count(">v_max* ") == len(moved),
               f"{page.count('>v_max* ')} against {len(moved)}")
-    # The same predicate the panel draws on: resolved, positive, and inside the
-    # axis, since a clock longer than its own run has nowhere to be drawn.
-    clock = np.where(frame.bubble_events > 0, frame.tau_corrected, frame.tau)
-    clocked = frame[np.where(frame.bubble_events > 0,
-                             frame.tau_resolved_corrected, frame.tau_resolved)
-                    & np.isfinite(clock) & (clock > 0)
-                    & (clock < frame.duration_s)]
-    doc.check("and the progress fit's clock is marked wherever it resolved",
-              page.count(">τ ") == len(clocked),
-              f"{page.count('>τ ')} against {len(clocked)}")
+    # THE CLOCK DRAWN IS THE DRAWN FIT'S OWN, WHICH IS WHAT THIS CHECK USED TO
+    # GET WRONG. It counted `>τ ` against `tau_resolved`/`tau_resolved_corrected`
+    # -- `fit_burst_bounded`'s flags, the ONE-phase form -- while the line on
+    # the panel is `fit_progress`'s, which on 56 of these 110 live curves is the
+    # TWO-phase form whose clocks are τ₁ and τ₂. So the check asserted the
+    # defect: 36 panels carried a rule labelled τ taken from a model that curve
+    # had rejected, and this passed on it. Exp 137.5's read 179 s over a fit
+    # whose own clocks are 431 s and 6562 s.
+    #
+    # The predicate is now the panel's: `figure_kit._clocks` on the chemistry
+    # fit, drawn where the clock is positive and inside the run. Counted by
+    # symbol, since a two-phase panel draws τ₁ and may draw τ₂.
+    #
+    # `test_progress_panels.py` checks the VALUES against the fits, over every
+    # folder; this stays here because it is this page's own promise that no
+    # panel silently loses one.
+    from figure_kit import _clocks
+    shapes = scope.fits()
+    expected = {"τ": 0, "τ₁": 0, "τ₂": 0}
+    for key, fit in shapes.items():
+        _, chosen = fit.chemistry
+        span = float(fit.times[-1])
+        for when, name in _clocks(chosen):
+            if 0 < when < span:
+                expected[name] += 1
+    for symbol, want in expected.items():
+        doc.check(f"and the drawn fit's {symbol} is marked wherever it resolved",
+                  page.count(f">{symbol} ") == want,
+                  f"{page.count(f'>{symbol} ')} against {want}")
     held = frame[frame.terminal_gas > 0]
     doc.check("and every run that ended holding gas says so on its own panel",
               page.count("gas held<") == len(held),

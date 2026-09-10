@@ -17,15 +17,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "data"))
 sys.path.insert(0, os.path.dirname(HERE))
 
-import curve_metrics
 import induction
 import ph_role
 import scope
 from svgplot import ACCENT, esc, GRID, INK, MUTED, Axes
-from figure_kit import (CATEGORY, EVENT_BAND_COLOUR, bubble_labels, fig,
-                        panel, panel_header, progress_axes, progress_overlay,
-                        derivative_axes, residual_axes, stacked_landmarks,
-                        styled, write_pages)
+from figure_kit import (CATEGORY, CHEMISTRY_COLOUR, Mark, curves_page_title,
+                        fig, progress_panel, styled, write_pages)
 
 LADDER_COLOUR = {
     "phosphate 4OMe": CATEGORY[0],
@@ -256,7 +253,7 @@ def _mm_fit_panel(row, group, colour):
     One experiment's own MM fit: `v_peak_corrected` against [S], the fit if
     resolved.
 
-    DATA FIRST, FIT ON TOP -- `progress_overlay`'s own convention, so the
+    DATA FIRST, FIT ON TOP -- `draw_progress`'s own convention, so the
     points are drawn before the line and the line stays thin enough not to
     bury them. The axes always include y=0 (an MM curve passes through it)
     and extend far enough in x and y to hold the fitted line as well as the
@@ -331,103 +328,53 @@ CURVE_PAGE_LADDERS["boric BnOH (0.28 mM)"] = scope.BORIC_BNOH_HIGH_ENZYME_PAIR
 
 
 def build_curves_page():
-    """Every live cuvette of all six pH ladders, in pH order within each."""
+    """
+    Every live cuvette of all six pH ladders, in pH order within each.
+
+    The panel is `figure_kit.progress_panel`, the same one `two_axis/` and
+    every other folder draws — which matters here more than most, because two
+    of these six ladders ARE the two-axis block and a reader comparing them
+    across the two pages must not be comparing two drawings.
+    """
     sections = []
     total = 0
     for name, exps in CURVE_PAGE_LADDERS.items():
         frame = scope.frame(exps)
-        lookup = {(c.experiment, c.sample): c for c in scope.curves(exps)}
+        shapes = scope.fits(exps)
         panels = []
         for row in frame[frame.live].sort_values(
                 ["pH", "experiment", "s0"]).itertuples():
-            curve = lookup.get((row.experiment, row.sample))
-            if curve is None:
+            fit = shapes.get((row.experiment, row.sample))
+            if fit is None:
                 continue
-            times = np.asarray(curve.times, dtype=float)
-            values = np.asarray(curve.absorbance, dtype=float)
-            # THE GAS, DRAWN -- the same panel two_axis/ uses, brought here
-            # because this folder's own boric ladder is the archive's other
-            # heavy gasser (scope.gas_survey). A fit to a curve the O2 has
-            # moved is a fit to the O2, so the raw readings, the corrected
-            # series and both fits are drawn, not just asserted in prose.
-            corrected, events = curve_metrics.debubble(times, values,
-                                                       curve.noise)
-            chopped = len(events) > 0
-            axes, radius = progress_axes(times, values, limit=140,
-                                         companion=corrected if chopped
-                                         else None, pad=(56, 12, 10, 20))
-            bands = []
-            if chopped:
-                for start, stop in events:
-                    bands.append((float(times[start]), float(times[stop])))
-                for lo, hi in bands:
-                    axes.band([lo, hi], [axes.ylim[0], axes.ylim[0]],
-                             [axes.ylim[1], axes.ylim[1]], EVENT_BAND_COLOUR,
-                             opacity=0.14)
-                axes.line(times, corrected, CATEGORY[2], width=1.0,
-                         dash="3 2", opacity=0.85)
-                corrected_fit = progress_overlay(axes, times, corrected,
-                                                 colour=CATEGORY[2],
-                                                 mark_radius=radius)
-            raw_fit = progress_overlay(axes, times, values,
-                                       mark_radius=radius)
-            chem_fit = corrected_fit if chopped else raw_fit
-            chem_values = corrected if chopped else values
-            residual = (chem_values - chem_fit.predict(times)) / curve.noise
-            rax = residual_axes(times, residual,
-                                colour=(CATEGORY[2] if chopped else ACCENT),
-                                bands=bands)
-            drax = derivative_axes(times, chem_fit,
-                                   colour=(CATEGORY[2] if chopped else ACCENT),
-                                   bands=bands)
-            # STACKED, ACROSS ALL THREE PANELS -- see two_axis/build_figures.py
-            # for the full rationale. Same landmarks, same colours, so a
-            # reader moving between the two folders' curves pages reads them
-            # the same way.
-            stack = [axes, rax, drax]
-            if np.isfinite(row.vmax_time_s) and row.vmax_time_s > 0:
-                stacked_landmarks(stack, [float(row.vmax_time_s)],
-                                  [f"v_max {row.vmax:.2e}"],
-                                  colour=CATEGORY[0])
+            chopped = bool(fit.events)
+            marks = [Mark(row.vmax_time_s, f"v_max {row.vmax:.2e}",
+                          "20% block", CATEGORY[0])]
             if (chopped and np.isfinite(row.vmax_corrected_time_s)
-                    and abs(row.vmax_corrected_time_s - row.vmax_time_s)
-                    > 1.0):
-                stacked_landmarks(stack, [float(row.vmax_corrected_time_s)],
-                                  [f"v_max* {row.vmax_corrected:.2e}"],
-                                  colour=CATEGORY[2], row=1)
-            clock = row.tau_corrected if chopped else row.tau
-            resolved = (row.tau_resolved_corrected if chopped
-                       else row.tau_resolved)
-            if resolved and np.isfinite(clock) and 0 < clock < times[-1]:
-                stacked_landmarks(stack, [float(clock)], [f"τ {clock:.0f} s"],
-                                  colour=CATEGORY[1], row=2)
-            if chopped:
-                edges = [float(times[start]) for start, _ in events]
-                stacked_landmarks(stack, edges,
-                                  bubble_labels(len(edges),
-                                               row.terminal_gas > 0),
-                                  colour=GRID, row=3)
-            panels.append(panel(
-                panel_header(row.experiment, row.sample, row.pH,
-                            [f"[{row.substrate}] = {row.s0:.3f} mM",
-                             f"[H₂O₂] = {row.h2o2:g} mM",
-                             f"[{row.buffer.lower()}] = {row.buf:g} mM"],
-                            row.phases),
+                    and abs(row.vmax_corrected_time_s - row.vmax_time_s) > 1.0):
+                marks.append(Mark(row.vmax_corrected_time_s,
+                                  f"v_max* {row.vmax_corrected:.2e}",
+                                  "20% block, rebuilt", CHEMISTRY_COLOUR))
+            panels.append(progress_panel(
+                fit, row,
+                [f"[{row.substrate}] = {row.s0:.3f} mM",
+                 f"[H₂O₂] = {row.h2o2:g} mM",
+                 f"[{row.buffer.lower()}] = {row.buf:g} mM"],
                 f"{LADDER_LABEL[name]} · {row.temperature:.0f} °C · "
                 f"{int(row.points)} readings over "
                 f"{row.duration_s / 3600:.1f} h · {row.source}",
-                axes.render("", "ΔA", xticks=False)
-                + rax.render("", "z", xticks=False)
-                + drax.render("time, s", "dA/dt"),
-                # Trimmed: phase count and vmax's VALUE are already carried
-                # by the header (the fitted function's own shape) and the
-                # v_max landmark on the plot itself.
-                f"{esc(str(row.progress_kind))} · "
-                f"bubble_load {row.bubble_load:.2f}"
-                + ("" if not chopped else
-                   f" · <span style='color:{CATEGORY[2]}'>{len(events)} O₂ "
-                   f"detachment" + ("s" if len(events) > 1 else "")
-                   + f", rebuilt v_max {row.vmax_corrected:.2e}</span>")))
+                footer=(
+                    f"{esc(str(row.progress_kind))} · "
+                    f"bubble_load {row.bubble_load:.2f}"
+                    + ("" if not chopped else
+                       f" · <span style='color:{CHEMISTRY_COLOUR}'>"
+                       f"{len(fit.events)} O₂ detachment"
+                       + ("s" if len(fit.events) > 1 else "")
+                       + f", rebuilt v_max {row.vmax_corrected:.2e}</span>")
+                    + ("" if not fit.arrivals else
+                       f" · {len(fit.arrivals)} arrival"
+                       + ("s" if len(fit.arrivals) > 1 else ""))),
+                marks=marks))
         total += len(panels)
         section = f"<h2>{esc(LADDER_LABEL[name])}</h2>"
         if name in ph_role.MM_LADDERS:
@@ -435,20 +382,33 @@ def build_curves_page():
         section += "<div class='grid three'>" + "".join(panels) + "</div>"
         sections.append(section)
     body = (f"<p class='lede'>All {total} live cuvettes of the archive's "
-            "four pH ladders (`scope.PH_LADDERS`) plus BnOH's own boric "
-            "buffer runs, in two enzyme tiers: `scope.PH_LADDER_BORIC_BNOH` "
-            "(exps 60-62, 0.014 mM) and `scope.BORIC_BNOH_HIGH_ENZYME_PAIR` "
-            "(exps 51 and 55, 0.28 mM -- the loading `PH_LADDER_BORIC` "
-            "itself uses), neither pooled into the four-ladder order, "
-            "grouped by ladder and sorted by pH within each. The rust line is "
-            "whichever form the curve earned, from "
-            "`summary_kinetics.fit_progress`; nothing is excluded. Every "
-            "ladder except the two pyrophosphate arms also carries its own "
-            "per-experiment Michaelis-Menten fit ahead of the cuvette grid "
-            "(ANALYSIS.md §3a-§3c).</p>" + "".join(sections))
-    return styled("The pH ladders — every progress curve", body,
-                 "Phosphate and boric 4OMe, boric BnOH (two enzyme tiers), "
-                 "pyrophosphate BnOH (135-151)")
+            "four pH ladders (<code>scope.PH_LADDERS</code>) plus BnOH's own "
+            "boric buffer runs, in two enzyme tiers: "
+            "<code>scope.PH_LADDER_BORIC_BNOH</code> (exps 60-62, 0.014 mM) "
+            "and <code>scope.BORIC_BNOH_HIGH_ENZYME_PAIR</code> (exps 51 and "
+            "55, 0.28 mM — the loading <code>PH_LADDER_BORIC</code> itself "
+            "uses), neither pooled into the four-ladder order, grouped by "
+            "ladder and sorted by pH within each. Every ladder except the two "
+            "pyrophosphate arms also carries its own per-experiment "
+            "Michaelis-Menten fit ahead of the cuvette grid (ANALYSIS.md "
+            "§3a-§3c).</p>"
+            "<p class='lede'>The rust line is whichever form the curve earned, "
+            "from <code>summary_kinetics.fit_progress</code>, and the dashed "
+            "verticals are <strong>that fit's own clocks</strong> — τ, and τ₂ "
+            "where its profile interval resolves. The dotted line is the "
+            "asymptote <code>c − ΣB + v_ss·t</code>, so <code>v_ss</code> is "
+            "its slope and <code>ΣB</code> its distance from the curve at "
+            "t = 0. A mark in brackets is a different estimator and names it: "
+            "<em>v_max (20% block)</em> is the steepest 20% window of the "
+            "readings, not a fitted parameter. Where a curve carries gas, "
+            "purple is the reconstruction "
+            "(<code>curve_metrics.debubble</code>), amber spans are "
+            "detachments and blue spans arrivals. Boric above pH 8.5 is the "
+            "archive's heaviest gassing (§4), so those panels carry the most "
+            "of it. Nothing is excluded.</p>" + "".join(sections))
+    return styled(curves_page_title("The pH ladders"), body,
+                  "Phosphate and boric 4OMe, boric BnOH (two enzyme tiers), "
+                  "pyrophosphate BnOH (135-151)")
 
 
 def build_index():

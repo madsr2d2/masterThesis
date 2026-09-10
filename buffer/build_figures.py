@@ -21,9 +21,8 @@ import buffer_role
 import induction
 import scope
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc, page, PAGE_CSS
-from figure_kit import (CATEGORY, PH_RAMP, SURFACE, breakpoints,
-                        derivative_axes, fig, panel, progress_axes,
-                        progress_overlay, residual_axes, styled, write_pages)
+from figure_kit import (CATEGORY, PH_RAMP, SURFACE, Mark, curves_page_title,
+                        fig, progress_panel, styled, write_pages)
 
 
 
@@ -286,46 +285,44 @@ def build_curves_page():
     read off `v_peak` and off a landmark whose window is 450 SECONDS, chosen
     because exps 32 and 34 differ in length and a window given as a share of
     the run would be two different windows. That is exactly the sort of choice
-    that has to be visible on the curves rather than argued for in prose, and
-    the folder had no page showing it.
+    that has to be visible on the curves rather than argued for in prose.
+
+    The landmark is a `figure_kit.Mark` and carries its window in its own
+    label, because it is NOT a parameter of the fitted function the panel
+    draws — it is a rolling-window crossing, and the whole of section 4c
+    turns on which window it was read through.
     """
     frame = scope.frame(buffer_role.TITRATIONS)
+    shapes = scope.fits(buffer_role.TITRATIONS)
     lookup = {(c.experiment, c.sample): c
               for c in scope.curves(buffer_role.TITRATIONS)}
     panels = []
     for row in frame.sort_values(["pH", "experiment", "buf"]).itertuples():
-        curve = lookup.get((row.experiment, row.sample))
-        if curve is None:
+        fit = shapes.get((row.experiment, row.sample))
+        if fit is None:
             continue
-        times = np.asarray(curve.times, dtype=float)
-        values = np.asarray(curve.absorbance, dtype=float)
-        axes, radius = progress_axes(times, values, limit=140)
-        progress = progress_overlay(axes, times, values, mark_radius=radius)
-        found = induction.buffer_landmark(curve)
-        marks, labels = [], []
+        found = induction.buffer_landmark(lookup[(row.experiment, row.sample)])
+        marks = []
         if np.isfinite(found.t_ind) and found.t_ind > 0:
-            marks.append(found.t_ind)
-            labels.append("t_ind")
-        breakpoints(axes, marks, labels, colour=CATEGORY[0])
-        residual = (values - progress.predict(times)) / curve.noise
-        rax = residual_axes(times, residual, colour=CATEGORY[0])
-        drax = derivative_axes(times, progress, colour=CATEGORY[0])
-        panels.append(panel(
-            f"[buf] = {row.buf:g} mM · pH {row.pH:.2f}"
-            f"<span class='pill'>exp {int(row.experiment)}</span>",
-            f"[S] {row.s0:.3f} mM · [H₂O₂] {row.h2o2:g} mM · "
-            f"{row.temperature:.0f} °C · {int(row.points)} readings over "
+            marks.append(Mark(found.t_ind, "t_ind",
+                              f"{induction.BUFFER_WINDOW:.0f} s window",
+                              CATEGORY[0]))
+        panels.append(progress_panel(
+            fit, row,
+            [f"[{row.buffer.lower()}] = {row.buf:g} mM",
+             f"[{row.substrate}] = {row.s0:.3f} mM",
+             f"[H₂O₂] = {row.h2o2:g} mM",
+             f"{row.temperature:.0f} °C"],
+            f"{int(row.points)} readings over "
             f"{row.duration_s / 60:.0f} min · {row.source}",
-            axes.render("", "ΔA") + rax.render("", "z")
-            + drax.render("time, s", "dA/dt"),
-            f"<strong>{int(row.phases)} phase"
-            + ("s" if row.phases == 2 else "")
-            + f"</strong> · {esc(str(row.progress_kind))} "
-            f"· F = {row.two_phase_f:.0f}"
-            f" · v_peak {row.v_peak:.2e}"
-            + (f" · t_ind {found.t_ind:.0f} s · depth {found.depth:.3f}"
-               if np.isfinite(found.t_ind) else " · no landmark")
-            + ("" if row.live else " · <strong>NOT LIVE</strong>")))
+            footer=(
+                f"{esc(str(row.progress_kind))} "
+                f"· F = {row.two_phase_f:.0f}"
+                f" · v_peak {row.v_peak:.2e}"
+                + (f" · t_ind {found.t_ind:.0f} s · depth {found.depth:.3f}"
+                   if np.isfinite(found.t_ind) else " · no landmark")
+                + ("" if row.live else " · <strong>NOT LIVE</strong>")),
+            marks=marks))
     order = induction.buffer_order(induction.buffer_lever(
         induction.induction_table(induction.WHOLE_ARCHIVE)))
     body = (f"<p class='lede'>All {len(panels)} cuvettes of the five buffer "
@@ -341,18 +338,22 @@ def build_curves_page():
             f"<strong>{induction.BUFFER_WINDOW:.0f} seconds</strong> — in "
             "seconds, not as a share of the run, because exps 32 and 34 ran "
             "5280 s and 1767 s and a fractional window would be two different "
-            "windows. Section 6's joint order and section 4c's "
-            f"<code>{order['slope']:+.3f} ± {order['stderr']:.3f}</code> are "
-            "read off these two quantities: the peak rate and this landmark."
-            "</p>"
+            "windows. It is labelled with that window for the same reason, and "
+            "in brackets because it is a rolling-window crossing rather than a "
+            "parameter of the function each header prints. Section 6's joint "
+            f"order and section 4c's <code>{order['slope']:+.3f} ± "
+            f"{order['stderr']:.3f}</code> are read off these two quantities: "
+            "the peak rate and this landmark.</p>"
             "<p class='lede'><strong>Exps 32 and 34 earn different model "
             "forms</strong>, and it is visible here: every curve of exp 34 "
             "takes the two-phase form and every curve of exp 32 the one-phase, "
             "because exp 34's runs are long enough to contain the slow fall "
-            "and exp 32's end before it. That is why nothing on this page "
-            "compares a time constant between the two runs.</p>"
+            "and exp 32's end before it. Read it off the headers, which print "
+            "the form each curve earned, and off the clocks — a two-phase "
+            "panel carries τ₁ and a one-phase panel τ. That is why nothing on "
+            "this page compares a time constant between the two runs.</p>"
             "<div class='grid three'>" + "".join(panels) + "</div>")
-    return styled("The buffer titrations — every progress curve", body,
+    return styled(curves_page_title("The buffer titrations"), body,
                   "Exps 32, 34, 35, 36, 37 · 4OMe-BnOH · 40 °C · phosphate")
 
 

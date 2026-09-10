@@ -265,12 +265,62 @@ light `SURFACE` its palette was validated against.
   silently and the figure still looks finished, so the build has to say so.
 - **Every folder has a `progress_curves.html`**, and it is the audit surface:
   `index.html` presents the argument, the curves page shows the fits the
-  argument is read off. Build one with `progress_axes`, `progress_overlay` and
-  `panel`; `progress_overlay` draws WHICHEVER FORM THE CURVE EARNED and asserts
-  the fit is narrower than a mark. Draw the window a statistic was read
-  through, and take it from the fit -- `sink_fit.tail_start` exists because a
-  page that guessed the tail would draw a different window from the one that
-  was fitted.
+  argument is read off. **There is ONE way to draw one and it is
+  `figure_kit.progress_panel`.** `test_progress_panels.py` fails if a folder
+  calls `progress_axes`, `residual_axes`, `derivative_axes`, `draw_progress`,
+  `stacked_landmarks` or `breakpoints` itself. There were EIGHT copies until
+  2026-09-12, about 890 lines: `two_axis` and `ph` were ~70 lines of
+  byte-comparable code differing in line wrapping, `temperature_series` and
+  `background_reaction` built their own `Axes`, and the eight marked eight
+  different vocabularies on the same object. Draw the window a statistic was
+  read through, as a `figure_kit.Region`, and take it from the fit --
+  `sink_fit.tail_start` exists because a page that guessed the tail would draw
+  a different window from the one that was fitted.
+- **THE FIT IS MADE ONCE, IN `scope.curve_fit`, AND THE PANEL DRAWS THAT
+  OBJECT.** `scope.frame` is that object flattened; `scope.fits(scope)` hands
+  out the objects themselves, memoised, with read-only arrays. Until
+  2026-09-12 the fit was made twice -- once in `_frame` for the numbers and
+  again in the builder for the line -- so nothing could assert that the curve
+  a panel DREW was the curve its footer QUOTED. **That gap was live.**
+  `frame`'s `tau` is `fit_burst_bounded`'s clock, the ONE-phase form, and the
+  drawn line is `fit_progress`'s; on **36 of the two-axis block's 110 live
+  curves** the drawn form was the TWO-phase one, whose clocks are `tau_fast`
+  and `tau_slow`. Exp 137.5 carried a rule labelled `tau 179 s` over a fit
+  whose own clocks are 431 s and 6562 s; exp 138.3's read 9067 s against
+  3298 s and 3779 s. Archive-wide it is 92 of 386 live curves.
+  `two_axis/check_numbers.py` counted that rule against `tau_resolved` and
+  passed on it, which is what a check written from the same misunderstanding
+  as the code does.
+- **A PANEL MARKS THE PARAMETERS OF THE FUNCTION IT DRAWS, AND EVERYTHING ELSE
+  NAMES ITS ESTIMATOR.** Not one of the eight vocabularies marked a parameter
+  of `A(t) = c + v_ss*t - sum B_i(1 - e^(-t/tau_i))`: `v_max` is
+  `curve_metrics.peak_rate`, the steepest 20% block slope of the READINGS,
+  and `vmax_time_s` sits a whole run from `v_peak_time` on some curves (exp
+  138.1: 2850 s against 0 s); `t_ind` is a rolling-window crossing; a
+  breakpoint is a piecewise-linear segmentation; `tail_start` is a rolling
+  rate's maximum. Every panel now draws `tau` (and `tau_2` where its profile
+  interval resolves) as rules from the fit ACTUALLY DRAWN, the asymptote
+  `c - sum B + v_ss*t` as a dotted line -- so `v_ss` is its slope and `sum B`
+  its distance from the curve at t = 0, and a slope stops being marked with a
+  vertical -- and `v_peak` on the DERIVATIVE strip, where it is the maximum
+  rather than a guess at one. Anything else is a `figure_kit.Mark` and renders
+  as `v_max 8.7e-05 (20% block)`. The set of permitted sources is closed and
+  `test_progress_panels.py` holds it.
+- **AND THE PANEL DRAWS THE GAS IN BOTH DIRECTIONS.** Detachment spans in
+  amber, arrival spans in blue, a quiet tail past one shedding interval
+  greyed, `terminal_gas` on the last detachment's own label. **Arrivals were
+  drawn on NO published page at all until 2026-09-12** -- only in
+  `scratch/build_detection_review.py` -- though `bubble_arrivals` and
+  `split_arrivals` are the correction that moved `joint_clocks`' `tau_slow`
+  row to +0.757 +/- 0.289. `figure_kit.ARRIVAL_BAND_COLOUR` was meanwhile
+  `#8a5aa8`, byte-identical to the reconstruction's own line colour, and
+  nothing caught that either, because nothing used it. It is `#2f6fb0` now.
+- **The page title is `<block> — every progress curve`, in every folder**
+  (`figure_kit.curves_page_title`), and the panel header is
+  `figure_kit.panel_header`, which prints the fitted function itself rather
+  than "the fitted curve" or a phase count. Four of the eight titles said
+  something else and six of the eight headers were hand-rolled. The count
+  goes in the SUBTITLE, where it can change without the title changing.
 - **A curves page shows the whole block, including the control.** `induction/`
   draws both channels because its first claim is a contrast, and a page with
   only the catalysed half would show only the half that agrees. Each folder's

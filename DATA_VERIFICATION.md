@@ -8,6 +8,92 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-12 — the curves pages marked a clock from a model the curve rejected
+
+**What was wrong.** Every folder's `progress_curves.html` drew its progress fit
+by calling `figure_kit.progress_overlay(axes, times, values)`, which fitted the
+curve itself — a *second* fit, independent of the one `scope._frame` had
+already made for the numbers in the same panel's footer. Nothing could assert
+the two agreed, and on the two folders that marked a time constant they did
+not.
+
+`scope.frame`'s `tau` is `fit_burst_bounded(...).tau`: the **one-phase** bounded
+burst form, `A = c + v_ss·t − B(1 − e^(−t/τ))`. The line the panel draws is
+`fit_progress`'s, which returns whichever of the one- and two-phase forms the
+curve earns on an F test. Where a curve earned two phases, the panel drew a
+two-phase curve, printed the two-phase function in its own header, and then
+marked a vertical labelled `τ` whose value came from the one-phase fit — a
+parameter of a model that curve had been tested against and rejected.
+
+**How much.** 36 of the two-axis block's 110 live curves (56 are two-phase; 36
+of those also have `tau_resolved_corrected`), and **92 of the archive's 386**
+live curves. The rules were not close to the drawn curve's own clocks:
+
+| curve | drawn as `τ` | the drawn fit's τ₁ | τ₂ | τ₂ quotable? |
+|---|---|---|---|---|
+| 137.5 | 179 s | 431 s | 6562 s | no |
+| 138.3 | 9067 s | 3298 s | 3779 s | no |
+| 138.2 | 46401 s | 491 s | 19348 s | yes |
+| 145.5 | 6526 s | 98 s | 1493 s | yes |
+
+(138.3 detaches, so its drawn fit is the rebuilt series' — its *readings'* fit
+gives 2512 s and 3298 s. Quoting that pair in CLAUDE.md was the first thing the
+new gate caught. On a curve that earned ONE phase the two mostly agree —
+`fit_progress`'s own one-phase branch and `fit_burst_bounded` are different
+functions but land within a second on 55 of the block's 56 one-phase chemistry
+fits. The exception is exp 135.1, at 15118 s drawn against 63 s in the frame.
+So the defect is concentrated in the two-phase curves, where it is structural
+rather than numerical: there is no bare `τ` in that model at all.)
+
+**Nothing published moves.** No number in any `ANALYSIS.md` is read off a
+drawn rule; `tau` and `tau_slow` reach `induction.joint_clocks` from the frame,
+where they were always the quantities their own docstrings say. This was a
+drawing defect on the audit surfaces, which is exactly where a reader goes to
+check a fit by eye — and it is the third fault in this repository found by
+looking at a panel rather than by a test.
+
+**Why it survived.** `two_axis/check_numbers.py` counted `>τ ` against
+`tau_resolved`/`tau_resolved_corrected` and passed, because the check was
+written from the same misunderstanding as the code. It now counts each symbol
+against `figure_kit._clocks` on the fit the panel actually draws.
+
+**What else was found in the same pass.**
+
+- **Arrivals were drawn on no published page at all.** `bubble_arrivals` and
+  `split_arrivals` are the 2026-09-10 correction that put `joint_clocks`'
+  `tau_slow` row at +0.757 ± 0.289, and the archive's 80 arrivals appeared
+  only in `scratch/build_detection_review.py`. The eight audit surfaces showed
+  the falls and not the rises.
+- **`figure_kit.ARRIVAL_BAND_COLOUR` was `#8a5aa8`** — byte-identical to
+  `CATEGORY[2]`, the colour the reconstruction's own line and fit are drawn in.
+  In the one file whose purpose is that colours are declared once. Nothing
+  caught it because no folder used the constant. It is `#2f6fb0` now.
+- **Not one of the eight vocabularies marked a fitted parameter.** `v_max` is
+  `curve_metrics.peak_rate`, the steepest 20% block slope of the *readings*;
+  on exp 138.1 it sits at 2850 s where the fit's own `v_peak_time` is 0 s.
+  `t_ind` is a rolling-window crossing, a breakpoint a piecewise-linear
+  segmentation, `tail_start` a rolling rate's maximum.
+
+**The repair.** `scope.curve_fit(curve)` is now the one place a curve's shape
+and gas are computed — memoised, frozen arrays — and `scope._frame` reads it,
+so the frame is that object flattened and `scope.fits(scope)` hands the objects
+to the builders. `figure_kit.progress_panel` is the one way to draw a panel;
+the eight `build_curves_page` bodies became folder glue. Every panel now marks
+`τ`/`τ₁`/`τ₂` from the fit drawn, the asymptote `c − ΣB + v_ss·t` (so `v_ss` is
+a slope and no longer wants a vertical, and `ΣB` is readable off the drawing),
+`v_peak` on the derivative strip where it is exact, and the gas in both
+directions. Anything else is a `figure_kit.Mark` rendering as
+`v_max 8.7e-05 (20% block)`.
+
+**Verification.** `scope.frame(scope.archive())` is byte-identical before and
+after the refactor — 402 rows × 115 columns, `pandas.testing.assert_frame_equal`
+clean — so no derived quantity moved. New gate `test_progress_panels.py`
+(13 checks) holds the contract, including a structural check that no folder
+calls a panel primitive itself; `test_root_documents.py` gained 15 claims for
+the numbers above. All 27 routine gates pass, plus the optimiser suite.
+
+---
+
 ## 2026-09-11 — the bubble detection layer rewritten as segmentation
 
 `BUBBLE_REWRITE.md` was the plan; this is the record, and that file is now

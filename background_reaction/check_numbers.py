@@ -459,12 +459,20 @@ def main():
     # no mark was drawn -- it did, on exp 3 samples 1 and 6, and it reads as a
     # flag on nothing. Checked against the rendered SVG rather than the code
     # that emits it, because the two sets are built separately.
+    #
+    # THE RADIUS IS NOT HARDCODED HERE ANY MORE. It was `r='1.7'`, this
+    # folder's own mark radius while it built its own `Axes`; since 2026-09-12
+    # the panel is `figure_kit.progress_panel` and `progress_axes` picks 1.6 or
+    # 2.1 by density. A check that names a radius passes or fails on a drawing
+    # decision made in another file, so it matches any small filled circle and
+    # lets the ring radius be the only literal.
     page_text = io.open(CURVES_PAGE, encoding="utf-8").read()
     orphans = []
     for panel in re.split(r"<div class='ph'>", page_text)[1:]:
         name = panel.split("<")[0]
         marks = set(re.findall(
-            r"<circle cx='([-\d.]+)' cy='([-\d.]+)' r='1.7' fill='#", panel))
+            r"<circle cx='([-\d.]+)' cy='([-\d.]+)' r='[012]\.\d+' fill='#",
+            panel))
         for spot in re.findall(
                 r"<circle cx='([-\d.]+)' cy='([-\d.]+)' r='6.0' fill='none'",
                 panel):

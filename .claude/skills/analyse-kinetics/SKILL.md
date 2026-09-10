@@ -93,6 +93,20 @@ df = frame()      # the two-axis block; pass a block for any other
 `frame()` columns: `experiment sample pH s0 h2o2 e0 hoo duration_s points
 noise net live v0 v0_stderr v0_rms peak lags late_over_early`.
 
+**`frame` is `scope.curve_fit` flattened.** That function is the one place a
+curve's shape and its gas are computed — both progress fits, both bounded
+burst fits, `debubble`, the detachments and the arrivals — memoised per
+`(experiment, sample)`, with read-only arrays. `scope.fits(scope)` hands out
+the objects themselves, keyed the same way, and is what
+`figure_kit.progress_panel` draws. Reach for it when you need the FIT and not
+a column off it — the phases, `chosen`, `predict`, `rate`, `lag_profile`, the
+event spans. **Do not call `fit_progress` on a curve yourself**: a second fit
+is how the curves pages came to mark a clock from a model the curve had
+rejected, on 92 of the archive's 386 live curves (DATA_VERIFICATION.md
+2026-09-12). And note which fit a column came from — `tau` and `v_ss` are
+`fit_burst_bounded`'s, the one-phase form, while `tau_fast`/`tau_slow` and
+`v_peak` are `fit_progress`'s.
+
 Most questions are a groupby on that frame, not a new script:
 
 ```python

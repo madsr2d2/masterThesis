@@ -27,9 +27,8 @@ from curve_metrics import (ACCELERATION_SIGMA, SEGMENT_RATIO_STEEP,
 from fit_dataset import source_floor
 from summary_kinetics import fit_burst_bounded, fit_progress
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc, page, PAGE_CSS
-from figure_kit import (CATEGORY, FIT_WIDTH, RUNGS, SURFACE,
-                        TEMPERATURES, breakpoints, derivative_axes, fig,
-                        panel, progress_overlay, residual_axes, styled,
+from figure_kit import (CATEGORY, FIT_WIDTH, RUNGS, SURFACE, TEMPERATURES,
+                        Mark, curves_page_title, fig, progress_panel, styled,
                         write_pages)
 
 # RUNGS, TEMPERATURES, CATEGORY, SURFACE and FIT_WIDTH come from figure_kit
@@ -470,72 +469,85 @@ def figure_eyring():
 
 # --- the progress curves --------------------------------------------------
 def build_curves_page():
+    """
+    All 24 curves of the temperature series, in temperature order.
+
+    THE PANEL IS `figure_kit.progress_panel`, shared with every other folder
+    since 2026-09-12. This page built its own `Axes` and drew its own marks
+    until then -- a copy of `progress_axes`' body, five lines of it, that had
+    to be kept in step with the original by hand.
+
+    The breakpoints are `Mark`s. They come from
+    `curve_metrics.segment_selection`, a piecewise-linear description, and are
+    not parameters of the relaxation form the header prints -- which is the
+    whole reason the footer says to read the PATTERN and not the COUNT: three
+    straight lines fit a smooth bend better than two whether or not anything
+    happened.
+    """
     frame = _series()
     rungs = sorted(frame.s0.unique())
     temperatures = sorted(frame.temperature.unique())
-    curves = {(c.temperature, round(float(c.conditions.s0), 3)): c
-              for c in scope.curves(scope.TEMPERATURE_SERIES)}
+    shapes = scope.fits(scope.TEMPERATURE_SERIES)
+    keys = {(c.temperature, round(float(c.conditions.s0), 3)):
+            (c.experiment, c.sample)
+            for c in scope.curves(scope.TEMPERATURE_SERIES)}
     panels = []
     for temperature in temperatures:
-        row = frame[frame.temperature == temperature]
+        rows = frame[frame.temperature == temperature]
         for s0 in rungs:
-            curve = curves.get((temperature, round(float(s0), 3)))
-            if curve is None:
+            key = keys.get((temperature, round(float(s0), 3)))
+            if key is None or key not in shapes:
                 continue
-            times = np.asarray(curve.times, dtype=float)
-            values = np.asarray(curve.absorbance, dtype=float)
-            record = row[np.isclose(row.s0, s0)].iloc[0]
-            axes = Axes(340, 210, (0, times[-1] * 1.02),
-                        (min(values.min(), 0) * 1.1 - 1e-4,
-                         max(values.max(), 1e-4) * 1.12),
-                        pad=(56, 12, 34, 20))
-            # The readings first and the fit over them; `progress_overlay`
-            # carries the reason and asserts the width against the radius.
-            dense = len(times) > 150
-            radius = 1.6 if dense else 2.1
-            axes.points(times, values, MUTED, radius=radius,
-                        opacity=0.75 if dense else 0.9,
-                        stroke=None if dense else "white", stroke_width=0.6)
-            progress = progress_overlay(axes, times, values,
-                                        mark_radius=radius)
-            breakpoints(axes, record.break_times)
-            kind = progress.chosen.kind
-            residual = (values - progress.predict(times)) / curve.noise
-            rax = residual_axes(times, residual)
-            drax = derivative_axes(times, progress)
-            panels.append(panel(
-                f"{temperature:.0f} °C · [S] = {s0:.3f} mM"
-                f"<span class='pill'>exp {int(record.experiment)}</span>",
-                f"[buf] {record.buf:.0f} mM · "
-                f"{int(record.points)} readings over "
-                f"{record.duration_s / 60:.0f} min · {record.source}",
-                axes.render("", "ΔA at 300 nm") + rax.render("", "z")
-                + drax.render("time, s", "dA/dt"),
-                f"<strong>{int(record.phases)} phase"
-                + ("s" if record.phases == 2 else "")
-                + f"</strong> · {esc(kind)} · F = {record.two_phase_f:.0f}"
-                + f" · fit {record.progress_resid:.2f}x noise"
-                + (f" · τ₁ = {record.tau_fast:.0f} s" if record.phases == 2
-                   else (f" · τ = {record.tau:.0f} s" if record.tau_resolved
-                         else " · τ unresolved"))
-                + " · breaks at "
-                + (", ".join(f"{v:.0f}" for v in record.break_times) + " s"
-                   if record.break_times else "none")
-                + f" · <strong>{esc(record.break_pattern)}</strong>"))
+            fit = shapes[key]
+            record = rows[np.isclose(rows.s0, s0)].iloc[0]
+            marks = [Mark(when, f"break {index + 1}", "piecewise fit", MUTED)
+                     for index, when in enumerate(record.break_times)]
+            panels.append(progress_panel(
+                fit, record,
+                [f"[{record.substrate}] = {s0:.3f} mM",
+                 f"[H₂O₂] = {record.h2o2:g} mM",
+                 f"[{record.buffer.lower()}] = {record.buf:.0f} mM",
+                 f"{temperature:.0f} °C"],
+                f"exp {int(record.experiment)} · {int(record.points)} readings "
+                f"over {record.duration_s / 60:.0f} min · {record.source}",
+                footer=(
+                    f"{esc(str(record.progress_kind))} "
+                    f"· F = {record.two_phase_f:.0f}"
+                    + f" · fit {record.progress_resid:.2f}x noise"
+                    + " · breaks at "
+                    + (", ".join(f"{v:.0f}" for v in record.break_times) + " s"
+                       if len(record.break_times) else "none")
+                    + f" · <strong>{esc(record.break_pattern)}</strong>"),
+                marks=marks))
     body = ("<p class='lede'>All 24 curves of the temperature series, in "
-            "temperature order. The orange line is whichever form the curve "
+            "temperature order. The rust line is whichever form the curve "
             "earned — one relaxation or two — from "
-            "<code>summary_kinetics.fit_progress</code>; the numbered dashed "
+            "<code>summary_kinetics.fit_progress</code>, the dashed verticals "
+            "are <strong>that fit's own clocks</strong> (τ, and τ₂ where its "
+            "profile interval resolves), and the dotted line is its asymptote "
+            "<code>c − ΣB + v_ss·t</code>. Every parameter of the function "
+            "printed in each header is therefore visible on the drawing: "
+            "<code>v_ss</code> as the asymptote's slope, <code>ΣB</code> as "
+            "its distance from the curve at t = 0, τ as a rule.</p>"
+            "<p class='lede'><strong>Do not put <code>v_ss</code> on an "
+            "Arrhenius plot where two phases were selected</strong> — it is an "
+            "extrapolation far outside the data and comes out negative on two "
+            "of the 35 °C curves. Section 4 uses <code>v_peak</code>, marked "
+            "on each derivative strip at its maximum, which is where the "
+            "fitted rate actually peaks rather than where a window says it "
+            "does.</p>"
+            "<p class='lede'>The grey <em>break n (piecewise fit)</em> "
             "verticals are the breakpoints of the best piecewise-linear "
             "description (<code>curve_metrics.segment_selection</code>), one "
-            "or two according to an F test. <strong>Read the pattern in the "
-            "footer, not the number of breaks</strong>: three straight lines "
-            "fit a smooth bend better than two whether or not anything "
-            "happened, so the count is a statement about approximation and the "
-            "sequence of slopes is the statement about the curve. Nothing is "
-            "excluded and "
-            "every fit is computed on every point — except the instrument's "
-            "first reading, which is discarded from every run in the archive "
+            "or two according to an F test — a different estimator from the "
+            "relaxation form drawn over them, which is why they are bracketed. "
+            "<strong>Read the pattern in the footer, not the number of "
+            "breaks</strong>: three straight lines fit a smooth bend better "
+            "than two whether or not anything happened, so the count is a "
+            "statement about approximation and the sequence of slopes is the "
+            "statement about the curve. Nothing is excluded and every fit is "
+            "computed on every point — except the instrument's first reading, "
+            "which is discarded from every run in the archive "
             "(<code>fit_dataset.DROP_FIRST_READING</code>) and is therefore "
             "not plotted, fitted or scored here.</p>"
             "<p class='lede'>Read down a column and the induction shortens: the "
@@ -543,7 +555,8 @@ def build_curves_page():
             "40 °C, which is the same thing τ and the breakpoint ratio report "
             "as numbers.</p>"
             "<div class='grid three'>" + "".join(panels) + "</div>")
-    return styled("Temperature series — all 24 progress curves", body)
+    return styled(curves_page_title("The temperature series"), body,
+                  "Exps 14–19 · 4OMe-BnOH · pH 7.00 · phosphate · 24 curves")
 
 
 # --- the presentation -----------------------------------------------------

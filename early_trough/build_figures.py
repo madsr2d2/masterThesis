@@ -21,9 +21,8 @@ import curve_metrics
 import early_trough
 import scope
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc
-from figure_kit import (CATEGORY, EVENT_BAND_COLOUR, breakpoints,
-                        derivative_axes, fig, panel, progress_axes,
-                        progress_overlay, residual_axes, styled, write_pages)
+from figure_kit import (CATEGORY, Mark, curves_page_title, fig,
+                        progress_panel, styled, write_pages)
 
 SUBSTRATE_COLOUR = {"4OMe-BnOH": CATEGORY[0], "BnOH": CATEGORY[1]}
 CLUSTER_COLOUR = {"oxidant": CATEGORY[0], "substrate": CATEGORY[1]}
@@ -448,69 +447,71 @@ fails if the prose and the code disagree.</p>
                   "non-productive engagement with a scarce reactant")
 
 
-def _fit_panel(row, curve, colour):
-    times = np.asarray(curve.times, dtype=float)
-    values = np.asarray(curve.absorbance, dtype=float)
-    corrected, events = curve_metrics.debubble(times, values, curve.noise)
-    chopped = len(events) > 0
-    axes, radius = progress_axes(times, values, limit=140,
-                                 companion=corrected if chopped else None,
-                                 pad=(56, 12, 10, 20))
-    bands = []
-    if chopped:
-        for start, stop in events:
-            bands.append((float(times[start]), float(times[stop])))
-        for lo, hi in bands:
-            axes.band([lo, hi], [axes.ylim[0], axes.ylim[0]],
-                     [axes.ylim[1], axes.ylim[1]], EVENT_BAND_COLOUR,
-                     opacity=0.14)
-        axes.line(times, corrected, CATEGORY[2], width=1.0, dash="3 2",
-                  opacity=0.85)
-        corrected_fit = progress_overlay(axes, times, corrected,
-                                         colour=CATEGORY[2], mark_radius=radius)
-    raw_fit = progress_overlay(axes, times, values, mark_radius=radius,
-                               colour=colour)
-    chem_fit = corrected_fit if chopped else raw_fit
-    chem_values = corrected if chopped else values
-    if np.isfinite(row.t_trough):
-        breakpoints(axes, [row.t_trough], [f"trough {row.z:+.1f}σ"],
-                    colour=INK)
-    residual = (chem_values - chem_fit.predict(times)) / curve.noise
-    rax = residual_axes(times, residual, colour=colour, bands=bands)
-    drax = derivative_axes(times, chem_fit, colour=colour, bands=bands)
-    svg = (axes.render("", "ΔA") + rax.render("", "z")
-          + drax.render("time, s", "dA/dt"))
-    footer = (f"trough {row.z:+.1f}σ raw"
-             + (f" · {row.z_corrected:+.1f}σ corrected" if chopped else "")
-             + f" · {esc(row.cluster)}-dominated"
-             + " · <strong>GENUINE</strong>")
-    return panel(
-        f"exp {int(row.experiment)}.{int(row.sample)} · "
-        f"{esc(row.substrate)}"
-        f"<span class='pill'>pH {row.pH:.2f}</span>",
-        f"[S] {row.s0:.3f} mM · [H₂O₂] {row.h2o2:g} mM · [enz] {row.e0:.3f} mM "
-        f"· {esc(row.buffer)}",
-        svg, footer)
-
-
 def build_curves_page():
+    """
+    The curves behind every claim in index.html, each with its own audit panel.
+
+    The trough is a `figure_kit.Mark`: it is a windowed z-score
+    (`curve_metrics.early_trough`) and not a parameter of the fitted function
+    the header prints. What IS a fitted parameter here is the one this folder
+    reads its rate constants off — `tau_fast`, drawn as τ or τ₁ on every
+    panel, since `early_trough.binding_rates` turns exactly that into k_on.
+    A trough IS a deep enough lag in the same functional form, so the panel
+    showing the form and the clock together is the whole argument in one
+    drawing.
+    """
     genuine = _genuine()
-    lookup = {(c.experiment, c.sample): c for c in scope.curves(scope.archive())}
-
-    panels = [_fit_panel(row, lookup[(row.experiment, row.sample)],
-                         CLUSTER_COLOUR[row.cluster])
-             for row in genuine.itertuples()]
-
+    shapes = scope.fits(scope.archive())
+    panels = []
+    for row in genuine.itertuples():
+        fit = shapes.get((row.experiment, row.sample))
+        if fit is None:
+            continue
+        colour = CLUSTER_COLOUR[row.cluster]
+        marks = [Mark(row.t_trough, f"trough {row.z:+.1f}σ", "windowed z",
+                      INK)]
+        panels.append(progress_panel(
+            fit, row,
+            [f"[{row.substrate}] = {row.s0:.3f} mM",
+             f"[H₂O₂] = {row.h2o2:g} mM",
+             f"[enz] = {row.e0:.3f} mM",
+             f"{row.buffer.lower()}"],
+            # Readings and duration off the curve itself: the trough table is
+            # `early_trough`'s own and carries neither, and adding a column to
+            # it just to print it here would be the re-derivation the rule
+            # forbids in the other direction.
+            f"{esc(row.cluster)}-dominated · [HOO⁻] {row.hoo:.3g} mM · "
+            f"{row.temperature:.0f} °C · {len(fit.times)} readings over "
+            f"{fit.times[-1] / 60:.0f} min",
+            footer=(f"trough {row.z:+.1f}σ raw"
+                    + (f" · {row.z_corrected:+.1f}σ corrected"
+                       if fit.events else "")
+                    + " · <strong>GENUINE</strong>"),
+            marks=marks))
     body = (f"<p class='lede'>The {len(panels)} curves behind every claim in "
-            "<a href='index.html'>index.html</a>, each with its own three-panel "
-            "audit: the readings and whichever fitted form the curve earned "
-            "(raw in colour, the debubble-corrected series dashed where a "
-            "curve carries any O2 event), the residual, and this session's "
-            "derivative-of-fit panel — the same one that first made 135.5's "
-            "and 151.5–.7's early behaviour visible by eye. The black dashed "
-            "vertical marks the trough `early_trough` reads.</p>"
+            "<a href='index.html'>index.html</a>, each with the same "
+            "three-strip audit panel every other folder draws "
+            "(<code>figure_kit.progress_panel</code>): the readings and "
+            "whichever fitted form the curve earned, the residual against "
+            "that fit, and the derivative of it — the panel that first made "
+            "135.5's and 151.5–.7's early behaviour visible by eye.</p>"
+            "<p class='lede'><strong>The dip is in the derivative strip, "
+            "below zero</strong>, which is what a trough IS: "
+            "<code>B/τ &gt; v_ss</code> makes the fitted rate negative for a "
+            "while. That is why this folder needs no new fitting — "
+            "<code>early_trough.binding_rates</code> reads k_on off "
+            "<code>tau_fast</code>, the clock drawn as τ or τ₁ on every panel "
+            "here. The black <em>trough (windowed z)</em> vertical is the "
+            "scan's own landmark and is bracketed because it is a windowed "
+            "z-score, not a parameter of the function in the header.</p>"
+            "<p class='lede'>Where a curve carries gas, purple is the "
+            "<code>debubble</code> reconstruction with amber detachment spans "
+            "and blue arrival spans; the two curves that carry any O₂ event "
+            "(141.4, 142.4) get <strong>deeper</strong> after correction, not "
+            "weaker, which is the third of the three screens every one of "
+            "these 17 survived.</p>"
             "<div class='grid three'>" + "".join(panels) + "</div>")
-    return styled("The early trough — every curve behind the finding", body,
+    return styled(curves_page_title("The early trough"), body,
                   f"{len(panels)} genuine curves, every candidate the scan "
                   "found")
 

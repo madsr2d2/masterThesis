@@ -24,9 +24,8 @@ import scope
 from curve_metrics import LAG_WINDOW, rolling_slope
 from fit_dataset import source_floor
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc, page, PAGE_CSS
-from figure_kit import (CATEGORY, RUNGS, breakpoints, derivative_axes, fig,
-                        panel, progress_axes, progress_overlay,
-                        residual_axes, styled, write_pages)
+from figure_kit import (CATEGORY, RUNGS, Mark, curves_page_title, fig,
+                        progress_panel, styled, write_pages)
 
 
 
@@ -738,11 +737,14 @@ def build_curves_page():
     agrees. The control is the evidence here, so it is drawn at the same size,
     with the same fit, on the same axes convention.
 
-    The landmark is `induction_point`'s, whose window is a TENTH OF THE RUN.
-    That is safe within a run and not between runs, which is why the page
-    prints each curve's duration beside it: two panels with different durations
-    carry landmarks read through different windows, and the folder's
-    between-run comparisons all use something else.
+    The landmark is `induction_point`'s, whose window is A TENTH OF THE RUN.
+    That is safe within a run and not between runs, and it is a `Mark`
+    carrying that window in its own label for exactly that reason: two panels
+    of different duration carry landmarks read through different windows, and
+    a reader must be able to see that the number came from a rolling window
+    and not from the fitted function the header prints. `lag_half_s`, the
+    window-free statistic every between-run comparison in ANALYSIS.md uses
+    instead, comes off the fit drawn here.
     """
     table = _landmarks()
     blocks = induction.induction_blocks(table)
@@ -752,53 +754,44 @@ def build_curves_page():
     for label, block, colour in sections:
         block = block[block.live]
         experiments = tuple(sorted(int(e) for e in block.experiment.unique()))
-        lookup = {(c.experiment, c.sample): c
-                  for c in scope.curves(experiments)}
+        shapes = scope.fits(experiments)
         panels = []
         for row in block.sort_values(["experiment", "sample"]).itertuples():
-            curve = lookup.get((row.experiment, row.sample))
-            if curve is None:
+            fit = shapes.get((row.experiment, row.sample))
+            if fit is None:
                 continue
-            times = np.asarray(curve.times, dtype=float)
-            values = np.asarray(curve.absorbance, dtype=float)
-            axes, radius = progress_axes(times, values, limit=110)
-            progress = progress_overlay(axes, times, values,
-                                        mark_radius=radius)
-            marks, labels = [], []
+            marks = []
             if np.isfinite(row.t_ind) and row.t_ind > 0:
-                marks.append(row.t_ind)
-                labels.append("t_ind")
-            breakpoints(axes, marks, labels, colour=colour)
-            residual = (values - progress.predict(times)) / curve.noise
-            rax = residual_axes(times, residual, colour=colour)
-            drax = derivative_axes(times, progress, colour=colour)
-            panels.append(panel(
-                f"exp {int(row.experiment)} · sample {int(row.sample)}"
-                f"<span class='pill'>{row.temperature:.0f} °C</span>",
-                f"[S] {row.s0:.3f} mM · [H₂O₂] {row.h2o2:g} mM · "
-                f"pH {row.pH:.2f} · [buf] {row.buf:.0f} mM · "
+                marks.append(Mark(row.t_ind, "t_ind", "run/10 window", colour))
+            panels.append(progress_panel(
+                fit, row,
+                [f"[{row.substrate}] = {row.s0:.3f} mM",
+                 f"[H₂O₂] = {row.h2o2:g} mM",
+                 f"[{row.buffer.lower()}] = {row.buf:.0f} mM",
+                 f"{row.temperature:.0f} °C"],
                 f"{int(row.points)} readings over "
                 f"{row.duration_s / 60:.0f} min · {row.source}",
-                axes.render("", "ΔA") + rax.render("", "z")
-                + drax.render("time, s", "dA/dt"),
-                f"<strong>{int(row.phases)} phase"
-                + ("s" if row.phases == 2 else "")
-                + f"</strong> · {esc(str(row.progress_kind))} · "
-                + (f"t_ind {row.t_ind:.0f} s · depth {row.depth:.3f}"
-                   if np.isfinite(row.t_ind) else "no landmark")
-                + f" · accel z {row.accel_z:+.2f}"
-                + (" · <strong>accelerates</strong>" if row.accelerates
-                   else "")))
+                footer=(
+                    f"{esc(str(row.progress_kind))} · "
+                    + (f"t_ind {row.t_ind:.0f} s · depth {row.depth:.3f}"
+                       if np.isfinite(row.t_ind) else "no landmark")
+                    + f" · lag_half {row.lag_half_s:.0f} s"
+                    + f" · accel z {row.accel_z:+.2f}"
+                    + (" · <strong>accelerates</strong>" if row.accelerates
+                       else "")),
+                marks=marks, limit=110))
         counts[label] = len(panels)
         rendered.append((label, panels))
     summary = induction.channel_summary(table)
     body = (f"<p class='lede'>Every live 4OMe cuvette in the archive, both "
             "channels, in experiment order. The rust line is whichever form "
             "the curve earned from "
-            "<code>summary_kinetics.fit_progress</code>, and the dashed "
-            "vertical is the <strong>induction landmark</strong> — the first "
-            "crossing of half the largest rolling slope "
-            "(<code>induction.induction_point</code>). Nothing is excluded.</p>"
+            "<code>summary_kinetics.fit_progress</code>, the dashed verticals "
+            "are that fit's own clocks (τ, and τ₂ where it resolves), and the "
+            "dotted line is its asymptote <code>c − ΣB + v_ss·t</code> — so "
+            "<code>v_ss</code> is the slope of that line and <code>ΣB</code>, "
+            "the size of the whole induction, is its distance from the curve "
+            "at t = 0. Nothing is excluded.</p>"
             "<p class='lede'><strong>Read the two blocks against each "
             "other.</strong> That is the folder's first claim and it is a "
             f"contrast: {summary['catalysed']['accelerates']} of "
@@ -814,13 +807,16 @@ def build_curves_page():
             "<p class='lede'><strong>The landmark's window is a tenth of the "
             "run</strong>, so it is safe within a run and not between runs — "
             "two panels of different duration carry landmarks read through "
-            "different windows. Each panel prints its duration for that "
-            "reason, and every between-run comparison in "
-            "<code>ANALYSIS.md</code> uses something that is not windowed.</p>")
+            "different windows. It is drawn as <em>t_ind (run/10 window)</em> "
+            "for that reason: it is a rolling-window crossing, not a parameter "
+            "of the function each header prints. Each panel prints its "
+            "duration for the same reason, and every between-run comparison in "
+            "<code>ANALYSIS.md</code> uses <code>lag_half_s</code>, which "
+            "comes off the fitted rate and carries no window at all.</p>")
     for label, panels in rendered:
         body += (f"<h2>{esc(label)} — {len(panels)} curves</h2>"
                  "<div class='grid three'>" + "".join(panels) + "</div>")
-    return styled("The 4OMe curves and their induction landmarks", body,
+    return styled(curves_page_title("The 4OMe induction"), body,
                   f"{counts['catalysed']} catalysed · "
                   f"{counts['enzyme-free']} enzyme-free")
 

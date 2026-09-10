@@ -37,8 +37,8 @@ from fit_dataset import source_floor
 from summary_kinetics import BURST_V0_HALFWIDTH, fit_burst_bounded
 from svgplot import ACCENT, GRID, INK, MUTED, PALETTE, Axes, esc, page
 from figure_kit import (BURST_COLOUR, OUTLIER_COLOUR, QUAD_COLOUR,
-                        WHOLE_COLOUR, WINDOW_COLOUR,
-                        decimated, fig, panel, styled,
+                        WHOLE_COLOUR, WINDOW_COLOUR, Estimator, Region,
+                        curves_page_title, fig, progress_panel, styled,
                         write_pages)
 
 # The estimator the headline numbers are quoted on, and the two reported
@@ -185,47 +185,30 @@ def figure_buffer_order():
 # different colour, where nothing could see the collision.
 
 
-def curve_panel(curve, width=330, height=210):
+def curve_panel(fit, row):
     """
-    One cuvette as an HTML block: the plot, then its numbers in a real table.
+    One enzyme-free cuvette, on the shared panel, with every rate estimator on it.
 
-    The numbers were once floating text inside the SVG. They sat on top of the
-    curves, were clipped by the frame, and could not be selected or searched.
-    Anything textual belongs in HTML; the SVG draws only data and fits.
+    THIS FOLDER'S QUESTION IS "DOES THE CONCLUSION DEPEND ON HOW THE RATE WAS
+    MEASURED", so four estimators are drawn over one curve and their numbers
+    tabulated beneath it. They are `figure_kit.Estimator`s and each names
+    itself, because none of them is the relaxation form the header prints --
+    which this panel now also draws, in rust, along with its clocks and its
+    asymptote. Until 2026-09-12 it did not: this folder built its own `Axes`
+    and drew the four estimators alone, so the one form on the page that
+    could actually bend the way these curves bend was the one form missing
+    from it.
     """
     from curve_metrics import initial_rate, quadratic_rate, whole_slope
 
-    times = np.asarray(curve.times, dtype=float)
-    times = times - times[0]
-    values = np.asarray(curve.absorbance, dtype=float)
-    floor = source_floor(curve.source)
-
-    v0, v0_se, _ = initial_rate(curve.times, curve.absorbance, floor=floor)
-    quad, quad_se, curvature = quadratic_rate(curve.times, curve.absorbance,
-                                              floor=floor)
-    whole, whole_se = whole_slope(curve.times, curve.absorbance, floor=floor)
-    # noise_floor is the SOURCE's: it reaches the acceleration z that decides
-    # whether this curve's lag branch stays open. See summary_kinetics.
-    burst = fit_burst_bounded(curve.times, curve.absorbance,
-                              noise_floor=floor)
-
-    lo, hi = float(values.min()), float(values.max())
-    margin = max((hi - lo) * 0.16, 4 * curve.noise)
-    # A little room to the left of t = 0. The first reading sits exactly there,
-    # it is the one most often ringed, and t = 0 is where all four fits are
-    # contested -- drawn hard against the axis its marker is half clipped.
-    span = float(times[-1])
-    axes = Axes(width, height, (-0.035 * span, span),
-                (lo - margin, hi + margin), pad=(56, 12, 32, 12))
+    times, values, floor = fit.times, fit.values, fit.floor
+    v0, v0_se, _ = initial_rate(times, values, floor=floor)
+    quad, quad_se, curvature = quadratic_rate(times, values, floor=floor)
+    whole, whole_se = whole_slope(times, values, floor=floor)
+    burst = fit.burst
 
     cut = float(times[-1]) * INITIAL_WINDOW
-    axes.parts.append(
-        f"<rect x='{axes._fx(0):.1f}' y='{axes.top}' "
-        f"width='{axes._fx(cut) - axes._fx(0):.1f}' "
-        f"height='{height - axes.top - axes.bottom:.1f}' fill='{WINDOW_COLOUR}' "
-        f"fill-opacity='0.07'/>")
-
-    grid = np.linspace(0, float(times[-1]), 140)
+    grid = np.linspace(0.0, float(times[-1]), 140)
     # Every line is drawn from ITS OWN fitted intercept. Displaying a fit
     # against an intercept it did not choose puts it visibly off its own data
     # and misrepresents how well it fits.
@@ -234,88 +217,65 @@ def curve_panel(curve, width=330, height=210):
     window_beta = np.polyfit(times[window], values[window], 1)
     whole_beta = np.polyfit(times, values, 1)
 
+    estimators = [
+        Estimator(grid, quad_beta[0] + quad_beta[1] * grid
+                  + quad_beta[2] * grid ** 2, QUAD_COLOUR, "v0 quadratic",
+                  "whole curve, no window", width=2.0),
+        Estimator(np.array([0.0, cut]),
+                  window_beta[1] + v0 * np.array([0.0, cut]), WINDOW_COLOUR,
+                  "v0 window", f"first {INITIAL_WINDOW:.0%}", width=2.0),
+        Estimator(grid, whole_beta[1] + whole_beta[0] * grid, WHOLE_COLOUR,
+                  "slope, whole", "straight line, every point", dash="2 3",
+                  width=1.4),
+    ]
     if np.isfinite(burst.tau):
         # The v0 profile interval, as the fan of initial slopes the 95% cost
         # band still allows. A wide fan means the curve does not determine v0,
         # however well the form fits.
         reach = float(times[-1]) * 0.25
-        axes.band(np.array([0.0, reach]),
-                  burst.c + burst.v0_low * np.array([0.0, reach]),
-                  burst.c + burst.v0_high * np.array([0.0, reach]),
-                  BURST_COLOUR, opacity=0.20)
-        axes.line(grid, burst.predict(grid), BURST_COLOUR, width=1.7, dash="6 3")
-    axes.line(grid, whole_beta[1] + whole_beta[0] * grid, WHOLE_COLOUR,
-              width=1.5, dash="2 3")
-    axes.line(np.array([0.0, cut]), window_beta[1] + v0 * np.array([0.0, cut]),
-              WINDOW_COLOUR, width=2.2)
-    axes.line(grid, quad_beta[0] + quad_beta[1] * grid + quad_beta[2] * grid ** 2,
-              QUAD_COLOUR, width=2.2)
+        fan = np.array([0.0, reach])
+        estimators.append(Estimator(
+            grid, burst.predict(grid), BURST_COLOUR, "burst/lag v0",
+            "one exponential, τ profiled", dash="6 3", width=1.6,
+            band_times=fan, low=burst.c + burst.v0_low * fan,
+            high=burst.c + burst.v0_high * fan))
 
-    # Suspect readings, ringed rather than removed. Nothing is excluded: the
-    # fits above are computed on every point, and these rings say which ones a
-    # reader should discount by eye. Only ISOLATED flags are ringed -- a run of
-    # two or more may be real structure, and this dataset's shapes are live
-    # hypotheses (curve_screen.py).
-    #
-    # Worked out BEFORE the readings are drawn, because the drawing is
-    # decimated and the rings are not: see `shown` below.
-    # Point 0 is ringed on its own z, not on isolation: a bad leading reading
-    # often drags its neighbour into a run, and the pair then hides from
-    # `isolated`. The case is now the leverage and the masking, NOT a raised
-    # flag rate -- since the instrument's first reading is discarded, leading
-    # readings are flagged on 14.7% of curves against 16.2% for last ones.
-    # What the surviving rings buy is worth having: they no longer mark the
-    # generic settling artefact (that is gone with the dropped reading) but
-    # runs whose settling lasted LONGER than one reading, which is a small
-    # nameable set -- all four of exp 65, exp 70 sample 3, exp 3 sample 6, exp
-    # 6 sample 4 -- rather than a property of the archive.
-    isolated, in_runs = isolated_outliers(times, values, curve.noise)
-    outlier_z = local_outlier_z(times, values, curve.noise)
+    # The window the blue line was fitted over, shaded -- the same device every
+    # other folder uses for a window a statistic was read through.
+    regions = [Region(0.0, cut, WINDOW_COLOUR, opacity=0.07)]
+
+    # Suspect readings, ringed rather than removed. Only ISOLATED flags are
+    # ringed -- a run of two or more may be real structure, and this dataset's
+    # shapes are live hypotheses (curve_screen.py). Point 0 is ringed on its
+    # own z, not on isolation: a bad leading reading often drags its neighbour
+    # into a run, and the pair then hides from `isolated`.
+    isolated, in_runs = isolated_outliers(times, values, fit.noise)
+    outlier_z = local_outlier_z(times, values, fit.noise)
     ringed = sorted(set(int(i) for i in isolated) |
                     ({0} if len(outlier_z) and np.isfinite(outlier_z[0])
                      and abs(outlier_z[0]) > OUTLIER_SIGMA else set()))
 
-    # The DATA goes on last. Drawn first it disappeared under four fit lines,
-    # which inverts the point of the panel: the fits are the claim, the
-    # readings are the evidence, and the evidence has to stay visible.
-    # `decimated` carries the stride and the ring union.
-    shown = decimated(len(times), 110, keep=ringed)
-    axes.points(times[shown], values[shown], INK, radius=1.7, opacity=0.85)
-
-    for index in ringed:
-        axes.ring(times[index], values[index], OUTLIER_COLOUR,
-                  title=f"suspect reading: point {index} at t={times[index]:.0f} s")
-
-    svg = axes.render("time / s", "\u0394A")
-
     # The burst row names BOTH endpoints and the shape, because v0 alone is
     # ambiguous: on a burst it is the maximum rate, on a lag it is the
-    # INDUCTION rate -- the reaction before it gets going. Printing one number
-    # called "v0" for both puts two different quantities in one column.
+    # INDUCTION rate -- the reaction before it gets going.
     shape = {"burst": "burst, rate falls", "lag": "LAG, rate rises",
              "clamped": "lag branch shut, B→0",
              "unresolved": "unresolved"}[burst.kind]
     if not burst.shape_is_meaningful:
-        # tau ran to an end of its grid, so the model has degenerated and the
-        # SHAPE means nothing -- even where v0 is well determined, which is
-        # most of them. Said first because it qualifies everything after it.
         shape = "τ unresolved, shape not determined"
-    verdict = "bounded" if burst.bounded else f"v0 UNBOUNDED ±{burst.half_width:.0%}"
+    verdict = ("bounded" if burst.bounded
+               else f"v0 UNBOUNDED ±{burst.half_width:.0%}")
     if burst.settles_backwards:
         verdict += " · v_ss < 0"
-    # HOW WELL EACH FORM FITS, in units of the curve's own noise, so the
-    # reader is not left to judge it by eye. This is a different question from
-    # the interval beside v0 -- that asks whether the DATA pin the parameter,
-    # this asks whether the FORM describes the curve -- and the two come apart:
-    # exp 65's four cuvettes report a bounded v0 on fits sitting 7-8x above
-    # noise. `model_residual` defines it once for both forms so the comparison
-    # is like-for-like across their different parameter counts.
+    # HOW WELL EACH FORM FITS, in units of the curve's own noise. A different
+    # question from the interval beside v0 -- that asks whether the DATA pin
+    # the parameter, this asks whether the FORM describes the curve.
     quad_fit = np.polyval(np.polyfit(times, values, 2), times)
-    quad_resid = model_residual(values, quad_fit, 3, curve.noise)
+    quad_resid = model_residual(values, quad_fit, 3, fit.noise)
     burst_resid = model_residual(
         values,
         burst.c + burst.v_ss * times - burst.B * (1 - np.exp(-times / burst.tau)),
-        4, curve.noise)
+        4, fit.noise)
 
     def _fit_note(residual, text):
         if not np.isfinite(residual):
@@ -330,39 +290,43 @@ def curve_panel(curve, width=330, height=210):
          f"first {INITIAL_WINDOW:.0%}, shaded"),
         (WHOLE_COLOUR, "slope, whole", f"{whole:.3e}", f"± {whole_se:.1e}",
          "straight line, every point"),
-        (BURST_COLOUR, f"burst {'v0→v_ss'}",
+        (BURST_COLOUR, "burst v0→v_ss",
          f"{burst.v0:.2e} → {burst.v_ss:.2e}",
          f"[{burst.v0_low:.1e}, {burst.v0_high:.1e}]",
          _fit_note(burst_resid, f"{shape} · {verdict}")),
     ]
-    body = "".join(
+    table = "".join(
         f"<tr><td><i class='sw' style='background:{colour}'></i>{esc(name)}</td>"
         f"<td class='num'>{esc(value)}</td><td class='num dim'>{esc(spread)}</td>"
         f"<td class='dim'>{esc(note)}</td></tr>"
         for colour, name, value, spread, note in rows)
 
+    marks = []
+    if ringed:
+        marks_note = (f"{len(ringed)} suspect reading"
+                      f"{'s' if len(ringed) > 1 else ''} ringed"
+                      + (" (incl. the first plotted)" if 0 in ringed else ""))
+    else:
+        marks_note = ""
+    unringed = [i for i in in_runs if i not in ringed]
+    foot = (f"curvature t {curvature:+.1f}"
+            + (f" · burst τ {burst.tau:.3g} s" if np.isfinite(burst.tau) else "")
+            + (f" · {marks_note}" if marks_note else "")
+            + (f" · {len(unringed)} more in runs, not ringed" if unringed
+               else ""))
     # The BUFFER SALT, not just its concentration: exp 65 is boric and the rest
     # phosphate, and MECHANISM.md argues at length that the buffers are
     # chemically different reagents rather than four ways of setting pH.
-    sub = (f"{curve.substrate} · pH {curve.pH:.2f} · "
-           f"{curve.buffer.lower()} {curve.buf:.4g} mM · "
-           f"[sub] {curve.conditions.s0:.3g} mM · "
-           f"[H2O2] {curve.conditions.h2o2:.4g} mM · "
-           f"{curve.temperature:.0f} °C · "
-           f"{curve.source} · noise {curve.noise:.1e} AU")
-    marks = []
-    if ringed:
-        marks.append(f"{len(ringed)} suspect reading"
-                     f"{'s' if len(ringed) > 1 else ''} ringed"
-                     + (" (incl. the first plotted)" if 0 in ringed else ""))
-    unringed = [i for i in in_runs if i not in ringed]
-    if unringed:
-        marks.append(f"{len(unringed)} more in runs, not ringed")
-    foot = (f"curvature t {curvature:+.1f}"
-            + (f" · burst τ {burst.tau:.3g} s" if np.isfinite(burst.tau) else "")
-            + (" · " + " · ".join(marks) if marks else ""))
-    return panel(f"exp {curve.experiment} · sample {curve.sample}",
-                 esc(sub), svg, esc(foot), body)
+    return progress_panel(
+        fit, row,
+        [f"[{row.substrate}] = {row.s0:.3g} mM",
+         f"[H₂O₂] = {row.h2o2:.4g} mM",
+         f"[{row.buffer.lower()}] = {row.buf:.4g} mM",
+         f"{row.temperature:.0f} °C"],
+        f"{int(row.points)} readings over {row.duration_s / 60:.0f} min · "
+        f"{row.source} · noise {row.noise:.1e} AU",
+        footer=esc(foot), marks=marks, regions=regions,
+        estimators=estimators, rings=ringed, table=table, limit=110)
 
 
 def _quadratic_beta(times, values):
@@ -628,7 +592,12 @@ three fits drawn</a></p>
 
 
 def build_curves_page():
-    panels = [curve_panel(curve) for curve in scope.curves(scope.FREE_BNOH_ALL)]
+    shapes = scope.fits(scope.FREE_BNOH_ALL)
+    frame = scope.frame(scope.FREE_BNOH_ALL)
+    panels = [curve_panel(shapes[(row.experiment, row.sample)], row)
+              for row in frame.sort_values(
+                  ["experiment", "sample"]).itertuples()
+              if (row.experiment, row.sample) in shapes]
     bounded = sum(fit_burst_bounded(c.times, c.absorbance,
                                     noise_floor=source_floor(c.source)).bounded
                   for c in scope.curves(scope.FREE_BNOH_ALL))
@@ -705,7 +674,9 @@ not the burst form, carries the headline numbers.</p>
 <h2>The curves</h2>
 <div class='grid three'>{''.join(panels)}</div>
 """
-    return styled("Progress curves and their fits", body)
+    return styled(curves_page_title("The background reaction"), body,
+                  "Enzyme-free BnOH · every rate estimator drawn on every "
+                  "curve")
 
 
 def main():

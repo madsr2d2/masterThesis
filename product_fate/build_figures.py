@@ -24,9 +24,9 @@ import slowdown
 from curve_metrics import rolling_slope
 from fit_dataset import source_floor
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc, page, PAGE_CSS
-from figure_kit import (CATEGORY, FIT_WIDTH, RUNGS, breakpoints,
-                        derivative_axes, fig, panel, progress_axes,
-                        progress_overlay, residual_axes, styled, write_pages)
+from figure_kit import (CATEGORY, FIT_WIDTH, RUNGS, Mark, Region,
+                        curves_page_title, fig, progress_panel, styled,
+                        write_pages)
 
 # ORDERED VARIABLES GET SEQUENTIAL RAMPS. Substrate rung is ordinal; the two
 # channels (with and without enzyme) and the two straight-line laws are not.
@@ -316,55 +316,45 @@ def build_curves_page():
     rate's MAXIMUM, which the data chooses, so `tail_start` is carried on the
     fit rather than guessed here. A page that guessed it would be drawing a
     different window from the one that was fitted, which is the failure this
-    page exists to make impossible.
+    page exists to make impossible. It is a `figure_kit.Region` for that
+    reason and `rate max` a `Mark` naming its own estimator: neither is a
+    parameter of the progress fit the panel draws.
     """
     block = slowdown.substrate_blocks()["4OMe catalysed, phosphate"]
     block = block[block.live]
     experiments = tuple(sorted(int(e) for e in block.experiment.unique()))
+    shapes = scope.fits(experiments)
     lookup = {(c.experiment, c.sample): c for c in scope.curves(experiments)}
-    panels = []
+    panels, fitted = [], 0
     for row in block.sort_values(["experiment", "sample"]).itertuples():
-        curve = lookup.get((row.experiment, row.sample))
-        if curve is None:
+        fit = shapes.get((row.experiment, row.sample))
+        if fit is None:
             continue
-        times = np.asarray(curve.times, dtype=float)
-        values = np.asarray(curve.absorbance, dtype=float)
-        axes, radius = progress_axes(times, values, limit=110)
-        fit = slowdown.sink_fit(curve)
-        if np.isfinite(fit.tail_start):
-            left, right = axes._fx(fit.tail_start), axes._fx(times[-1])
-            axes.parts.append(
-                f"<rect x='{left:.1f}' y='{axes.top}' "
-                f"width='{max(right - left, 0):.1f}' "
-                f"height='{axes.height - axes.top - axes.bottom:.1f}' "
-                f"fill='{CATEGORY[1]}' fill-opacity='0.08'/>")
-        progress = progress_overlay(axes, times, values, mark_radius=radius)
-        if np.isfinite(fit.tail_start):
-            breakpoints(axes, [fit.tail_start], ["rate max"],
-                        colour=CATEGORY[1])
-        read = (f"sink k = {fit.k:.3g} · R² {fit.rate_r2:.3f} vs "
-                f"{fit.reciprocal_r2:.3f} reciprocal · {esc(fit.prefers)} · "
-                f"fell to {fit.decline:.0%} over {fit.windows:.1f} windows"
-                if np.isfinite(fit.k) else
+        sink = slowdown.sink_fit(lookup[(row.experiment, row.sample)])
+        marks, regions = [], []
+        if np.isfinite(sink.tail_start):
+            regions.append(Region(sink.tail_start, float(fit.times[-1]),
+                                  CATEGORY[1]))
+            marks.append(Mark(sink.tail_start, "rate max", "rolling rate",
+                              CATEGORY[1]))
+        read = (f"sink k = {sink.k:.3g} · R² {sink.rate_r2:.3f} vs "
+                f"{sink.reciprocal_r2:.3f} reciprocal · {esc(sink.prefers)} · "
+                f"fell to {sink.decline:.0%} over {sink.windows:.1f} windows"
+                if np.isfinite(sink.k) else
                 "<strong>no sink fit</strong> — the tail does not decline far "
                 "enough, or is shorter than "
                 f"{slowdown.SINK_MINIMUM_WINDOWS:g} windows")
-        residual = (values - progress.predict(times)) / curve.noise
-        rax = residual_axes(times, residual)
-        drax = derivative_axes(times, progress)
-        panels.append(panel(
-            f"exp {int(row.experiment)} · sample {int(row.sample)}"
-            f"<span class='pill'>{row.temperature:.0f} °C</span>",
-            f"[S] {row.s0:.3f} mM · [H₂O₂] {row.h2o2:g} mM · "
-            f"pH {row.pH:.2f} · [buf] {row.buf:.0f} mM · "
+        fitted += 1 if np.isfinite(sink.k) else 0
+        panels.append(progress_panel(
+            fit, row,
+            [f"[{row.substrate}] = {row.s0:.3f} mM",
+             f"[H₂O₂] = {row.h2o2:g} mM",
+             f"[{row.buffer.lower()}] = {row.buf:.0f} mM",
+             f"{row.temperature:.0f} °C"],
             f"{int(row.points)} readings over {row.duration_s / 60:.0f} min · "
             f"{row.source}",
-            axes.render("", "ΔA") + rax.render("", "z")
-            + drax.render("time, s", "dA/dt"),
-            f"<strong>{int(row.phases)} phase"
-            + ("s" if row.phases == 2 else "")
-            + f"</strong> · {esc(str(row.progress_kind))} · {read}"))
-    fitted = sum(1 for p in panels if "no sink fit" not in p)
+            footer=f"{esc(str(row.progress_kind))} · {read}",
+            marks=marks, regions=regions, limit=110))
     drivers = slowdown.deceleration_drivers(block)
     body = (f"<p class='lede'>All {len(panels)} live cuvettes of the "
             "<strong>4OMe catalysed, phosphate</strong> block — the one the "
@@ -378,10 +368,11 @@ def build_curves_page():
             f"{len(panels) - drivers['points']} that are here and not there "
             "are visible rather than dropped silently.</p>"
             f"<p class='lede'>The shaded band is the tail "
-            f"<code>slowdown.sink_fit</code> actually read, and the dashed "
-            "vertical is where it begins — the <strong>rolling rate's "
-            "maximum</strong>, which the data chooses rather than the "
-            "analyst. Its width is "
+            f"<code>slowdown.sink_fit</code> actually read, and "
+            "<em>rate max (rolling rate)</em> is where it begins — the "
+            "rolling rate's maximum, which the data chooses rather than the "
+            "analyst, and which is a different estimator from the progress "
+            "fit drawn over it. Its width is "
             f"<code>SINK_WINDOW = {slowdown.SINK_WINDOW:g}</code> of the run, "
             "and section 4's window sweep is the reason that number is quoted "
             "with a systematic rather than an error: a wider window smooths "
@@ -389,8 +380,15 @@ def build_curves_page():
             f"<strong>{fitted} of {len(panels)}</strong> curves decline far "
             "enough, over a long enough tail, to be read this way; the rest "
             "say so in their footer.</p>"
+            "<p class='lede'>The dashed verticals are the progress fit's own "
+            "clocks and the dotted line its asymptote "
+            "<code>c − ΣB + v_ss·t</code>, drawn the same way in every folder "
+            "(<code>figure_kit.progress_panel</code>). <code>v_peak</code> is "
+            "marked on the derivative strip, which is where the deceleration "
+            "this folder is about is directly visible: the strip falls away "
+            "to the right on every catalysed 4OMe curve.</p>"
             "<div class='grid three'>" + "".join(panels) + "</div>")
-    return styled("The 4OMe deceleration — every progress curve", body,
+    return styled(curves_page_title("The 4OMe deceleration"), body,
                   "4OMe-BnOH · catalysed · phosphate")
 
 

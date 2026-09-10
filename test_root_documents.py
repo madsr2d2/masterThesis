@@ -50,6 +50,7 @@ sys.path.insert(0, os.path.join(REPOSITORY, "data"))
 sys.path.insert(0, REPOSITORY)
 
 import curve_metrics
+import figure_kit
 import fit_dataset
 import induction
 import ph_role
@@ -353,6 +354,76 @@ def main():
     for document in (CLAUDE, BUBBLES):
         doc.claim(f"{os.path.basename(document)}: the saturation F",
                   f"{saturation['first_order_f']:.0f}", document=document)
+
+    doc.section("the progress panel's own numbers, in CLAUDE.md")
+    # THE CLOCK DEFECT, PRICED. `frame`'s `tau` is `fit_burst_bounded`'s --
+    # the ONE-phase form -- and the drawn line is `fit_progress`'s, so on
+    # every curve that earned two phases the panel marked a clock from a
+    # model that curve had rejected. CLAUDE.md quotes the count twice, on the
+    # block and on the archive, and both are recomputed here rather than
+    # remembered: they move whenever the F test's verdict moves on one curve.
+    block = scope.frame()
+    block_live = block[block.live]
+    mismatched = int(((block_live.phases == 2)
+                      & block_live.tau_resolved_corrected).sum())
+    doc.check("36 of the block's live curves carried a rejected model's clock",
+              mismatched == 36, f"{mismatched} of {len(block_live)}")
+    doc.claim("CLAUDE.md: the block's count", "36 of the two-axis block's 110")
+    whole = scope.frame(scope.archive())
+    whole_live = whole[whole.live]
+    archive_mismatched = int(((whole_live.phases == 2)
+                              & whole_live.tau_resolved).sum())
+    doc.check("92 of the archive's live curves did",
+              archive_mismatched == 92,
+              f"{archive_mismatched} of {len(whole_live)}")
+    doc.claim("CLAUDE.md: the archive's count",
+              f"{archive_mismatched} of {len(whole_live)} live curves")
+    # And the worked example, which is what makes the count legible: the rule
+    # a panel drew against the clocks of the fit it drew.
+    shapes = scope.fits()
+    # The pair is read off the CHEMISTRY fit, which on a curve carrying gas is
+    # the rebuilt series' -- exp 138.3 detaches, so its drawn clocks are 3298 s
+    # and 3779 s and not the readings' own 2512 s and 3298 s. Quoting the raw
+    # fit's pair here was the first thing this check caught.
+    for experiment, sample, drawn, fast, slow in ((137, 5, 179, 431, 6562),
+                                                  (138, 3, 9067, 3298, 3779)):
+        row = block[(block.experiment == experiment)
+                    & (block["sample"] == sample)].iloc[0]
+        fit = shapes[(experiment, sample)]
+        _, chosen = fit.chemistry
+        stale = row.tau_corrected if fit.events else row.tau
+        doc.check(f"exp {experiment}.{sample}: the clock the panel used to draw",
+                  round(float(stale)) == drawn, f"{float(stale):.0f} s")
+        doc.check(f"exp {experiment}.{sample}: the drawn fit's own two",
+                  chosen.phases == 2
+                  and round(float(chosen.two.tau1)) == fast
+                  and round(float(chosen.two.tau2)) == slow,
+                  f"{float(chosen.two.tau1):.0f} s and "
+                  f"{float(chosen.two.tau2):.0f} s")
+    doc.claim("CLAUDE.md: exp 137.5's three clocks",
+              "`tau 179 s` over a fit\n  whose own clocks are 431 s and 6562 s")
+    doc.claim("CLAUDE.md: exp 138.3's three clocks",
+              "exp 138.3's read 9067 s against\n  3298 s and 3779 s")
+    # v_max is not a fitted parameter, and exp 138.1 is where the two land a
+    # whole run apart -- the sharpest case for labelling it with its estimator.
+    apart = block[(block.experiment == 138) & (block["sample"] == 1)].iloc[0]
+    doc.check("exp 138.1: v_max's window against the fit's own peak",
+              round(float(apart.vmax_time_s)) == 2850
+              and round(float(apart.v_peak_time)) == 0,
+              f"{float(apart.vmax_time_s):.0f} s against "
+              f"{float(apart.v_peak_time):.0f} s")
+    doc.claim("CLAUDE.md: exp 138.1's two times",
+              "exp\n  138.1: 2850 s against 0 s")
+    # THE COLOUR COLLISION. An arrival band the same hue as the reconstruction's
+    # own line, in a file whose whole purpose is that colours are declared once.
+    doc.check("the arrival band is no longer the reconstruction's colour",
+              figure_kit.ARRIVAL_BAND_COLOUR != figure_kit.CHEMISTRY_COLOUR,
+              f"{figure_kit.ARRIVAL_BAND_COLOUR} against "
+              f"{figure_kit.CHEMISTRY_COLOUR}")
+    doc.claim("CLAUDE.md: the colour it was",
+              f"`{figure_kit.CHEMISTRY_COLOUR}`, byte-identical")
+    doc.claim("CLAUDE.md: the colour it is",
+              f"It is `{figure_kit.ARRIVAL_BAND_COLOUR}` now")
 
     doc.section("every guarded document is real and was actually read")
     # The guard is worth nothing if a path stopped resolving: a missing file
