@@ -79,6 +79,7 @@ EXTRA_CSS = """
 .fig .cap{color:#5a5a5a}
 .pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;
 background:var(--rule);color:var(--muted);margin-left:7px;vertical-align:2px}
+.ph .detail{font-weight:400}
 .hero{display:flex;flex-wrap:wrap;gap:26px;margin:14px 0 4px}
 .hero div{min-width:140px}
 .hero .v{font-size:25px;font-weight:650;letter-spacing:-0.02em}
