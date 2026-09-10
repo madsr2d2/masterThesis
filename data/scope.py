@@ -31,9 +31,11 @@ import pandas as pd
 
 from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
                            INITIAL_WINDOW, LAG_THRESHOLD,
-                           OUTLIER_SIGMA, acceleration, bubble_drops, bubble_gains,
+                           OUTLIER_SIGMA, acceleration, bubble_arrivals,
+                           bubble_drops,
                            bubble_load,
                            bubble_rate,
+                           split_arrivals,
                            burst_amplitude, debubble, detachments,
                            initial_rate,
                            isolated_outliers, lag_time, local_outlier_z,
@@ -150,8 +152,9 @@ def _frame(scope):
         # is the repair that suggests itself and the one that makes it worse.
         drops = bubble_drops(values, noise)
         events = detachments(values, noise)
-        gains = bubble_gains(times, values, noise)
-        gas_rate = bubble_rate(times, values, events)
+        arrivals = bubble_arrivals(times, values, noise, events)
+        released, gains = split_arrivals(arrivals, events)
+        gas_rate = bubble_rate(times, values, events, arrivals=released)
         corrected, _ = debubble(times, values, noise)
         vmax_corrected, _, vmax_corrected_where = peak_rate(
             times, corrected, floor=floor)
@@ -447,11 +450,20 @@ def _frame(scope):
             # GAS ARRIVING, not leaving -- the rare mirror of a detachment: a
             # confirmed single-reading level jump that is neither a real
             # acceleration (ruled out by the kink test) nor a spike that
-            # reverts (ruled out by the same recovery test a fall uses,
-            # negated). `debubble` already removes it; this is only so a
+            # reverts. `debubble` already removes it; these are only so a
             # curve carrying one is visible the way `bubble_events` makes a
-            # detaching curve visible. See curve_metrics.bubble_gains and
-            # DATA_VERIFICATION.md 2026-09-08.
+            # detaching curve visible.
+            #
+            # THE TWO HALVES TAKE DIFFERENT OPERATORS and so are counted
+            # apart (`curve_metrics.split_arrivals`). An arrival a later
+            # detachment sheds is a step in `b(t)` that the release takes
+            # back out, so it leaves nothing behind at the last reading;
+            # `gain_*` stays what it always meant -- the arrival that was
+            # never shed, still in the beam at the end, and the whole of what
+            # `rebuild_smoothness`'s `gas_at_end` measures. See
+            # DATA_VERIFICATION.md 2026-09-08 and 2026-09-10.
+            "arrival_events": int(len(released)),
+            "arrival_total": float(sum(g for _, g in released)),
             "gain_events": int(len(gains)),
             "gain_total": float(sum(g for _, g in gains)),
             "gas_rate": gas_rate,
@@ -2057,9 +2069,9 @@ def bubble_recovery(severities=RECOVERY_SEVERITIES, emptying=True,
     donors = [c for c in curves(scope)
               if not len(bubble_drops(np.asarray(c.absorbance, dtype=float),
                                       c.noise))
-              and not len(bubble_gains(np.asarray(c.times, dtype=float),
-                                       np.asarray(c.absorbance, dtype=float),
-                                       c.noise))
+              and not len(bubble_arrivals(np.asarray(c.times, dtype=float),
+                                          np.asarray(c.absorbance, dtype=float),
+                                          c.noise))
               and float(np.ptp(np.asarray(c.absorbance, dtype=float))) > 0.02]
     rows = []
     for severity in severities:
@@ -2154,7 +2166,7 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
     second way a repair can go wrong: gas_held (the most the profile ever puts
     in the beam), biggest_bubble (the largest single detachment), gas_at_end
     (what it still holds at the last reading), gain_total (the same, but only
-    the part `bubble_gains` put there) and quiet_tail, beside tail_gas,
+    the part an UNRELEASED arrival put there) and quiet_tail, beside tail_gas,
     tail_rise and rebuilt_net.
 
     READ `gas_at_end` MINUS `gain_total`, AND THAT IS ZERO EVERYWHERE -- not
@@ -2172,14 +2184,18 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
     `bubble_recovery(ends_holding=True)` rather than assumed away, and
     `quiet_tail` says which curves could be paying it.
 
-    `bubble_gains` breaks the equality on `gas_at_end` alone, on purpose: a
-    confirmed arrival is a permanent, unreleased shift by design (there is no
-    detachment to date a release from, the way there is for a fall), so
-    `gas_at_end` on a curve carrying one is exactly that curve's `gain_total`
-    -- checked over all 110 live curves, zero mismatches, in
-    `data/test_curve_metrics.py::test_debubble_with_gains`. The falls
-    component's own promise is unchanged; this is a second, independent one
-    on top of it, not a hole in the first.
+    AN UNRELEASED ARRIVAL is what breaks the equality on `gas_at_end` alone,
+    on purpose: with no detachment after it there is nothing to date a
+    release from, so it stays in the beam to the last reading and
+    `gas_at_end` on a curve carrying one is exactly that curve's
+    `gain_total` -- checked in `data/test_curve_metrics.py::
+    test_debubble_with_gains`. A RELEASED arrival breaks nothing: since
+    2026-09-10 it is a step inside `b(t)` that its own detachment takes back
+    out, so it leaves at the end exactly what the falls model always left,
+    which is nothing. Before that date it took the permanent shift too, and
+    69 of the archive's 80 arrivals were of that kind -- so this column was
+    absorbing, and hiding, a systematic depression of those curves' tails.
+    The falls component's own promise is unchanged throughout.
 
     Over the two-axis block every one of the 216 detachments is corrected in
     full: `worst_at_event` is zero or above on all 110 live curves. What is
@@ -2198,8 +2214,9 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
         times = np.asarray(curve.times, dtype=float)
         values = np.asarray(curve.absorbance, dtype=float)
         rebuilt, events = debubble(times, values, curve.noise)
-        gas_rate = bubble_rate(times, values, events)
-        gains = bubble_gains(times, values, curve.noise)
+        released, gains = split_arrivals(
+            bubble_arrivals(times, values, curve.noise, events), events)
+        gas_rate = bubble_rate(times, values, events, arrivals=released)
         steps = np.diff(values)
         rows.append({
             "experiment": curve.experiment,
@@ -2219,10 +2236,10 @@ def rebuild_smoothness(scope=TWO_AXIS_BLOCK, sigma=REBUILD_STEP_SIGMA,
             "biggest_bubble": max(
                 (float(values[start] - values[stop])
                  for start, stop in events), default=np.nan),
-            # THE FALLS MODEL'S OWN END-OF-CURVE BALANCE, isolated from
-            # `bubble_gains`' independent, unreleased shift: `gas_at_end`
-            # minus `gain_total` is what `unreleased_gas` promises is zero,
-            # and gains never touch that promise -- see
+            # THE FALLS MODEL'S OWN END-OF-CURVE BALANCE, isolated from the
+            # unreleased arrival's permanent shift: `gas_at_end` minus
+            # `gain_total` is what `unreleased_gas` promises is zero, and
+            # neither half of `split_arrivals` touches that promise -- see
             # `test_the_gas_may_not_outlast_the_evidence`.
             "gas_at_end": float(values[-1] - rebuilt[-1]),
             "gain_total": float(sum(gain for _, gain in gains)),

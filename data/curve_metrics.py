@@ -1061,13 +1061,32 @@ def _is_excursion(values, event, recovery=BUBBLE_RECOVERY_FRACTION,
     return False
 
 
-def bubble_gains(times, values, noise, sigma=BUBBLE_DROP_SIGMA,
-                 recovery=BUBBLE_RECOVERY_FRACTION, kink_sigma=OUTLIER_SIGMA,
-                 window=EXCURSION_LOCAL_WINDOW, floor=DETACHMENT_SNR_FLOOR):
+def bubble_arrivals(times, values, noise, events=None, sigma=BUBBLE_DROP_SIGMA,
+                    recovery=BUBBLE_RECOVERY_FRACTION,
+                    kink_sigma=OUTLIER_SIGMA, window=EXCURSION_LOCAL_WINDOW,
+                    depth=EXCURSION_RECOVERY_DEPTH,
+                    floor=DETACHMENT_SNR_FLOOR):
     """
     Level jumps that are gas arriving in the beam: `(index, gain)` pairs,
     where `index` is the last reading of the jump and `gain` is the part of
     it that exceeds an ordinary step there.
+
+    A CONFIRMED DETACHMENT IS NOT EVIDENCE AGAINST THE RISE THAT PRECEDES IT,
+    and reading it as one is what this function did until 2026-09-10. The
+    recovery test below asks whether a rise is undone by what follows, and
+    rejects it if so -- correctly, when what follows is noise. But when what
+    follows is a detachment `detachments` has already adjudicated on its own
+    evidence, the rise is not being erased by noise: it is being RELEASED,
+    which is the strongest evidence available that it was gas. So the veto is
+    skipped where a confirmed detachment departs within `depth` readings of
+    the landing, the same reach `_is_excursion` searches for a reversal, and
+    the kink test below is left to decide alone. Archive-wide this admits
+    NINE jumps and nothing else -- exps 43, 44, 49 and 55 and four rungs of
+    exp 135, each eyeballed against its own pre-jump trend before the rule
+    was adopted. The one-reading noise spike the veto exists for cannot reach
+    this clause: its own fall is rejected by `_is_excursion`'s `into` term
+    when `detachments` scores it, so there is no confirmed detachment for it
+    to point at. See DATA_VERIFICATION.md 2026-09-10.
 
     A RISE NEEDS TWO TESTS A FALL DOES NOT, because a fall gets one of them
     for free. `bubble_drops` needs only an amplitude test: real chemistry
@@ -1136,7 +1155,8 @@ def bubble_gains(times, values, noise, sigma=BUBBLE_DROP_SIGMA,
     (`test_curve_metrics.test_the_bubble_correction`'s first-interval case)
     this reaches a spurious 0.0006 AU gain, four orders of magnitude under
     the fall itself and well under anything found on a real curve. No case on
-    a real archive curve triggers it; `test_bubble_gains` sweeps the archive.
+    a real archive curve triggers it; `test_bubble_arrivals` sweeps the
+    archive.
     """
     times = np.asarray(times, dtype=float)
     values = np.asarray(values, dtype=float)
@@ -1145,16 +1165,21 @@ def bubble_gains(times, values, noise, sigma=BUBBLE_DROP_SIGMA,
     net = float(values[-1] - values[0])
     if net / noise < floor:
         return []
+    if events is None:
+        events = detachments(values, noise, sigma=sigma, recovery=recovery,
+                             floor=floor)
     candidates = bubble_drops(-values, noise, sigma=sigma)
     if not len(candidates):
         return []
     z = local_outlier_z(times, values, noise)
-    gains = []
+    releases = [start for start, _ in events]
+    arrivals = []
     for index in candidates:
         index = int(index)
         start, stop = index, index + 1
-        if _is_excursion(-values, (start, stop), recovery=recovery,
-                         window=window):
+        released = any(0 <= release - stop <= depth for release in releases)
+        if not released and _is_excursion(-values, (start, stop),
+                                          recovery=recovery, window=window):
             continue
         before, after = z[start], z[stop]
         if not (np.isfinite(before) and np.isfinite(after)):
@@ -1164,19 +1189,55 @@ def bubble_gains(times, values, noise, sigma=BUBBLE_DROP_SIGMA,
         baseline = _local_step_scale(values, start, stop, window)
         gain = max(float(values[stop] - values[start]) - baseline, 0.0)
         if gain > 0:
-            gains.append((stop, gain))
-    return gains
+            arrivals.append((stop, gain))
+    return arrivals
+
+
+def split_arrivals(arrivals, events):
+    """
+    Confirmed arrivals split by whether the run was watched to shed them:
+    `(released, unreleased)`.
+
+    WHICH HALF AN ARRIVAL FALLS IN DECIDES WHICH OPERATOR IS CORRECT, and
+    getting that wrong is the whole of the 2026-09-10 repair. Gas that a
+    later detachment releases is held for a while and then gone, so it
+    belongs in `bubble_profile`'s `b(t)` -- where the release takes it back
+    out -- and `bubble_rate` must see it, or the rate is bid up to pay for a
+    fall the arrival already covers. Gas with no detachment after it was
+    never watched to leave, so it is still in the beam at the last reading,
+    and a permanent shift from its own index on (`apply_gains`) is right.
+
+    Until 2026-09-10 every arrival took the permanent shift. On 69 of the 80
+    the archive then carried, a detachment followed -- so the curve was
+    lowered for the whole of its remaining length on account of gas it had
+    demonstrably shed, on top of the rate model already paying for that same
+    fall. Exp 49 cuvette 1 carried four such shifts.
+    """
+    released, unreleased = [], []
+    for index, gain in arrivals:
+        if any(start >= index for start, _ in events):
+            released.append((index, gain))
+        else:
+            unreleased.append((index, gain))
+    return released, unreleased
 
 
 def apply_gains(values, gains):
     """
-    Subtract confirmed bubble arrivals (`bubble_gains`) from a curve.
+    Subtract UNRELEASED bubble arrivals -- `split_arrivals`' second half --
+    from a curve.
 
     Each gain is a level shift: from its reading on, the curve is lowered by
     the amount that reading's jump exceeded an ordinary step there. This is
     independent of the falls' rate-fitted model -- a gain's size is read
     directly off the jump rather than inferred from a rate and a cap, so it
-    needs neither.
+    needs neither, and it is the one correction `unreleased_gas`' "only gas
+    that was watched to leave" rule does not reach: a jump is watched to
+    ARRIVE, which is evidence of its own.
+
+    PASS ONLY THE UNRELEASED HALF. A permanent shift is wrong for gas a later
+    detachment sheds -- see `split_arrivals` -- and `debubble` is what routes
+    each half to the operator that fits it.
     """
     values = np.asarray(values, dtype=float).copy()
     for index, gain in gains:
@@ -1238,7 +1299,8 @@ BUBBLE_SHAPE_SLOPE = 0.428
 BUBBLE_SHAPE_INTERCEPT = 1.0 - BUBBLE_SHAPE_SLOPE / 2.0
 
 
-def bubble_profile(times, values, events, rate, onset=0.0, shaped=False):
+def bubble_profile(times, values, events, rate, onset=0.0, shaped=False,
+                   arrivals=()):
     """
     The gas held in the beam at each reading, `b(t) >= 0`.
 
@@ -1246,6 +1308,18 @@ def bubble_profile(times, values, events, rate, onset=0.0, shaped=False):
     its decomposition does not slow over a run -- and leaves in the whole of
     each detachment. Between detachments `b` climbs, and THREE clauses bound
     the climb.
+
+    `arrivals` are `split_arrivals`' RELEASED half: `(index, gain)` pairs
+    where the beam was watched to take gas on in one reading. A steady rate
+    cannot produce a step, so before 2026-09-10 an arrival had no
+    representation here at all and the bisection simply bid `rate` up until
+    smooth growth since the run began covered the fall the arrival had
+    really paid for -- smearing the correction backwards over the whole
+    window and leaving the jump itself standing in the rebuilt curve. Each
+    gain now enters its own interval's increment directly, so it is held
+    from that reading until a detachment takes it back out. An arrival can
+    never land inside a detachment span, that span being falls and this a
+    rise, so the two never write the same reading.
 
     `shaped` is a fifth, EXPERIMENTAL clause, and it is off by default: with
     `shaped=True`, the rate within a window that ends in a release ramps
@@ -1308,6 +1382,16 @@ def bubble_profile(times, values, events, rate, onset=0.0, shaped=False):
     # at most a few dozen -- which matters, because `bubble_rate` bisects and
     # so calls this some tens of times per curve.
     room = np.maximum(np.diff(values), 0.0)
+    # A MEASURED step enters the increment beside the inferred one, and the
+    # pair is capped by `room` together so the first clause still holds. The
+    # arrival always survives that cap and the rate is what gets squeezed:
+    # `gain` is the jump less an ordinary step there, so it is strictly under
+    # `room` on its own, and it is the half of the increment that was watched
+    # rather than fitted.
+    arrived = np.zeros(max(len(values) - 1, 0))
+    for index, gain in arrivals:
+        if 1 <= int(index) < len(values):
+            arrived[int(index) - 1] += float(gain)
     # Only the part of each interval that falls after `onset` may grow gas;
     # at onset=0.0 this is `np.diff(times)` exactly, reproducing the original
     # model. An interval straddling `onset` is prorated, not all-or-nothing.
@@ -1333,7 +1417,8 @@ def bubble_profile(times, values, events, rate, onset=0.0, shaped=False):
                     multiplier[position:start] = (BUBBLE_SHAPE_INTERCEPT
                                                   + BUBBLE_SHAPE_SLOPE * fraction)
             growth = np.minimum(rate * multiplier[position:start]
-                                * growable_seconds[position:start],
+                                * growable_seconds[position:start]
+                                + arrived[position:start],
                                 room[position:start])
             held[position + 1:start + 1] = np.minimum(
                 held[position] + np.cumsum(growth),
@@ -1342,7 +1427,8 @@ def bubble_profile(times, values, events, rate, onset=0.0, shaped=False):
             held[start] - (values[start] - values[start + 1:stop + 1]), 0.0)
         position = stop
     if position < len(values) - 1:
-        growth = np.minimum(rate * growable_seconds[position:], room[position:])
+        growth = np.minimum(rate * growable_seconds[position:]
+                            + arrived[position:], room[position:])
         held[position + 1:] = np.minimum(
             held[position] + np.cumsum(growth), owed[position + 1:])
     return held
@@ -1375,7 +1461,8 @@ def quiet_tail(times, events):
     return float((times[-1] - times[events[-1][1]]) / cadence)
 
 
-def bubble_shortfall(times, values, events, rate, onset=0.0, shaped=False):
+def bubble_shortfall(times, values, events, rate, onset=0.0, shaped=False,
+                     arrivals=()):
     """
     The largest detachment this `rate` (held from `onset` on) cannot pay for,
     in absorbance.
@@ -1383,19 +1470,35 @@ def bubble_shortfall(times, values, events, rate, onset=0.0, shaped=False):
     A bubble cannot shed gas that was never made. Zero or less means every
     detachment is affordable and `A_obs - bubble_profile` is non-decreasing
     across every one of them.
+
+    `arrivals` pay towards the same detachments, so the rate has that much
+    less to cover -- which is the point of passing them: a fall preceded by a
+    watched jump no longer demands a rate that invents the jump's mass out of
+    steady production hours earlier.
     """
     if not events:
         return 0.0
-    held = bubble_profile(times, values, events, rate, onset=onset, shaped=shaped)
+    held = bubble_profile(times, values, events, rate, onset=onset,
+                          shaped=shaped, arrivals=arrivals)
     return max(float((values[start] - values[stop]) - held[start])
                for start, stop in events)
 
 
 def bubble_rate(times, values, events, rounds=BISECTION_ROUNDS, onset=0.0,
-                shaped=False):
+                shaped=False, arrivals=()):
     """
     The least steady production rate that pays for every detachment, AU/s,
     if gas may only be held from `onset` onward.
+
+    PASS THE RELEASED `arrivals` OR THE RATE ABSORBS THEM. Adding an arrival
+    only ever raises `held`, so the shortfall stays monotone in `rate` and
+    the bisection below is unchanged -- but the rate it settles on drops,
+    because a watched jump is mass the rate no longer has to manufacture.
+    On the archive's worst case, exp 135 cuvette 4, it falls from 1.20e-04 to
+    2.93e-05 AU/s; on exp 139 cuvette 2 from 5.57e-06 to 4.07e-06. The rate
+    is what `scope.gas_rate_drivers` regresses, so this moves that fit too --
+    towards a cleaner measure of steady production, which is what it was
+    always meant to be.
 
     THE ONE FREE PARAMETER, and it is pinned rather than fitted. Gas that
     leaves the beam was made before it left, so the rate is bounded below by
@@ -1441,20 +1544,21 @@ def bubble_rate(times, values, events, rounds=BISECTION_ROUNDS, onset=0.0,
     high = 4.0 * max(float(np.max(steps) / np.min(intervals[intervals > 0])),
                      1e-12)
     if bubble_shortfall(times, values, events, high, onset=onset,
-                        shaped=shaped) > 0:
+                        shaped=shaped, arrivals=arrivals) > 0:
         return np.inf
     low = 0.0
     for _ in range(rounds):
         middle = 0.5 * (low + high)
         if bubble_shortfall(times, values, events, middle, onset=onset,
-                            shaped=shaped) > 0:
+                            shaped=shaped, arrivals=arrivals) > 0:
             low = middle
         else:
             high = middle
     return high
 
 
-def bubble_onset(times, values, events, rate, rounds=BISECTION_ROUNDS):
+def bubble_onset(times, values, events, rate, rounds=BISECTION_ROUNDS,
+                 arrivals=()):
     """
     EXPERIMENTAL. The latest start time gas could have had, holding `rate`
     FIXED at an already-fitted value, and still explain every detachment.
@@ -1500,11 +1604,13 @@ def bubble_onset(times, values, events, rate, rounds=BISECTION_ROUNDS):
         return 0.0
     low = float(times[0])
     high = float(times[events[0][0]])
-    if bubble_shortfall(times, values, events, rate, onset=low) > 0:
+    if bubble_shortfall(times, values, events, rate, onset=low,
+                        arrivals=arrivals) > 0:
         return low
     for _ in range(rounds):
         middle = 0.5 * (low + high)
-        if bubble_shortfall(times, values, events, rate, onset=middle) <= 0:
+        if bubble_shortfall(times, values, events, rate, onset=middle,
+                            arrivals=arrivals) <= 0:
             low = middle
         else:
             high = middle
@@ -1548,26 +1654,40 @@ def debubble(times, values, noise, sigma=BUBBLE_DROP_SIGMA):
     make. Read `bubble_load` before quoting a rate, and `monotone_bound` for
     the assumption-free bracket on the other side.
 
-    ADDED 2026-09-08: `bubble_gains` on top, independent of the rate model
-    above. A detachment is only ever a loss because chemistry cannot fall, so
-    the falls model above needs no separate check that a fall is real gas
-    before it is worth a rate fit -- `detachments` already did that. A rise
-    has no such free pass; most large rises in this block are the reaction,
-    not gas (`bubble_gains`'s docstring has the count), so this cannot be the
-    falls model with the sign flipped. Each confirmed gain is a direct,
-    measured level shift, not a rate: it needs no bisection and does not
-    interact with `events` or `rate` above, so it cannot move what the falls
-    model already explains, only remove what neither of them did. `events`
-    returned here is still `detachments`' falls alone, unchanged.
+    ADDED 2026-09-08: `bubble_arrivals` on top. A detachment is only ever a
+    loss because chemistry cannot fall, so the falls model above needs no
+    separate check that a fall is real gas before it is worth a rate fit --
+    `detachments` already did that. A rise has no such free pass; most large
+    rises in this block are the reaction, not gas (`bubble_arrivals`'s
+    docstring has the count), so this cannot be the falls model with the sign
+    flipped.
+
+    REWRITTEN 2026-09-10, because an arrival was being applied with the wrong
+    operator. It arrived here as a permanent level shift from its own reading
+    to the end of the curve, which is right only for gas that never leaves --
+    and 69 of the archive's 80 were followed by a detachment that plainly
+    shed them, so the tail was lowered for gas already gone while the rate
+    model paid for the same fall a second time. `split_arrivals` now routes
+    each half to the operator that fits it: RELEASED arrivals go into
+    `bubble_profile` as steps in `b(t)`, where the detachment takes them back
+    out and `bubble_rate` can see them; UNRELEASED ones keep the permanent
+    shift. Nine further jumps are admitted at the same time, none of which
+    the old recovery veto would let past. `events` returned here is still
+    `detachments`' falls alone, unchanged.
+
+    A curve `bubble_rate` cannot pay for at any rate is returned untouched,
+    arrivals included -- there is no `b(t)` to put a step into.
     """
     times = np.asarray(times, dtype=float)
     values = np.asarray(values, dtype=float)
     events = detachments(values, noise, sigma=sigma)
-    rate = bubble_rate(times, values, events)
+    arrivals = bubble_arrivals(times, values, noise, events, sigma=sigma)
+    released, unreleased = split_arrivals(arrivals, events)
+    rate = bubble_rate(times, values, events, arrivals=released)
     reconstructed = (values.copy() if not np.isfinite(rate)
-                     else values - bubble_profile(times, values, events, rate))
-    gains = bubble_gains(times, values, noise, sigma=sigma)
-    return apply_gains(reconstructed, gains), events
+                     else values - bubble_profile(times, values, events, rate,
+                                                  arrivals=released))
+    return apply_gains(reconstructed, unreleased), events
 
 
 def debubble_onset(times, values, noise, sigma=BUBBLE_DROP_SIGMA):
@@ -1598,13 +1718,15 @@ def debubble_onset(times, values, noise, sigma=BUBBLE_DROP_SIGMA):
     times = np.asarray(times, dtype=float)
     values = np.asarray(values, dtype=float)
     events = detachments(values, noise, sigma=sigma)
-    rate = bubble_rate(times, values, events)
+    arrivals = bubble_arrivals(times, values, noise, events, sigma=sigma)
+    released, unreleased = split_arrivals(arrivals, events)
+    rate = bubble_rate(times, values, events, arrivals=released)
     if not np.isfinite(rate):
         return values.copy(), events, 0.0, rate
-    onset = bubble_onset(times, values, events, rate)
+    onset = bubble_onset(times, values, events, rate, arrivals=released)
     reconstructed = values - bubble_profile(times, values, events, rate,
-                                            onset=onset)
-    return reconstructed, events, onset, rate
+                                            onset=onset, arrivals=released)
+    return apply_gains(reconstructed, unreleased), events, onset, rate
 
 
 # The fewest readings after the last detachment that a tail slope may be read

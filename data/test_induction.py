@@ -1359,16 +1359,16 @@ def test_regressions():
     two = scope.frame(scope.TWO_AXIS_BLOCK)
     split = induction.two_state_table(two)
     summary = induction.two_state_summary(split)
-    check("31 of the two-axis block's live curves earn a pure one-phase form",
-          summary["n"] == 31, f"{summary['n']}")
-    check("64.5% of those resolve a real two-state solution",
-          abs(summary["fraction_resolvable"] - 0.645) < 0.005,
+    check("32 of the two-axis block's live curves earn a pure one-phase form",
+          summary["n"] == 32, f"{summary['n']}")
+    check("62.5% of those resolve a real two-state solution",
+          abs(summary["fraction_resolvable"] - 0.625) < 0.005,
           f"{summary['fraction_resolvable']:.3f}")
-    check("its median b is 0.163, over three times the temperature series'",
-          abs(summary["median_b"] - 0.163) < 0.002,
+    check("its median b is 0.167, over three times the temperature series'",
+          abs(summary["median_b"] - 0.167) < 0.002,
           f"{summary['median_b']:.3f}")
-    check("failures track pH: rho +0.469, p < 0.01",
-          abs(summary["b_pH_rho"] - 0.469) < 0.002 and summary["b_pH_p"] < 0.01,
+    check("failures track pH: rho +0.453, p < 0.01",
+          abs(summary["b_pH_rho"] - 0.453) < 0.002 and summary["b_pH_p"] < 0.01,
           f"rho {summary['b_pH_rho']:+.3f}, p {summary['b_pH_p']:.4f}")
 
     orders = induction.activation_orders()

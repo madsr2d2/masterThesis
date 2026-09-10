@@ -238,8 +238,8 @@ stays unresolved either way.
 | 46 | 9.23 | 4.45 × 10⁻⁴ | 8.13 |
 | 47 | 9.40 | 3.16 × 10⁻⁴ | 5.18 |
 | 48 | 9.51 | 4.74 × 10⁻⁴ | 10.65 |
-| 44 | 10.07 | 1.90 × 10⁻⁴ | 4.56 |
-| 49 | 10.34 | 2.06 × 10⁻⁴ | 6.66 |
+| 44 | 10.07 | 2.28 × 10⁻⁴ | 5.98 |
+| 49 | 10.34 | 2.06 × 10⁻⁴ | 6.43 |
 
 **`Km` does not simply climb with pH — it turns over, at the same rung
 `Vmax` does.** Both peak together at exp 48 (pH 9.51: `Km` 10.65 mM, `Vmax`
@@ -345,7 +345,7 @@ built 2026-09-05, before this folder existed, and not recomputed here.
 | two-axis high | +0.370 ± 0.144 (controlled +0.413 ± 0.184) | −0.79 | +0.85 |
 
 Pooled with the signal held (`clock_pooled_order`, `controlled=True`):
-**+0.326 ± 0.131 per pH unit**, χ² = **0.95** on 3 — the four ladders agree,
+**+0.318 ± 0.131 per pH unit**, χ² = **1.06** on 3 — the four ladders agree,
 unlike the rate's. **More alkaline, longer induction**, on all four, in three
 buffers and on both substrates.
 
@@ -381,7 +381,7 @@ that keeps coming up as the operative one:
 
 - **The rate.** Section 2: +0.594 ± 0.026 pooled over phosphate and both
   two-axis ladders, checked against `scope.ph_order`'s own +0.554 ± 0.040.
-- **The induction clock.** Section 4: +0.326 ± 0.131 per pH unit, pooled and
+- **The induction clock.** Section 4: +0.318 ± 0.131 per pH unit, pooled and
   signal-controlled, χ² = 0.95 on 3.
 - **The early trough.** `../early_trough/ANALYSIS.md`'s driver of the
   reference-cuvette dip is [enz]/[HOO⁻], not [enz]/[S] and not total [H2O2],
@@ -437,7 +437,7 @@ alone.
   shared `Km` (5.87 mM, resolved) where the uncorrected fit could not — six
   of the seven resolved rungs' own intervals contain it, and only the
   lowest-pH rung (exp 41) disagrees (§3a).
-- The induction clock's order in pH, +0.326 ± 0.131 per pH unit, agrees across
+- The induction clock's order in pH, +0.318 ± 0.131 per pH unit, agrees across
   all four ladders (χ² = 0.95 on 3) where the rate's does not.
 - Three independent measurements — the rate, the clock, and the early
   trough's OTHER-cuvette signal — name [HOO⁻] as the species that matters, and

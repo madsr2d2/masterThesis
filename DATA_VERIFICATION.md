@@ -8,6 +8,93 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-10 — a bubble that arrives and then leaves was being corrected
+with the wrong operator, and a rise released by a confirmed detachment was
+being rejected for being released
+
+`bubble_gains` (2026-09-08) found level jumps that are gas arriving in the
+beam, and `apply_gains` removed each one by lowering every reading from its
+own index to the end of the curve. That operator is correct for exactly one
+case — gas that arrives and never leaves — and it was being applied to all of
+them. Two faults followed, in opposite directions, and both are now fixed.
+
+**69 of the archive's 80 confirmed arrivals are followed by a confirmed
+detachment.** The gas plainly left, and the curve was lowered for the whole of
+its remaining length regardless, while the falls model separately fitted a rate
+to pay for that same fall — the arrival subtracted twice. Exp 49 cuvette 1
+carried four such shifts, ~0.09 AU in total, on a curve that then sheds 0.12 AU.
+
+**And nine genuine level jumps were being thrown away** because the detachment
+that released them looked, to the recovery test, like a spike reverting.
+`_is_excursion` asks whether a rise is undone by what follows and rejects it if
+so, which is right when what follows is noise. When what follows is a
+detachment `detachments` has already adjudicated on its own evidence, the rise
+was not erased — it was released, which is the strongest evidence available
+that it was gas. The veto is now skipped where a confirmed fall departs within
+`EXCURSION_RECOVERY_DEPTH` of the landing, and the kink test decides alone. The
+one-reading noise spike the veto exists for cannot reach the new clause: its own
+fall is what `_is_excursion` rejects when `detachments` scores it, so there is
+no confirmed detachment for it to point at.
+
+The nine are exps 43.1, 44.1, 49.2, 55.1, 135.1 (twice), 135.2, 135.4 and
+139.2. Each was drawn against its own pre-jump quadratic — carried forward as
+it stands, and lifted by the measured gain — and eyeballed before the rule was
+adopted (`scratch/arrival_candidates.html`). Every one steps rather than bends;
+the kink test scores them −5.5σ to −35.4σ on the reading before and +12.5σ to
++154.7σ on the reading the jump lands on. A census of every rise the old veto
+rejected found 184 archive-wide, of which 175 are pre-release *acceleration*
+(the bubble growing fast in the last reading or two before it lets go, which
+`BUBBLE_SHAPE_SLOPE` already measures) and are correctly rejected by the kink
+test — this admits the 9 and nothing else.
+
+**The repair is structural, not a threshold change.** An arrival is a MEASURED
+change in `b(t)`, exactly like a detachment, so it belongs in the state machine
+rather than in a patch applied afterwards. `curve_metrics.split_arrivals` now
+routes each half to the operator that fits it: a RELEASED arrival is a step
+inside `bubble_profile`'s `b(t)` that its own detachment takes back out, and
+`bubble_rate` is fitted knowing about it; an UNRELEASED one keeps the permanent
+shift, which is the one case `unreleased_gas`' "only gas watched to leave" rule
+cannot reach and which a watched jump is its own evidence for. It has to be
+inside the bisection: with the arrival invisible, the rate was bid up until
+smooth production since the run began covered a fall the arrival had really
+paid for, smearing the correction backwards across the whole window and leaving
+the jump standing in the rebuilt curve. On exp 135 cuvette 4 the fitted rate
+falls from 1.20e-04 to 2.93e-05 AU/s; on exp 139 cuvette 2, 5.57e-06 to
+4.07e-06.
+
+**What it does not touch is the bound on it.** Passing no arrival reproduces
+the old profile exactly (`test_arrivals_do_not_disturb_a_curve_without_one`):
+374 of the archive's 402 curves rebuild bit-for-bit as before, and the 28 that
+move are exactly those carrying an arrival. The worst rebuilt step across a
+detachment is −10.99σ before and after, `worst_at_event` is unmoved, and no
+curve gains a falling ordinary step (19275 before, 19256 after).
+
+**Numbers that moved.** `gas_rate_drivers` +1.477 ± 0.258 → **+1.343 ± 0.255**
+in peroxide and −0.344 ± 0.093 → **−0.307 ± 0.089** in substrate, from a rate
+no longer manufacturing arrival mass. The two-axis peroxide order on the
+reconstruction +0.696 → **+0.704** over all live and +0.756 → **+0.767** over
+the strong runs. Boric's turnover is unaffected in shape and slightly
+strengthened: exp 43 (the peak) +7.0%, exps 44/45 +1.3–1.8%, exp 49 −1.0%.
+
+**And one reading of a result is retracted.** CLAUDE.md and the skill said that
+folding gains in put the block's `tau_slow` peroxide row "back" at 0.3σ from
++1, matching the readings, and that the falls-only correction's own 1.4σ move
+away from +1 had therefore been an artefact. That was the double-counted shift
+depressing those curves' tails and lengthening the clocks read off them. With
+the operator fixed the row sits at **+0.757 ± 0.289, 0.84σ below +1** — between
+the two earlier readings, still nowhere near rejecting +1, and now moving in
+the direction the artefact argument requires, since taking peroxide-made gas
+out has to move `d ln v − d ln τ` away from the +1 it flattered. The estimate's
+range across cuts is **+0.76 to +0.92**, no longer straddling +1 (+0.87 to
++1.26) but not a sigma short of it either. `tau` resolves on 69 curves rather
+than 67; `tau_slow` still on 34.
+
+`data/test_curve_metrics.py::test_an_arrival_released_by_its_own_detachment`
+plants both halves — an arrival released two readings later, which the old veto
+rejected, and a one-reading spike, which is still rejected. All 25 gates pass.
+
+---
+
 ## 2026-09-09 — end-to-end review: six stale numbers in the ungated documents,
 a post-hoc split that was quoted as if it were not one, and a docstring
 premise that was half false

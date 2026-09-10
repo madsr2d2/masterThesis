@@ -362,16 +362,16 @@ def main():
         scope.frame(scope.TWO_AXIS_BLOCK))
     summary = induction.two_state_summary(two_axis_split)
     doc.claim("two-axis: curves earning a pure one-phase form", "31 live")
-    doc.check("31 curves", summary["n"] == 31, f"{summary['n']}")
+    doc.check("32 curves", summary["n"] == 32, f"{summary['n']}")
     doc.claim("two-axis: how many resolve",
-              f"**20 (64.5%)**")
-    doc.check("20 of 31, 64.5%",
+              f"**20 (62.5%)**")
+    doc.check("20 of 32, 62.5%",
               summary["resolvable"] == 20
-              and abs(summary["fraction_resolvable"] - 0.645) < 0.005)
+              and abs(summary["fraction_resolvable"] - 0.625) < 0.005)
     doc.claim("two-axis: median b",
-              f"**0.163**")
-    doc.check("0.163 against the temperature series' 0.057",
-              abs(summary["median_b"] - 0.163) < 0.002)
+              f"**0.167**")
+    doc.check("0.167 against the temperature series' 0.057",
+              abs(summary["median_b"] - 0.167) < 0.002)
 
     worst = two_axis_split.sort_values("b", ascending=False).head(5)
     doc.claim("the five worst failures' header", "| curve | pH | shape | b |")

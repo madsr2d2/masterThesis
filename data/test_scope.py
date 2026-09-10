@@ -478,7 +478,7 @@ def test_the_correction_recovers_a_planted_rate():
 
     # A repair that moves a curve it was not needed on is a repair that has to
     # be defended on every curve. This one is the identity there -- for a
-    # curve free of BOTH artefacts. `bubble_gains` catches what `bubble_drops`
+    # curve free of BOTH artefacts. `bubble_arrivals` catches what `bubble_drops`
     # cannot (exp 146 cuvette 4 carries no fall at all, but does carry a
     # confirmed arrival), so a curve is only "untouched" ground if it is clean
     # of that too.
@@ -488,7 +488,7 @@ def test_the_correction_recovers_a_planted_rate():
         values = np.asarray(curve.absorbance, dtype=float)
         if len(curve_metrics.bubble_drops(values, curve.noise)):
             continue
-        if curve_metrics.bubble_gains(times, values, curve.noise):
+        if curve_metrics.bubble_arrivals(times, values, curve.noise):
             continue
         untouched.append(np.array_equal(curve_metrics.debubble(
             times, values, curve.noise)[0], values))
@@ -690,7 +690,7 @@ def test_the_gas_may_not_outlast_the_evidence():
     print("\nthe gas may not outlast the evidence for it")
     table = scope.rebuild_smoothness()
     repaired = table[~table.clean]
-    # The FALLS component's own promise, isolated from `bubble_gains`' -- a
+    # The FALLS component's own promise, isolated from `bubble_arrivals`' -- a
     # confirmed arrival is a deliberate, permanent shift with no release to
     # date it from, so `gas_at_end` alone is no longer zero on a curve
     # carrying one; `gas_at_end - gain_total` is what `unreleased_gas` still
@@ -762,7 +762,7 @@ def test_the_clocks_are_corrected_like_the_rate():
     `tau_slow` row sat 0.3 sigma from +1; asked of the FALLS-corrected
     curves, 1.4.
 
-    ADDED 2026-09-08: `bubble_gains` moves this again, and back the other
+    ADDED 2026-09-08: `bubble_arrivals` moves this again, and back the other
     way. The falls-only correction was itself part of the systematic --
     exp 135 cuvette 4 lost its resolved `tau_slow` once its own gain was
     removed, and exps 138 cuvette 2, 141 cuvette 4 and 146 cuvette 4 gained
@@ -864,20 +864,29 @@ def test_the_clocks_are_corrected_like_the_rate():
         live.tau_slow_corrected.fillna(-1.0)).sum())
     check("the correction changes tau_slow on a real share of live curves",
           tau_slow_moved > 20, f"{tau_slow_moved} of {len(live)}")
-    # AND WITH GAINS FOLDED IN, the axis-level gap to the raw reading closes
-    # back up rather than staying open: the falls-only correction's own
-    # 1.4 sigma move away from +1 was itself part of the artefact.
-    check("the fully-corrected peroxide axis is back within a rounding of "
-          "the raw reading",
-          abs(float(fixed.loc[("tau_slow_corrected", "axis"), "order"])
-              - float(raw.loc[("tau_slow", "axis"), "order"])) < 0.1,
-          f"{fixed.loc[('tau_slow_corrected', 'axis'), 'order']:+.3f} against "
-          f"{raw.loc[('tau_slow', 'axis'), 'order']:+.3f}")
-    check("and both now sit about 0.3 sigma from +1",
-          abs(float(fixed.loc[("tau_slow_corrected", "axis"), "sigma"])
-              - float(raw.loc[("tau_slow", "axis"), "sigma"])) < 0.1,
-          f"{fixed.loc[('tau_slow_corrected', 'axis'), 'sigma']:.3f} against "
-          f"{raw.loc[('tau_slow', 'axis'), 'sigma']:.3f}")
+    # WHICH WAY THE REPAIR MOVES THIS AXIS, and the reading of it was wrong
+    # from 2026-09-08 to 2026-09-10. The gas is MADE from peroxide, so
+    # leaving it in inflates the rate's order and shortens the apparent
+    # clock -- both flattering the +1 under test. Taking it out therefore has
+    # to move the ratio AWAY from +1, and the falls-only correction did
+    # exactly that, to 1.4 sigma. Folding arrivals in appeared to undo the
+    # move and put the row "back" at 0.3 sigma, matching the readings almost
+    # exactly, and that was read as the falls-only move having been an
+    # artefact of its own. It was not: it was the permanent level shift being
+    # applied to 69 arrivals a detachment had already shed, which depressed
+    # those curves' tails and lengthened the clocks read off them. With each
+    # arrival on the operator that fits it the row sits at +0.757 +/- 0.289,
+    # 0.84 sigma below +1 -- between the two earlier readings, still nowhere
+    # near rejecting +1, and now moving in the direction the artefact
+    # argument predicts. See DATA_VERIFICATION.md 2026-09-10.
+    corrected_order = float(fixed.loc[("tau_slow_corrected", "axis"), "order"])
+    raw_order = float(raw.loc[("tau_slow", "axis"), "order"])
+    check("taking the gas out moves the peroxide axis DOWN, away from +1",
+          corrected_order < raw_order,
+          f"{corrected_order:+.3f} against {raw_order:+.3f}")
+    check("and it still cannot be told apart from +1",
+          float(fixed.loc[("tau_slow_corrected", "axis"), "sigma"]) < 1.0,
+          f"{fixed.loc[('tau_slow_corrected', 'axis'), 'sigma']:.3f} sigma")
     # The control has to keep working under the repair, or the repair has
     # bought a result by breaking the thing that made it meaningful.
     check("and the substrate control still misses the +1 under it",

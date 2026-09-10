@@ -197,7 +197,7 @@ against -260.4 as read and -5.8 on curves that never bubbled. The one survivor,
 exp 135 cuvette 6, has its fall in the FIRST interval -- a bubble grown before
 the run leaves no rise to date it from, and that curve is returned untouched.
 `gas_rate_drivers` is the independent check on the diagnosis: the fitted rate
-is +1.477 +/- 0.258 in peroxide and -0.344 +/- 0.093 in substrate, from a fit
+is +1.343 +/- 0.255 in peroxide and -0.307 +/- 0.089 in substrate, from a fit
 that never saw a concentration.
 
 **The landmark's failure closes a statistic, not the block.** `signal_control`
@@ -209,24 +209,30 @@ depend on that statistic: it holds for ANY clock of the activation step, and
 `induction.joint_clocks` asks it through each in turn BESIDE ITS CONTROL AXIS,
 because the +1 belongs to the activating species and the substrate axis must
 miss it. Pass `gate=` and never `floor=` for a fitted clock. On this block the
-two routes disagree -- 3.7 sigma short through the landmark, 2.0 and 0.3
+two routes disagree -- 3.7 sigma short through the landmark, 2.3 and 0.8
 through the clocks -- and nothing is concluded from it yet, because
 `tau_slow_corrected` is resolved on 34 of 110 curves and the estimate moves
-+0.87 to +1.26 across cuts: it STRADDLES +1 rather than falling short of it,
-but never sits far enough either side to reject it there.
++0.76 to +0.92 across cuts: short of +1 on every cut, but never by as much as
+a sigma, so it cannot be rejected there either. It straddled +1 (+0.87 to
++1.26) until 2026-09-10, on a correction that double-counted arrivals.
 
 **Both sides of that ratio come off the REBUILT curves.** `frame` carries
 `tau_corrected` and `tau_slow_corrected` beside `tau` and `tau_slow`, and
 `joint_clocks` defaults to them with `vmax_corrected`. The gas is made from
 peroxide, so on a peroxide axis leaving it in inflates the rate's order and
 shortens the clock, both flattering the +1. Correcting only the FALLS pushed
-the `tau_slow` row from 0.3 sigma off +1 to 1.4; adding `bubble_gains` -- the
-gas ARRIVING in the beam, not only leaving it (`BUBBLES.md`) -- brings it back
-to 0.3, matching the readings' own distance almost exactly. The correction
-still moves individual curves: `tau_slow` differs from `tau_slow_corrected` on
-32 of 110 live curves and `tau` from `tau_corrected` on 38 of 110. It tightens
-`tau`'s error (0.196 to 0.146) but not `tau_slow`'s (0.261 to 0.366), because
-gains change WHICH curves resolve, not only how many.
+the `tau_slow` row from 0.3 sigma off +1 to 1.4. Adding `bubble_arrivals` --
+the gas ARRIVING in the beam, not only leaving it (`BUBBLES.md`) -- appeared
+to bring it back to 0.3, and that reading stood for two days on a bug: an
+arrival a detachment later shed was still being applied as a PERMANENT shift,
+depressing those curves' tails. Routed through `split_arrivals` the row sits
+at +0.757 +/- 0.289, 0.8 sigma below +1 -- and taking peroxide-made gas out
+SHOULD move the ratio away from the +1 it flattered, which is what it now
+does. The correction still moves individual curves: `tau_slow` differs from
+`tau_slow_corrected` on 34 of 110 live curves and `tau` from `tau_corrected`
+on 38 of 110. It tightens `tau`'s error (0.196 to 0.149) but not
+`tau_slow`'s (0.261 to 0.289), because arrivals change WHICH curves resolve,
+not only how many.
 
 **Read `bubble_load` before quoting a rate off this block.** Fourteen of 110
 live curves sit above 1 and carry no measurable rate -- all four substrate rungs

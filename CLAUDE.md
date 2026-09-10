@@ -489,14 +489,14 @@ Three things follow that are worth not re-deriving.
   never bubbled. The ONE survivor is exp 135 cuvette 6, whose fall is in the
   first interval -- no rate explains a bubble grown before the run, and
   `debubble` returns that curve untouched.
-  **`gas_rate_drivers`**: the fitted rate is +1.477 +/- 0.258 in peroxide and
-  -0.344 +/- 0.093 in substrate, from a fit that never saw a concentration.
+  **`gas_rate_drivers`**: the fitted rate is +1.343 +/- 0.255 in peroxide and
+  -0.307 +/- 0.089 in substrate, from a fit that never saw a concentration.
   **Read `bubble_load` before quoting a rate**: 14 of 110 live curves sit above
   1 and carry no measurable rate -- all four substrate rungs of exp 135, plus
   inner rungs of 138, 140, 141, 142, 149 and 150. They are FLAGGED, NOT EXCLUDED.
   The SUBSTRATE order moves under no repair, but the PEROXIDE order does --
-  +0.794 to +0.696 over all live and +0.871 to +0.756 over the strong runs,
-  0.9 and 1.2 sigma -- which is what an artefact made from peroxide requires.
+  +0.794 to +0.704 over all live and +0.871 to +0.767 over the strong runs,
+  0.8 and 1.1 sigma -- which is what an artefact made from peroxide requires.
   Do not repeat the older claim that no order moves.
 - **The early rise is counted by the CATALYST, not the substrate.**
   `curve_metrics.burst_amplitude` reads it off the FITTED CURVE, because the
@@ -592,11 +592,13 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   control is the point: the +1 belongs to the activating species, so the
   substrate axis must MISS it, and it does by 3.9σ to 8.5σ. On the two-axis
   block the two routes disagree -- the peroxide axis falls 3.7σ short through
-  the landmark, 2.0σ and 0.3σ through the fitted clocks. **Conclude nothing
+  the landmark, 2.3σ and 0.8σ through the fitted clocks. **Conclude nothing
   from that yet**: `tau_slow` is resolved on 34 of 110 live curves and the
-  estimate moves +0.87 to +1.26 across cuts -- straddling +1 rather than
-  falling short of it on every cut, but never far enough from it either side
-  to reject it there. Pass `gate=` and not `floor=` for
+  estimate moves +0.76 to +0.92 across cuts -- short of +1 on every cut, but
+  never by as much as a sigma, so it cannot be rejected there either. It
+  STRADDLED +1 (+0.87 to +1.26) until 2026-09-10, on a correction that was
+  double-counting arrivals; read the entry below before quoting either range.
+  Pass `gate=` and not `floor=` for
   a fitted clock -- a floor puts an unresolved constant ON the floor and calls
   it the fastest curve in the block.
 - **CORRECT THE CLOCK, NOT JUST THE RATE.** `vmax_corrected` sat beside `vmax`
@@ -610,19 +612,26 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   the FALLS-corrected curves, 1.4σ. `frame` now carries `tau_corrected`,
   `tau_slow_corrected` and their resolved flags, `joint_clocks` DEFAULTS to
   them, and `JOINT_CLOCKS_RAW` is kept so the difference can be shown. The
-  repair costs no resolution -- it buys some (62 to 67 and 25 to 34 curves),
+  repair costs no resolution -- it buys some (62 to 69 and 25 to 34 curves),
   because the artefact was what those fits could not pin.
-  **ADDED 2026-09-08: `bubble_gains` (`BUBBLES.md` has the full account) moves
-  this again, and back.**
-  The falls-only correction was itself part of what pushed `tau_slow` away
-  from +1 -- exp 135 cuvette 4 loses its resolved `tau_slow` once its own
-  gain is removed too, and exps 138 cuvette 2, 141 cuvette 4 and 146
-  cuvette 4 gain one, and asked of the fully-corrected curves the row is
-  back to 0.3σ from +1, matching the readings' own distance almost exactly.
-  The correction still touches individual curves -- 32 of 110 live curves'
+  **ADDED 2026-09-08, AND ITS READING CORRECTED 2026-09-10: arrivals
+  (`bubble_arrivals`, `BUBBLES.md` has the full account) move this, and the
+  direction they move it in was wrong for two days.**
+  Folding arrivals in appeared to put the row BACK at 0.3σ from +1, matching
+  the readings almost exactly, and that was read as the falls-only
+  correction's own 1.4σ move having been an artefact. It was not. It was
+  `apply_gains` shifting a curve down for the whole of its remaining length
+  on account of gas a later detachment had already shed -- 69 of the
+  archive's 80 arrivals -- which depressed those tails and lengthened the
+  clocks read off them. With each arrival on the operator that fits it
+  (`split_arrivals`) the row sits at **+0.757 ± 0.289, 0.8σ below +1**:
+  between the two earlier readings, still nowhere near rejecting +1, and now
+  moving in the direction the artefact argument requires -- taking peroxide-
+  made gas out has to move `d ln v - d ln tau` AWAY from the +1 it flattered.
+  The correction touches individual curves -- 34 of 110 live curves'
   `tau_slow` differs from `tau_slow_corrected`, 38 of 110 for `tau` -- and it
-  still tightens `tau`'s error (0.196 to 0.146); it does not tighten
-  `tau_slow`'s (0.261 to 0.366), because gains change WHICH curves resolve,
+  still tightens `tau`'s error (0.196 to 0.149); it does not tighten
+  `tau_slow`'s (0.261 to 0.289), because arrivals change WHICH curves resolve,
   not only how many. See `data/test_scope.py::
   test_the_clocks_are_corrected_like_the_rate`.
 - **That `+1` is not about H2O2.** It holds for ANY species held in excess that

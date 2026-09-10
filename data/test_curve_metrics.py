@@ -25,7 +25,8 @@ from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
                            early_trough,
                            initial_rate, line_fit, line_slope, peak_position,
                            OUTLIER_SIGMA, apply_gains, bubble_drops,
-                           bubble_gains, bubble_load,
+                           bubble_arrivals, bubble_load,
+                           split_arrivals, _is_excursion,
                            bubble_profile, bubble_rate, bubble_shortfall,
                            local_outlier_z, OUTLIER_SIGMA,
                            debubble, detachments, isolated_outliers,
@@ -933,7 +934,7 @@ def test_the_bubble_correction():
     check("a detachment in the first interval has no affordable rate",
           not np.isfinite(bubble_rate(times, early, detachments(early, noise))))
     # THE FALLS MODEL leaves this curve exactly alone -- there is no rate to
-    # apply. `bubble_gains` is not quite as clean beside a fall this extreme:
+    # apply. `bubble_arrivals` is not quite as clean beside a fall this extreme:
     # a 0.03 AU, ~120 sigma drop in the very first interval is far outside
     # anything the real archive carries, and it distorts `local_outlier_z`'s
     # local fit for a few readings after it the same way `isolated_outliers`
@@ -1385,7 +1386,7 @@ def test_the_detachment_snr_floor():
           f"{max(below):.1f} < {DETACHMENT_SNR_FLOOR} <= {min(above):.1f}")
 
 
-def test_bubble_gains():
+def test_bubble_arrivals():
     """
     Gas arriving in the beam, not leaving it -- the rare mirror of a
     detachment, and why it cannot be found the way one is.
@@ -1393,7 +1394,7 @@ def test_bubble_gains():
     A fall past `BUBBLE_DROP_SIGMA` needs no further test to be suspect: real
     chemistry never falls. A rise past the same threshold is not suspect on
     its own -- most large rises in the two-axis block are the reaction, 809
-    against 303 falls -- so `bubble_gains` needs a rise to pass two tests a
+    against 303 falls -- so `bubble_arrivals` needs a rise to pass two tests a
     fall does not: it must not reverse (recovery, reused from `_is_excursion`
     on the negated curve) and it must be a KINK against the curve's own local
     trend (`local_outlier_z`), never merged across readings the way a fall
@@ -1413,15 +1414,15 @@ def test_bubble_gains():
     perched = chemistry.copy()
     perched[30] += 0.004
     check("a spike that reverts is not a gain",
-          bubble_gains(times, perched, noise) == [],
-          f"{bubble_gains(times, perched, noise)}")
+          bubble_arrivals(times, perched, noise) == [],
+          f"{bubble_arrivals(times, perched, noise)}")
 
     # A PERSISTENT STEP: the level jumps and stays. This is what a gain is
     # for, and its size should read off almost exactly, net of the ordinary
     # step the curve was already taking there.
     step = chemistry.copy()
     step[30:] += 0.004
-    found = bubble_gains(times, step, noise)
+    found = bubble_arrivals(times, step, noise)
     check("a persistent step is a gain",
           len(found) == 1 and found[0][0] == 30, f"{found}")
     check("  and its size is the jump, not the ordinary step under it",
@@ -1430,7 +1431,7 @@ def test_bubble_gains():
 
     rng = np.random.default_rng(0)
     noisy = step + rng.normal(0, noise, len(times))
-    noisy_found = bubble_gains(times, noisy, noise)
+    noisy_found = bubble_arrivals(times, noisy, noise)
     check("the same step survives realistic noise",
           len(noisy_found) == 1 and noisy_found[0][0] == 30
           and abs(noisy_found[0][1] - 0.004) < 5 * noise,
@@ -1438,16 +1439,16 @@ def test_bubble_gains():
 
     # A SMOOTH, FAST ACCELERATION: real kinetics can rise by many sigma a
     # step for many consecutive readings. NOT ONE of those steps may score as
-    # a gain -- this is exactly the failure mode `bubble_gains` exists to
+    # a gain -- this is exactly the failure mode `bubble_arrivals` exists to
     # avoid, and it is why events are never merged across readings the way a
     # fall's are.
     fast = 0.02 + 0.06 * (1 - np.exp(-times / 300.0))
     check("a smooth acceleration has no gain, at any step",
-          bubble_gains(times, fast, noise) == [],
-          f"{bubble_gains(times, fast, noise)}")
+          bubble_arrivals(times, fast, noise) == [],
+          f"{bubble_arrivals(times, fast, noise)}")
 
     check("a clean curve has no gain",
-          bubble_gains(times, chemistry, noise) == [])
+          bubble_arrivals(times, chemistry, noise) == [])
 
     # apply_gains is the level shift alone, checked independent of detection.
     shifted = apply_gains(step, [(30, 0.004)])
@@ -1463,7 +1464,7 @@ def test_bubble_gains():
     archive_curves = {(c.experiment, c.sample): c
                       for c in scope.curves(scope.archive())}
     jump = archive_curves[(135, 5)]
-    found = bubble_gains(np.asarray(jump.times, dtype=float),
+    found = bubble_arrivals(np.asarray(jump.times, dtype=float),
                          np.asarray(jump.absorbance, dtype=float), jump.noise)
     check("exp 135 cuvette 5's jump at 9780 s is a gain",
           len(found) == 1 and jump.times[found[0][0]] == 9780.0, f"{found}")
@@ -1471,7 +1472,7 @@ def test_bubble_gains():
     holding = archive_curves[(146, 4)]
     check("exp 146 cuvette 4 carries no detachment at all",
           detachments(holding.absorbance, holding.noise) == [])
-    found = bubble_gains(np.asarray(holding.times, dtype=float),
+    found = bubble_arrivals(np.asarray(holding.times, dtype=float),
                          np.asarray(holding.absorbance, dtype=float),
                          holding.noise)
     check("but it does carry a gain, never watched to leave",
@@ -1483,7 +1484,7 @@ def test_bubble_gains():
     # single ~0.034 AU jump -- larger than any real gain found anywhere else
     # in the block. Unmerged, no gain may fall inside that stretch.
     fourteen = archive_curves[(144, 2)]
-    found = bubble_gains(np.asarray(fourteen.times, dtype=float),
+    found = bubble_arrivals(np.asarray(fourteen.times, dtype=float),
                          np.asarray(fourteen.absorbance, dtype=float),
                          fourteen.noise)
     check("exp 144 cuvette 2's real 14-reading acceleration is not a gain",
@@ -1498,14 +1499,114 @@ def test_bubble_gains():
     weak = archive_curves[(150, 1)]
     check("exp 150 cuvette 1 carries no gain either, gated by the same "
           "floor",
-          bubble_gains(np.asarray(weak.times, dtype=float),
+          bubble_arrivals(np.asarray(weak.times, dtype=float),
                       np.asarray(weak.absorbance, dtype=float),
                       weak.noise) == [])
 
 
+def test_an_arrival_released_by_its_own_detachment():
+    """
+    A BUBBLE THAT ARRIVES AND THEN LEAVES, which is the case the recovery
+    test threw away until 2026-09-10.
+
+    The veto exists to reject a rise that gets undone -- right, when what
+    undoes it is noise. When what undoes it is a detachment `detachments` has
+    already confirmed on its own evidence, the rise was not erased, it was
+    RELEASED, and that is the best evidence available that it was gas. So the
+    veto is skipped where a confirmed fall departs within
+    `EXCURSION_RECOVERY_DEPTH` of the landing, and the kink test decides
+    alone.
+
+    The one-reading noise spike the veto is for cannot exploit this: its own
+    fall is what `_is_excursion` rejects when `detachments` scores it, so
+    there is no confirmed detachment for the rise to point at. Both halves
+    are planted here.
+    """
+    print("\nan arrival released by its own detachment")
+    times = np.arange(0, 3600, 60.0)
+    noise = 1e-4
+    chemistry = 0.02 + 1e-6 * times
+
+    # ARRIVE at 30 and shed the whole of it at 32 -- two readings later, so
+    # the release sits INSIDE `EXCURSION_RECOVERY_DEPTH` of the landing and
+    # the old veto fires on it. That is the geometry the real cases have: of
+    # the nine this admits, every one releases within three readings.
+    episode = chemistry.copy()
+    episode[30:33] += 0.004
+    events = detachments(episode, noise)
+    check("the release is confirmed as a detachment",
+          any(start == 32 for start, _ in events), f"{events}")
+    check("  and the old veto would have rejected the rise for it",
+          _is_excursion(-episode, (29, 30)))
+    found = bubble_arrivals(times, episode, noise, events)
+    check("the arrival before it is admitted, not vetoed as a reversal",
+          len(found) == 1 and found[0][0] == 30, f"{found}")
+    released, unreleased = split_arrivals(found, events)
+    check("  and it is RELEASED, so it takes the b(t) step, not the "
+          "permanent shift",
+          len(released) == 1 and unreleased == [],
+          f"released={released} unreleased={unreleased}")
+
+    # A ONE-READING SPIKE cannot reach the new clause: the fall that would
+    # have to confirm it is itself rejected as the spike's own return.
+    spike = chemistry.copy()
+    spike[30] += 0.004
+    check("a spike's own fall is not a confirmed detachment",
+          detachments(spike, noise) == [], f"{detachments(spike, noise)}")
+    check("  so the spike is still rejected",
+          bubble_arrivals(times, spike, noise) == [],
+          f"{bubble_arrivals(times, spike, noise)}")
+
+    # AN ARRIVAL WITH NOTHING AFTER IT keeps the permanent shift: there is no
+    # detachment to date a release from, so the gas is still in the beam.
+    stuck = chemistry.copy()
+    stuck[30:] += 0.004
+    found = bubble_arrivals(times, stuck, noise)
+    released, unreleased = split_arrivals(found, detachments(stuck, noise))
+    check("an arrival never shed stays on the permanent shift",
+          released == [] and len(unreleased) == 1, f"{unreleased}")
+
+
+def test_arrivals_do_not_disturb_a_curve_without_one():
+    """
+    THE BOUND ON THE BLAST RADIUS. Admitting arrivals into `bubble_profile`
+    is a strict generalisation: with none passed, every increment is what it
+    was, so a curve that carries no confirmed arrival must rebuild to the
+    same numbers it always did.
+
+    This is what makes the 2026-09-10 change auditable -- 374 of the
+    archive's 402 curves are untouched by construction, and the 28 that move
+    are exactly the ones carrying an arrival.
+    """
+    print("\narrivals leave a curve without one exactly as it was")
+    moved = []
+    untouched = 0
+    for curve in scope.curves(scope.archive()):
+        times = np.asarray(curve.times, dtype=float)
+        values = np.asarray(curve.absorbance, dtype=float)
+        events = detachments(values, curve.noise)
+        if not events:
+            continue
+        arrivals = bubble_arrivals(times, values, curve.noise, events)
+        rate = bubble_rate(times, values, events)
+        if not np.isfinite(rate):
+            continue
+        plain = bubble_profile(times, values, events, rate)
+        empty = bubble_profile(times, values, events, rate, arrivals=())
+        if float(np.max(np.abs(plain - empty))) > 0:
+            moved.append((curve.experiment, curve.sample))
+        if not arrivals:
+            untouched += 1
+    check("passing no arrival reproduces the profile exactly, on every "
+          "detaching curve",
+          not moved, f"{moved[:5]}")
+    check("and most detaching curves carry none at all",
+          untouched > 40, f"{untouched}")
+
+
 def test_debubble_with_gains():
     """
-    `debubble` folds `bubble_gains` on top of the falls model, and neither
+    `debubble` folds `bubble_arrivals` on top of the falls model, and neither
     guarantee the falls model already had may be weaker for it.
 
     `worst_at_event` (every detachment corrected in full) and `gas_at_end`
@@ -1513,6 +1614,14 @@ def test_debubble_with_gains():
     gain's -- are both PROVEN by construction of `unreleased_gas`, not merely
     observed; this checks they still hold with gains folded in, over the
     whole two-axis block and not just the curves that carry one.
+
+    ONLY THE UNRELEASED HALF MAY SHOW UP AT THE END, and that is the whole of
+    what changed on 2026-09-10. A released arrival is a step inside `b(t)`
+    that its own detachment takes back out, so it leaves nothing behind; an
+    unreleased one has no detachment after it and stays in the beam. Compared
+    against ALL arrivals this check failed on 13 curves of the block, which is
+    the count of curves whose arrivals the old permanent shift was carrying
+    past a detachment that had already shed them.
     """
     print("\ndebubble with gains folded in")
     worst_at_event = []
@@ -1527,12 +1636,13 @@ def test_debubble_with_gains():
         if len(rebuilt) > 1:
             rebuilt_worst = min(rebuilt_worst,
                                 float(np.diff(rebuilt).min()) / curve.noise)
-        gains = bubble_gains(times, values, curve.noise)
-        gain_total = sum(gain for _, gain in gains)
+        _, unreleased = split_arrivals(
+            bubble_arrivals(times, values, curve.noise, events), events)
+        gain_total = sum(gain for _, gain in unreleased)
         held_at_end = float(values[-1] - rebuilt[-1])
         check(f"exp {curve.experiment} cuvette {curve.sample}: gas held at "
-              "the end is exactly its own gains, nothing from the falls "
-              "model",
+              "the end is exactly its own UNRELEASED gains, nothing from the "
+              "falls model and nothing a detachment already shed",
               abs(held_at_end - gain_total) < 1e-9,
               f"{held_at_end:.6f} against {gain_total:.6f}")
 
@@ -1649,7 +1759,9 @@ if __name__ == "__main__":
     test_bubble_drop_sigma_enrichment()
     test_the_recovery_depth_extension()
     test_the_detachment_snr_floor()
-    test_bubble_gains()
+    test_bubble_arrivals()
+    test_an_arrival_released_by_its_own_detachment()
+    test_arrivals_do_not_disturb_a_curve_without_one()
     test_debubble_with_gains()
     test_early_trough()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))

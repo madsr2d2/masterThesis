@@ -332,7 +332,7 @@ If the block's artefact really is the catalysed decomposition of the
 peroxide, a rate measured this way — one curve's optical evidence at a time,
 concentration-blind — should still come out first order in peroxide and
 flat or negative in substrate once regressed across the runs that carry it.
-It does: **+1.477 ± 0.258 in peroxide, -0.344 ± 0.093 in substrate** —
+It does: **+1.343 ± 0.255 in peroxide, -0.307 ± 0.089 in substrate** —
 first-order-ish in the oxidant, mildly *negative* in substrate, exactly the
 signature of a side reaction competing for the same catalyst rather than one
 that consumes the alcohol. This is the strongest independent support the gas

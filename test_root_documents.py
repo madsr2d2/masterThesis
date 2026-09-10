@@ -207,8 +207,8 @@ def main():
     resolved = {name: int(live[name].sum()) for name in
                 ("tau_resolved", "tau_resolved_corrected",
                  "tau_slow_resolved", "tau_slow_resolved_corrected")}
-    doc.check("the correction buys resolution: 62 to 67, 25 to 34",
-              resolved == {"tau_resolved": 62, "tau_resolved_corrected": 67,
+    doc.check("the correction buys resolution: 62 to 69, 25 to 34",
+              resolved == {"tau_resolved": 62, "tau_resolved_corrected": 69,
                            "tau_slow_resolved": 25,
                            "tau_slow_resolved_corrected": 34}, f"{resolved}")
     doc.claim("CLAUDE.md: the resolution it buys",
@@ -223,9 +223,9 @@ def main():
     clocks = induction.joint_clocks(scope.frame())
     slow = clocks.loc[("tau_slow_corrected", "axis")]
     fast = clocks.loc[("tau_corrected", "axis")]
-    doc.check("the gains-corrected tau_slow row sits 0.3 sigma from +1",
-              abs(slow.sigma - 0.34) < 0.05, f"{slow.sigma:.3f}")
-    doc.check("and the tau row 2.0", abs(fast.sigma - 1.97) < 0.05,
+    doc.check("the fully-corrected tau_slow row sits 0.8 sigma from +1",
+              abs(slow.sigma - 0.84) < 0.05, f"{slow.sigma:.3f}")
+    doc.check("and the tau row 2.3", abs(fast.sigma - 2.30) < 0.05,
               f"{fast.sigma:.3f}")
     for document in (CLAUDE, SKILL):
         doc.claim(f"{os.path.basename(document)}: both clock sigmas",
@@ -240,8 +240,8 @@ def main():
         "tau_slow": int((~np.isclose(live.tau_slow.fillna(-1),
                                      live.tau_slow_corrected.fillna(-1))).sum()),
     }
-    doc.check("it moves 38 curves' tau and 32 curves' tau_slow",
-              moved == {"tau": 38, "tau_slow": 32}, f"{moved}")
+    doc.check("it moves 38 curves' tau and 34 curves' tau_slow",
+              moved == {"tau": 38, "tau_slow": 34}, f"{moved}")
     for document in (CLAUDE, SKILL):
         doc.claim(f"{os.path.basename(document)}: the curves it moves",
                   f"{moved['tau_slow']} of {len(live)} live curves",
