@@ -80,6 +80,19 @@ EXTRA_CSS = """
 .pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;
 background:var(--rule);color:var(--muted);margin-left:7px;vertical-align:2px}
 .ph .detail{font-weight:400}
+/* The panel sits on a FIXED light background whatever the page theme (the
+   same reason the SVGs draw in fixed hex, not theme tokens) -- so its own
+   text needs fixed colours too. `.ph`/`.ps`/`.pf` used to inherit
+   var(--ink)/var(--muted), which flip light in dark mode and then sit on
+   this always-light panel: pale grey on off-white, unreadable. `.cap` was
+   already fixed for the same reason; these three were the gap. */
+.fig .ph{color:#1a1a1a}
+.fig .ps,.fig .pf{color:#5a5a5a}
+/* Panel text wraps to the SAME width the SVG renders at (340px, the
+   progress-panel default), not the wider grid column it sits in -- a
+   `.fig.panel` used to size to its column and let the header wrap wider
+   than the 340px chart beneath it. */
+.fig.panel{max-width:340px}
 .hero{display:flex;flex-wrap:wrap;gap:26px;margin:14px 0 4px}
 .hero div{min-width:140px}
 .hero .v{font-size:25px;font-weight:650;letter-spacing:-0.02em}
@@ -288,6 +301,49 @@ def stacked_landmarks(axes_list, where, labels=None, colour=MUTED, row=0):
     for index, axes in enumerate(axes_list):
         breakpoints(axes, where, labels if index == 0 else blank,
                    colour=colour, row=row)
+
+
+# The two forms `summary_kinetics.fit_progress` chooses between, as a reader
+# sees them in a panel's own header -- named once so a panel never states
+# "the fitted curve" without saying which model that is. Keys are
+# `row.phases`.
+FITTED_FUNCTION = {
+    1: "A(t) = c + v_ss·t − B(1−e^(−t/τ))",
+    2: "A(t) = c + v_ss·t − B₁(1−e^(−t/τ₁)) − B₂(1−e^(−t/τ₂))",
+}
+
+
+def panel_header(experiment, sample, pH, conditions, phases):
+    """
+    One line, one weight, only the experiment label bold: "Exp. X.Y : pH =
+    ..., cond, cond, ..., <fitted function>".
+
+    `conditions` is a sequence of already-formatted "[name] = value unit"
+    strings, folder-specific (a pH ladder's substrate/peroxide/buffer, the
+    two-axis block's own). `.ph .detail` (figure_kit's own CSS) carries the
+    normal weight; the surrounding `.ph` class is bold by default, which is
+    what leaves only "Exp. X.Y" bold.
+    """
+    detail = ", ".join([f"pH = {pH:.2f}", *conditions,
+                        FITTED_FUNCTION[int(phases)]])
+    return (f"<strong>Exp. {int(experiment)}.{int(sample)}</strong> "
+           f"<span class='detail'>: {detail}</span>")
+
+
+def bubble_labels(count, held):
+    """
+    One "bubble" label per O2 detachment, for `stacked_landmarks`.
+
+    `held` (`row.terminal_gas > 0`) is a DIFFERENT fact from a detachment --
+    the run ended before the beam's own last bubble released, so `debubble`'s
+    correction past that point is a lower bound -- and rides the LAST
+    detachment's line rather than replacing its label, since it is not
+    itself a detachment.
+    """
+    labels = ["bubble"] * count
+    if held and count:
+        labels[-1] = "bubble · gas held"
+    return labels
 
 
 def progress_axes(times, values, width=340, height=210, limit=None,

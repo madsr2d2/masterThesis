@@ -22,9 +22,10 @@ import induction
 import ph_role
 import scope
 from svgplot import ACCENT, esc, GRID, INK, MUTED, Axes
-from figure_kit import (CATEGORY, EVENT_BAND_COLOUR, fig, panel,
-                        progress_axes, progress_overlay, derivative_axes,
-                        residual_axes, stacked_landmarks, styled, write_pages)
+from figure_kit import (CATEGORY, EVENT_BAND_COLOUR, bubble_labels, fig,
+                        panel, panel_header, progress_axes, progress_overlay,
+                        derivative_axes, residual_axes, stacked_landmarks,
+                        styled, write_pages)
 
 LADDER_COLOUR = {
     "phosphate 4OMe": CATEGORY[0],
@@ -402,24 +403,27 @@ def build_curves_page():
                                   colour=CATEGORY[1], row=2)
             if chopped:
                 edges = [float(times[start]) for start, _ in events]
-                held = row.terminal_gas > 0
                 stacked_landmarks(stack, edges,
-                                  [""] * (len(edges) - 1)
-                                  + ["gas held" if held else ""],
+                                  bubble_labels(len(edges),
+                                               row.terminal_gas > 0),
                                   colour=GRID, row=3)
             panels.append(panel(
-                f"pH {row.pH:.2f} · [S] {row.s0:.3f} mM"
-                f"<span class='pill'>exp {int(row.experiment)}.{int(row.sample)}</span>",
-                f"{LADDER_LABEL[name]} · [H₂O₂] {row.h2o2:g} mM · "
-                f"{row.temperature:.0f} °C · {int(row.points)} readings over "
+                panel_header(row.experiment, row.sample, row.pH,
+                            [f"[{row.substrate}] = {row.s0:.3f} mM",
+                             f"[H₂O₂] = {row.h2o2:g} mM",
+                             f"[{row.buffer.lower()}] = {row.buf:g} mM"],
+                            row.phases),
+                f"{LADDER_LABEL[name]} · {row.temperature:.0f} °C · "
+                f"{int(row.points)} readings over "
                 f"{row.duration_s / 3600:.1f} h · {row.source}",
                 axes.render("", "ΔA", xticks=False)
                 + rax.render("", "z", xticks=False)
                 + drax.render("time, s", "dA/dt"),
-                f"<strong>{int(row.phases)} phase"
-                + ("s" if row.phases == 2 else "") + f"</strong> · "
-                f"{esc(str(row.progress_kind))} · vmax {row.vmax:.2e}"
-                + f" · bubble_load {row.bubble_load:.2f}"
+                # Trimmed: phase count and vmax's VALUE are already carried
+                # by the header (the fitted function's own shape) and the
+                # v_max landmark on the plot itself.
+                f"{esc(str(row.progress_kind))} · "
+                f"bubble_load {row.bubble_load:.2f}"
                 + ("" if not chopped else
                    f" · <span style='color:{CATEGORY[2]}'>{len(events)} O₂ "
                    f"detachment" + ("s" if len(events) > 1 else "")

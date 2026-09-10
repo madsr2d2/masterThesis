@@ -1071,8 +1071,8 @@ def main():
               f"{page.count('>τ ')} against {len(clocked)}")
     held = frame[frame.terminal_gas > 0]
     doc.check("and every run that ended holding gas says so on its own panel",
-              page.count(">gas held<") == len(held),
-              f"{page.count('>gas held<')} against {len(held)}")
+              page.count("gas held<") == len(held),
+              f"{page.count('gas held<')} against {len(held)}")
     # The counts the preamble quotes are over EVERY curve the page draws, not
     # over the live ones section 5 reports -- the page draws the dead curves
     # too, and one of them carries a load past the ceiling.

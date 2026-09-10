@@ -23,9 +23,10 @@ import scope
 import slowdown
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc
 from figure_kit import (CATEGORY, EVENT_BAND_COLOUR, PH_RAMP, RUNGS,
-                        derivative_axes, fig, panel, progress_axes,
-                        progress_overlay, residual_axes, stacked_landmarks,
-                        styled, write_pages)
+                        bubble_labels, derivative_axes, fig, panel,
+                        panel_header, progress_axes, progress_overlay,
+                        residual_axes, stacked_landmarks, styled,
+                        write_pages)
 
 
 @functools.cache
@@ -531,29 +532,31 @@ def build_curves_page():
         if chopped:
             # Where the gas left, so the reader can see the correction is
             # anchored to the readings and not to a smoothing choice -- and
-            # the LAST one labelled where the run ended still holding a
-            # bubble, because everything after it is uncorrected by
-            # construction and that is the panel's own systematic (§5).
+            # the LAST one's label also carries "gas held" where the run
+            # ended still holding a bubble, because everything after it is
+            # uncorrected by construction and that is the panel's own
+            # systematic (§5).
             edges = [float(times[start]) for start, _ in events]
-            held = row.terminal_gas > 0
             stacked_landmarks(stack, edges,
-                              [""] * (len(edges) - 1)
-                              + ["gas held" if held else ""],
+                              bubble_labels(len(edges), row.terminal_gas > 0),
                               colour=GRID, row=3)
         panels.append(panel(
-            f"pH {row.pH:.2f} · [S] {row.s0:g} mM · [H₂O₂] {row.h2o2:g} mM"
-            f"<span class='pill'>exp {int(row.experiment)}.{int(row.sample)}"
-            "</span>",
+            panel_header(row.experiment, row.sample, row.pH,
+                        [f"[{row.substrate}] = {row.s0:g} mM",
+                         f"[H₂O₂] = {row.h2o2:g} mM",
+                         f"[{row.buffer.lower()}] = {row.buf:g} mM"],
+                        row.phases),
             f"[HOO⁻] {row.hoo:.3g} mM · [enz] {row.e0:g} mM · "
-            f"[{row.buffer.lower()}] {row.buf:g} mM · {int(row.points)} "
-            f"readings over {row.duration_s / 60:.0f} min · {row.source}",
+            f"{int(row.points)} readings over "
+            f"{row.duration_s / 60:.0f} min · {row.source}",
             axes.render("", "ΔA", xticks=False) + rax.render("", "z", xticks=False)
             + drax.render("time, s", "dA/dt"),
-            f"<strong>{int(row.phases)} phase"
-            + ("s" if row.phases == 2 else "")
-            + f"</strong> · {esc(str(row.progress_kind))} "
-            f"· F = {row.two_phase_f:.0f} · v_max {row.vmax:.2e}"
-            f" · v0 {row.v0:.2e} · rms/noise {rms_over_noise:.2f}"
+            # Trimmed: phase count and vmax's VALUE are already carried by
+            # the header (the fitted function's own shape) and the v_max
+            # landmark on the plot itself.
+            f"{esc(str(row.progress_kind))} "
+            f"· F = {row.two_phase_f:.0f} · v0 {row.v0:.2e} "
+            f"· rms/noise {rms_over_noise:.2f}"
             + (" · <strong>accelerates</strong>" if row.accelerates else "")
             + ("" if row.live else " · <strong>NOT LIVE</strong>")
             + ("" if row.experiment in strong
