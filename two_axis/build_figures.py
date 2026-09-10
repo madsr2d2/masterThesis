@@ -23,8 +23,8 @@ import scope
 import slowdown
 from svgplot import ACCENT, GRID, INK, MUTED, Axes, esc
 from figure_kit import (CATEGORY, EVENT_BAND_COLOUR, PH_RAMP, RUNGS,
-                        breakpoints, derivative_axes, fig, panel,
-                        progress_axes, progress_overlay, residual_axes,
+                        derivative_axes, fig, panel, progress_axes,
+                        progress_overlay, residual_axes, stacked_landmarks,
                         styled, write_pages)
 
 
@@ -489,6 +489,14 @@ def build_curves_page():
         # readings otherwise, where the two are the same fit.
         chem_fit = corrected_fit if chopped else raw_fit
         chem_values = corrected if chopped else values
+        residual = (chem_values - chem_fit.predict(times)) / curve.noise
+        rms_over_noise = float(np.sqrt(np.nanmean(residual ** 2)))
+        rax = residual_axes(times, residual,
+                            colour=(CATEGORY[2] if chopped else ACCENT),
+                            bands=bands)
+        drax = derivative_axes(times, chem_fit,
+                               colour=(CATEGORY[2] if chopped else ACCENT),
+                               bands=bands)
         # EVERY PARAMETER THE PANEL IS READ FOR, DRAWN WHERE IT IS READ, AND
         # LABELLED WITH ITS VALUE -- not just "v_max" but the number the
         # document quotes, so the panel is readable without the footer. One
@@ -500,19 +508,26 @@ def build_curves_page():
         # tau is the clock `induction.joint_clocks` asks the +1 rule through,
         # so a page that draws v_max and not tau shows half of what section 6
         # is read off.
+        #
+        # STACKED, ACROSS ALL THREE PANELS: `axes`/`rax`/`drax` are three
+        # SVGs sharing one time axis, so a landmark that stops at the bottom
+        # of the readings makes the reader re-find it by eye in the residual
+        # and derivative strips beneath. `stacked_landmarks` draws the same
+        # rule in all three, labelled only on the first.
+        stack = [axes, rax, drax]
         if np.isfinite(row.vmax_time_s) and row.vmax_time_s > 0:
-            breakpoints(axes, [float(row.vmax_time_s)],
-                        [f"v_max {row.vmax:.2e}"], colour=CATEGORY[0])
+            stacked_landmarks(stack, [float(row.vmax_time_s)],
+                              [f"v_max {row.vmax:.2e}"], colour=CATEGORY[0])
         if (chopped and np.isfinite(row.vmax_corrected_time_s)
                 and abs(row.vmax_corrected_time_s - row.vmax_time_s) > 1.0):
-            breakpoints(axes, [float(row.vmax_corrected_time_s)],
-                        [f"v_max* {row.vmax_corrected:.2e}"],
-                        colour=CATEGORY[2], row=1)
+            stacked_landmarks(stack, [float(row.vmax_corrected_time_s)],
+                              [f"v_max* {row.vmax_corrected:.2e}"],
+                              colour=CATEGORY[2], row=1)
         clock = (row.tau_corrected if chopped else row.tau)
         resolved = (row.tau_resolved_corrected if chopped else row.tau_resolved)
         if resolved and np.isfinite(clock) and 0 < clock < times[-1]:
-            breakpoints(axes, [float(clock)], [f"τ {clock:.0f} s"],
-                        colour=CATEGORY[1], row=2)
+            stacked_landmarks(stack, [float(clock)], [f"τ {clock:.0f} s"],
+                              colour=CATEGORY[1], row=2)
         if chopped:
             # Where the gas left, so the reader can see the correction is
             # anchored to the readings and not to a smoothing choice -- and
@@ -521,17 +536,10 @@ def build_curves_page():
             # construction and that is the panel's own systematic (§5).
             edges = [float(times[start]) for start, _ in events]
             held = row.terminal_gas > 0
-            breakpoints(axes, edges,
-                        [""] * (len(edges) - 1) + ["gas held" if held else ""],
-                        colour=GRID, row=3)
-        residual = (chem_values - chem_fit.predict(times)) / curve.noise
-        rms_over_noise = float(np.sqrt(np.nanmean(residual ** 2)))
-        rax = residual_axes(times, residual,
-                            colour=(CATEGORY[2] if chopped else ACCENT),
-                            bands=bands)
-        drax = derivative_axes(times, chem_fit,
-                               colour=(CATEGORY[2] if chopped else ACCENT),
-                               bands=bands)
+            stacked_landmarks(stack, edges,
+                              [""] * (len(edges) - 1)
+                              + ["gas held" if held else ""],
+                              colour=GRID, row=3)
         panels.append(panel(
             f"pH {row.pH:.2f} · [S] {row.s0:g} mM · [H₂O₂] {row.h2o2:g} mM"
             f"<span class='pill'>exp {int(row.experiment)}.{int(row.sample)}"
@@ -539,7 +547,7 @@ def build_curves_page():
             f"[HOO⁻] {row.hoo:.3g} mM · [enz] {row.e0:g} mM · "
             f"[{row.buffer.lower()}] {row.buf:g} mM · {int(row.points)} "
             f"readings over {row.duration_s / 60:.0f} min · {row.source}",
-            axes.render("", "ΔA") + rax.render("", "z")
+            axes.render("", "ΔA", xticks=False) + rax.render("", "z", xticks=False)
             + drax.render("time, s", "dA/dt"),
             f"<strong>{int(row.phases)} phase"
             + ("s" if row.phases == 2 else "")

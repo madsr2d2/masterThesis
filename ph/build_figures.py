@@ -17,12 +17,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "data"))
 sys.path.insert(0, os.path.dirname(HERE))
 
+import curve_metrics
 import induction
 import ph_role
 import scope
 from svgplot import ACCENT, esc, GRID, INK, MUTED, Axes
-from figure_kit import (CATEGORY, fig, panel, progress_axes, progress_overlay,
-                        derivative_axes, residual_axes, styled, write_pages)
+from figure_kit import (CATEGORY, EVENT_BAND_COLOUR, fig, panel,
+                        progress_axes, progress_overlay, derivative_axes,
+                        residual_axes, stacked_landmarks, styled, write_pages)
 
 LADDER_COLOUR = {
     "phosphate 4OMe": CATEGORY[0],
@@ -342,25 +344,86 @@ def build_curves_page():
                 continue
             times = np.asarray(curve.times, dtype=float)
             values = np.asarray(curve.absorbance, dtype=float)
-            axes, radius = progress_axes(times, values, limit=140)
-            progress = progress_overlay(axes, times, values,
+            # THE GAS, DRAWN -- the same panel two_axis/ uses, brought here
+            # because this folder's own boric ladder is the archive's other
+            # heavy gasser (scope.gas_survey). A fit to a curve the O2 has
+            # moved is a fit to the O2, so the raw readings, the corrected
+            # series and both fits are drawn, not just asserted in prose.
+            corrected, events = curve_metrics.debubble(times, values,
+                                                       curve.noise)
+            chopped = len(events) > 0
+            axes, radius = progress_axes(times, values, limit=140,
+                                         companion=corrected if chopped
+                                         else None, pad=(56, 12, 10, 20))
+            bands = []
+            if chopped:
+                for start, stop in events:
+                    bands.append((float(times[start]), float(times[stop])))
+                for lo, hi in bands:
+                    axes.band([lo, hi], [axes.ylim[0], axes.ylim[0]],
+                             [axes.ylim[1], axes.ylim[1]], EVENT_BAND_COLOUR,
+                             opacity=0.14)
+                axes.line(times, corrected, CATEGORY[2], width=1.0,
+                         dash="3 2", opacity=0.85)
+                corrected_fit = progress_overlay(axes, times, corrected,
+                                                 colour=CATEGORY[2],
+                                                 mark_radius=radius)
+            raw_fit = progress_overlay(axes, times, values,
                                        mark_radius=radius)
-            residual = (values - progress.predict(times)) / curve.noise
-            rax = residual_axes(times, residual, colour=CATEGORY[0])
-            drax = derivative_axes(times, progress, colour=CATEGORY[0])
+            chem_fit = corrected_fit if chopped else raw_fit
+            chem_values = corrected if chopped else values
+            residual = (chem_values - chem_fit.predict(times)) / curve.noise
+            rax = residual_axes(times, residual,
+                                colour=(CATEGORY[2] if chopped else ACCENT),
+                                bands=bands)
+            drax = derivative_axes(times, chem_fit,
+                                   colour=(CATEGORY[2] if chopped else ACCENT),
+                                   bands=bands)
+            # STACKED, ACROSS ALL THREE PANELS -- see two_axis/build_figures.py
+            # for the full rationale. Same landmarks, same colours, so a
+            # reader moving between the two folders' curves pages reads them
+            # the same way.
+            stack = [axes, rax, drax]
+            if np.isfinite(row.vmax_time_s) and row.vmax_time_s > 0:
+                stacked_landmarks(stack, [float(row.vmax_time_s)],
+                                  [f"v_max {row.vmax:.2e}"],
+                                  colour=CATEGORY[0])
+            if (chopped and np.isfinite(row.vmax_corrected_time_s)
+                    and abs(row.vmax_corrected_time_s - row.vmax_time_s)
+                    > 1.0):
+                stacked_landmarks(stack, [float(row.vmax_corrected_time_s)],
+                                  [f"v_max* {row.vmax_corrected:.2e}"],
+                                  colour=CATEGORY[2], row=1)
+            clock = row.tau_corrected if chopped else row.tau
+            resolved = (row.tau_resolved_corrected if chopped
+                       else row.tau_resolved)
+            if resolved and np.isfinite(clock) and 0 < clock < times[-1]:
+                stacked_landmarks(stack, [float(clock)], [f"τ {clock:.0f} s"],
+                                  colour=CATEGORY[1], row=2)
+            if chopped:
+                edges = [float(times[start]) for start, _ in events]
+                held = row.terminal_gas > 0
+                stacked_landmarks(stack, edges,
+                                  [""] * (len(edges) - 1)
+                                  + ["gas held" if held else ""],
+                                  colour=GRID, row=3)
             panels.append(panel(
                 f"pH {row.pH:.2f} · [S] {row.s0:.3f} mM"
                 f"<span class='pill'>exp {int(row.experiment)}.{int(row.sample)}</span>",
                 f"{LADDER_LABEL[name]} · [H₂O₂] {row.h2o2:g} mM · "
                 f"{row.temperature:.0f} °C · {int(row.points)} readings over "
                 f"{row.duration_s / 3600:.1f} h · {row.source}",
-                axes.render("", "ΔA") + rax.render("", "z")
+                axes.render("", "ΔA", xticks=False)
+                + rax.render("", "z", xticks=False)
                 + drax.render("time, s", "dA/dt"),
                 f"<strong>{int(row.phases)} phase"
                 + ("s" if row.phases == 2 else "") + f"</strong> · "
                 f"{esc(str(row.progress_kind))} · vmax {row.vmax:.2e}"
                 + f" · bubble_load {row.bubble_load:.2f}"
-                if hasattr(row, "bubble_load") else ""))
+                + ("" if not chopped else
+                   f" · <span style='color:{CATEGORY[2]}'>{len(events)} O₂ "
+                   f"detachment" + ("s" if len(events) > 1 else "")
+                   + f", rebuilt v_max {row.vmax_corrected:.2e}</span>")))
         total += len(panels)
         section = f"<h2>{esc(LADDER_LABEL[name])}</h2>"
         if name in ph_role.MM_LADDERS:

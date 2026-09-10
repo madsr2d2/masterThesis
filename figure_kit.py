@@ -265,6 +265,30 @@ def breakpoints(axes, where, labels=None, colour=MUTED, row=0):
                   colour, size=9.5, anchor="end" if late else "start")
 
 
+def stacked_landmarks(axes_list, where, labels=None, colour=MUTED, row=0):
+    """
+    The same vertical landmark(s), drawn on every axes in a stack.
+
+    A panel showing readings, residual and derivative is three independent
+    SVGs, each with its own `breakpoints` call -- so a dashed rule marking
+    `v_max` or `tau` used to stop at the bottom of the top panel, where the
+    reader's eye keeps going. `progress_axes`/`residual_axes`/
+    `derivative_axes` all promise the same left/right padding so their plot
+    AREAS line up when stacked; drawing the same rule at the same `where` in
+    each one lines the columns up into what reads as one continuous line
+    running through the whole panel, even though `breakpoints` runs once per
+    axes.
+
+    Only the FIRST axes in `axes_list` gets the label -- `breakpoints`
+    already skips its own label when passed an empty string, so the rest
+    draw the bare rule only.
+    """
+    blank = [""] * len(where)
+    for index, axes in enumerate(axes_list):
+        breakpoints(axes, where, labels if index == 0 else blank,
+                   colour=colour, row=row)
+
+
 def progress_axes(times, values, width=340, height=210, limit=None,
                   colour=MUTED, pad=(56, 12, 34, 20), companion=None):
     """
