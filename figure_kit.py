@@ -240,7 +240,7 @@ def derivative_axes(times, progress, width=340, height=72, pad=(56, 12, 30, 8),
     return axes
 
 
-def breakpoints(axes, where, labels=None, colour=MUTED, row=0):
+def breakpoints(axes, where, labels=None, colour=MUTED, row=0, dash="3 3"):
     """
     EVERY landmark the curve earned, labelled, not just the first.
 
@@ -257,6 +257,12 @@ def breakpoints(axes, where, labels=None, colour=MUTED, row=0):
     drawing more than one thing and the reason a panel used to draw only
     `v_max`.
 
+    `dash` is the rule's own stroke pattern, `None` for a solid line. It is
+    how two KINDS of landmark share one colour: the gas marks draw arrivals
+    solid and detachments dashed, so a reader tells "the beam took gas on"
+    from "the beam shed it" by line style and does not have to hold a second
+    hue in mind to do it.
+
     LABELS THAT CARRY A VALUE CAN OVERFLOW THE RIGHT EDGE, where a bare
     ordinal or "v_max" never did -- "v_max* 8.67e-05" is four times the
     width. Past 60% of the plot a label is right-anchored and grows back
@@ -270,7 +276,8 @@ def breakpoints(axes, where, labels=None, colour=MUTED, row=0):
             f"<path d='M{x:.2f},{axes.top} "
             f"L{x:.2f},{axes.height - axes.bottom}' "
             f"stroke='{colour}' stroke-width='1.1' "
-            f"stroke-dasharray='3 3' fill='none'/>")
+            + (f"stroke-dasharray='{dash}' " if dash else "")
+            + f"fill='none'/>")
         text = f"{index + 1}" if labels is None else labels[index]
         if not text:
             continue
@@ -279,7 +286,8 @@ def breakpoints(axes, where, labels=None, colour=MUTED, row=0):
                   colour, size=9.5, anchor="end" if late else "start")
 
 
-def stacked_landmarks(axes_list, where, labels=None, colour=MUTED, row=0):
+def stacked_landmarks(axes_list, where, labels=None, colour=MUTED, row=0,
+                      dash="3 3"):
     """
     The same vertical landmark(s), drawn on every axes in a stack.
 
@@ -300,7 +308,7 @@ def stacked_landmarks(axes_list, where, labels=None, colour=MUTED, row=0):
     blank = [""] * len(where)
     for index, axes in enumerate(axes_list):
         breakpoints(axes, where, labels if index == 0 else blank,
-                   colour=colour, row=row)
+                   colour=colour, row=row, dash=dash)
 
 
 # The two forms `summary_kinetics.fit_progress` chooses between, as a reader
