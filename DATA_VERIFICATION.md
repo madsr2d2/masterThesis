@@ -349,7 +349,10 @@ no confirmed detachment for it to point at.
 The nine are exps 43.1, 44.1, 49.2, 55.1, 135.1 (twice), 135.2, 135.4 and
 139.2. Each was drawn against its own pre-jump quadratic — carried forward as
 it stands, and lifted by the measured gain — and eyeballed before the rule was
-adopted (`scratch/arrival_candidates.html`). Every one steps rather than bends;
+adopted (`scratch/arrival_candidates.html`, deleted 2026-09-11 once the rule
+it proposed had shipped and the page's own prose had gone stale; it is at
+commit 3c42190 if the drawing is ever wanted again). Every one steps rather
+than bends;
 the kink test scores them −5.5σ to −35.4σ on the reading before and +12.5σ to
 +154.7σ on the reading the jump lands on. A census of every rise the old veto
 rejected found 184 archive-wide, of which 175 are pre-release *acceleration*
