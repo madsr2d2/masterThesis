@@ -60,6 +60,15 @@ OUTLIER_COLOUR = "#c0392b"     # ring round a suspect reading -- red
 # with WINDOW_COLOUR/QUAD_COLOUR/BURST_COLOUR, which are all fit lines.
 EVENT_BAND_COLOUR = "#e0a530"
 
+# The same device for the OTHER direction the gas moves. A detachment span and
+# an arrival span are both "this stretch is the artefact, not the chemistry",
+# so an arrival gets a band too rather than a bare rule -- but the two have to
+# be told apart at a glance, and at band opacity a hue difference reads far
+# better than a lightness one. Violet against the amber: cool against warm,
+# adjacent to neither the raw curve's red nor the rebuilt curve's blue, and
+# the same hue as the rules that mark an arrival's edges.
+ARRIVAL_BAND_COLOUR = "#8a5aa8"
+
 # Figures sit on a fixed light surface whatever the page theme, so the ramps'
 # contrast is deterministic. A sequential ramp cannot clear 3:1 against a white
 # AND a near-black surface at once -- it needs the lightness range the contrast
