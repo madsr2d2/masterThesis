@@ -838,6 +838,12 @@ def monotone_bound(values):
     return np.minimum.accumulate(values[::-1])[::-1]
 
 
+# EVERY CURVE THE THRESHOLDS BELOW WERE PINNED TO IS IN `bubble_cases.py`,
+# as one table with the verdict and the evidence for it. The comments here
+# say WHY a constant sits where it does; that file says WHICH curves would
+# move if it were changed, and `test_bubble_cases` checks them all -- both
+# the ones the code gets right and the ones it is known to get wrong.
+#
 # How much of a fall a single ADJACENT reading may undo before the fall is read
 # as an instrument excursion rather than as gas leaving. Half.
 #
