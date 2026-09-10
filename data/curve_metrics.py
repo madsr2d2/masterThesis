@@ -767,7 +767,7 @@ def burst_amplitude(times, fitted, edge=BURST_EDGE):
 # not a gap. exp 143 cuvette 3 has a real 7.83 sigma fall at 1200 s -- clean
 # growth either side, no rebound -- that 8 simply missed, and it was not
 # alone: scanning every step in the block that (a) falls short of the old
-# cutoff and (b) would pass `_is_excursion` unchanged if it were a candidate,
+# cutoff and (b) would be admitted as a detachment if the cutoff reached it,
 # 64 such falls turn up on 35 curves, thinning smoothly from 5 to 8 sigma with
 # no cliff anywhere in it (10 in 7.5-8.0, 16 in 5.5-6.0 -- a slope, not a
 # step). A smooth tail cannot be split on its own shape, so it was split on an
@@ -844,8 +844,8 @@ def monotone_bound(values):
 # move if it were changed, and `test_bubble_cases` checks them all -- both
 # the ones the code gets right and the ones it is known to get wrong.
 #
-# How much of a fall a single ADJACENT reading may undo before the fall is read
-# as an instrument excursion rather than as gas leaving. Half.
+# How much of one phase of the gas the phase beside it may give back before
+# the two are read as one instrument excursion rather than as gas. Half.
 #
 # It is the same timescale argument `isolated_outliers` rests on, applied to
 # the other artefact: at 60 s sampling a bubble cannot grow half its size in
@@ -853,14 +853,297 @@ def monotone_bound(values):
 # not come back at all, let alone in one reading. The block separates cleanly
 # on it -- its ten largest detachments have adjacent readings moving -0.001 to
 # 0.110 of the fall, while the excursions sit at 0.8 to 1.66.
+#
+# It does three jobs, all of them that same "half": it is the bar
+# `bubble_segments` holds an interruption to before it will bridge one, the
+# bar `_excursions` holds a pair of adjacent phases to before it calls them a
+# spike, and (through both) what decides every case in `bubble_cases.py` that
+# used to be decided by an `EXCURSION_*` constant of its own.
 BUBBLE_RECOVERY_FRACTION = 0.5
 
 
+# How many readings each side of a step the LOCAL step scale is drawn from --
+# wide enough to be a real local estimate, narrow enough that a genuine change
+# in the background rate does not get pooled into it.
+ANOMALY_WINDOW = 8
+
+# How many times the local step scale a step must move before it counts as
+# anomalous rather than as the curve going about its business.
+#
+# THIS IS THE ONE CURRENCY THE DETECTION LAYER ASKS ITS QUESTION IN, and 2.0 is
+# where `EXCURSION_LOCAL_SIGMA` already sat -- pinned between two known cases
+# and unmoved by the 2026-09-11 rewrite that widened its job. Exp 149 cuvette
+# 5's two genuine excursions counter-move at 7.2x and 2.1x their local step
+# scale; exp 130 cuvette 2's two real, previously rejected detachments (12.4
+# and 16.6 sigma falls) are flanked by ordinary steps at only 1.0x and 1.4x.
+# 2.0 sits in that gap and keeps all four where the evidence puts them.
+#
+# ABSOLUTE SIGMA IS THE WRONG CURRENCY FOR A RISE, which is the whole reason
+# this exists. Exp 144 cuvette 2's readings 29-42 climb 7-12 sigma a step for
+# fourteen consecutive readings, real and smooth -- and not one of them is
+# anomalous against its own neighbourhood (every one scores about 1.0). The
+# same is true, less visibly, on 27 other curves: see `bubble_arrivals`.
+#
+# ON THE ARRIVAL QUESTION 2.0 SITS IN A REAL GAP, and it is worth knowing
+# exactly which population that gap is in. Of the 89 arrivals the archive
+# carried under the old absolute-sigma rule, the 44 this bar throws out score
+# 1.00 to 1.91 and the 42 it keeps score 2.06 upward -- nothing in between.
+# That is a gap among rises that had ALREADY passed the kink test, not a gap
+# among all rises: swept over the whole archive the arrival count runs
+# 75 / 58 / 44 / 43 / 33 / 32 / 24 at bars of 1.25 / 1.5 / 1.75 / 2.0 / 2.25 /
+# 2.5 / 3.0, which is a slope with a short shelf on it, not a cliff. Both
+# readings are true and the second is the caveat.
+ANOMALY_BAR = 2.0
+
+# How many readings of interruption one phase of the gas may survive.
+#
+# ONE BUBBLE'S RELEASE IS NOT OBLIGED TO BE TIDY. A bubble sliding out of the
+# beam can stutter -- fall, pause or tick up for a single reading, then finish
+# -- and a rule that tolerates no interruption at all cuts that into two
+# events and reads the tick between them as gas ARRIVING. Exps 43.1 and 135.2
+# are that false arrival; exp 135.1's readings 274-277 are the mirror, one
+# arrival split in two by a 6.6 sigma wobble in the middle of it.
+#
+# ONE, AND THE SWEEP IS A CONTINUUM RATHER THAN A GAP -- said plainly, the way
+# BUBBLES.md 6.5 says it of the kink bar, because there is no break here to
+# calibrate against. Archive-wide, detachment events run 381 / 364 / 352 / 343
+# at gaps of 0 / 1 / 2 / 3, thinning smoothly. What picks 1 is not a break in
+# that curve but the same timescale argument the rest of this module already
+# rests on: one reading is the shortest interruption there is, and it is the
+# unit `isolated_outliers` and `BUBBLE_RECOVERY_FRACTION` both work in.
+#
+# The cost of going wider is visible and one-directional. The readings a phase
+# spans go 431 / 446 / 476 / 507 over the same sweep, so past one reading an
+# event starts swallowing ordinary readings faster than it gains falling ones
+# -- a wider gap does not find more gas, it draws a longer box around the same
+# gas. 14 pairs of adjacent events merge at 1, which is what the fragmentation
+# cases needed and no more.
+#
+# An interruption is only ever bridged when it gives back less than
+# `BUBBLE_RECOVERY_FRACTION` of what the phase has moved so far. A gap that
+# gives back more than that is not a stutter, it is the other phase starting.
+BUBBLE_SEGMENT_GAP = 1
+
+
+def local_step_scale(values, start, stop, window=ANOMALY_WINDOW):
+    """
+    The median |step| in the neighbourhood of readings `start..stop`, excluding
+    the steps between them.
+
+    WHAT THIS IS FOR. "Is this step unusual" cannot be answered in units of the
+    curve's own noise, because on a curve rising fast enough that ordinary
+    steps are themselves large, a modest genuine detachment is smaller than the
+    steps either side of it -- and, the other way round, an ordinary step on
+    such a curve clears any absolute sigma bar you like. This is what a step
+    there looks like with nothing happening, and `step_anomaly` divides by it.
+
+    It rejected two falls on exp 130 cuvette 2 before it existed, 12.4 and 16.6
+    sigma each, both real: their neighbouring steps (0.00266, 0.00331 AU) are
+    unremarkable next to the ~0.0025 AU/reading the curve is climbing at
+    throughout that stretch, but exceeded half of THOSE FALLS' comparatively
+    modest size regardless. The question is comparable to what is normal HERE,
+    not only to the event's own size.
+
+    Public since 2026-09-11 (it was `_local_step_scale`): `bubble_arrivals`
+    reads it to price a gain and `step_anomaly` is built on it, so it is part
+    of the vocabulary rather than one function's helper.
+    """
+    lo = max(0, start - window)
+    hi = min(len(values), stop + window + 1)
+    before = np.abs(np.diff(values[lo:start + 1]))
+    after = np.abs(np.diff(values[stop:hi]))
+    combined = np.concatenate([before, after])
+    return float(np.median(combined)) if len(combined) else 0.0
+
+
+def step_anomaly(values, noise, window=ANOMALY_WINDOW):
+    """
+    Every reading-to-reading step, in units of what a step looks like there.
+
+    One signed score per interval, `len(values) - 1` of them: positive where
+    the curve rose by more than its neighbourhood does, negative where it fell.
+    THIS IS THE SINGLE PLACE THE DETECTION LAYER DECIDES WHETHER A STEP IS
+    UNUSUAL. Before 2026-09-11 that question was asked in two different
+    currencies -- `BUBBLE_DROP_SIGMA` in units of the curve's global noise for
+    a fall, `EXCURSION_LOCAL_SIGMA` in units of the local step for a
+    counter-move -- and the two could not be compared, so the rules built on
+    them had to be kept apart by hand.
+
+    NO `times`, AND `noise` ONLY AS A FLOOR. The readings inside a run are
+    evenly spaced, so a step is already a rate; and the scale this divides by
+    is the curve's own local movement, which is the point. `noise` floors that
+    scale, because a neighbourhood cannot genuinely be quieter than the
+    instrument can resolve -- without it, a stretch the instrument reports as
+    identical readings makes every step beside it infinitely anomalous.
+
+    THE FLOOR BINDS OFTEN AND CHANGES NOTHING, which is what a guard should
+    do. On 22148 of the archive's 69655 intervals the local median |step| is
+    under the curve's own noise -- that is not pathology, it is arithmetic: for
+    readings scattered by sigma the median |step| is about 0.95 sigma, so a
+    quiet stretch straddles the floor by construction. Where it binds, this
+    degrades to a plain z-score, which is the right currency in a stretch where
+    nothing is happening. Removing it moves no detachment, no arrival and no
+    falling reading anywhere in the archive (364, 43 and 446 either way): the
+    scores it changes are all on steps too small to clear the size bars
+    downstream.
+
+    Pass `noise` floored by the curve's SOURCE -- `fit_dataset.source_floor`.
+    """
+    values = np.asarray(values, dtype=float)
+    steps = np.diff(values)
+    out = np.zeros(len(steps))
+    if not np.isfinite(noise) or noise <= 0:
+        return out
+    for index in range(len(steps)):
+        scale = max(local_step_scale(values, index, index + 1, window), noise)
+        out[index] = steps[index] / scale
+    return out
+
+
+def bubble_segments(values, noise, sigma=BUBBLE_DROP_SIGMA, bar=ANOMALY_BAR,
+                    gap=BUBBLE_SEGMENT_GAP, restore=BUBBLE_RECOVERY_FRACTION,
+                    window=ANOMALY_WINDOW):
+    """
+    The curve's gas phases: runs of consistently-signed anomalous steps.
+
+    Returns a list of dicts in reading order, each with `kind` (+1 for an
+    `accumulate` -- gas growing in the beam -- and -1 for a `release`), `start`
+    and `stop` (reading indices, so the phase spans `stop - start` intervals),
+    `total` (the signed absorbance it moves) and `n` (its length in intervals).
+
+    THE PHYSICS IS PHASES, AND NOTHING IN THIS MODULE REPRESENTED ONE UNTIL
+    2026-09-11. The beam alternates between accumulating gas and releasing it,
+    over runs of readings; the old code detected events pointwise and then
+    tried to recover the phase structure afterwards, one patch per way that
+    failed. `detachments` and `bubble_arrivals` are both read off this.
+
+    THE TWO KINDS ARE NOMINATED DIFFERENTLY, and that asymmetry is physical
+    rather than fitted. A FALL is suspect on amplitude alone: the reaction is
+    monotonic by construction (benzaldehyde does not un-form), so any step past
+    `sigma` of the curve's noise is already outside what chemistry can produce.
+    A RISE is not -- the reaction rises constantly -- so a rise counts only
+    where it is anomalous against its own neighbourhood (`bar`, in
+    `step_anomaly`'s units). Nominating rises on absolute sigma instead is what
+    credited fourteen readings of exp 144 cuvette 2's real acceleration, and
+    ordinary climbing on 25 other curves, as gas arriving.
+
+    A rise below `bar` is not a phase, and a fall below `sigma` is not one
+    either -- but a SMALL anomalous rise still is, even though it is far too
+    small to be an arrival in its own right. That is deliberate: exp 149
+    cuvette 5's fall at readings 56/57 is an instrument spike precisely because
+    the 4.3 sigma rise it departs from is anomalous, and a phase list that held
+    only rises big enough to be arrivals could not see it. `detachments` and
+    `bubble_arrivals` apply their own size bars on top.
+
+    INTERRUPTIONS ARE BRIDGED, up to `gap` readings, and only where the
+    interruption gives back less than `restore` of what the phase has moved so
+    far -- see `BUBBLE_SEGMENT_GAP`. A bridged reading is consumed by the phase
+    that bridged it and cannot start one of its own, which is what keeps exp
+    135.1's 6.6 sigma mid-arrival wobble from scoring as a detachment and exps
+    43.1 and 135.2's mid-release upticks from scoring as arrivals.
+    """
+    values = np.asarray(values, dtype=float)
+    steps = np.diff(values)
+    if len(steps) < 1 or not np.isfinite(noise) or noise <= 0:
+        return []
+    anomaly = step_anomaly(values, noise, window)
+    kind = np.zeros(len(steps), dtype=int)
+    kind[steps <= -sigma * noise] = -1
+    kind[(steps > 0) & (anomaly >= bar)] = +1
+    out = []
+    index = 0
+    while index < len(steps):
+        here = int(kind[index])
+        if here == 0:
+            index += 1
+            continue
+        end = index
+        total = float(steps[index])
+        probe = index + 1
+        while probe < len(steps):
+            if kind[probe] == here:
+                total += float(steps[probe])
+                end = probe
+                probe += 1
+                continue
+            across = probe
+            while (across < len(steps) and kind[across] != here
+                   and across - probe < gap):
+                across += 1
+            if not (across < len(steps) and across > probe
+                    and kind[across] == here):
+                break
+            given_back = -here * float(np.sum(steps[probe:across]))
+            if given_back >= restore * abs(total):
+                break
+            total += float(np.sum(steps[probe:across + 1]))
+            end = across
+            probe = across + 1
+        out.append({"kind": here, "start": index, "stop": end + 1,
+                    "total": total, "n": end + 1 - index})
+        index = end + 1
+    return out
+
+
+def _excursions(segments, recovery=BUBBLE_RECOVERY_FRACTION):
+    """
+    Which phases pair off as instrument excursions rather than gas.
+
+    Returns the set of positions in `segments` to throw away. A SPIKE IS NOT
+    ONE EVENT THAT COMES BACK -- IT IS TWO ADJACENT PHASES THAT CANCEL, and
+    saying it that way is what collapses three rules into one. The pair
+    cancels when its smaller half is at least `recovery` of its larger: the
+    trace went somewhere and came back to about where it was.
+
+    THE ORDER OF THE PAIR CARRIES THE PHYSICS, and it is the only asymmetry
+    here:
+
+      release -> accumulate   gas cannot leave before it arrived, so a fall
+                              that is given back is a spike however long the
+                              give-back runs. Exp 149.5's readings 8/9.
+      accumulate -> release   the ordinary bubble lifecycle: gas arrives and
+                              then all of it leaves, which cancels EXACTLY --
+                              exp 44.1 sheds 0.0663 of the 0.0667 it grew. So
+                              this order is a spike only where the rise never
+                              grew at all: ONE interval up, then straight back
+                              down (exp 149.5's readings 55/56/57). A bubble
+                              that reaches full size inside one 60 s reading
+                              and detaches inside the next is not a bubble.
+
+    A pair that does NOT cancel is two real events, both kept, and that is the
+    case the old code had no way to express: exp 138 cuvette 4's real
+    2-reading detachment is followed immediately by a real 4-reading arrival
+    that overshoots the pre-fall level by 0.0176 AU and holds. The old
+    `_is_excursion` rejected the fall for being followed by a rise, and would
+    then have refused the rise for following a rejected fall.
+
+    This replaces `_is_excursion` and the two constants that patched it.
+    `EXCURSION_RECOVERY_DEPTH` reached past the adjacent reading for delayed
+    recoveries on exps 150.1 and 151.6 -- both now excluded whole by
+    `DETACHMENT_SNR_FLOOR`, so it had no live case left. `EXCURSION_RECOVERY_
+    CEILING` capped a recovery at the drop's own size so that a genuine
+    acceleration just after a real fall was not read as that fall reversing;
+    a two-sided cancellation test needs no cap, because a counter-move that
+    overshoots does not cancel. Exp 135.1's fall at readings 272/273 survived
+    the old test by 2% and survives this one by a factor of ten.
+    """
+    out = set()
+    for position, (first, second) in enumerate(zip(segments, segments[1:])):
+        if first["stop"] != second["start"] or first["kind"] == second["kind"]:
+            continue
+        if first["kind"] > 0 and first["n"] != 1:
+            continue
+        sizes = abs(first["total"]), abs(second["total"])
+        if min(sizes) >= recovery * max(sizes):
+            out.update((position, position + 1))
+    return out
+
+
 # Below this net/noise ratio, a curve's OWN detachments are not trusted, no
-# matter what shape they carry. `_is_excursion`'s per-event tests -- recovery
-# against the drop's own size, against a local baseline, extended in depth --
-# all rest on the premise that a curve's noise is characterised well enough
-# for "anomalous" to mean something. On exp 150 cuvette 1 (net/noise 20.7,
+# matter what shape they carry. Every per-event test -- the phase machinery's
+# anomaly bar, the cancellation rule, and the recovery tests that preceded
+# both -- rests on the premise that a curve's noise is characterised well
+# enough for "anomalous" to mean something. On exp 150 cuvette 1 (net/noise 20.7,
 # barely over `live`'s own 20) it is not: local noise in the stretches its
 # candidate falls sit in runs up to 5x the curve's GLOBAL noise estimate, and
 # every per-event test tried -- recovery depth, capped or not, local noise
@@ -900,11 +1183,23 @@ def detachments(values, noise, sigma=BUBBLE_DROP_SIGMA,
     -0.0165 AU at 60 sigma on exp 144 cuvette 2, and -0.0200 at 29 sigma on
     exp 140 cuvette 4.
 
+    NOR IS IT OBLIGED TO BE TIDY. Since 2026-09-11 the grouping is
+    `bubble_segments`', which bridges an interruption of up to one reading
+    rather than requiring strictly consecutive falls -- so a release that
+    stutters is one event and the tick between its halves is not gas arriving.
+    Archive-wide this merges 14 pairs of adjacent events; exp 131 cuvettes 1
+    and 2, the archive's heaviest bubblers, go from 18 and 19 events to 17
+    each over exactly the same falls. Exactly one falling reading in the
+    archive is lost, on exp 44 cuvette 1 at reading 10, and not to the
+    grouping: it is a 16.7 sigma rise and a 14.8 sigma fall in consecutive
+    readings on a curve stepping 2.4 sigma, which `_excursions` now pairs off
+    as a spike. The old test kept it on a 3% margin.
+
     A curve whose net/noise sits below `floor` carries none, regardless of
     what `bubble_drops` finds on it -- see `DETACHMENT_SNR_FLOOR` above.
-    `floor` is a parameter (not baked in) so a test can isolate the
-    excursion machinery from the curve-level gate, the way `sigma` and
-    `recovery` already let it isolate the other two.
+    `floor` is a parameter (not baked in) so a test can isolate the phase
+    machinery from the curve-level gate, the way `sigma` and `recovery`
+    already let it isolate the other two.
     """
     values = np.asarray(values, dtype=float)
     if len(values) < 2 or not np.isfinite(noise) or noise <= 0:
@@ -912,263 +1207,93 @@ def detachments(values, noise, sigma=BUBBLE_DROP_SIGMA,
     net = float(values[-1] - values[0])
     if net / noise < floor:
         return []
-    drops = bubble_drops(values, noise, sigma=sigma)
-    if not len(drops):
-        return []
-    events = []
-    start = previous = int(drops[0])
-    for index in drops[1:]:
-        index = int(index)
-        if index == previous + 1:
-            previous = index
-        else:
-            events.append((start, previous + 1))
-            start = previous = index
-    events.append((start, previous + 1))
-    return [event for event in events
-            if not _is_excursion(values, event, recovery)]
-
-
-# How many readings each side of an event the LOCAL baseline step size is
-# drawn from -- wide enough to be a real local estimate, narrow enough that a
-# genuine change in the background rate does not get pooled into it.
-EXCURSION_LOCAL_WINDOW = 8
-
-# How many times the local baseline step a recovery must be before it counts
-# as anomalous rather than ordinary. Pinned between two known cases, not
-# guessed: exp 149 cuvette 5's two genuine excursions recover at 7.2x and
-# 2.1x their local baseline, and exp 130 cuvette 2's two real, previously
-# rejected detachments (12.4 and 16.6 sigma falls) recover at only 1.0x and
-# 1.4x -- see `bubble_profile`'s `shaped` clause for how those were found.
-# 2.0 sits in the gap and keeps every one of those four cases where it was.
-EXCURSION_LOCAL_SIGMA = 2.0
-
-# How many readings past a fall the recovery search extends, beyond the one
-# adjacent reading the test always checked. ADDED 2026-09-07: exp 150 cuvette
-# 1 and exp 151 cuvette 6 -- the two weakest, most drift-dominated curves in
-# the two-axis block -- carry falls whose single-reading recovery is only
-# 13-48% of the drop and whose FULL reversal lands one or two readings later.
-# A single-reading test cannot see that and reads the fall as gas; on these
-# two curves it is 10 of 402 archive-wide detachments. See
-# DATA_VERIFICATION.md 2026-09-07.
-EXCURSION_RECOVERY_DEPTH = 3
-
-# How much of a fall an extended-window recovery may credit before it is
-# capped, in units of the drop's own size. ONE, not more: a spike's reversal
-# returns a curve to about where it was, not past it, so crediting recovery
-# BEYOND the drop's own size is not evidence of a spike -- it is the curve
-# resuming its own climb. Uncapped, the depth extension wrongly flagged a
-# genuine 6.2 sigma detachment on exp 135 cuvette 1 (cuvette readings
-# 272/273), which accelerates hard in the two readings right after; capped at
-# 1.0 that detachment, and every other pinned real one, is untouched, while
-# the delayed-recovery cases the extension was added for are still caught.
-EXCURSION_RECOVERY_CEILING = 1.0
-
-
-def _local_step_scale(values, start, stop, window=EXCURSION_LOCAL_WINDOW):
-    """
-    The median |step| in the neighbourhood of an event, excluding the fall
-    itself.
-
-    WHAT THIS IS FOR. `_is_excursion`'s recovery test alone asks whether an
-    adjacent step is large relative to THIS drop's own size -- and on a curve
-    rising fast enough that ordinary steps are themselves a sizeable fraction
-    of a modest, genuine detachment, that test fires on real gas. It rejected
-    two falls on exp 130 cuvette 2 this way, 12.4 and 16.6 sigma each, both
-    real: their "into" steps (0.00266, 0.00331 AU) are unremarkable next to
-    the ~0.0025 AU/reading the curve is climbing at throughout that stretch,
-    but exceeded half of THOSE FALLS' comparatively modest size regardless.
-    This is the second question the function's own docstring already implies
-    ("a reading that climbs a COMPARABLE amount") but the old arithmetic never
-    asked: comparable to what is normal HERE, not only to the drop's own size.
-    """
-    lo = max(0, start - window)
-    hi = min(len(values), stop + window + 1)
-    before = np.abs(np.diff(values[lo:start + 1]))
-    after = np.abs(np.diff(values[stop:hi]))
-    combined = np.concatenate([before, after])
-    return float(np.median(combined)) if len(combined) else 0.0
-
-
-def _is_excursion(values, event, recovery=BUBBLE_RECOVERY_FRACTION,
-                  window=EXCURSION_LOCAL_WINDOW, sigma=EXCURSION_LOCAL_SIGMA,
-                  depth=EXCURSION_RECOVERY_DEPTH,
-                  ceiling=EXCURSION_RECOVERY_CEILING):
-    """
-    Is this fall an instrument excursion rather than gas leaving?
-
-    GAS THAT LEAVES DOES NOT COME BACK, and a bubble does not grow half its
-    size in one 60 s reading. So a fall flanked by a reading that climbs a
-    comparable amount is a spike -- either the fall departs from an
-    anomalously high reading, in which case it is the return off one, or it
-    lands on an anomalously low one, in which case the level is back within a
-    few readings. THREE CLAUSES: the adjacent step must recover most of the
-    drop (`recovery`, against the drop's own size -- unchanged), AND it must
-    be anomalous relative to what this curve's readings normally do (`sigma`,
-    against `_local_step_scale`), OR the same is true a reading or two later
-    (`depth`, capped at `ceiling` -- new, see the constants above). The
-    single-reading version made the whole test fire on ordinary steps
-    whenever the drop itself was modest relative to the curve's own rise
-    rate, which is exactly the regime `_local_step_scale`'s docstring
-    documents on exp 130 cuvette 2. Extending it can only ever REJECT MORE
-    falls as excursions than the one-reading test did, never fewer, so
-    nothing this test used to catch as real is put at risk by the extra
-    reach -- see the constants above for where `depth` and `ceiling` are
-    pinned so that stays true of the known cases.
-
-    THE EXTRA READINGS ARE POST-EVENT ONLY. A reading or two BEFORE the fall
-    is not a symmetric case: a curve can genuinely accelerate hard just
-    before losing a bubble, and reading that back as a "spike" flags real gas
-    -- exp 135 cuvette 1's 41 sigma detachment sits right after four readings
-    of fast, real acceleration, and extending the INTO side to match the OUT
-    side flagged it as an excursion for exactly that reason during testing.
-    Gas leaving is a one-way event; only the recovery side needed the reach.
-
-    `local_outlier_z` CANNOT BE USED FOR THIS, though it is the obvious tool:
-    its window spans the fall, so a genuine step change flags itself. That is
-    the "sharp kink" limitation its own docstring records, and it is not
-    marginal here -- exp 135 cuvette 2's 0.1196 AU detachment scores +130.
-    This looks only at the readings near either side, which no step change
-    can make anomalous on its own.
-
-    Exp 149 cuvette 5 is the curve that forced the first clause. Its two
-    "detachments" are 9.3 and 8.2 sigma, both instrument excursions: the
-    first falls 0.00206 and the next reading climbs 0.00222 straight back
-    (7.2x the local baseline), the second falls off a reading that is an
-    isolated spike (2.1x). Between them they set a production rate of
-    6.2e-6 AU/s, and the repair then removed 0.0097 AU from a curve that rose
-    0.0262 -- flattening a real early rise into a straight line.
-
-    Exp 150 cuvette 1 and exp 151 cuvette 6 are the curves that forced the
-    depth extension: both weak enough that a spike's single-reading recovery
-    undershoots half the drop, with the rest arriving one or two readings
-    later. `ceiling` stops that reach from reading a genuine acceleration as
-    a spike in the other direction -- see the constant above.
-    """
-    start, stop = event
-    drop = float(values[start] - values[stop])
-    if drop <= 0:
-        return True
-    baseline = _local_step_scale(values, start, stop, window)
-    into = (float(values[start] - values[start - 1]) if start >= 1 else 0.0)
-    out = (float(values[stop + 1] - values[stop])
-           if stop + 1 < len(values) else 0.0)
-    biggest = max(into, out)
-    if biggest > recovery * drop and biggest > sigma * baseline:
-        return True
-    for k in range(2, depth + 1):
-        if stop + k >= len(values):
-            break
-        out_k = float(values[stop + k] - values[stop])
-        if out_k <= recovery * drop:
-            continue
-        if min(out_k, ceiling * drop) > sigma * k * baseline:
-            return True
-    return False
+    segments = bubble_segments(values, noise, sigma=sigma, restore=recovery)
+    spikes = _excursions(segments, recovery)
+    return [(segment["start"], segment["stop"])
+            for position, segment in enumerate(segments)
+            if position not in spikes and segment["kind"] < 0
+            and -segment["total"] >= sigma * noise]
 
 
 def bubble_arrivals(times, values, noise, events=None, sigma=BUBBLE_DROP_SIGMA,
                     recovery=BUBBLE_RECOVERY_FRACTION,
-                    kink_sigma=OUTLIER_SIGMA, window=EXCURSION_LOCAL_WINDOW,
-                    depth=EXCURSION_RECOVERY_DEPTH,
-                    floor=DETACHMENT_SNR_FLOOR):
+                    kink_sigma=OUTLIER_SIGMA, window=ANOMALY_WINDOW,
+                    bar=ANOMALY_BAR, floor=DETACHMENT_SNR_FLOOR):
     """
     Level jumps that are gas arriving in the beam: `(index, gain)` pairs,
     where `index` is the last reading of the jump and `gain` is the part of
     it that exceeds an ordinary step there.
 
-    A CONFIRMED DETACHMENT IS NOT EVIDENCE AGAINST THE RISE THAT PRECEDES IT,
-    and reading it as one is what this function did until 2026-09-10. The
-    recovery test below asks whether a rise is undone by what follows, and
-    rejects it if so -- correctly, when what follows is noise. But when what
-    follows is a detachment `detachments` has already adjudicated on its own
-    evidence, the rise is not being erased by noise: it is being RELEASED,
-    which is the strongest evidence available that it was gas. So the veto is
-    skipped where a confirmed detachment departs within `depth` readings of
-    the landing, the same reach `_is_excursion` searches for a reversal, and
-    the kink test below is left to decide alone. Archive-wide this admits
-    NINE jumps and nothing else -- exps 43, 44, 49 and 55 and four rungs of
-    exp 135, each eyeballed against its own pre-jump trend before the rule
-    was adopted. The one-reading noise spike the veto exists for cannot reach
-    this clause: its own fall is rejected by `_is_excursion`'s `into` term
-    when `detachments` scores it, so there is no confirmed detachment for it
-    to point at. See DATA_VERIFICATION.md 2026-09-10.
+    The `accumulate` phases of `bubble_segments` that survived `_excursions`,
+    are large enough to be an event at all, and pass the kink test below.
 
-    A RISE NEEDS TWO TESTS A FALL DOES NOT, because a fall gets one of them
-    for free. `bubble_drops` needs only an amplitude test: real chemistry
-    never falls, so any fall past `sigma` is already suspect, and
-    `_is_excursion` then asks only whether it reverses. Real chemistry rises
-    constantly, so a rise past the same `sigma` is not suspect on its own --
-    in the two-axis block such steps are 809 against 303 falls, the opposite
-    of the 122-against-23 asymmetry `bubble_step_asymmetry` reports at its
-    own, much stricter, 20 sigma. Most large rises are the reaction.
+    A RISE IS NOT SUSPECT ON ITS AMPLITUDE, WHICH IS THE WHOLE PROBLEM. A fall
+    gets its first test for free -- real chemistry never falls, so any fall
+    past `sigma` is already outside what the reaction can do, and
+    `bubble_drops` needs nothing else. Real chemistry rises constantly: in the
+    two-axis block, steps past that same `sigma` run 809 up against 303 down.
+    So a rise counts only where it is anomalous against ITS OWN NEIGHBOURHOOD
+    (`bar`, in `step_anomaly`'s units), which is what `bubble_segments`
+    nominates on.
 
-    NEVER MERGED ACROSS READINGS, unlike `detachments`. One bubble can cost a
-    fall more than one reading because real chemistry never produces a
-    multi-reading run of large falls, so any such run is unambiguously gas --
-    but real chemistry DOES produce multi-reading runs of large rises, which
-    is the whole reason this function exists rather than reusing
-    `bubble_drops` directly. Grouping consecutive candidates the way
-    `detachments` does would fold a genuine multi-reading acceleration into
-    one giant "jump": on exp 144 cuvette 2, readings 29-42 climb by 20-30
-    sigma a step for fourteen consecutive readings, real and smooth, and a
-    merged span across them scores as a level jump the same way a true one
-    does, because the span's own ENDPOINTS are still a kink relative to what
-    is outside it. Scoring every step alone, unmerged, is what keeps that
-    curve's real acceleration out and still catches a true one-reading jump
-    dead centre.
+    THE ARCHIVE WENT FROM 89 ARRIVALS TO 43 ON 2026-09-11, and the four ways
+    an old one could go are worth separating rather than summing:
 
-    THE FIRST TEST IS RECOVERY, reused rather than reinvented: negating the
-    curve turns a rise into a fall, so `_is_excursion` on `-values` asks
-    exactly the question a rise needs -- does the very next reading undo a
-    comparable amount, which is a spike (real chemistry, or noise), not gas
-    that arrived and stayed. Without this a single-reading spike up that
-    reverts at the very next reading reads identically to a persistent jump,
-    because the leave-one-out fit below cannot tell "elevated from here on"
-    from "elevated for one reading" -- both pull the neighbouring points the
-    same way.
+      44  NOT ANOMALOUS AT ALL -- no phase there. Scored on absolute sigma
+          these ran 6.5 to 160 sigma and looked convincing; scored against
+          their own neighbourhoods they run 1.00 to 1.91, meaning the curve was
+          ALREADY CLIMBING that fast. Exp 13 cuvette 4's jump at reading 64 is
+          43.8 sigma -- and the six steps around it are 11.8, 11.8, 10.3, 10.9,
+          14.6 and 12.7 thousandths against its 18.4. It was credited 0.0067 AU
+          of gas for rising 1.6x an ordinary step. This is exp 144 cuvette 2's
+          documented failure mode turning out to be general rather than one
+          curve's quirk.
+      31  KEPT, unchanged.
+      11  MERGED into a longer arrival, and replaced by the 12 landings those
+          arrivals actually end on -- exp 44 cuvette 1's three-reading bubble
+          was credited 0.0231 AU at reading 89 and is 0.0569 at reading 90.
+      3   INSIDE A RELEASE PHASE: not arrivals at all, but upticks between two
+          fragments of one stuttering detachment (exps 43.1 and 135.2).
 
-    THE SECOND IS THE KINK, tested the way `isolated_outliers` tests for one:
-    `local_outlier_z` against a local fit that EXCLUDES the point being
-    scored. A genuine acceleration builds curvature over several readings and
-    does not fail this AT A GIVEN STEP, even though the region as a whole
-    would if it were scored as one span -- the fit at any interior step is
-    pulled by neighbours on both sides that are already on the same rising
-    trend, not straddling a level. A true level jump does fail it, because the
-    fit at that one step is pulled between the two levels it straddles, so the
-    reading just before reads anomalously LOW and the reading the jump lands
-    on reads anomalously HIGH. Exp 135 cuvette 5's jump at 9780 s scores -8.4
-    then +10.0. `_is_excursion`'s own docstring calls this property the
-    reason `local_outlier_z` "CANNOT be used" for a fall -- there a step's
-    anomalousness is not in question, only whether it reverses; here, past
-    the recovery test, it is the question left, which is exactly what the
-    leave-one-out fit answers.
+    The 43 that remain are the ones that move by more than the curve around
+    them was moving anyway, credited for the whole of what they moved.
+
+    THE SECOND TEST IS THE KINK, tested the way `isolated_outliers` tests for
+    one: `local_outlier_z` against a local fit that EXCLUDES the point being
+    scored. A true level jump fails it, because the fit at that step is pulled
+    between the two levels it straddles, so the reading the jump departs from
+    reads anomalously LOW and the one it lands on anomalously HIGH -- exp 135
+    cuvette 5's jump at 9780 s scores -8.4 then +10.0. It is read at the
+    phase's OWN ENDS, and only across the part of the phase that moved: a
+    phase can pick up an ordinary reading or two at its edges through the gap
+    rule, and reading the kink there would score the wrong reading. Exp 146
+    cuvette 4's arrival is the case -- its 35.7 sigma jump is bridged to two
+    ordinary steps before it, whose leading reading scores only -1.5.
 
     Only the EXCESS over the curve's own local step size is gas.
-    `_local_step_scale` -- the estimator `_is_excursion`'s recovery test uses
-    for the same reason -- is what a step there looks like with nothing
-    arriving, so `gain = max(step - _local_step_scale(...), 0)` never removes
-    an ordinary step's worth of real rise, only what is anomalous beyond it.
+    `local_step_scale` is what a step there looks like with nothing arriving,
+    so `gain = rise - n * local_step_scale(...)` never removes an ordinary
+    step's worth of real rise, only what is anomalous beyond it. On a phase
+    that ran for several readings that is the whole of it and not merely its
+    largest step, which is the other half of the 2026-09-11 repair: exp 44
+    cuvette 1 grows ONE bubble over three readings, 0.0667 AU against the
+    0.0663 the next detachment sheds, and was credited 0.0231.
+
+    `events` is accepted and ignored beyond `split_arrivals`' use of it, so
+    callers that already have the detachments need not recompute them. The
+    2026-09-10 "a confirmed detachment is not evidence against the rise that
+    precedes it" clause is gone with the veto that needed it: a rise followed
+    by the fall that releases it is `accumulate -> release`, which `_excursions`
+    reads as the ordinary lifecycle rather than as a reversal.
 
     The same curve-level gate as `detachments`, and for the same reason: on a
-    curve below `floor` no per-event test is trusted, rise or fall alike, and
-    none is returned. See DATA_VERIFICATION.md 2026-09-08.
-
-    A KNOWN LIMITATION, shared with `isolated_outliers`'s "masking": the
-    leave-one-out fit is not robust to a fall large enough to dominate its own
-    window, so a handful of readings right after an extreme fall can score as
-    a false kink -- on a synthetic 120 sigma fall in the very first interval
-    (`test_curve_metrics.test_the_bubble_correction`'s first-interval case)
-    this reaches a spurious 0.0006 AU gain, four orders of magnitude under
-    the fall itself and well under anything found on a real curve. No case on
-    a real archive curve triggers it; `test_bubble_arrivals` sweeps the
-    archive.
+    curve below `floor` no per-event test is trusted, rise or fall alike.
     """
     return [(row["index"], row["gain"])
             for row in arrival_candidates(times, values, noise, events,
                                           sigma=sigma, recovery=recovery,
                                           kink_sigma=kink_sigma, window=window,
-                                          depth=depth, floor=floor)
+                                          bar=bar, floor=floor)
             if row["admitted"]]
 
 
@@ -1176,25 +1301,26 @@ def arrival_candidates(times, values, noise, events=None,
                        sigma=BUBBLE_DROP_SIGMA,
                        recovery=BUBBLE_RECOVERY_FRACTION,
                        kink_sigma=OUTLIER_SIGMA,
-                       window=EXCURSION_LOCAL_WINDOW,
-                       depth=EXCURSION_RECOVERY_DEPTH,
+                       window=ANOMALY_WINDOW,
+                       bar=ANOMALY_BAR,
                        floor=DETACHMENT_SNR_FLOOR):
     """
-    Every rise `bubble_arrivals` considered, with the score that decided it.
+    Every rise `bubble_arrivals` considered, with the scores that decided it.
 
     `bubble_arrivals` IS this, filtered on `admitted` -- one source of truth
     for a verdict that three documents now quote, rather than a survey that
     reimplements the rule it is meant to describe.
 
-    One dict per candidate: `index` (the reading the jump lands on), `gain`,
-    `step_sigma`, `z_before` / `z_after` (the kink test's two scores),
-    `released` (a confirmed detachment departs within `depth`, so the recovery
-    veto is skipped), `excursion` (the veto's verdict where it was asked) and
-    `admitted`.
+    One dict per `accumulate` phase: `index` (the reading the jump lands on),
+    `gain`, `step_sigma` (the whole phase, in units of the curve's noise),
+    `anomaly` (its largest step in units of the local one), `z_before` /
+    `z_after` (the kink test's two scores), `excursion` (whether `_excursions`
+    paired it off against an adjacent fall), `sized` (whether it moves enough
+    to be an event at all) and `admitted`.
 
-    WHAT IT IS FOR: `z_before` is what decides almost all of them, and
-    `scope.arrival_margins` reads this to show WHERE the bar falls in that
-    distribution. It falls in a continuum, not a gap -- see BUBBLES.md.
+    WHAT IT IS FOR: `z_before` is what decides most of the ones that get this
+    far, and `scope.arrival_margins` reads this to show WHERE the bar falls in
+    that distribution. It falls in a continuum, not a gap -- see BUBBLES.md.
     """
     times = np.asarray(times, dtype=float)
     values = np.asarray(values, dtype=float)
@@ -1203,39 +1329,66 @@ def arrival_candidates(times, values, noise, events=None,
     net = float(values[-1] - values[0])
     if net / noise < floor:
         return []
-    if events is None:
-        events = detachments(values, noise, sigma=sigma, recovery=recovery,
-                             floor=floor)
-    candidates = bubble_drops(-values, noise, sigma=sigma)
-    if not len(candidates):
-        return []
+    segments = bubble_segments(values, noise, sigma=sigma, bar=bar,
+                               restore=recovery, window=window)
+    spikes = _excursions(segments, recovery)
+    anomaly = step_anomaly(values, noise, window)
     z = local_outlier_z(times, values, noise)
-    releases = [start for start, _ in events]
     rows = []
-    for index in candidates:
-        index = int(index)
-        start, stop = index, index + 1
-        released = any(0 <= release - stop <= depth for release in releases)
-        excursion = (False if released
-                     else _is_excursion(-values, (start, stop),
-                                        recovery=recovery, window=window))
+    for position, segment in enumerate(segments):
+        if segment["kind"] < 0:
+            continue
+        span = _moved_span(values, noise, segment, sigma)
+        if span is None:
+            continue
+        start, stop = span
+        rise = float(values[stop] - values[start])
+        gain = max(rise - (stop - start) * local_step_scale(
+            values, start, stop, window), 0.0)
         before, after = float(z[start]), float(z[stop])
-        baseline = _local_step_scale(values, start, stop, window)
-        gain = max(float(values[stop] - values[start]) - baseline, 0.0)
         kinked = (np.isfinite(before) and np.isfinite(after)
                   and before <= -kink_sigma and after >= kink_sigma)
+        excursion = position in spikes
+        sized = rise >= sigma * noise
         rows.append({
             "index": stop,
             "time_s": float(times[stop]),
             "gain": gain,
-            "step_sigma": float((values[stop] - values[start]) / noise),
+            "step_sigma": rise / noise,
+            "anomaly": float(np.max(anomaly[start:stop])),
             "z_before": before,
             "z_after": after,
-            "released": released,
             "excursion": excursion,
-            "admitted": bool(not excursion and kinked and gain > 0),
+            "sized": sized,
+            "admitted": bool(not excursion and sized and kinked and gain > 0),
         })
     return rows
+
+
+def _moved_span(values, noise, segment, sigma=BUBBLE_DROP_SIGMA):
+    """
+    The part of an `accumulate` phase that actually moved, as `(start, stop)`
+    reading indices, or None if none of it did.
+
+    A PHASE IS NOT THE SAME THING AS THE ARRIVAL INSIDE IT. `bubble_segments`
+    bridges an interruption of a reading, and it nominates on the local step
+    scale, so a phase can begin or end with a step that is anomalous where it
+    sits but far too small to be gas -- exp 146 cuvette 4's real 35.7 sigma
+    jump is preceded by a 3.5 sigma step and a 1.2 sigma one, both swept in.
+    Reading the kink at the phase's raw edges then scores an ordinary reading
+    (-1.5, against a bar of -5) and loses a real arrival.
+
+    So the arrival is trimmed to the outermost steps in the phase that clear
+    `sigma` of the curve's own noise. Interior readings are untouched: exp
+    135.1's arrival at readings 273-277 keeps the 6.6 sigma wobble in the
+    middle of it, because what is bracketed is the event, not each of its
+    steps.
+    """
+    steps = np.diff(np.asarray(values, dtype=float))
+    moved = [index for index in range(segment["start"], segment["stop"])
+             if steps[index] >= sigma * noise]
+    return (moved[0], moved[-1] + 1) if moved else None
+
 
 
 def split_arrivals(arrivals, events):

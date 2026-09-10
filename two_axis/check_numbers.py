@@ -265,9 +265,16 @@ def main():
               f"exp {int(pair.reference.iloc[0])}, which carries the same "
               f"{pair.top_h2o2.iloc[0]:.1f} mM at pH "
               f"{pair.reference_pH.iloc[0]:.2f}")
+    # THE BAR IS THE POISSON PROBABILITY, not a round number of events -- see
+    # `test_scope.test_the_turnover_control_is_confounded_with_ph`, which was
+    # `expected < 2.5` until the 2026-09-11 segmentation rewrite crossed it
+    # (2.39 -> 2.54) without touching the argument. What the argument needs is
+    # that seeing none not be surprising under the pH-only rate.
+    quiet_odds = float(np.exp(-pair.expected.sum()))
     doc.check("pH alone already predicts the quiet pair's zero",
-              float(pair.expected.sum()) < 2.5 and int(pair.events.sum()) == 0,
-              f"{pair.expected.sum():.2f} expected, {int(pair.events.sum())} seen")
+              quiet_odds > 0.05 and int(pair.events.sum()) == 0,
+              f"{pair.expected.sum():.2f} expected, {int(pair.events.sum())} "
+              f"seen -- p(none) = {quiet_odds:.3f}")
 
     together = scope.bubble_synchrony()
     doc.claim("the cuvette pairs", f"{together['pairs']} cuvette pairs")

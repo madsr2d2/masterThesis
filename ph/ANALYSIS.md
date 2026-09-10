@@ -189,7 +189,7 @@ slope, so their decline is reported as medians rather than forced into one.
 
 **This is not the O2 side reaction reading as a rate decline.** Boric buffer
 is exactly where the archive's gas artefact is heaviest at high pH
-(`scope.gas_survey`: 24 of 64 boric curves above pH 8.5 detach gas, 1.06
+(`scope.gas_survey`: 24 of 64 boric curves above pH 8.5 detach gas, 1.04
 events/hour, against a hard floor of zero detachments anywhere in the archive
 below pH 7.5) — so the possibility that
 `debubble`'s correction would restore the missing rate had to be checked
@@ -228,7 +228,7 @@ readings: exps 44 and 49, the ladder's two highest-pH runs, are also two of
 the archive's heaviest boric gassers (`scope.gas_survey`), and leaving their
 own O2 in moves both `Vmax` and `Km` at exactly those rungs. Exp 43's own fit
 improves once its own worst-gassing cuvette is corrected too — its R² turns
-positive, **+0.65**, against a negative value uncorrected — though its `Km`
+positive, **+0.50**, against a negative value uncorrected — though its `Km`
 stays unresolved either way.
 
 | experiment | pH | `Vmax` (AU/s) | `Km` (mM) |
@@ -238,8 +238,8 @@ stays unresolved either way.
 | 46 | 9.23 | 4.45 × 10⁻⁴ | 8.13 |
 | 47 | 9.40 | 3.16 × 10⁻⁴ | 5.18 |
 | 48 | 9.51 | 4.74 × 10⁻⁴ | 10.65 |
-| 44 | 10.07 | 2.28 × 10⁻⁴ | 5.98 |
-| 49 | 10.34 | 2.06 × 10⁻⁴ | 6.43 |
+| 44 | 10.07 | 2.21 × 10⁻⁴ | 5.67 |
+| 49 | 10.34 | 2.04 × 10⁻⁴ | 6.43 |
 
 **`Km` does not simply climb with pH — it turns over, at the same rung
 `Vmax` does.** Both peak together at exp 48 (pH 9.51: `Km` 10.65 mM, `Vmax`
@@ -275,7 +275,7 @@ the rate at fixed sub-saturating `[S]`, so its own peak has to sit where
 
 **The ladder now supports one `Km` held fixed across it, where it did not
 before.** `ph_role.ladder_mm_shared` fits one `Km` shared across all nine
-runs (`Vmax` free per run) and now resolves it — **5.87 mM (3.24–12.31 mM)**
+runs (`Vmax` free per run) and now resolves it — **5.87 mM (2.85–15.28 mM)**
 — against the grid-floor, unresolved fit the uncorrected readings gave. Six
 of the seven resolved rungs' own 95% intervals contain it; only exp 41, the
 ladder's lowest-pH rung and its most tightly resolved `Km` (2.66–3.36 mM),
@@ -314,8 +314,8 @@ sits at ~0.28 mM chemzyme — essentially the SAME loading as
 (pH 9.01) and exp 55 (pH 9.70, the clean repeat of the excluded exp 50; §1).
 Each resolves its own per-experiment fit: exp 51's `Vmax` is
 1.24 × 10⁻⁴ AU/s (`Km` unresolved, the profile reaching the grid's own
-ceiling); exp 55's is 0.98 × 10⁻⁴ AU/s, with `Km` resolved at 15.8 mM
-(7.3–72.1 mM). Exp 55's own lowest-`[S]` cuvette carries **25** O2
+ceiling); exp 55's is 0.97 × 10⁻⁴ AU/s, with `Km` resolved at 15.6 mM
+(7.2–72.1 mM). Exp 55's own lowest-`[S]` cuvette carries **23** O2
 detachments — the heaviest single cuvette this whole folder's ladders carry
 — and correcting it drops that cuvette's own `v_peak` almost sixfold
 (7.5 × 10⁻⁵ to 1.2 × 10⁻⁵ AU/s); its other three cuvettes carry at most one
@@ -345,7 +345,7 @@ built 2026-09-05, before this folder existed, and not recomputed here.
 | two-axis high | +0.370 ± 0.144 (controlled +0.413 ± 0.184) | −0.79 | +0.85 |
 
 Pooled with the signal held (`clock_pooled_order`, `controlled=True`):
-**+0.318 ± 0.131 per pH unit**, χ² = **1.06** on 3 — the four ladders agree,
+**+0.347 ± 0.127 per pH unit**, χ² = **1.27** on 3 — the four ladders agree,
 unlike the rate's. **More alkaline, longer induction**, on all four, in three
 buffers and on both substrates.
 
@@ -382,7 +382,7 @@ that keeps coming up as the operative one:
 - **The rate.** Section 2: +0.594 ± 0.026 pooled over phosphate and both
   two-axis ladders, checked against `scope.ph_order`'s own +0.554 ± 0.040.
 - **The induction clock.** Section 4: +0.318 ± 0.131 per pH unit, pooled and
-  signal-controlled, χ² = 0.95 on 3.
+  signal-controlled, χ² = 1.27 on 3.
 - **The early trough.** `../early_trough/ANALYSIS.md`'s driver of the
   reference-cuvette dip is [enz]/[HOO⁻], not [enz]/[S] and not total [H2O2],
   at p < 10⁻⁴ in both substrates independently (ρ = −0.621 for 4OMe, −0.315
@@ -438,7 +438,7 @@ alone.
   of the seven resolved rungs' own intervals contain it, and only the
   lowest-pH rung (exp 41) disagrees (§3a).
 - The induction clock's order in pH, +0.318 ± 0.131 per pH unit, agrees across
-  all four ladders (χ² = 0.95 on 3) where the rate's does not.
+  all four ladders (χ² = 1.27 on 3) where the rate's does not.
 - Three independent measurements — the rate, the clock, and the early
   trough's OTHER-cuvette signal — name [HOO⁻] as the species that matters, and
   a fourth (the O2 side reaction's pH onset) is consistent with the same

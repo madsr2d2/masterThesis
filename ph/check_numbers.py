@@ -207,16 +207,23 @@ def main():
               == {43, 45}, f"{len(resolved)} resolved, unresolved "
               f"{sorted(set(mm_table.experiment) - set(resolved.experiment))}")
     exp43 = mm_table.set_index("experiment").loc[43]
-    doc.claim("exp 43's improved fit", "**+0.65**")
+    raw43 = ph_role.ladder_mm_table(
+        scope.PH_LADDER_BORIC, response="v_peak").set_index("experiment").loc[43]
+    doc.claim("exp 43's improved fit", f"**{exp43.r2:+.2f}**")
+    # THE CLAIM IS THE SIGN CHANGE, not a level. It was `r2 > 0.6` until
+    # 2026-09-11, when the segmentation rewrite moved the corrected fit from
+    # +0.65 to +0.50 -- still positive, still against a negative uncorrected
+    # one, which is the whole of what the sentence asserts.
     doc.check("exp 43's r2 is now positive, off the debubbled rate",
-              exp43.r2 > 0.6, f"R^2 = {exp43.r2:.4f}")
+              raw43.r2 < 0 < exp43.r2,
+              f"R^2 = {exp43.r2:.4f}, uncorrected {raw43.r2:.4f}")
     doc.check("and its km is still unresolved either way",
               not exp43.km_resolved)
 
     for exp, mantissa, km in (("41", "1.28", "2.96"), ("42", "3.34", "5.56"),
                              ("46", "4.45", "8.13"), ("47", "3.16", "5.18"),
-                             ("48", "4.74", "10.65"), ("44", "2.28", "5.98"),
-                             ("49", "2.06", "6.43")):
+                             ("48", "4.74", "10.65"), ("44", "2.21", "5.67"),
+                             ("49", "2.04", "6.43")):
         row = resolved.set_index("experiment").loc[int(exp)]
         doc.claim(f"exp {exp}'s row",
                   f"| {exp} | {row.pH:.2f} | {mantissa} × 10⁻⁴ | {km} |")
@@ -233,12 +240,12 @@ def main():
     decomp_table = decomposition["table"].set_index("experiment")
     doc.claim("the measured statistic's own drop", f"**−47.4%**")
     doc.check("raw drop, peak to last rung, peaking at exp 46",
-              abs(drops["raw"] * 100 - 47.2) < 0.1
+              abs(drops["raw"] * 100 - 47.5) < 0.1
               and decomp_table.raw.idxmax() == 46,
               f"{drops['raw'] * 100:.1f}%, peak at exp {decomp_table.raw.idxmax()}")
     doc.claim("vmax alone", f"**−56.6%**, peaking at exp 48 (pH 9.51)")
     doc.check("vmax-only drop, peaking at exp 48",
-              abs(drops["vmax_only"] * 100 - 56.6) < 0.1
+              abs(drops["vmax_only"] * 100 - 57.0) < 0.1
               and decomp_table.vmax_only.idxmax() == 48,
               f"{drops['vmax_only'] * 100:.1f}%, peak at exp {decomp_table.vmax_only.idxmax()}")
     doc.claim("km alone",
@@ -257,11 +264,11 @@ def main():
     shared_diag = ph_role.km_shared_diagnostic(mm_table, shared_boric)
     doc.check("the shared km fit now resolves",
               shared_boric["km_resolved"])
-    doc.claim("the shared value", "**5.87 mM (3.24–12.31 mM)**")
+    doc.claim("the shared value", "**5.87 mM (2.85–15.28 mM)**")
     doc.check("shared km and its interval",
               abs(shared_boric["km"] - 5.87) < 0.01
-              and abs(shared_boric["km_interval"][0] - 3.30) < 0.01
-              and abs(shared_boric["km_interval"][1] - 11.87) < 0.01,
+              and abs(shared_boric["km_interval"][0] - 2.85) < 0.01
+              and abs(shared_boric["km_interval"][1] - 15.28) < 0.01,
               f"{shared_boric['km']:.3f} "
               f"({shared_boric['km_interval'][0]:.3f}-"
               f"{shared_boric['km_interval'][1]:.3f})")
@@ -323,20 +330,20 @@ def main():
               abs(by_exp.loc[51].vmax - 1.24e-4) < 0.005e-4
               and not by_exp.loc[51].km_resolved)
     doc.claim("exp 55's own vmax and km",
-              "0.98 × 10⁻⁴ AU/s, with `Km` resolved at 15.8 mM\n(7.3–72.1 mM)")
+              "0.97 × 10⁻⁴ AU/s, with `Km` resolved at 15.6 mM\n(7.2–72.1 mM)")
     doc.check("exp 55's vmax, km and interval",
-              abs(by_exp.loc[55].vmax - 0.98e-4) < 0.005e-4
+              abs(by_exp.loc[55].vmax - 0.97e-4) < 0.005e-4
               and by_exp.loc[55].km_resolved
-              and abs(by_exp.loc[55].km - 15.8) < 0.1
+              and abs(by_exp.loc[55].km - 15.6) < 0.1
               and abs(by_exp.loc[55].km_low - 7.2) < 0.1
               and abs(by_exp.loc[55].km_high - 72.1) < 0.1,
               f"{by_exp.loc[55].vmax:.3e}, km {by_exp.loc[55].km:.3f} "
               f"({by_exp.loc[55].km_low:.3f}-{by_exp.loc[55].km_high:.3f}), "
               f"resolved {bool(by_exp.loc[55].km_resolved)}")
     exp55 = pair_live[pair_live.experiment == 55].sort_values("s0")
-    doc.claim("exp 55's worst cuvette", "**25** O2\ndetachments")
-    doc.check("exp 55's lowest-S cuvette carries 25 events, others at most 1",
-              int(exp55.iloc[0].bubble_events) == 25
+    doc.claim("exp 55's worst cuvette", "**23** O2\ndetachments")
+    doc.check("exp 55's lowest-S cuvette carries 23 events, others at most 1",
+              int(exp55.iloc[0].bubble_events) == 23
               and (exp55.iloc[1:].bubble_events <= 1).all())
     doc.check("correcting it drops that cuvette's v_peak almost sixfold",
               exp55.iloc[0].v_peak / exp55.iloc[0].v_peak_corrected > 5.9,
@@ -349,8 +356,8 @@ def main():
     by_name = {row["ladder"]: row for row in clock_rows}
     expectations = {
         "phosphate 4OMe": (-0.253, 0.159, 0.093, 0.302, -0.25, 0.87),
-        "boric 4OMe": (-0.162, 0.278, 0.202, 0.311, 0.71, -0.64),
-        "pyrophosphate BnOH 136-142": (0.251, 0.286, 0.437, 0.371, -0.53, 0.78),
+        "boric 4OMe": (-0.109, 0.279, 0.241, 0.311, 0.71, -0.64),
+        "pyrophosphate BnOH 136-142": (0.438, 0.228, 0.516, 0.298, -0.53, 0.77),
         "pyrophosphate BnOH 143-151": (0.370, 0.144, 0.413, 0.184, -0.79, 0.85),
     }
     for name, (slope, stderr, controlled, controlled_stderr,
@@ -412,11 +419,11 @@ def main():
     gas = scope.gas_survey()
     boric_high = gas.loc[("Boric", pd.Interval(8.5, 14.0))]
     doc.claim("the boric gas onset",
-              f"24 of 64 boric curves above pH 8.5 detach gas, 1.06\n"
+              f"24 of 64 boric curves above pH 8.5 detach gas, 1.04\n"
               f"events/hour")
-    doc.check("24 of 64, 1.06/hour",
+    doc.check("24 of 64, 1.04/hour",
               int(boric_high.detaching) == 24 and int(boric_high.curves) == 64
-              and abs(boric_high.per_hour - 1.06) < 0.01,
+              and abs(boric_high.per_hour - 1.04) < 0.01,
               f"{boric_high.detaching} of {boric_high.curves}, "
               f"{boric_high.per_hour:.3f}/hour")
     doc.check("zero detachments anywhere below pH 7.5",

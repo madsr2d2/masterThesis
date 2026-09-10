@@ -175,7 +175,7 @@ MECHANISM.md quoting the same superseded value in bold, and the skill's
 `bubble_synchrony`, gas-rate order, `bubble_load` count, `tau_slow` resolution
 and joint-clock sigma all frozen at pre-correction values. BUBBLES.md called
 the two-axis block's 27-of-243 excursion count ARCHIVE-WIDE, where the archive
-is 40 of 414. None was wrong when written; each was superseded with nothing
+is 33 of 397. None was wrong when written; each was superseded with nothing
 watching. `test_root_documents.py` is the gate, 42 claims, and it is
 discovered by `run_gates.py` like any other. **A number that reaches CLAUDE.md,
 BUBBLES.md or the skill now needs a claim in it.**
@@ -431,33 +431,51 @@ Three things follow that are worth not re-deriving.
   `rebuild_smoothness`'s `gas_at_end` -- it is zero on every curve, so every
   reconstruction lands back ON the readings.
   And **A FALL THAT COMES STRAIGHT BACK IS NOT GAS**: gas that leaves the beam
-  does not return, and a bubble cannot grow half its size in one 60 s reading,
-  so `detachments` rejects a fall that a single adjacent reading undoes by more
-  than `BUBBLE_RECOVERY_FRACTION`. Exp 149 cuvette 5 carries four such falls --
-  9.3, 6.6, 8.2 and 6.0 sigma, the last two only candidates since the
-  2026-09-07 threshold change -- and none is gas: the first falls 0.00206 and
-  the next reading climbs 0.00222 back, and an unfiltered repair would have
-  removed 0.0046 AU from a curve that rose 0.0262. 27 of 243 candidate falls
-  are rejected; two curves lose all of theirs and are returned untouched.
-  **The recovery test was widened again on 2026-09-07**, this time to reach
-  past the one adjacent reading it always checked: on the block's two
-  weakest, most drift-dominated curves (exps 150.1 and 151.6) a spike's
-  recovery landed one or two readings later, not the next one, and a
-  single-reading test could not see it. `_is_excursion` now looks up to three
-  readings past a fall, crediting recovery only up to the drop's own size
-  (`EXCURSION_RECOVERY_CEILING = 1.0`) so a genuine acceleration right after a
-  real detachment -- exp 135 cuvette 1's 6.2 sigma fall at (272, 273) -- is
-  not read as that fall's own reversal. The reach is one-directional: applying
-  it to the reading BEFORE a fall as well would read real pre-fall
-  acceleration as a spike, which is what rejected exp 135 cuvette 1's genuine
-  41.3 sigma detachment during testing. Archive-wide the change touches
-  exactly two curves -- exp 151.6 loses both its candidate falls (0 of 2 kept)
-  and exp 150.1 keeps 4 of its 8 -- and every previously-pinned real
-  detachment and confirmed excursion is unmoved.
-  `data/test_curve_metrics.py::test_the_recovery_depth_extension` is the
-  check, and DATA_VERIFICATION.md 2026-09-07 has the sweep.
-  **Exp 150.1's remaining four did not survive further scrutiny, and no
-  per-event test could resolve them.** Every statistical refinement tried --
+  does not return, and a bubble cannot grow half its size in one 60 s reading.
+  Exp 149 cuvette 5 carries four such falls -- 9.3, 6.6, 8.2 and 6.0 sigma --
+  and none is gas: the first falls 0.00206 and the next reading climbs 0.00222
+  back, and an unfiltered repair would have removed 0.0022 AU from a curve
+  that rose 0.0262. 22 of 233 candidate falls are rejected; two curves lose
+  all of theirs and are returned untouched.
+  **THE DETECTION LAYER IS SEGMENTATION SINCE 2026-09-11, NOT POINTWISE TESTS.**
+  The physics is PHASES -- the beam accumulates gas and releases it, over runs
+  of readings -- and nothing in the module represented one, so every defect
+  found by eye was patched around instead of fixed: four rules and three
+  constants, one already withdrawn. `curve_metrics.step_anomaly` is now the
+  ONE currency (a step in units of `local_step_scale`, the median |step| in an
+  8-reading window either side), `bubble_segments` builds the phases, and
+  `detachments` and `bubble_arrivals` are both read off them. `_is_excursion`,
+  `EXCURSION_RECOVERY_DEPTH` and `EXCURSION_RECOVERY_CEILING` are gone; the
+  constant count went 7 to 6. `BUBBLES.md` 4.2 and 4.4, and
+  `data/bubble_cases.py`, which is what made the rewrite judgeable: all seven
+  of its OPEN rows flipped to agreeing and every PINNED row held but two, and
+  those two moved because grouping changed, not detection.
+  **A SPIKE IS TWO ADJACENT PHASES THAT CANCEL**, which is the rule that
+  replaced all of it: the pair cancels when its smaller half is at least
+  `BUBBLE_RECOVERY_FRACTION` of its larger. Only the ORDER is asymmetric --
+  gas cannot leave before it arrived, so `release -> accumulate` is a spike
+  however long the give-back runs, while `accumulate -> release` is the
+  ordinary lifecycle (exp 44.1 grows 0.0667 AU over three readings and the
+  next detachment sheds 0.0663 -- a near-perfect cancellation that is the
+  lifecycle working) and is rejected only where the rise never grew at all,
+  one interval up and straight back down. A pair that does NOT cancel is two
+  real events, which the old code could not express: exp 138.4's real
+  2-reading detachment is followed at once by a real 4-reading arrival that
+  overshoots the pre-fall level by 0.0176 AU and holds.
+  **A PHASE SURVIVES ONE READING OF INTERRUPTION** (`BUBBLE_SEGMENT_GAP`),
+  provided that reading gives back less than half of what the phase has moved.
+  A release that stutters was being cut in two and the tick between the
+  fragments read as gas ARRIVING (exps 43.1, 135.2); exp 135.1's readings
+  274-277 are the mirror, one arrival split by a 6.6 sigma wobble. The gap
+  width is a CONTINUUM and is stated as one -- events run 381/364/352/343 at
+  gaps of 0/1/2/3 -- so what picks 1 is the timescale argument, plus the cost
+  of going wider being one-directional (the readings those events span run
+  431/446/476/507, so past one reading an event swallows ordinary readings
+  faster than it gains falling ones).
+  `data/test_curve_metrics.py::test_the_phase_pairing` is the check, and
+  DATA_VERIFICATION.md 2026-09-11 has the sweeps.
+  **Exp 150.1's falls did not survive further scrutiny, and no per-event test
+  could resolve them.** Every statistical refinement tried --
   a second-difference local-noise estimate excluding every other candidate
   fall on the curve, gated on having enough clean points to be trustworthy --
   put real, already-confirmed detachments elsewhere in the block (exp 140.4's
@@ -476,7 +494,9 @@ Three things follow that are worth not re-deriving.
   the check.
   **`local_outlier_z` CANNOT be used for this**: its window spans the fall, so
   a genuine step flags itself (exp 135 cuvette 2's 0.1196 AU detachment scores
-  +130). The test looks only at the two readings either side.
+  +130). Nothing in the detection layer ever looks ACROSS an event; the rise
+  side uses it only at a phase's own ends, where a level jump is what it is
+  good at.
   So `rebuild_smoothness`'s guarantee is `worst_at_event`, NOT `rebuilt_worst`
   -- rejected excursions stay in the curve on purpose, and `isolated_outliers`
   is what nominates those. Quote the
@@ -489,8 +509,8 @@ Three things follow that are worth not re-deriving.
   never bubbled. The ONE survivor is exp 135 cuvette 6, whose fall is in the
   first interval -- no rate explains a bubble grown before the run, and
   `debubble` returns that curve untouched.
-  **`gas_rate_drivers`**: the fitted rate is +1.343 +/- 0.255 in peroxide and
-  -0.307 +/- 0.089 in substrate, from a fit that never saw a concentration.
+  **`gas_rate_drivers`**: the fitted rate is +1.356 +/- 0.256 in peroxide and
+  -0.312 +/- 0.089 in substrate, from a fit that never saw a concentration.
   **Read `bubble_load` before quoting a rate**: 14 of 110 live curves sit above
   1 and carry no measurable rate -- all four substrate rungs of exp 135, plus
   inner rungs of 138, 140, 141, 142, 149 and 150. They are FLAGGED, NOT EXCLUDED.
@@ -581,7 +601,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   one regression -- `joint_peroxide_order` and `joint_buffer_order` are that
   function with the species filled in. Through the LANDMARK both blocks that
   can test it fall short (2.6σ and 3.7σ), and the rate is not first order in
-  peroxide either -- `peroxide_saturation` rejects a = 1 at F = 46 on the
+  peroxide either -- `peroxide_saturation` rejects a = 1 at F = 32 on the
   two-axis ladder. Do not assume "first order in H2O2": that is the
   *unsaturated* limit of the scheme, not a consequence of it.
 - **The +1 does not belong to the landmark, and the clock decides who can be
@@ -592,8 +612,8 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   control is the point: the +1 belongs to the activating species, so the
   substrate axis must MISS it, and it does by 3.9σ to 8.5σ. On the two-axis
   block the two routes disagree -- the peroxide axis falls 3.7σ short through
-  the landmark, 2.3σ and 0.8σ through the fitted clocks. **Conclude nothing
-  from that yet**: `tau_slow` is resolved on 34 of 110 live curves and the
+  the landmark, 2.2σ and 0.8σ through the fitted clocks. **Conclude nothing
+  from that yet**: `tau_slow` is resolved on 33 of 110 live curves and the
   estimate moves +0.76 to +0.92 across cuts -- short of +1 on every cut, but
   never by as much as a sigma, so it cannot be rejected there either. It
   STRADDLED +1 (+0.87 to +1.26) until 2026-09-10, on a correction that was
@@ -612,7 +632,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   the FALLS-corrected curves, 1.4σ. `frame` now carries `tau_corrected`,
   `tau_slow_corrected` and their resolved flags, `joint_clocks` DEFAULTS to
   them, and `JOINT_CLOCKS_RAW` is kept so the difference can be shown. The
-  repair costs no resolution -- it buys some (62 to 69 and 25 to 34 curves),
+  repair costs no resolution -- it buys some (62 to 68 and 25 to 33 curves),
   because the artefact was what those fits could not pin.
   **ADDED 2026-09-08, AND ITS READING CORRECTED 2026-09-10: arrivals
   (`bubble_arrivals`, `BUBBLES.md` has the full account) move this, and the
@@ -628,7 +648,7 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   between the two earlier readings, still nowhere near rejecting +1, and now
   moving in the direction the artefact argument requires -- taking peroxide-
   made gas out has to move `d ln v - d ln tau` AWAY from the +1 it flattered.
-  The correction touches individual curves -- 34 of 110 live curves'
+  The correction touches individual curves -- 33 of 110 live curves'
   `tau_slow` differs from `tau_slow_corrected`, 38 of 110 for `tau` -- and it
   still tightens `tau`'s error (0.196 to 0.149); it does not tighten
   `tau_slow`'s (0.261 to 0.289), because arrivals change WHICH curves resolve,
@@ -726,8 +746,8 @@ enzyme-free curves have one), it has no substrate order, and its barrier is
   the two-axis block's rate order in `[S]` is +0.09 over all 110 live curves
   (+0.01 over the strong runs -- the same flatness), so substrate buys no signal
   there (r = +0.04) and the clock's substrate order survives every control,
-  negative at every floor. The four pH ladders agree at **+0.16 to +0.33 per pH unit**
-  (chi2 0.95 on 3) -- more alkaline, longer induction.
+  negative at every floor. The four pH ladders agree at **+0.18 to +0.35 per pH unit**
+  (chi2 1.27 on 3) -- more alkaline, longer induction.
 - **A LAG IS TWO DIFFERENT THINGS ON THE TWO SUBSTRATES.** "The induction needs
   the catalyst" is a **4OMe** claim: 10 of 49 enzyme-free 4OMe curves show any
   lag, against **14 of 26 enzyme-free BnOH curves** at a median depth of 0.138
@@ -885,7 +905,7 @@ confound (`buffer/ANALYSIS.md` S5) applied to a new question rather than
 settled by one.
 
 **The induction clock's own pooled pH order agrees across all four ladders
-where the rate's does not**: +0.326 +/- 0.131 per pH unit, chi2 = 0.95 on 3
+where the rate's does not**: +0.347 +/- 0.127 per pH unit, chi2 = 1.27 on 3
 (`induction.lag_ph_ladders` + `pooled_ladder`, quoted back rather than
 recomputed) -- the clock does not see whatever makes boric's rate turn over.
 Between them, the rate, the clock, `early_trough`'s [enz]/[HOO-] driver on

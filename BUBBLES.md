@@ -196,7 +196,9 @@ reading-to-reading step that falls by more than `sigma` of the curve's own
 noise. This needs only an amplitude test, and that is a genuine asymmetry
 with the rise side (§6): the reaction is monotonic by construction
 (benzaldehyde does not un-form), so *any* fall this large is already outside
-what chemistry can produce, full stop.
+what chemistry can produce, full stop. It is the *only* place absolute σ is
+the right currency, and §4.2 is where everything else asks the question
+instead.
 
 **The noise floor matters more than it looks.** Every function here takes
 `noise` as an argument rather than recomputing it, because the floor differs
@@ -206,43 +208,70 @@ functions divides by it somewhere. Passing the export's floor on `.rre` data
 — which is all 402 curves in this archive since 2026-08-31 — silently
 under-counts detachments and suppresses every downstream z-score.
 
-### 4.2 Rejecting spikes: `_is_excursion`
+### 4.2 One score, and phases: `step_anomaly` and `bubble_segments`
 
-Not every candidate fall is gas. A fall that a single adjacent reading undoes
-by a comparable amount is a spike — noise, or a mixing transient — because
-gas that leaves the beam does not come back, and a bubble cannot grow half
-its own size again in one 60 s interval. `_is_excursion` tests this with
-three clauses, in increasing order of how much history they were added to
-handle:
+**Rewritten 2026-09-11.** Until then this layer detected events *pointwise* —
+a fall here, a rise there, each judged by its own local veto — and then tried
+to recover the physical picture by stitching those points together
+afterwards. The physics is **phases**: the beam alternates between
+accumulating gas and releasing it, over runs of readings, and nothing in the
+code represented one. Every defect found on 2026-09-10 was a case where the
+missing phase structure had to be patched around, and the patches had reached
+four rules and three constants, one of them already withdrawn.
 
-1. **The original test**: the reading immediately before or after the fall
-   recovers more than `BUBBLE_RECOVERY_FRACTION` (0.5) of the drop's own
-   size, *and* that recovery is itself anomalous against
-   `_local_step_scale` — the median local step size in an 8-reading window
-   either side of the event, excluding the event itself
-   (`EXCURSION_LOCAL_WINDOW`), scaled by `EXCURSION_LOCAL_SIGMA` (2.0). The
-   second half of that clause exists because on a curve rising fast enough
-   that ordinary steps are themselves a sizeable fraction of a modest,
-   genuine detachment, the recovery-fraction test alone fires on real gas —
-   it rejected two genuine 12.4σ and 16.6σ falls on exp 130 cuvette 2 before
-   this half was added.
-2. **The depth extension** (added 2026-09-07): on the block's two weakest,
-   most drift-dominated curves (exps 150.1 and 151.6), a spike's recovery
-   landed one or two readings later rather than at the very next one, and
-   the single-reading test could not see it. `_is_excursion` now looks up to
-   `EXCURSION_RECOVERY_DEPTH` (3) readings past a fall, crediting recovery
-   only up to `EXCURSION_RECOVERY_CEILING` (1.0) × the drop's own size — capped
-   so a genuine acceleration right after a real detachment (exp 135 cuvette
-   1's 6.2σ fall at readings 272/273) is not read as that fall reversing
-   itself. The reach is deliberately one-directional: extending it to the
-   reading *before* a fall as well reads real pre-fall acceleration as a
-   spike, which is what wrongly rejected exp 135 cuvette 1's genuine 41.3σ
-   detachment during development.
-3. **`local_outlier_z` cannot do this job.** Its fitting window spans the
-   fall itself, so a genuine step change flags itself as an outlier — exp
-   135 cuvette 2's real 0.1196 AU detachment scores +130σ under it.
-   `_is_excursion` only ever looks at the readings on either side of an
-   event, never across it.
+**`step_anomaly(values, noise)`** is the single place the question "is this
+step unusual" is now decided: one signed score per interval, the step in units
+of `local_step_scale` — the median |step| in an 8-reading window either side
+(`ANOMALY_WINDOW`), which is what a step there looks like with nothing
+happening. Before this there were two currencies for one question,
+`BUBBLE_DROP_SIGMA` in units of the curve's global noise and
+`EXCURSION_LOCAL_SIGMA` in units of the local step, and nothing could compare
+them. `noise` floors the scale, so a stretch the instrument reports as
+identical readings cannot make its neighbours infinitely anomalous; that floor
+binds on about a third of all intervals and changes no result in the archive.
+
+**`bubble_segments(values, noise)`** returns the phases: maximal runs of
+consistently-signed anomalous intervals, each an `accumulate` or a `release`.
+The two kinds are nominated differently, and that asymmetry is the physics of
+§4.1 rather than a fitted choice — a fall counts on amplitude alone
+(`sigma` of the curve's noise, because chemistry cannot fall at all), a rise
+only where it is anomalous against its own neighbourhood (`ANOMALY_BAR`, 2.0,
+because chemistry rises constantly).
+
+**A phase survives one reading of interruption** (`BUBBLE_SEGMENT_GAP`),
+provided that reading gives back less than `BUBBLE_RECOVERY_FRACTION` of what
+the phase has moved so far. A bubble sliding out of the beam can stutter, and
+a rule that tolerated nothing cut those releases into fragments and read the
+tick between two fragments as gas *arriving* — exps 43.1 and 135.2 are that
+false arrival, and exp 135.1's readings 274–277 are the mirror, one arrival
+split in two by a 6.6σ wobble in the middle of it. A bridged reading is
+consumed by the phase that bridged it and cannot start one of its own.
+
+The gap width is a **continuum, not a break**, and is stated as one: across
+gaps of 0/1/2/3 readings the archive's detachment events run 381/364/352/343
+and the readings those events span run 431/446/476/507. Nothing picks 1 out of
+that curve. What picks it is the timescale argument the rest of this module
+already rests on — one reading is the shortest interruption there is — plus the
+cost of going wider being one-directional: past one reading an event swallows
+ordinary readings faster than it gains falling ones, drawing a longer box
+around the same gas.
+
+`ANOMALY_BAR` is better placed. Among the 89 arrivals the archive carried
+under the old absolute-σ rule, the 44 this bar throws out score **1.00 to
+1.91** and the 42 it keeps score **2.06** upward, with nothing in between —
+though that is a gap among rises that had already passed the kink test, not
+among all rises, and swept over the whole archive the arrival count still
+runs 75/58/44/43/33/32/24 at bars of 1.25 through 3.0. Both readings are
+true; the second is the caveat. The value itself is unmoved from
+`EXCURSION_LOCAL_SIGMA`, pinned between exp 149.5's two genuine excursions
+(counter-moves at 7.2× and 2.1× the local step) and exp 130.2's two real
+detachments (flanked by ordinary steps at 1.0× and 1.4×).
+
+**`local_outlier_z` still cannot do a fall's job.** Its fitting window spans
+the fall itself, so a genuine step change flags itself as an outlier — exp
+135.2's real 0.1196 AU detachment scores +130σ under it. Nothing here ever
+looks across an event; the rise side uses it only at a phase's own ends,
+where a level jump is exactly what it is good at (§6).
 
 ### 4.3 The curve-level gate: `DETACHMENT_SNR_FLOOR`
 
@@ -266,24 +295,65 @@ high as exp 150.1's (5.4), so load alone cannot substitute for the SNR gate.
 The floor also incidentally catches one dead curve's single mixing-transient
 candidate (exp 66.3).
 
-### 4.4 Grouping into events: `detachments`
+### 4.4 Events, and rejecting spikes: `detachments` and `_excursions`
 
-`detachments(values, noise, sigma, recovery, floor)` runs the full pipeline:
-gate the curve by `floor`, find raw candidates with `bubble_drops`, group
-*consecutive* candidate indices into one event (a bubble sliding out of the
-beam is not obliged to finish inside one 60 s reading — treating a
-two-reading fall as two separate events dated one of them from a zero-second
-growth window and left the second one's mass entirely uncorrected, in an
-earlier version of this model), then drop any event `_is_excursion` rejects.
-27 of 243 candidate falls **in the two-axis block** are rejected as excursions
-and two curves (144.7, 149.5) lose every one of theirs and are returned
-untouched. Archive-wide the same pipeline sees 40 of 414 rejected and five
-curves emptied, adding exps 3.1, 45.1 and 65.1.
+`detachments(values, noise, sigma, recovery, floor)` runs the pipeline: gate
+the curve by `floor`, build the phases with `bubble_segments`, drop the ones
+`_excursions` pairs off, and keep the `release` phases big enough to be an
+event. **22 of 233 candidate falls in the two-axis block** are rejected as
+excursions and two curves (144.7, 149.5) lose every one of theirs and are
+returned untouched. Archive-wide it is **33 of 397** and five curves, adding
+exps 3.1, 45.1 and 65.1.
 
-**Grouping consecutive candidates is safe for falls specifically because
-chemistry cannot produce a multi-reading run of large falls at all** — any
-such run is unambiguously gas, regardless of length. This assumption does
-*not* transfer to rises (§6).
+**A spike is not one event that comes back — it is two adjacent phases that
+cancel**, and saying it that way is what collapsed three rules into one. The
+pair cancels when its smaller half is at least `BUBBLE_RECOVERY_FRACTION` of
+its larger: the trace went somewhere and came back to about where it was.
+
+**The order of the pair carries the physics, and it is the only asymmetry.**
+
+| pair | reading | verdict |
+|---|---|---|
+| `release` → `accumulate` | gas cannot leave before it arrived, so a fall that is given back is a spike however long the give-back runs | both artefact |
+| `accumulate` → `release`, rise grew over ≥ 2 readings | the ordinary bubble lifecycle — gas arrives and then all of it leaves, which cancels *exactly* | both real |
+| `accumulate` → `release`, rise is one interval | a bubble that reaches full size inside one 60 s reading and detaches inside the next is not a bubble | both artefact |
+| either order, does not cancel | two real events | both real |
+
+Exp 44.1 is why the second row cannot be decided on size: it grows one bubble
+over three readings, 0.0667 AU, and the next detachment sheds 0.0663 of it —
+a near-perfect cancellation that is the lifecycle working. Exp 149.5's
+readings 55–57 are the third row: 0.00096 AU up in one reading and 0.00183
+back down in the next.
+
+**A pair that does *not* cancel is two real events, and that is the case the
+old code had no way to express.** Exp 138.4's real 2-reading detachment is
+followed immediately by a real 4-reading arrival that overshoots the pre-fall
+level by 0.0176 AU and holds. `_is_excursion` rejected the fall for being
+followed by a rise, and would then have refused the rise for following a
+rejected fall. One rule, correctly scoped, decides both.
+
+**Two constants went with `_is_excursion`.** `EXCURSION_RECOVERY_DEPTH` (3)
+reached past the adjacent reading for recoveries that landed one or two
+readings late on exps 150.1 and 151.6 — both of which `DETACHMENT_SNR_FLOOR`
+(§4.3) now excludes whole, so it had no live case left.
+`EXCURSION_RECOVERY_CEILING` (1.0) capped a recovery at the drop's own size so
+that a genuine acceleration just after a real fall was not read as that fall
+reversing; a two-sided cancellation test needs no cap, because a counter-move
+that *overshoots* does not cancel. Exp 135.1's 6.2σ fall at readings 272/273
+— the curve accelerates 0.0312 AU over the four readings after a fall that
+cost 0.0027 — survived the old test on a 2% margin and survives this one by a
+factor of ten.
+
+**Grouping consecutive falls was always safe** because chemistry cannot
+produce a multi-reading run of large falls at all, so any such run is
+unambiguously gas regardless of length. Since 2026-09-11 the grouping also
+bridges a single reading of interruption (§4.2). Archive-wide that merges 14
+pairs of adjacent events — exp 131 cuvettes 1 and 2, the heaviest bubblers
+here, go from 18 and 19 events to **17 each over exactly the same falls** —
+and costs exactly one falling reading anywhere, on exp 44.1 at reading 10,
+which is not the grouping at all but a 16.7σ rise and a 14.8σ fall in
+consecutive readings on a curve stepping 2.4σ. The old test kept that one on
+a 3% margin. **This assumption does not transfer to rises** (§6).
 
 ### 4.5 The mass balance: `unreleased_gas`, `bubble_profile`, `bubble_rate`
 
@@ -332,7 +402,7 @@ If the block's artefact really is the catalysed decomposition of the
 peroxide, a rate measured this way — one curve's optical evidence at a time,
 concentration-blind — should still come out first order in peroxide and
 flat or negative in substrate once regressed across the runs that carry it.
-It does: **+1.343 ± 0.255 in peroxide, -0.307 ± 0.089 in substrate** —
+It does: **+1.356 ± 0.256 in peroxide, -0.312 ± 0.089 in substrate** —
 first-order-ish in the oxidant, mildly *negative* in substrate, exactly the
 signature of a side reaction competing for the same catalyst rather than one
 that consumes the alcohol. This is the strongest independent support the gas
@@ -417,119 +487,120 @@ exps 138, 140, 141, 142, 149 and 150 — and they stay in the frame, the live
 counts, and the curves page; `bubble_sensitivity` confirms nothing published
 moves under any repair variant because of them.
 
-## 6. The rise model: `curve_metrics.bubble_gains` (added 2026-09-08)
+## 6. The rise model: `curve_metrics.bubble_arrivals` (added 2026-09-08)
 
 A bubble does not only leave the beam abruptly — occasionally one *arrives*
 abruptly: already formed, entering the optical path in one reading rather
-than nucleating and growing inside it. Exp 135 cuvette 5's jump at 9780 s is
-the case that surfaced this: readings 162 and 163 climb 0.00529 AU (21.2σ)
-in a single interval, immediately after a reading that itself sits 8.4σ
-*below* the local trend, and the curve resumes its exact pre-jump slope
-right after — the mirror image of a detachment's shape, sign flipped.
+than nucleating and growing inside it, or nucleating and growing fast over
+two or three. Exp 135 cuvette 5's jump at 9780 s is the case that surfaced
+this: readings 162 and 163 climb 0.00529 AU (21.2σ) in a single interval,
+immediately after a reading that itself sits 8.4σ *below* the local trend,
+and the curve resumes its exact pre-jump slope right after — the mirror image
+of a detachment's shape, sign flipped.
 
 **A rise cannot be read the way a fall is**, and this is the whole reason
-`bubble_gains` is not `bubble_drops` with a sign flip. §4.1 rests on
+`bubble_arrivals` is not `bubble_drops` with a sign flip. §4.1 rests on
 chemistry being unable to produce a large *fall* at all; there is no
 equivalent restriction on rises — real accelerating kinetics produces large
 rises constantly. At `BUBBLE_DROP_SIGMA`'s own 6σ threshold, the two-axis
 block shows **809 rises against 303 falls** — the *opposite* of the
 122-against-23 asymmetry `bubble_step_asymmetry` reports at its own much
 stricter 20σ threshold (§2). Most large single-reading rises in this archive
-are the reaction, not gas, so a rise has to clear two tests a fall does not
-before it counts as an arrival.
+are the reaction, not gas.
 
-**Test one: recovery, reused rather than reinvented.** Negating the curve
-turns a rise into a fall, so `_is_excursion(-values, event)` asks exactly
-the question a rise needs: does the very next reading undo a comparable
-amount? If so it is a spike — real fast chemistry, or noise — not gas that
-arrived and stayed. This matters because the leave-one-out fit in test two
-cannot tell the two apart on its own: a one-reading spike that reverts
-immediately pulls its neighbours' local polynomial fits exactly the same way
-a persistent jump does.
+**So an arrival is an `accumulate` phase (§4.2) that clears three bars.** It
+must survive `_excursions`; it must move at least `sigma` of the curve's own
+noise, so it is an event at all; and it must pass the kink test below.
 
-**Test two: the kink, past recovery.** `local_outlier_z` — the same
-leave-one-out local quadratic fit `isolated_outliers` uses, explicitly
-excluding the point being scored — flags the reading just before a level
-jump as anomalously *low* and the reading the jump lands on as anomalously
-*high*, because the fit is pulled between the two levels it straddles. A
-genuine acceleration builds curvature over several readings and does not do
-this *at any interior step*, even though the region as a whole would score
-as a kink if it were tested as a single span (which is exactly why events
-are never grouped — see below). `_is_excursion`'s own docstring calls this
-same property the reason `local_outlier_z` "cannot be used" for a fall —
-there, a step's anomalousness was never in question, only whether it
-reverses; for a rise, past the recovery test, anomalousness is the only
-question left, and it is exactly what this test answers.
+**The kink test.** `local_outlier_z` — the same leave-one-out local quadratic
+fit `isolated_outliers` uses, explicitly excluding the point being scored —
+flags the reading a level jump departs from as anomalously *low* and the one
+it lands on as anomalously *high*, because the fit is pulled between the two
+levels it straddles. A genuine acceleration builds curvature over several
+readings and does not do this. It is read at the phase's own ends, and only
+across **the part of the phase that moved** (`_moved_span`): a phase can pick
+up an ordinary reading or two at its edges through the gap rule, and reading
+the kink there scores the wrong reading. Exp 146.4 is the case — its 35.7σ
+jump is bridged to a 3.5σ step and a 1.2σ one before it, whose leading
+reading scores only −1.5 against a bar of −5.
 
-**Only the excess over an ordinary step counts as gas.**
-`_local_step_scale` — the same median-local-step estimator `_is_excursion`
-uses for its own recovery test — gives what a step there looks like with
-nothing arriving, so `gain = max(step - _local_step_scale(...), 0)` removes
-only what is anomalous beyond the curve's own ordinary movement.
+**Only the excess over an ordinary step counts as gas.** `local_step_scale`
+gives what a step there looks like with nothing arriving, so
+`gain = rise − n × local_step_scale(...)` removes only what is anomalous
+beyond the curve's own ordinary movement — over the whole phase, not merely
+its largest step.
 
-### 6.1 Why merging consecutive candidates — safe for falls — is wrong here
+### 6.1 Scoring rises on absolute σ was wrong, and it was wrong widely
 
-An early implementation copied `detachments`'s grouping strategy exactly:
-merge consecutive rise-candidates into one span, test the span's own
-boundary. On exp 144 cuvette 2, readings 29-42 climb 20-30σ a step for
-*fourteen consecutive readings* — real, smooth, fast kinetics. Merged into
-one span, its two endpoints still score as a level jump, because reading 42
-is genuinely anomalously high relative to a local fit still anchored near
-reading 29's level — the same signature a true one-reading jump gives. That
-merged "event" would have counted as a single ~0.034 AU gain, larger than
-any genuine gain found anywhere else in the block, straight out of a real
-acceleration. `bubble_gains` scores every candidate step *individually,
-never merged*: no gain now falls inside that curve's real 14-reading climb,
-and every other confirmed gain elsewhere in the archive is unchanged.
-`data/test_curve_metrics.py::test_bubble_gains` checks both the true
-positive (exp 135.5, exp 146.4) and this specific false-positive case by
-name.
+Until 2026-09-11 candidate rises were nominated at 6σ of the curve's *global*
+noise and scored one step at a time, never merged. Both halves of that were
+wrong, and the archive went from **89 arrivals to 43**. The four ways an old
+one could go are worth separating rather than summing:
 
-### 6.2 `apply_gains`, and how it folds into `debubble`
+| | what happened |
+|---|---|
+| **44** | **not anomalous at all** — no phase there |
+| **31** | kept, unchanged |
+| **11** | **merged** into a longer arrival, replaced by the 12 landings those arrivals actually end on |
+| **3** | **inside a release phase** — not arrivals but upticks between two fragments of one stuttering detachment (exps 43.1, 135.2) |
 
-A confirmed gain's size is read directly off the jump — net of the curve's
+**The 44 are the important number.** Scored on absolute σ they ran 6.5 to
+160σ and looked convincing; scored against their own neighbourhoods they run
+**1.00 to 1.91** — the curve was already climbing that fast. Exp 13 cuvette
+4's jump at reading 64 is 43.8σ, and the six steps around it are 11.8, 11.8,
+10.3, 10.9, 14.6 and 12.7 thousandths against its 18.4. It was credited
+0.0067 AU of gas for rising 1.6× an ordinary step.
+
+This is **exp 144 cuvette 2's documented failure mode turning out to be
+general**. That curve's readings 29–42 climb 20–30σ a step for fourteen
+consecutive readings, real and smooth; merged into one span its endpoints
+still score as a level jump, and the "event" would have counted as a single
+~0.034 AU gain, larger than any genuine gain in the block. The old rule kept
+it out by refusing to merge *any* rise, ever — which protected that one curve
+and left the same mistake standing on 27 others, one step at a time. Scored
+locally, not one of its fourteen steps is anomalous (every one is about 1.0),
+so it needs no special rule and merging becomes safe.
+
+**The 11 are the other half of the same repair.** Exp 44 cuvette 1 grows one
+bubble over three readings — +69, +96 and +75σ, totalling 0.0667 AU against
+the 0.0663 the next detachment sheds — and the unmerged rule credited only
+its largest single step, 0.0231, at reading 89. It is now 0.0569 at reading
+90: present at the right reading, and finally the right event.
+
+### 6.2 `split_arrivals`, `apply_gains`, and how they fold into `debubble`
+
+A confirmed arrival's size is read directly off the jump — net of the curve's
 own local step scale — so unlike a fall it needs no rate fit and no
-bisection: `apply_gains` is a permanent level shift, lowering every reading
-from the gain's own index onward by exactly that amount. It is computed
-independently of the falls model (different candidates, different tests, no
-shared state), and `debubble` applies both:
+bisection. **Which half it falls in decides which operator is correct**, and
+getting that wrong was the whole of the 2026-09-10 repair:
 
-```
-reconstructed = apply_gains(A_obs - b, gains)
-```
+- **released** — a detachment departs at or after the landing. The gas was
+  held for a while and then went, so it belongs in `bubble_profile`'s `b(t)`,
+  where the release takes it back out, and `bubble_rate` must see it or the
+  rate is bid up to pay for a fall the arrival already covers.
+- **unreleased** — no detachment follows. The gas was never watched to leave,
+  so it is still in the beam at the last reading and a permanent shift from
+  its own index on (`apply_gains`) is right. This is the direct analogue of a
+  curve that "ends holding" an un-shed bubble in §5.
 
-**Why the shift is permanent, with no release mechanism.** A fall has a
-natural place to stop being owed — the detachment that pays for it. A gain
-has no equivalent: there is no future event to date a release from, so
-unlike the falls model's `unreleased_gas` cap, a confirmed gain simply stays
-subtracted for the rest of the curve. This is the direct analogue of a
-curve that "ends holding" an un-shed bubble in §5 — the mirror image, priced
-the same way.
-
-**This is provably additive, not just observed to be.** Because gains are
-computed from the raw readings independently of the falls model's own rate
-and events, `gas_at_end` (what a reconstruction still holds at its last
-reading) equals a curve's own `gain_total` *exactly*, checked over all 110
-live curves with zero mismatches — proving the falls component's own
-end-of-run promise (`unreleased_gas`'s guarantee that nothing is held past
-the last watched release) is completely untouched by adding gains, and the
-gains component is purely additive on top of it. `worst_at_event` and
-`rebuilt_worst` (§4.6) are both unmoved by this addition once the merge bug
-(§6.1) was fixed.
+Until 2026-09-10 every arrival took the permanent shift, on 69 of the 80 the
+archive then carried, so those curves were lowered for the whole of their
+remaining length on account of gas they had demonstrably shed — on top of the
+rate model already paying for the same fall. Exp 49 cuvette 1 carried four
+such shifts. `debubble` is what routes each half to the operator that fits it.
 
 ### 6.3 Archive-wide scope
 
-Restricted to the two-axis block: **15 curves, 26 confirmed gains** — exps
-135.1 (2), 135.2 (4), 135.3 (3), 135.4 (1), 135.5 (1), 138.2 (1), 138.4 (2),
-140.4 (1), 141.3 (2), 141.4 (2), 142.4 (3), 143.2 (1), 144.2 (1), 146.2 (1),
-146.4 (1). All but one already carry confirmed detachments — the heavy
-bubblers, unsurprisingly, since gas arriving and gas leaving are the same
-underlying process seen from opposite ends. The exception is **exp 146
-cuvette 4**, which carries no detachment at all: a bubble that arrived near
-the end of the run and never left before the recording stopped — the "ends
-holding" case, but for an arrival rather than a departure. `bubble_gains` is
-gated by the identical `DETACHMENT_SNR_FLOOR` as `detachments`: exp 150.1
-carries no gain, for the same reason it carries no fall.
+**43 arrivals over the whole archive**, on 24 curves. Restricted to the
+two-axis block it is 15 curves. Almost all already carry confirmed
+detachments — the heavy bubblers, unsurprisingly, since gas arriving and gas
+leaving are the same underlying process seen from opposite ends. The
+exception is **exp 146 cuvette 4**, which carries no detachment at all: a
+bubble that arrived near the end of the run and never left before the
+recording stopped — the "ends holding" case, but for an arrival rather than a
+departure. `bubble_arrivals` is gated by the identical `DETACHMENT_SNR_FLOOR`
+as `detachments`: exp 150.1 carries no arrival, for the same reason it
+carries no fall.
 
 ### 6.4 One known limitation, bounded rather than hidden
 
@@ -539,7 +610,7 @@ test for the falls model's own "no affordable rate" edge case) distorts
 "masking" limitation `isolated_outliers` already documents for two adjacent
 real spikes — producing a spurious 0.0006 AU gain there. That is four orders
 of magnitude under the fall that caused it, and under anything found
-anywhere on a real curve; the archive-wide sweep in `test_bubble_gains`
+anywhere on a real curve; the archive-wide sweep in `test_bubble_arrivals`
 confirms no real curve triggers it. The affected test assertion was widened
 from exact equality to a documented, explicit bound rather than silently
 weakened.
@@ -553,8 +624,8 @@ and the threshold it is compared against.
 
 **That threshold does not sit in a gap.** `scope.arrival_margins` is the
 table. Sorted, the deciding scores run smoothly through the bar: the closest
-admitted sits at **−5.05σ** and the closest rejected at **−4.85σ**, a gap of
-**0.20σ**, with candidates densely either side. Compare
+admitted sits at **−5.25σ** and the closest rejected at **−4.83σ**, a gap of
+**0.41σ**, with candidates densely either side. Compare
 `DETACHMENT_SNR_FLOOR`, which is defensible exactly because nothing in the
 archive falls between 20.7 and 36.8 — there is no such break here.
 
@@ -573,41 +644,47 @@ this**, not against the bar alone. Exp 139 cuvette 2's rise at 3720 s is the
 worked example: a 13.8σ step that misses admission at −4.63σ, argued over at
 length, and unresolvable on that curve's own evidence in either direction.
 
-### 6.6 `_is_excursion` measures recovery in absolute absorbance
+### 6.6 The pair test measures cancellation in absolute absorbance
 
-The recovery test asks whether an event is undone by what follows, comparing
-raw absorbance while the chemistry climbs underneath. That comparison is
-biased, and **in opposite directions for the two ways the test is used**:
+`_excursions` asks whether two adjacent phases cancel, comparing raw
+absorbance while the chemistry climbs underneath. That comparison is biased,
+and **in opposite directions for the two orders of pair**: for
+`release → accumulate` the reaction *adds* to the apparent give-back, so a
+real detachment on a fast-rising curve looks more like a spike; for
+`accumulate → release` it adds to the rise and subtracts from the fall.
 
-- for a **fall**, the reaction *adds* to the apparent recovery, so a real
-  detachment on a fast-rising curve looks more like a spike.
-  `_local_step_scale`'s `sigma * baseline` clause exists for this and
-  compensates for part of it;
-- for a **rise**, the test runs on the negated curve, so the reaction
-  *subtracts* from the apparent recovery, and a spike that was genuinely
-  given back can read as having stayed. Nothing compensates that direction.
+**Most of that bias is now absorbed upstream rather than compensated.** A
+counter-move only becomes a phase at all if it is anomalous against its own
+neighbourhood (`ANOMALY_BAR`, §4.2), and an ordinary trend-driven step is not
+— which is exactly what keeps exp 130.2's two real 12.4σ and 16.6σ
+detachments, whose neighbours score 1.0× and 1.4×. Before the rewrite that
+job was done after the fact, by `_local_step_scale` inside the recovery test,
+and only in one of the two directions.
 
-This was measured on 2026-09-10 rather than left as a worry, and **the
-measurement is why nothing was changed**. A trend-relative test — subtracting
-the local signed median step before comparing — would keep 15 falls the
-current one rejects as excursions, on 13 curves, and lose none. It moves no
-arrival at all. It moves nothing published: the block's peroxide order goes
-+0.704 → +0.705 and the fitted gas rate +1.343 → +1.371, both far inside
-their own errors.
+**What is left was measured on 2026-09-11 rather than left as a worry, and
+the measurement is again why nothing was changed.** Detrending the pair test
+— comparing each phase's *gain* over an ordinary step there, instead of its
+raw total — gains 4 detachments net on 5 curves and one arrival. It moves
+nothing published. But it re-admits **exp 149 cuvette 5**, whose falls are the
+documented instrument excursions that forced the recovery clause in the first
+place (§4.4) — the curve where an unfiltered repair removed 0.0097 AU from a
+trace that rose 0.0262, flattening a real early rise into a straight line.
 
-But it re-admits **exp 149 cuvette 5**, whose four falls are the documented
-instrument excursions that forced the recovery clause in the first place
-(§4.4) — the curve where an unfiltered repair removed 0.0097 AU from a trace
-that rose 0.0262, flattening a real early rise into a straight line. The
-obvious escape does not work: detrending only the multi-reading depth clause
-and leaving the adjacent-reading test alone changes **nothing at all**,
-374 detachments before and after, every pinned case identical. All 15 gained
-falls come from detrending the adjacent clause, which is precisely the clause
-that re-admits 149.5's spike. The 15 cannot be had without the 1.
+The trade is the same one the old code faced and much smaller: 15 falls
+against that 1 before the rewrite, 4 against it now. The bias is real,
+measured, bounded, and deliberately left in place, because it buys nothing
+published and cannot be separated from a known false positive.
+DATA_VERIFICATION.md 2026-09-11 has the sweep.
 
-The bias is therefore real, measured, and deliberately left in place: it buys
-nothing published and cannot be separated from a known false positive.
-DATA_VERIFICATION.md 2026-09-10 has the sweep.
+### 6.7 One case the rewrite could have decided by accident, and did not
+
+Exp 139 cuvette 2's rise at 3720 s (§6.5) sits two readings before a −4.1σ
+fall. Under segmentation a fall that size could in principle have paired with
+it and changed its verdict without anyone deciding to. It does not: 4.1σ is
+under `BUBBLE_DROP_SIGMA`, so no release phase forms there, no pair exists,
+and the jump is still rejected on the identical kink score it always had,
+**−4.628σ** against the −5.0 bar. The case remains exactly as unresolvable as
+§6.5 says it is, on the same evidence.
 
 ## 7. Downstream consequences
 
@@ -620,47 +697,66 @@ The most notable single consequence is on the induction "+1" test
 (`induction.joint_clocks` — see `CLAUDE.md`'s "What the catalyst does
 first"): a pre-equilibrium activation step predicts
 `d ln v / d ln h - d ln τ / d ln h = 1` for the activating species, and the
-two-axis block's peroxide axis, asked through `tau_slow_corrected`, had sat
-1.4σ from that prediction under the falls-only correction. Correcting gains
-as well moves it to **0.3σ from +1**, matching what the *raw, uncorrected*
-readings already said (0.3σ) almost exactly. This is not the two corrections
-cancelling by coincidence: the falls-only correction itself had been part of
-what pushed this row away from +1, because gains change *which* curves'
-`tau_slow` resolves (exp 135.4 loses its resolved value once its own gain is
-also removed; exps 138.2, 141.4 and 146.4 gain one — the resolved count is
-unchanged at 34 of 110, but its composition is not), and the fitted
-regression order depends on which curves are in that set, not only how many.
-The correction still tightens the fast clock's fitted error (0.196 → 0.146)
-but does *not* tighten the slow clock's (0.261 → 0.366) —
-`data/test_scope.py::test_the_clocks_are_corrected_like_the_rate` asserts
-this directly, as the true finding, rather than a threshold ("the correction
-moves the axis by more than a rounding") that stopped being true once gains
-were added.
+two-axis block's peroxide axis is asked through `tau_slow_corrected`.
 
-Every other published number touching these 15 curves moves by a
-correspondingly small amount and none reverses direction: `vmax_corrected`'s
-own peroxide order (+0.794 → +0.696, was → +0.706), the saturation test's F
-statistic (46, was 44), the enzyme-pair clock ratio, the substrate-pair
-clocks, several pH-ladder and floor-sweep numbers in `induction/`. The full,
-itemised list — with before/after values for every one of them — is in
-`DATA_VERIFICATION.md`'s 2026-09-08 entry; it is not repeated here because
-none of it changes the argument this document makes, only its third decimal
-place.
+**This row has been misread twice, and the history is the point.** Asked of
+the raw readings it sat 0.3σ from +1. The falls-only correction moved it to
+1.4σ. Adding arrivals appeared to bring it back to 0.3σ — and that reading
+stood for two days on a bug: an arrival a later detachment had already shed
+was still being applied as a *permanent* level shift, depressing those
+curves' tails and lengthening the clocks read off them (§6.2). Routed through
+`split_arrivals` the row sits at **+0.774 ± 0.291, 0.8σ below +1** — between
+the two earlier readings, nowhere near rejecting +1, and now moving in the
+direction the artefact argument requires, since taking peroxide-made gas out
+has to move `d ln v − d ln τ` *away* from the +1 it flattered.
+
+The correction still moves individual curves — `tau_slow` differs from
+`tau_slow_corrected` on 33 of 110 live curves and `tau` from `tau_corrected`
+on 38 — and it buys resolution rather than costing it, 62 → 68 curves for
+`tau` and 25 → 33 for `tau_slow`, because the artefact was what those fits
+could not pin. It tightens the fast clock's fitted error (0.196 → 0.144) but
+not the slow clock's (0.261 → 0.291), because arrivals change *which* curves
+resolve, not only how many.
+`data/test_scope.py::test_the_clocks_are_corrected_like_the_rate` asserts
+that directly, as the true finding, rather than a threshold ("the correction
+moves the axis by more than a rounding") that stopped being true once
+arrivals were added.
+
+Every other published number touching these curves moves by a
+correspondingly small amount and none reverses direction. The 2026-09-11
+segmentation rewrite (§4.2, §6.1) moved them again and by less:
+`vmax_corrected`'s own peroxide order +0.704 → **+0.703**, the fitted gas
+rate +1.343 → **+1.356 ± 0.256**, the `tau_slow` row +0.757 → **+0.774**, all
+far inside their own errors. The itemised before/after lists are in
+`DATA_VERIFICATION.md`'s 2026-09-08 and 2026-09-11 entries; they are not
+repeated here because none of it changes the argument this document makes,
+only its third decimal place.
+
+**One number in this document was wrong for longer than that.** §7 quoted the
+peroxide-saturation test's F statistic as "46, was 44"; it is **32.0**
+(`induction.peroxide_saturation`, `first_order_f`), and was 32.0 before the
+rewrite too. It still rejects `a = 1` decisively — that is what the test
+says — but the figure had drifted in prose with nothing watching, in exactly
+the way §8's own history describes. `test_root_documents.py` now carries a
+claim on it.
 
 ## 8. Where this lives
 
 | Function | Module | What it does |
 |---|---|---|
 | `bubble_drops` | `curve_metrics` | Raw candidate falls, amplitude test only |
-| `_local_step_scale` | `curve_metrics` | Median local step size, excluding one event |
-| `_is_excursion` | `curve_metrics` | Recovery test: is a fall (or, negated, a rise) a spike? |
+| `local_step_scale` | `curve_metrics` | Median local step size, excluding one event |
+| `step_anomaly` | `curve_metrics` | Every step in units of what a step looks like there |
+| `bubble_segments` | `curve_metrics` | The phases: runs of consistently-signed anomalous steps |
+| `_excursions` | `curve_metrics` | Which adjacent phases pair off as an instrument spike |
 | `detachments` | `curve_metrics` | Grouped, excursion-filtered, SNR-gated falls |
 | `unreleased_gas` | `curve_metrics` | The cap: gas still to be watched leaving |
 | `bubble_profile` | `curve_metrics` | Builds `b(t)` from events and a rate |
 | `bubble_rate` | `curve_metrics` | The least rate that pays for every fall |
 | `debubble` | `curve_metrics` | `(A_obs - b) with gains applied, events)` |
-| `bubble_gains` | `curve_metrics` | Confirmed rises: recovery test + kink test, unmerged |
-| `apply_gains` | `curve_metrics` | The permanent level shift a gain applies |
+| `bubble_arrivals` | `curve_metrics` | Confirmed rises: surviving accumulate phases, sized, kinked |
+| `split_arrivals` | `curve_metrics` | Released against unreleased: which operator each needs |
+| `apply_gains` | `curve_metrics` | The permanent level shift an UNRELEASED arrival applies |
 | `terminal_gas`, `tail_excess` | `curve_metrics` | The bracket on gas never watched to leave |
 | `bubble_load` | `curve_metrics` | Fraction of net rise lost to detachments |
 | `bubble_ladder`, `bubble_turnover_control`, `bubble_synchrony`, `bubble_step_asymmetry` | `scope` | The evidence in §2 |

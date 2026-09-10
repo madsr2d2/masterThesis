@@ -25,7 +25,9 @@ predicted. An end-to-end review on 2026-09-08 found, in ungated prose only:
     `tau_slow` resolution at 33 where it is 34, and its joint-clock sigma at
     1.4 where the gains-corrected value is 0.3;
   * BUBBLES.md calling 27-of-243 an ARCHIVE-WIDE excursion count when it is
-    the two-axis block's -- archive-wide the same pipeline sees 40 of 414.
+    the two-axis block's -- archive-wide the same pipeline sees a different
+    number. (Both pairs moved on 2026-09-11 when release phases started
+    bridging an interruption: 22 of 233 and 33 of 397, over the same falls.)
 
 None of those was wrong when written. Each was correct, was superseded, and
 had no check to notice. This module is that check. It is deliberately NOT a
@@ -74,8 +76,14 @@ def _excursion_tally(curves):
 
     `detachments` returns only the events it KEEPS, so the rejection count --
     which BUBBLES.md and CLAUDE.md both quote -- cannot be read back off it.
-    This runs the same three stages the function does (SNR gate, `bubble_drops`,
-    group consecutive, drop excursions) and counts what falls out between them.
+    This runs the same stages the function does (SNR gate, `bubble_segments`,
+    drop the phases `_excursions` pairs off) and counts what falls out
+    between them.
+
+    A CANDIDATE IS A RELEASE PHASE, not a falling reading, and since the
+    2026-09-11 rewrite that phase may span an interruption -- so this counts
+    fewer candidates than it did over exactly the same falls. The rejection
+    count is what the documents quote and what this exists for.
     """
     candidates = rejected = 0
     emptied = []
@@ -86,24 +94,17 @@ def _excursion_tally(curves):
             continue
         if float(values[-1] - values[0]) / noise < curve_metrics.DETACHMENT_SNR_FLOOR:
             continue
-        drops = curve_metrics.bubble_drops(values, noise)
-        if not len(drops):
+        segments = curve_metrics.bubble_segments(values, noise)
+        spikes = curve_metrics._excursions(segments)
+        events = [position for position, segment in enumerate(segments)
+                  if segment["kind"] < 0
+                  and -segment["total"] >= curve_metrics.BUBBLE_DROP_SIGMA * noise]
+        if not events:
             continue
-        events, start = [], int(drops[0])
-        previous = start
-        for index in drops[1:]:
-            index = int(index)
-            if index == previous + 1:
-                previous = index
-            else:
-                events.append((start, previous + 1))
-                start = previous = index
-        events.append((start, previous + 1))
-        kept = [e for e in events
-                if not curve_metrics._is_excursion(values, e)]
+        kept = [position for position in events if position not in spikes]
         candidates += len(events)
         rejected += len(events) - len(kept)
-        if events and not kept:
+        if not kept:
             emptied.append((int(curve.experiment), int(curve.sample)))
     return {"candidates": candidates, "rejected": rejected,
             "emptied": emptied}
@@ -143,16 +144,16 @@ def main():
                     if int(c.experiment) in scope.TWO_AXIS_BLOCK]
     block = _excursion_tally(block_curves)
     archive = _excursion_tally(curves)
-    doc.check("the block's candidate falls", block["candidates"] == 243,
+    doc.check("the block's candidate falls", block["candidates"] == 233,
               f"{block['candidates']}")
-    doc.check("the block's rejections", block["rejected"] == 27,
+    doc.check("the block's rejections", block["rejected"] == 22,
               f"{block['rejected']}")
     doc.check("two block curves lose all of theirs",
               len(block["emptied"]) == 2, f"{block['emptied']}")
     # The distinction BUBBLES.md got wrong: this is a BLOCK count, and the
     # archive-wide one is half again as large.
     doc.check("archive-wide it is a different number",
-              archive["candidates"] == 414 and archive["rejected"] == 40
+              archive["candidates"] == 397 and archive["rejected"] == 33
               and len(archive["emptied"]) == 5,
               f"{archive['candidates']} candidates, {archive['rejected']} "
               f"rejected, {len(archive['emptied'])} emptied")
@@ -207,10 +208,10 @@ def main():
     resolved = {name: int(live[name].sum()) for name in
                 ("tau_resolved", "tau_resolved_corrected",
                  "tau_slow_resolved", "tau_slow_resolved_corrected")}
-    doc.check("the correction buys resolution: 62 to 69, 25 to 34",
-              resolved == {"tau_resolved": 62, "tau_resolved_corrected": 69,
+    doc.check("the correction buys resolution: 62 to 68, 25 to 33",
+              resolved == {"tau_resolved": 62, "tau_resolved_corrected": 68,
                            "tau_slow_resolved": 25,
-                           "tau_slow_resolved_corrected": 34}, f"{resolved}")
+                           "tau_slow_resolved_corrected": 33}, f"{resolved}")
     doc.claim("CLAUDE.md: the resolution it buys",
               f"({resolved['tau_resolved']} to "
               f"{resolved['tau_resolved_corrected']} and "
@@ -224,8 +225,8 @@ def main():
     slow = clocks.loc[("tau_slow_corrected", "axis")]
     fast = clocks.loc[("tau_corrected", "axis")]
     doc.check("the fully-corrected tau_slow row sits 0.8 sigma from +1",
-              abs(slow.sigma - 0.84) < 0.05, f"{slow.sigma:.3f}")
-    doc.check("and the tau row 2.3", abs(fast.sigma - 2.30) < 0.05,
+              abs(slow.sigma - 0.78) < 0.05, f"{slow.sigma:.3f}")
+    doc.check("and the tau row 2.2", abs(fast.sigma - 2.23) < 0.05,
               f"{fast.sigma:.3f}")
     for document in (CLAUDE, SKILL):
         doc.claim(f"{os.path.basename(document)}: both clock sigmas",
@@ -240,8 +241,8 @@ def main():
         "tau_slow": int((~np.isclose(live.tau_slow.fillna(-1),
                                      live.tau_slow_corrected.fillna(-1))).sum()),
     }
-    doc.check("it moves 38 curves' tau and 34 curves' tau_slow",
-              moved == {"tau": 38, "tau_slow": 34}, f"{moved}")
+    doc.check("it moves 38 curves' tau and 33 curves' tau_slow",
+              moved == {"tau": 38, "tau_slow": 33}, f"{moved}")
     for document in (CLAUDE, SKILL):
         doc.claim(f"{os.path.basename(document)}: the curves it moves",
                   f"{moved['tau_slow']} of {len(live)} live curves",
@@ -339,8 +340,19 @@ def main():
               abs(admitted.max() - rejected.min()) < 0.5,
               f"{abs(admitted.max() - rejected.min()):.2f} sigma")
     doc.check("and the whole archive's arrivals are few enough to name",
-              int(margins.admitted.sum()) == 89,
+              int(margins.admitted.sum()) == 43,
               f"{int(margins.admitted.sum())}")
+
+    # The peroxide-saturation F statistic, which drifted in prose to 46 and
+    # 44 in CLAUDE.md and BUBBLES.md with nothing pointed at it, and was 32.0
+    # both before and after the 2026-09-11 rewrite. See DATA_VERIFICATION.md.
+    saturation = induction.peroxide_saturation(scope.frame())
+    doc.check("the saturation test still rejects first order",
+              saturation["first_order_f"] > 10,
+              f"F = {saturation['first_order_f']:.1f}")
+    for document in (CLAUDE, BUBBLES):
+        doc.claim(f"{os.path.basename(document)}: the saturation F",
+                  f"{saturation['first_order_f']:.0f}", document=document)
 
     doc.section("every guarded document is real and was actually read")
     # The guard is worth nothing if a path stopped resolving: a missing file

@@ -820,8 +820,8 @@ against the mechanism.
 
   **It is made from the peroxide and not from the alcohol.** The production rate
   is fitted from the timing and size of the detachments alone -- the fit never
-  sees a concentration -- and comes out **+1.343 +/- 0.255 in [H2O2]** against
-  **-0.307 +/- 0.089 in [S]** (`scope.gas_rate_drivers`). First order in
+  sees a concentration -- and comes out **+1.356 +/- 0.256 in [H2O2]** against
+  **-0.312 +/- 0.089 in [S]** (`scope.gas_rate_drivers`). First order in
   peroxide, weakly negative in substrate: a catalase-like disproportionation
   competing with the productive cycle for the same oxidant, and one the alcohol
   slows rather than feeds.
@@ -1253,17 +1253,17 @@ otherwise inflate the rate's order and shorten the clock, flattering the +1:
 | clock | curves | order in [H₂O₂] | from +1 | control, [S] |
 |---|---|---|---|---|
 | `t_ind`, windowed | 110 | +0.304 ± 0.188 | 3.7σ | 6.4σ |
-| `tau`, from the fit | 69 | +0.657 ± 0.149 | 2.3σ | 8.2σ |
-| `tau_slow`, from the fit | 34 | +0.757 ± 0.289 | 0.8σ | 4.6σ |
+| `tau`, from the fit | 68 | +0.678 ± 0.144 | 2.2σ | 8.8σ |
+| `tau_slow`, from the fit | 33 | +0.774 ± 0.291 | 0.8σ | 4.4σ |
 
 **The substrate axis is the control and it must miss**, because the alcohol is
 not the activating species and the clock carries no substrate order. It misses
-by 3.4σ to 8.2σ in every cut. A reading where both axes met +1 would be a
+by 3.3σ to 8.8σ in every cut. A reading where both axes met +1 would be a
 regression that had stopped discriminating rather than a mechanism.
 
-**Nothing is concluded from the peroxide column.** `tau_slow` is resolved on 34
-of 110 live curves and 23 of the 77 strong ones, and across cuts the estimate
-moves +0.76 to +0.92 — short of +1 on every cut, but
+**Nothing is concluded from the peroxide column.** `tau_slow` is resolved on 33
+of 110 live curves and 22 of the 77 strong ones, and across cuts the estimate
+moves +0.77 to +0.94 — short of +1 on every cut, but
 never far enough from it either side to reject it. What the two axes together say is that *something* in excess activates the
 catalyst, that the buffer meets the constraint where the peroxide does not, and
 that the archive cannot yet choose between them: `induction.peroxide_crossing`
@@ -1778,17 +1778,25 @@ This needs no shape test because the asymmetry is structural — the reaction
 is monotone (benzaldehyde does not un-form), so ANY fall this large already
 exceeds what chemistry can produce.
 
-**Rejecting spikes** (`_is_excursion`): gas that leaves does not come back,
-so a candidate fall is thrown out if an adjacent reading undoes a comparable
-fraction of it. "Comparable" is calibrated against the curve's OWN typical
-step size, not an absolute threshold — `_local_step_scale` is the median
-`|step|` in an 8-reading window either side of the event (excluding the
-event itself), and a recovery only counts if it clears BOTH
-`recovery * drop` (half the drop's own size) AND `sigma_local * baseline`
-(twice that local median). Extended up to 3 readings past the fall, crediting
-recovery only up to the drop's own size (`min(out_k, ceiling*drop)`), because
-without a ceiling a fast, genuine acceleration right after a real detachment
-reads as that detachment reversing itself.
+**Grouping into phases** (`bubble_segments`, since 2026-09-11): the beam
+alternates between accumulating gas and releasing it over runs of readings,
+so events are read off those phases rather than detected point by point. A
+phase is a maximal run of consistently-signed anomalous steps, tolerating one
+reading of interruption that gives back less than half of it — so a release
+that stutters is one event rather than two with a false arrival between them.
+"Anomalous" is calibrated against the curve's OWN typical step size, not an
+absolute threshold: `step_anomaly` divides each step by `local_step_scale`,
+the median `|step|` in an 8-reading window either side (excluding the step
+itself), and the bar is 2.0.
+
+**Rejecting spikes** (`_excursions`): gas that leaves does not come back, so
+a spike is two adjacent phases that CANCEL — the smaller at least half the
+larger. Only the order is asymmetric, because gas cannot leave before it
+arrived: `release → accumulate` is a spike however long the give-back runs,
+while `accumulate → release` is the ordinary bubble lifecycle (which cancels
+exactly, since all the gas that arrived then left) and is rejected only where
+the rise never grew at all — one reading up and straight back down. A pair
+that does not cancel is two real events.
 
 `local_outlier_z` — a leave-one-out local QUADRATIC fit (degree 2, 4
 neighbours each side, widening to 8 if the window is short), scored as
@@ -1846,7 +1854,7 @@ bound on the true chemistry, in the same direction `monotone_bound` already
 takes, never an inflated one — and it is fit blind to composition: nothing
 about `[S]` or `[H2O2]` enters `bubble_shortfall`. `gas_rate_drivers`
 regressing this per-curve, composition-blind number AGAINST composition
-afterward (`+1.343 ± 0.255` in peroxide, `-0.307 ± 0.089` in substrate) is
+afterward (`+1.356 ± 0.256` in peroxide, `-0.312 ± 0.089` in substrate) is
 therefore an independent check in the same sense a held-out test set is: the
 concentrations were never in the room when the number was made.
 

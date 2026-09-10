@@ -16,23 +16,22 @@ import sys
 
 import numpy as np
 
-from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
+from curve_metrics import (ACCELERATION_SIGMA, ANOMALY_BAR, ANOMALY_WINDOW,
+                           BUBBLE_DROP_SIGMA, BUBBLE_SEGMENT_GAP,
                            DETACHMENT_SNR_FLOOR,
-                           EXCURSION_RECOVERY_CEILING,
-                           EXCURSION_RECOVERY_DEPTH,
                            INITIAL_WINDOW, LAG_THRESHOLD,
                            QUANTISATION_SIGMA, acceleration, curve_noise,
                            early_trough,
                            initial_rate, line_fit, line_slope, peak_position,
                            OUTLIER_SIGMA, apply_gains, bubble_drops,
-                           bubble_arrivals, bubble_load,
-                           split_arrivals, _is_excursion,
+                           bubble_arrivals, bubble_load, bubble_segments,
+                           split_arrivals, _excursions,
                            bubble_profile, bubble_rate, bubble_shortfall,
-                           local_outlier_z, OUTLIER_SIGMA,
+                           local_outlier_z, local_step_scale, step_anomaly,
                            debubble, detachments, isolated_outliers,
                            monotone_bound, tail_excess,
-                           terminal_gas, _is_excursion,
-                           local_outlier_z, model_residual, quadratic_rate,
+                           terminal_gas,
+                           model_residual, quadratic_rate,
                            segmented_fit, segment_breaks,
                            segment_selection, _segment_errors,
                            SEGMENT_RATIO_STEEP,
@@ -975,7 +974,7 @@ def test_the_bubble_correction():
           np.array_equal(debubble(times, chemistry, noise)[0], chemistry))
 
 
-def test_the_excursion_test_on_planted_spikes():
+def test_a_persistent_step_is_a_detachment():
     """
     The excursion test on synthetic spikes of known kind.
 
@@ -1066,9 +1065,10 @@ def test_the_bubble_the_run_never_shed():
     # NOT BOUNDED FROM ABOVE IN GENERAL -- that was this check's original
     # name and claim, and it held here only because edges 41 and 44 (3
     # readings apart) used to collapse to 3 detected events instead of 4:
-    # the OLD `_is_excursion`, comparing a recovering step only to the SIZE
-    # OF ITS OWN DROP, wrongly read edge 44's recovery as a spike, the same
-    # bug exp 130 cuvette 2 was caught on (`_local_step_scale`'s docstring).
+    # the OLD excursion test (`_is_excursion`, replaced by `_excursions` on
+    # 2026-09-11), comparing a recovering step only to the SIZE OF ITS OWN
+    # DROP, wrongly read edge 44's recovery as a spike -- the same bug exp
+    # 130 cuvette 2 was caught on (`local_step_scale`'s docstring).
     # Fixing that gives the TRUE 4-event detection and a shorter, correct
     # final span (840 s from event 44's stop, not the wrong 900 s+ from 41's).
     # `held = fitted_rate * span` over that span, uncapped by the tail-rise
@@ -1125,7 +1125,7 @@ def test_the_bubble_the_run_never_shed():
     # DECELERATES, so its tail is flatter than its body whether or not a
     # bubble is growing in it, which pulls the excess of a run that is STILL
     # making gas back down towards zero rather than leaving it positive.
-    # Before the `_is_excursion` fix this landed comfortably negative
+    # Before that excursion-test fix this landed comfortably negative
     # (-2e-5-ish, on the wrong 3-event span); on the TRUE 4-event span it
     # lands at +1.9e-6 -- under 9% of the planted gas rate, and the sign is
     # not the point. What matters, and is asserted here, is that the
@@ -1156,9 +1156,9 @@ def test_bubble_drop_sigma_enrichment():
     cannot silently stop being true of the data.
 
     8 was a hard cut through a smooth tail: sweeping every step in the block
-    that falls short of the OLD cutoff and would survive `_is_excursion`
-    unchanged, the count thins gradually from 5 sigma to 8 with no gap in it
-    anywhere -- not the signature of a clean threshold. What separates real
+    that falls short of the OLD cutoff and would be admitted as a detachment
+    if the cutoff reached it, the count thins gradually from 5 sigma to 8 with
+    no gap in it anywhere -- not the signature of a clean threshold. What separates real
     gas from noise here is not the fall's own size, since gas and noise share
     a size distribution in this band; it is whether the CURVE it is on already
     carries a confirmed (>=8 sigma) detachment. Noise would not know that;
@@ -1181,11 +1181,18 @@ def test_bubble_drop_sigma_enrichment():
         covered = set()
         for start, stop in events:
             covered.update(range(start, stop))
+        # Re-run the whole detector at the bottom of the sweep and keep the
+        # falls it admits that the OLD cutoff never reached. Asking the
+        # excursion test about a lone step, as this did before 2026-09-11,
+        # is no longer meaningful: a fall is adjudicated against the phase
+        # beside it, which only exists once the detector has run.
+        admitted = set()
+        for start, stop in detachments(values, noise, sigma=5.0, floor=0):
+            admitted.update(range(start, stop))
         sigmas = []
         for index, step in enumerate(np.diff(values)):
             sigma = -step / noise
-            if sigma < OLD_CUTOFF and index not in covered and not _is_excursion(
-                    values, (index, index + 1)):
+            if sigma < OLD_CUTOFF and index not in covered and index in admitted:
                 sigmas.append(sigma)
         per_curve_sigmas[key] = sigmas
 
@@ -1224,46 +1231,132 @@ def test_bubble_drop_sigma_enrichment():
           f"{len(touched_below)} against {len(touched_clean)}")
 
 
-def test_the_recovery_depth_extension():
+def test_the_phase_pairing():
     """
-    Why `_is_excursion` reaches past the one adjacent reading: the sweep
-    behind the 2026-09-07 depth extension, kept as a check for the same
-    reason `test_bubble_drop_sigma_enrichment` is -- so the archive-wide
-    claim cannot silently stop being true.
+    The rewritten detection layer's own load-bearing claims (2026-09-11).
 
-    Exp 150 cuvette 1 and exp 151 cuvette 6 are the block's two weakest,
-    most drift-dominated curves (net signal 14-21x noise, against 27-143x
-    for their sibling cuvettes). Both carry falls that recover only 13-48%
-    of themselves in the single adjacent reading the old test looked at, and
-    the rest of the way one or two readings later -- a shape the old test
-    could not see, and one no real detachment in the archive shares.
+    `bubble_cases.py` pins the twenty-five real curves this was judged on;
+    what this checks is the mechanism those verdicts come out of, on planted
+    shapes where the truth is known, plus the archive-wide counts that would
+    move if any of it drifted.
+
+    THREE CLAIMS, one per rule:
+
+      one currency   a step is unusual relative to what the curve does THERE,
+                     never in absolute noise. Exp 144 cuvette 2's real
+                     fourteen-reading acceleration is 7-12 sigma a step and
+                     scores about 1.0 on `step_anomaly`.
+      one gap rule   a phase survives a single reading of interruption that
+                     gives back less than half of it, applied the same way to
+                     both kinds.
+      one pair rule  a spike is two adjacent phases that cancel, and only the
+                     ORDER of the pair is asymmetric.
     """
-    print("\nwhy the recovery test reaches past one reading")
+    print("\nthe phase machinery the detection layer is built on")
     archive_curves = {(c.experiment, c.sample): c
                       for c in scope.curves(scope.archive())}
 
     def get(experiment, sample):
         return archive_curves[(experiment, sample)]
 
-    # The two curves the extension was built for. Isolated from
-    # DETACHMENT_SNR_FLOOR (floor=0) so this checks the depth extension on
-    # its own -- the floor's own effect on exp 150 cuvette 1's remaining
-    # four is `test_the_detachment_snr_floor`'s.
-    weak_before, weak_after = {}, {}
-    for experiment, sample in ((151, 6), (150, 1)):
-        curve = get(experiment, sample)
-        weak_before[(experiment, sample)] = detachments(
-            curve.absorbance, curve.noise, sigma=BUBBLE_DROP_SIGMA, floor=0)
-    check("exp 151 cuvette 6 no longer carries any detachment",
-          weak_before[(151, 6)] == [], f"{weak_before[(151, 6)]}")
-    check("exp 150 cuvette 1 keeps four of its eight",
-          len(weak_before[(150, 1)]) == 4, f"{weak_before[(150, 1)]}")
+    times = np.arange(0, 3600, 60.0)
+    noise = 1e-4
+    chemistry = 0.02 + 1e-5 * times
 
-    # Every real detachment and confirmed excursion pinned elsewhere in the
-    # package is unmoved by the extension -- this is the regression guard.
+    # ---- the pair rule, both orders, on planted shapes -------------------
+    # release -> accumulate that cancels: a spike down, whatever follows it.
+    dip = chemistry.copy()
+    dip[30] -= 0.004
+    check("a fall given straight back is not a detachment",
+          detachments(dip, noise) == [], f"{detachments(dip, noise)}")
+
+    # accumulate -> release where the rise never grew: a spike up. ONE
+    # reading up and straight back down is not a bubble's lifecycle.
+    perched = chemistry.copy()
+    perched[30] += 0.004
+    check("a fall off a one-reading spike is not a detachment either",
+          detachments(perched, noise) == [],
+          f"{detachments(perched, noise)}")
+
+    # accumulate -> release where the rise DID grow: the ordinary lifecycle,
+    # and it cancels exactly, which is why size alone cannot decide it.
+    lifecycle = chemistry.copy()
+    for offset, step in enumerate((0.0015, 0.0015, 0.0010)):
+        lifecycle[28 + offset:] += step
+    lifecycle[31:] -= 0.0040
+    events = detachments(lifecycle, noise)
+    check("a bubble that grows over three readings and then leaves is real",
+          events == [(30, 31)], f"{events}")
+    arrivals = bubble_arrivals(times, lifecycle, noise, events)
+    check("  and the rise that fed it is one arrival, not three",
+          len(arrivals) == 1 and arrivals[0][0] == 30, f"{arrivals}")
+
+    # release -> accumulate that does NOT cancel: two real events. This is
+    # the shape the old code could not express -- it rejected the fall for
+    # being followed by a rise, then refused the rise for following a
+    # rejected fall (exp 138 cuvette 4).
+    both = chemistry.copy()
+    both[30:] -= 0.004
+    both[32:] += 0.016
+    events = detachments(both, noise)
+    check("a fall the following rise overshoots is still a detachment",
+          events == [(29, 30)], f"{events}")
+    check("  and the rise that overshoots it is still an arrival",
+          [index for index, _ in bubble_arrivals(times, both, noise, events)]
+          == [32], f"{bubble_arrivals(times, both, noise, events)}")
+
+    # ---- the gap rule, both kinds ----------------------------------------
+    stutter = chemistry.copy()
+    stutter[30:] -= 0.004
+    stutter[31:] += 0.001          # gives back a quarter, for one reading
+    stutter[32:] -= 0.004
+    events = detachments(stutter, noise)
+    check("a release that stutters for one reading is ONE event",
+          events == [(29, 32)], f"{events}")
+    check("  and the tick inside it is not an arrival",
+          bubble_arrivals(times, stutter, noise, events) == [],
+          f"{bubble_arrivals(times, stutter, noise, events)}")
+
+    wide = chemistry.copy()
+    wide[30:] -= 0.004
+    wide[31:] += 0.003             # gives back three quarters: not a stutter
+    wide[32:] -= 0.004
+    phases = [(s["start"], s["stop"]) for s in bubble_segments(wide, noise)
+              if s["kind"] < 0]
+    check("an interruption that gives back most of the phase ends it",
+          phases == [(29, 30), (31, 32)], f"{phases}")
+
+    far = chemistry.copy()
+    far[30:] -= 0.004
+    far[33:] -= 0.004              # two quiet readings apart: two bubbles
+    phases = [(s["start"], s["stop"]) for s in bubble_segments(far, noise)
+              if s["kind"] < 0]
+    check(f"and an interruption longer than {BUBBLE_SEGMENT_GAP} reading(s) "
+          f"is not bridged at all",
+          phases == [(29, 30), (32, 33)], f"{phases}")
+
+    # ---- one currency: exp 144 cuvette 2, the case that proves it ---------
+    curve = get(144, 2)
+    values = np.asarray(curve.absorbance, dtype=float)
+    anomaly = step_anomaly(values, curve.noise)
+    climb = np.abs(np.diff(values)[29:43]) / curve.noise
+    check("exp 144 cuvette 2's real acceleration is large in absolute sigma",
+          climb.min() > 6.0, f"{climb.min():.1f} to {climb.max():.1f} sigma")
+    check("  and ordinary against its own neighbourhood",
+          np.abs(anomaly[29:43]).max() < ANOMALY_BAR,
+          f"worst {np.abs(anomaly[29:43]).max():.2f}, bar {ANOMALY_BAR}")
+    check("  so not one reading of it is an arrival",
+          not any(29 <= index <= 43
+                  for index, _ in bubble_arrivals(
+                      np.asarray(curve.times, dtype=float), values,
+                      curve.noise)), "")
+
+    # ---- the archive-wide regression guard --------------------------------
+    # Isolated from DETACHMENT_SNR_FLOOR (floor=0) so this counts the phase
+    # machinery alone; the floor's own effect is the next test's.
     pinned_real = {
-        (143, 3): 3, (149, 1): 1, (135, 2): 15, (144, 2): 4, (140, 4): 7,
-        (135, 1): 19, (139, 2): 3, (130, 2): 6,
+        (143, 3): 3, (149, 1): 1, (135, 2): 13, (144, 2): 4, (140, 4): 7,
+        (135, 1): 16, (139, 2): 3, (130, 2): 6, (131, 1): 17, (131, 2): 17,
     }
     for (experiment, sample), count in pinned_real.items():
         curve = get(experiment, sample)
@@ -1277,31 +1370,35 @@ def test_the_recovery_depth_extension():
           detachments(excursion_curve.absorbance, excursion_curve.noise,
                      sigma=BUBBLE_DROP_SIGMA) == [], "")
 
-    # The extension is one-directional: reaching backward from `start` the
-    # same way conflates genuine pre-fall acceleration with a spike, and
-    # exp 135 cuvette 1's largest detachment (41.3 sigma) is the case that
-    # would be lost. It sits right after four readings of real, fast rise.
+    # THE ORDER ASYMMETRY IS ONE-DIRECTIONAL, and exp 135 cuvette 1's
+    # largest detachment is what pins that. It sits right after four
+    # readings of real, fast rise; a rule that read a preceding rise as a
+    # reversal the way it reads a following one would lose it.
     curve = get(135, 1)
-    event = (222, 223)
     values = np.asarray(curve.absorbance, dtype=float)
-    check("the pre-fall rise into exp 135 cuvette 1's largest detachment is "
-          "real acceleration, not noise",
+    check("the rise into exp 135 cuvette 1's largest detachment is real "
+          "acceleration, not noise",
           float(values[222] - values[218]) > 20 * curve.noise,
           f"{(values[222] - values[218]) / curve.noise:.1f} sigma of climb "
           f"over the four readings before it")
-    check("and that detachment is not read as an excursion",
-          not _is_excursion(values, event), "")
+    segments = bubble_segments(values, curve.noise)
+    kept = {(s["start"], s["stop"]) for position, s in enumerate(segments)
+            if position not in _excursions(segments) and s["kind"] < 0}
+    check("  and it is kept, because an ordinary reading separates the two "
+          "phases so they never pair",
+          (222, 223) in kept, "")
 
-    # The ceiling is what keeps a genuine acceleration right after a fall
-    # from being read as the fall's own recovery. Exp 135 cuvette 1's
-    # 6.2 sigma detachment at (272, 273) is real and sits right before the
-    # curve accelerates hard; uncapped, that acceleration alone would cross
-    # the anomaly threshold within the extended window.
-    event = (272, 273)
-    check("this detachment survives only because recovery is capped",
-          not _is_excursion(values, event), "")
-    check("  uncapped, the same reach would have rejected it",
-          _is_excursion(values, event, ceiling=1e9), "")
+    # The 6.2 sigma fall at (272, 273) is the other side of it: the curve
+    # accelerates hard immediately AFTER, with no reading in between, and it
+    # is the two-sided cancellation that keeps it -- a counter-move that
+    # overshoots by a factor of ten does not cancel anything.
+    check("the fall at (272, 273) is kept", (272, 273) in kept, "")
+    fall = float(values[272] - values[273])
+    rise = float(values[277] - values[273])
+    check("  and it is kept by margin, not by a hair",
+          rise > 10 * fall,
+          f"the fall costs {fall * 1e3:.4f}e-3 and the four readings after "
+          f"it climb {rise * 1e3:.4f}e-3")
 
 
 def test_the_detachment_snr_floor():
@@ -1337,8 +1434,8 @@ def test_the_detachment_snr_floor():
           weak_snr < DETACHMENT_SNR_FLOOR, f"{weak_snr:.1f}")
 
     pinned_real = {
-        (143, 3): 3, (149, 1): 1, (135, 2): 15, (144, 2): 4, (140, 4): 7,
-        (135, 1): 19, (139, 2): 3, (130, 2): 6,
+        (143, 3): 3, (149, 1): 1, (135, 2): 13, (144, 2): 4, (140, 4): 7,
+        (135, 1): 16, (139, 2): 3, (130, 2): 6,
     }
     for (experiment, sample), count in pinned_real.items():
         curve = get(experiment, sample)
@@ -1352,9 +1449,9 @@ def test_the_detachment_snr_floor():
     # bubblers -- exp 131 cuvettes 1 and 2, whose own bubble_load (6.5 and
     # 8.3) is as high as exp 150 cuvette 1's (5.4), so load alone cannot
     # separate them -- sit at net/noise 36.8-44.6 and keep every one of
-    # their 18 and 19 detachments. Nothing in the archive sits between the
+    # their 17 detachments each. Nothing in the archive sits between the
     # weak curve's 20.7 and the heavy bubblers' 36.8.
-    for experiment, sample, count in ((131, 1, 18), (131, 2, 19)):
+    for experiment, sample, count in ((131, 1, 17), (131, 2, 17)):
         curve = get(experiment, sample)
         events = detachments(curve.absorbance, curve.noise,
                              sigma=BUBBLE_DROP_SIGMA)
@@ -1394,12 +1491,12 @@ def test_bubble_arrivals():
     A fall past `BUBBLE_DROP_SIGMA` needs no further test to be suspect: real
     chemistry never falls. A rise past the same threshold is not suspect on
     its own -- most large rises in the two-axis block are the reaction, 809
-    against 303 falls -- so `bubble_arrivals` needs a rise to pass two tests a
-    fall does not: it must not reverse (recovery, reused from `_is_excursion`
-    on the negated curve) and it must be a KINK against the curve's own local
-    trend (`local_outlier_z`), never merged across readings the way a fall
-    is, because a genuine multi-reading acceleration would merge into one
-    giant false jump if it were.
+    against 303 falls -- so a rise counts only where it is ANOMALOUS against
+    its own neighbourhood (`ANOMALY_BAR`, in `step_anomaly`'s units), and must
+    then survive `_excursions` and be a KINK against the curve's own local
+    trend (`local_outlier_z`) read at the phase's own ends. Merging is safe
+    once the nomination is local: a genuine multi-reading acceleration is not
+    anomalous against itself, so it never becomes a phase at all.
     """
     print("\ngas arriving, not leaving")
     times = np.arange(0, 3600, 60.0)
@@ -1509,18 +1606,18 @@ def test_an_arrival_released_by_its_own_detachment():
     A BUBBLE THAT ARRIVES AND THEN LEAVES, which is the case the recovery
     test threw away until 2026-09-10.
 
-    The veto exists to reject a rise that gets undone -- right, when what
-    undoes it is noise. When what undoes it is a detachment `detachments` has
-    already confirmed on its own evidence, the rise was not erased, it was
-    RELEASED, and that is the best evidence available that it was gas. So the
-    veto is skipped where a confirmed fall departs within
-    `EXCURSION_RECOVERY_DEPTH` of the landing, and the kink test decides
-    alone.
+    The old veto asked whether a rise was undone by what followed -- right,
+    when what follows is noise, and wrong when what follows is the detachment
+    that RELEASED it, which is the best evidence available that the rise was
+    gas. It was patched in 2026-09-10 by skipping the veto where a confirmed
+    fall departed within a few readings of the landing.
 
-    The one-reading noise spike the veto is for cannot exploit this: its own
-    fall is what `_is_excursion` rejects when `detachments` scores it, so
-    there is no confirmed detachment for the rise to point at. Both halves
-    are planted here.
+    THE PATCH IS GONE AND THE CASE IS STRUCTURAL NOW. `accumulate -> release`
+    is the ordinary bubble lifecycle, so `_excursions` never reads it as a
+    reversal on size alone -- only where the rise never grew at all, one
+    reading up and straight back down, which is not a bubble. Both shapes are
+    planted here: the lifecycle must survive and the one-reading spike must
+    not.
     """
     print("\nan arrival released by its own detachment")
     times = np.arange(0, 3600, 60.0)
@@ -1528,16 +1625,17 @@ def test_an_arrival_released_by_its_own_detachment():
     chemistry = 0.02 + 1e-6 * times
 
     # ARRIVE at 30 and shed the whole of it at 32 -- two readings later, so
-    # the release sits INSIDE `EXCURSION_RECOVERY_DEPTH` of the landing and
-    # the old veto fires on it. That is the geometry the real cases have: of
-    # the nine this admits, every one releases within three readings.
+    # the release sits close enough to the landing that the old veto fired on
+    # it. That is the geometry the real cases have: exp 139 cuvette 2's
+    # arrival at reading 71 is released two readings later.
     episode = chemistry.copy()
     episode[30:33] += 0.004
     events = detachments(episode, noise)
     check("the release is confirmed as a detachment",
           any(start == 32 for start, _ in events), f"{events}")
-    check("  and the old veto would have rejected the rise for it",
-          _is_excursion(-episode, (29, 30)))
+    check("  the rise and the fall are separate phases, not one pair",
+          [s["kind"] for s in bubble_segments(episode, noise)] == [1, -1],
+          f"{[(s['kind'], s['start'], s['stop']) for s in bubble_segments(episode, noise)]}")
     found = bubble_arrivals(times, episode, noise, events)
     check("the arrival before it is admitted, not vetoed as a reversal",
           len(found) == 1 and found[0][0] == 30, f"{found}")
@@ -1660,7 +1758,7 @@ def test_debubble_with_gains():
     # acceleration into a false gain that landed in the MIDDLE of a real
     # detachment's span, producing a step far worse than any real excursion
     # in the block. Unmerged, the worst step in any reconstruction is back to
-    # the excursion `_is_excursion` deliberately leaves alone.
+    # the excursion the pair rule deliberately leaves alone.
     check("no gain corrupts a real detachment's own step",
           rebuilt_worst > -61.2 and rebuilt_worst < -61.0,
           f"{rebuilt_worst:.4f}")
@@ -1753,11 +1851,11 @@ if __name__ == "__main__":
     test_segmented_fit()
     test_two_breakpoints()
     test_the_bubble_correction()
-    test_the_excursion_test_on_planted_spikes()
+    test_a_persistent_step_is_a_detachment()
     test_the_monotone_bound()
     test_the_bubble_the_run_never_shed()
     test_bubble_drop_sigma_enrichment()
-    test_the_recovery_depth_extension()
+    test_the_phase_pairing()
     test_the_detachment_snr_floor()
     test_bubble_arrivals()
     test_an_arrival_released_by_its_own_detachment()

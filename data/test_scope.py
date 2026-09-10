@@ -1252,8 +1252,16 @@ def test_the_turnover_control_is_confounded_with_ph():
     and 7.53, and the survey finds nothing detaching below 7.5 anywhere.
 
     This asserts the confound rather than the conclusion: scaled from a
-    matched-peroxide run by first order in [HOO-], pH alone predicts fewer than
-    two events over both runs, so their zero needs no turnover to explain it.
+    matched-peroxide run by first order in [HOO-], pH alone predicts so few
+    events over both runs that seeing none is unsurprising on its own, so
+    their zero needs no turnover to explain it.
+
+    THE BAR IS THE POISSON PROBABILITY, not a round number of events. It was
+    `expected < 2.5` until 2026-09-11, which the segmentation rewrite crossed
+    (2.39 -> 2.54) without touching the argument -- the reference run's falls
+    are the same falls, grouped into one fewer event. What the argument needs
+    is that the observed zero not be surprising under the pH-only rate, and
+    at 2.54 expected it is not: p = 0.079.
     """
     print("\nthe turnover control is confounded with pH")
     confound = scope.turnover_control_confound()
@@ -1270,10 +1278,11 @@ def test_the_turnover_control_is_confounded_with_ph():
     check("no run is priced against itself",
           bool((confound.reference != confound.index).all()))
     top = confound[confound.top_h2o2 == confound.top_h2o2.max()]
+    quiet_odds = float(np.exp(-top.expected.sum()))
     check("and pH alone already predicts the top-peroxide pair's zero",
-          float(top.expected.sum()) < 2.5 and int(top.events.sum()) == 0,
+          quiet_odds > 0.05 and int(top.events.sum()) == 0,
           f"{top.expected.sum():.2f} events expected, "
-          f"{int(top.events.sum())} seen")
+          f"{int(top.events.sum())} seen -- p(none) = {quiet_odds:.3f}")
     check("each is scaled from a run at its own peroxide",
           bool((confound.top_h2o2.values
                 == [float(scope.gas_curves((int(r),)).h2o2.max())

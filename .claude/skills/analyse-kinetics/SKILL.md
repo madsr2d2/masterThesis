@@ -175,14 +175,22 @@ plantings) and `ends_holding=True` is the same planting left holding one; the
 gap is the systematic and `curve_metrics.quiet_tail` says which curves carry it.
 
 A FALL THAT COMES STRAIGHT BACK IS NOT GAS. Gas that leaves does not return and
-a bubble cannot grow half its size in one 60 s reading, so `detachments`
-rejects a fall that a nearby reading undoes by more than
-`BUBBLE_RECOVERY_FRACTION` -- since 2026-09-07 looking up to THREE readings
-past the fall, not just the adjacent one, and crediting recovery only up to
-the drop's own size. 27 of 243 candidate falls in the block, two curves losing
-all of theirs; archive-wide it is 40 of 414 and five curves. A curve whose
+a bubble cannot grow half its size in one 60 s reading. Since 2026-09-11 the
+detection layer is SEGMENTATION, not pointwise tests: `step_anomaly` scores
+every step in ONE currency (the step over `local_step_scale`, the median
+|step| in an 8-reading window either side), `bubble_segments` builds the
+phases the beam actually goes through, and both `detachments` and
+`bubble_arrivals` are read off them. A SPIKE IS TWO ADJACENT PHASES THAT
+CANCEL -- smaller half at least `BUBBLE_RECOVERY_FRACTION` of the larger --
+and only the ORDER is asymmetric, because gas cannot leave before it arrived.
+A phase survives one reading of interruption (`BUBBLE_SEGMENT_GAP`), so a
+stuttering release is one event rather than two with a false arrival between
+them. 22 of 233 candidate falls in the block are rejected, two curves losing
+all of theirs; archive-wide it is 33 of 397 and five curves. A curve whose
 net/noise sits below `DETACHMENT_SNR_FLOOR` (30.0) carries no detachments at
-all, which is what excludes exp 150.1.
+all, which is what excludes exp 150.1. `data/bubble_cases.py` is the fixture
+the whole layer is judged against -- 25 curves, each with a verdict and the
+evidence for it -- and `BUBBLES.md` 4.2 and 4.4 have the argument.
 `local_outlier_z` cannot do this job: its window spans the fall, so a genuine
 step flags itself at +130 sigma. `rebuild_smoothness`'s guarantee is
 `worst_at_event`, NOT `rebuilt_worst`; rejected excursions stay in the curve on
@@ -197,7 +205,7 @@ against -260.4 as read and -5.8 on curves that never bubbled. The one survivor,
 exp 135 cuvette 6, has its fall in the FIRST interval -- a bubble grown before
 the run leaves no rise to date it from, and that curve is returned untouched.
 `gas_rate_drivers` is the independent check on the diagnosis: the fitted rate
-is +1.343 +/- 0.255 in peroxide and -0.307 +/- 0.089 in substrate, from a fit
+is +1.356 +/- 0.256 in peroxide and -0.312 +/- 0.089 in substrate, from a fit
 that never saw a concentration.
 
 **The landmark's failure closes a statistic, not the block.** `signal_control`
@@ -209,9 +217,9 @@ depend on that statistic: it holds for ANY clock of the activation step, and
 `induction.joint_clocks` asks it through each in turn BESIDE ITS CONTROL AXIS,
 because the +1 belongs to the activating species and the substrate axis must
 miss it. Pass `gate=` and never `floor=` for a fitted clock. On this block the
-two routes disagree -- 3.7 sigma short through the landmark, 2.3 and 0.8
+two routes disagree -- 3.7 sigma short through the landmark, 2.2 and 0.8
 through the clocks -- and nothing is concluded from it yet, because
-`tau_slow_corrected` is resolved on 34 of 110 curves and the estimate moves
+`tau_slow_corrected` is resolved on 33 of 110 curves and the estimate moves
 +0.76 to +0.92 across cuts: short of +1 on every cut, but never by as much as
 a sigma, so it cannot be rejected there either. It straddled +1 (+0.87 to
 +1.26) until 2026-09-10, on a correction that double-counted arrivals.
@@ -229,7 +237,7 @@ depressing those curves' tails. Routed through `split_arrivals` the row sits
 at +0.757 +/- 0.289, 0.8 sigma below +1 -- and taking peroxide-made gas out
 SHOULD move the ratio away from the +1 it flattered, which is what it now
 does. The correction still moves individual curves: `tau_slow` differs from
-`tau_slow_corrected` on 34 of 110 live curves and `tau` from `tau_corrected`
+`tau_slow_corrected` on 33 of 110 live curves and `tau` from `tau_corrected`
 on 38 of 110. It tightens `tau`'s error (0.196 to 0.149) but not
 `tau_slow`'s (0.261 to 0.289), because arrivals change WHICH curves resolve,
 not only how many.

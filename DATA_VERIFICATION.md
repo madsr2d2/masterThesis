@@ -8,6 +8,244 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-11 — the bubble detection layer rewritten as segmentation
+
+`BUBBLE_REWRITE.md` was the plan; this is the record, and that file is now
+deleted. **Nothing about the falls model, the mass balance or `debubble`
+changed** — the model layer (`A_obs = f + b`, one fitted rate, the three
+bounding clauses, the 2026-09-10 arrival routing) was never what was broken.
+Only the layer that decides WHICH events exist was replaced.
+
+### Why
+
+Not tidiness. The abstraction was wrong. The module detected events
+*pointwise* — a fall here, a rise there, each judged by its own local veto —
+and then tried to recover the physical picture by stitching those points
+together afterwards. The physics is **phases**: the beam alternates between
+accumulating gas and releasing it, over runs of readings, and nothing in the
+code represented one. Fixing the 2026-09-10 defects properly needed four more
+rules and three more constants on top of the existing ones, one of which had
+already been withdrawn for striking out two real curves. That is the
+signature of a wrong decomposition, not of missing care.
+
+The vetoes were also asked in two currencies that could not be compared:
+`BUBBLE_DROP_SIGMA` in units of the curve's global noise for a fall,
+`EXCURSION_LOCAL_SIGMA` in units of the local step for a counter-move.
+
+### What replaced it
+
+- **`step_anomaly(values, noise)`** — one signed score per interval, the step
+  in units of `local_step_scale` (promoted from `_local_step_scale`). The
+  single place "is this step unusual" is decided. `noise` floors the scale;
+  that floor binds on 22148 of 69655 intervals and changes no detachment, no
+  arrival and no falling reading anywhere (364/43/446 either way), which is
+  what a guard should do.
+- **`bubble_segments`** — the phases. A fall is nominated on amplitude alone
+  (chemistry cannot fall); a rise only where it is anomalous against its own
+  neighbourhood (chemistry rises constantly). A phase survives one reading of
+  interruption that gives back less than half of it.
+- **`_excursions`** — a spike is two adjacent phases that cancel. Only the
+  order is asymmetric: gas cannot leave before it arrived.
+- **Deleted**: `_is_excursion`, `EXCURSION_RECOVERY_DEPTH`,
+  `EXCURSION_RECOVERY_CEILING`. The depth extension had no live case left —
+  both curves it was built for (exps 150.1, 151.6) are excluded whole by
+  `DETACHMENT_SNR_FLOOR`. The ceiling is subsumed: a two-sided cancellation
+  test needs no cap, because a counter-move that overshoots does not cancel.
+  **Constants went 7 to 6.**
+
+### The fixture is what made this judgeable
+
+`data/bubble_cases.py` (2026-09-10) exists precisely so this could be judged
+instead of argued about. **All seven OPEN rows flipped to agreeing** — the
+target was five — and 16 of 18 PINNED rows held unchanged. The two that moved:
+
+| row | was | is | why |
+|---|---|---|---|
+| exp 131.1 | ("kept", 18) | ("kept", 17) | readings 215–218 are one stuttering release that strict-consecutive grouping cut in two. Reading 216 was **gained**, not lost |
+| exp 131.2 | ("kept", 19) | ("kept", 17) | readings 66–69 and 143–146, the same shape twice. Readings 67 and 144 gained |
+
+Neither row's *claim* moved: both curves are genuine heavy bubblers the SNR
+floor must leave alone, and it does. The counts were incidental evidence and
+are updated with the reason recorded in the row.
+
+Exp 135.1's fall at readings 272/273 deserves its own line. It survived the
+old test on a **2% margin** (its following step, 3.155e-3, against a
+`2 × baseline` bar of 3.210e-3) and survives the new one by a factor of ten,
+because the four readings after it climb 0.0312 AU against the 0.0027 the
+fall cost — an overshoot, which cancels nothing.
+
+### What moved in the archive
+
+| | before | after |
+|---|---|---|
+| detachment events | 374 | **364** |
+| falling readings inside them | 423 | **434** |
+| readings those events span | 423 | **446** |
+| arrivals | 89 | **43** |
+| curves carrying either | 84 | **83** |
+
+The span now exceeds the falling count by 12: those are the bridged readings
+inside a stuttering release, which belong to the event and are not falls.
+
+**The events are the same falls, grouped better.** 14 pairs of adjacent
+events merged across a one-reading interruption, and the falling readings
+inside events went *up*, 423 → 434: merging a stuttering release recovers the
+falls on the far side of the stutter, which strict-consecutive grouping had
+been leaving in a second event or dropping to the excursion test. Exactly one
+falling reading in the whole archive was lost — exp 44.1 at reading 10 — and
+not to the grouping: it is a 16.7σ rise and a 14.8σ fall in consecutive readings on a
+curve stepping 2.4σ, which the pair rule reads as a spike. The old test kept
+it on a 3% margin.
+
+**The arrivals are the substantive change, and 89 → 43 is larger than the
+prototype predicted (~87).** The prototype had kept the old absolute-σ
+nomination and only added merging; the shipped version applies the one-currency
+rule as designed. The four fates:
+
+| | what happened |
+|---|---|
+| **44** | **not locally anomalous at all** — scored on absolute σ they ran 6.5 to 160σ; scored against their own neighbourhoods, **1.00 to 1.91** |
+| 31 | kept unchanged |
+| 11 | merged into a longer arrival, replaced by the 12 landings they actually end on |
+| 3 | upticks inside a stuttering release — never arrivals (exps 43.1, 135.2) |
+
+The 44 are the point. Exp 13.4's jump at reading 64 is 43.8σ — and the six
+steps around it are 11.8, 11.8, 10.3, 10.9, 14.6 and 12.7 thousandths against
+its 18.4. It had been credited 0.0067 AU of gas for rising 1.6× an ordinary
+step. This is **exp 144.2's documented failure mode turning out to be
+general**: the old rule protected that one curve by refusing to merge any
+rise ever, and left the same mistake standing on 27 others, one step at a
+time.
+
+The 11 are the other half of the repair: exp 44.1 grows one bubble over three
+readings, 0.0667 AU against the 0.0663 the next detachment sheds, and had
+been credited only its largest single step — 0.0231 at reading 89. It is now
+**0.0569 at reading 90**.
+
+### The constant sweeps
+
+Recorded as required, and honestly: **both new constants sit in continua, not
+gaps**, and are chosen on argument rather than on a break in the data.
+
+| `BUBBLE_SEGMENT_GAP` | 0 | 1 | 2 | 3 |
+|---|---|---|---|---|
+| detachment events | 381 | **364** | 352 | 343 |
+| readings those events span | 431 | **446** | 476 | 507 |
+
+One reading is the shortest interruption there is — the unit
+`isolated_outliers` and `BUBBLE_RECOVERY_FRACTION` already work in — and the
+cost of going wider is one-directional: past one reading an event swallows
+ordinary readings faster than it gains falling ones.
+
+| `ANOMALY_BAR` | 1.25 | 1.5 | 1.75 | 2.0 | 2.25 | 2.5 | 3.0 |
+|---|---|---|---|---|---|---|---|
+| arrivals | 75 | 58 | 44 | **43** | 33 | 32 | 24 |
+
+A slope with a short shelf, not a cliff. But **among the 89 arrivals the old
+rule admitted there is a real gap**: the 44 this bar throws out score 1.00 to
+1.91 and the 42 it keeps score 2.06 upward, with nothing between. That is a
+gap among rises that had already passed the kink test, not among all rises.
+Both readings are true and the second is the caveat. The value itself is
+unmoved from `EXCURSION_LOCAL_SIGMA`.
+
+`BUBBLE_RECOVERY_FRACTION` stays 0.5 and now does three jobs — the gap-bridge
+bar, the pair-cancellation bar, and through both, every case in
+`bubble_cases.py` that used to be decided by an `EXCURSION_*` constant.
+Sweeping it 0.3 → 0.7 moves events 353 → 374 and no arrival at all.
+
+### §6.6's bias, re-measured under the new rule
+
+The pair test still compares raw absorbance while the chemistry climbs
+underneath. Detrending it — comparing each phase's gain over an ordinary step
+instead of its raw total — gains **4 detachments on 5 curves** and one
+arrival, and moves nothing published. It also **re-admits exp 149.5**, whose
+falls are the documented instrument excursions that forced the recovery
+clause in the first place. The trade is the same one the old code faced and
+much smaller: 15 falls against that 1 before the rewrite, 4 against it now.
+Left in place, and stated in BUBBLES.md §6.6.
+
+Most of the bias is now absorbed upstream rather than compensated: a
+counter-move only becomes a phase if it is anomalous against its own
+neighbourhood, which is what keeps exp 130.2's two real 12.4σ and 16.6σ
+detachments (neighbours at 1.0× and 1.4×).
+
+### The case the rewrite could have decided by accident
+
+The plan flagged one: exp 139.2's 3720 s jump sits two readings
+before a −4.1σ fall, and segmentation might have paired them and admitted the
+jump without anyone deciding to. **It did not.** 4.1σ is under
+`BUBBLE_DROP_SIGMA`, so no release phase forms there and no pair exists; the
+jump is still rejected on the identical kink score it always had, −4.628σ
+against the −5.0 bar. It remains exactly as unresolvable as the 2026-09-10
+entry says.
+
+### What moved downstream, and what did not
+
+Every published number moved well inside its own standard error:
+
+| | before | after | error |
+|---|---|---|---|
+| two-axis peroxide order, `vmax_corrected`, all live | +0.704 | +0.703 | 0.072 |
+| the same over the strong runs | +0.767 | +0.766 | — |
+| fitted gas rate in peroxide | +1.343 | +1.356 | 0.256 |
+| fitted gas rate in substrate | −0.307 | −0.312 | 0.089 |
+| `tau_slow` joint-clock row | +0.757 (0.84σ) | +0.774 (0.78σ) | 0.291 |
+| `tau` joint-clock row | +0.657 (2.3σ) | +0.678 (2.2σ) | 0.144 |
+| pooled induction pH order | +0.318 | +0.347 | 0.127 |
+
+**The boric ladder was the block the plan named as exposed**: exps 43, 44, 45
+and 49 carried 13 of the 24 curves with arrivals, and `ph/`'s turnover claim
+is read off exps 43 through 49. It was re-checked rather than assumed
+and **it holds**: the rise-then-fall peaks at the same experiments (raw at
+exp 46, `Vmax`-only at exp 48) and the drops move 47.2% → 47.5% and 56.6% →
+57.0%.
+
+Two things moved further and are worth naming:
+
+- **The enzyme pair's clock ratio reversed**, 2.0× longer → 0.6× (shorter),
+  because exp 141 is one of the block's heavier bubblers and its gas-corrected
+  `lag_half_s` went 517 s → 1778 s. `induction/ANALYSIS.md` already called
+  this "a flag, not a result" on two runs 0.07 pH units apart in the block
+  whose signal control fails, and said so "either direction it sits". The
+  direction is now recorded with the reason.
+- **The 136–142 pH ladder's clock slope** went +0.251 ± 0.286 → +0.438 ±
+  0.228. The four ladders still agree (χ² = 1.27 on 3, was 1.06) and the
+  pooled value is unchanged in sign and size.
+
+Two test bars were restated rather than re-fitted. The turnover control's
+`expected < 2.5` crossed to 2.54 without the argument changing, so it is now
+the Poisson probability the argument actually needs (p(none) = 0.079 > 0.05);
+`ph/`'s exp 43 R² bar `> 0.6` became the sign change the sentence asserts
+(uncorrected < 0 < corrected), the corrected value having moved +0.65 → +0.50.
+
+### One incidental correction
+
+`peroxide_saturation`'s F statistic is **32.0**, and was 32.0 before this work
+too. CLAUDE.md quoted 46 and BUBBLES.md "46, was 44" — ungated prose that had
+drifted, exactly the failure `test_root_documents.py` exists for. Both are
+corrected and the statistic now carries a claim in that gate (47 claims, was
+45). The test still rejects `a = 1` decisively; only the figure was wrong.
+
+### Scale
+
+The plan recorded the old detection layer at **810 lines** so the cleanup
+could be measured. The replacement — `local_outlier_z`, `bubble_drops`,
+`local_step_scale`, `step_anomaly`, `bubble_segments`, `_excursions`,
+`detachments`, `bubble_arrivals`, `arrival_candidates`, `_moved_span` — comes
+to **485**, and a larger share of that is docstring than before. The model
+layer (`unreleased_gas`, `bubble_profile`, `bubble_shortfall`, `bubble_rate`,
+`bubble_onset`, `apply_gains`, `debubble`, 411 lines) is untouched.
+
+### Gates
+
+All 26 green (`run_gates.py`, 130 s). All eight folders' figures rebuilt, zero
+clipped marks, every builder exiting 0. `data/test_bubble_cases.py` is 25
+pinned rows and no open ones. `test_the_recovery_depth_extension` is replaced
+by `test_the_phase_pairing`, which tests the pair rule in both orders, the gap
+rule in both directions, and the one-currency claim on exp 144.2 directly.
+
+---
+
 ## 2026-09-10 (second entry) — two limitations in the bubble machinery,
 measured and left in place, and why one of them may not be fixed
 
