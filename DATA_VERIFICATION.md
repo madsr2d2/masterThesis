@@ -8,6 +8,78 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-10 (second entry) — two limitations in the bubble machinery,
+measured and left in place, and why one of them may not be fixed
+
+Both came out of arguing about a single jump on exp 139 cuvette 2 — a 13.8σ
+rise at 3720 s that `bubble_arrivals` does not admit. Neither is a
+correction; both are caveats that were sitting implicit inside a constant,
+and both are now stated in BUBBLES.md §6.5 and §6.6.
+
+**1. The arrival set has a soft edge.** Almost every candidate rise is decided
+by one number — `z_before`, the kink test's score on the reading the jump
+departs from — since `z_after` clears the bar comfortably on all of them.
+Sorted across the archive, those scores run smoothly through the −5.0σ bar:
+closest admitted **−5.05σ**, closest rejected **−4.85σ**, a gap of **0.20σ**,
+densely populated either side. There is no break to calibrate against, unlike
+`DETACHMENT_SNR_FLOOR`, which sits in a real one (nothing between 20.7 and
+36.8). The bar is also inherited rather than chosen: `kink_sigma` defaults to
+`OUTLIER_SIGMA`, pinned for `isolated_outliers` — whether a single reading is
+suspect — not for whether a level stepped.
+
+Consequence: a handful of admitted arrivals sit just past an arbitrary line
+and a handful of rejected ones just short of it. Nothing published rests on
+where it falls (`bubble_sensitivity` moves no order under any repair), but an
+individual jump argued about one curve at a time must be read against this
+distribution rather than against the bar alone. Exp 139.2's 3720 s rise is
+the worked example and is unresolvable on that curve's own evidence: a
+sub-threshold fall two readings later (reading 64, −0.00167 AU, **−4.1σ**,
+under `BUBBLE_DROP_SIGMA` = 6.0 and therefore invisible to everything) partly
+gives the jump back, and whether the level returned to trend cannot be settled
+because the pre-jump baseline sits in the steep rebuild after the 3300 s
+detachment — that slope difference alone accounts for ~0.0013 AU over the
+comparison window, the same size as the effect being measured.
+`scope.arrival_margins` is the table, and `curve_metrics.arrival_candidates`
+is now the single source of truth `bubble_arrivals` filters, so the survey
+cannot drift from the rule it describes.
+
+**2. `_is_excursion` measures recovery in absolute absorbance**, while the
+chemistry climbs underneath — and the bias runs in OPPOSITE directions for
+its two uses. For a fall, the reaction adds to apparent recovery, so a real
+detachment on a fast-rising curve looks more like a spike;
+`_local_step_scale`'s `sigma * baseline` clause exists for this and
+compensates for part of it. For a rise the test runs on the negated curve, so
+the reaction subtracts from apparent recovery and a spike genuinely given back
+can read as having stayed. Nothing compensates that direction.
+
+**Measured, and that is why it was not changed.** A trend-relative variant —
+subtracting the local signed median step before comparing — keeps **15** falls
+the current test rejects as excursions, on 13 curves, and loses none. It moves
+**no arrival at all** (89 before, 89 after), so it would not have resolved the
+jump that prompted the whole investigation. It moves nothing published: the
+block's peroxide order +0.704 → +0.705, the fitted gas rate +1.343 → +1.371,
+the `tau_slow` row +0.757 (0.84σ) → +0.812 (0.63σ), all far inside their own
+errors.
+
+But it re-admits one of **exp 149 cuvette 5**'s four falls — the documented
+instrument excursions that forced the recovery clause, on the curve where an
+unfiltered repair removed 0.0097 AU from a trace that rose 0.0262 and
+flattened a real early rise into a straight line. Exp 135.1 gains one too.
+The obvious escape fails: detrending only the multi-reading depth clause and
+leaving the adjacent-reading test alone changes NOTHING — 374 detachments
+before and after, every pinned case (149.5, 135.1, 130.2, 151.6, 135.6)
+identical. All 15 gained falls come from detrending the adjacent clause,
+which is exactly the clause that re-admits 149.5's spike. The 15 cannot be
+had without the 1.
+
+So the bias is real, now measured, and deliberately left in place: it buys
+nothing published and cannot be separated from a known false positive. If it
+is ever revisited, the thing to find is a recovery test that is trend-relative
+AND still rejects a one-reading spike on a fast-rising curve; detrending alone
+is not it.
+
+---
+
 ## 2026-09-10 — a bubble that arrives and then leaves was being corrected
 with the wrong operator, and a rise released by a confirmed detachment was
 being rejected for being released

@@ -31,7 +31,8 @@ import pandas as pd
 
 from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
                            INITIAL_WINDOW, LAG_THRESHOLD,
-                           OUTLIER_SIGMA, acceleration, bubble_arrivals,
+                           OUTLIER_SIGMA, acceleration, arrival_candidates,
+                           bubble_arrivals,
                            bubble_drops,
                            bubble_load,
                            bubble_rate,
@@ -2356,6 +2357,41 @@ def gas_rate_drivers(scope=TWO_AXIS_BLOCK):
 
 BUBBLE_TREATMENTS = ("vmax", "vmax_corrected", "vmax_monotone",
                      "vmax_terminal")
+
+
+def arrival_margins(scope=None):
+    """
+    Every arrival candidate's deciding kink score, and where the bar sits in
+    them. One row per candidate, `admitted` saying which side it fell.
+
+    THE BAR IS NOT IN A GAP, AND THAT IS THE POINT OF THIS TABLE. Almost every
+    candidate is decided by `z_before` alone -- `z_after` clears
+    `OUTLIER_SIGMA` comfortably on all of them -- and sorted, those scores run
+    smoothly through the bar with nothing on either side of it: the closest
+    admitted and the closest rejected sit about a fifth of a sigma apart.
+
+    Compare `DETACHMENT_SNR_FLOOR`, which is defensible precisely because
+    nothing in the archive sits between 20.7 and 36.8. There is no such break
+    here, so the arrival set has a SOFT EDGE: a handful of admitted arrivals
+    sit just past an arbitrary line, and a handful of rejected ones just short
+    of it. `OUTLIER_SIGMA` is also inherited rather than calibrated for this
+    question -- it was pinned for `isolated_outliers`, which asks whether a
+    single reading is suspect, not whether a level stepped.
+
+    Nothing published rests on where the line falls (`bubble_sensitivity`),
+    but a jump argued about one curve at a time has to be read against this
+    rather than against the bar alone. BUBBLES.md has the account.
+    """
+    rows = []
+    for curve in curves(archive() if scope is None else scope):
+        times = np.asarray(curve.times, dtype=float)
+        values = np.asarray(curve.absorbance, dtype=float)
+        if len(values) < 5 or not np.isfinite(curve.noise) or curve.noise <= 0:
+            continue
+        for row in arrival_candidates(times, values, curve.noise):
+            rows.append({"experiment": curve.experiment,
+                         "sample": curve.sample, **row})
+    return pd.DataFrame(rows)
 
 
 def bubble_sensitivity(scope=TWO_AXIS_BLOCK, treatments=BUBBLE_TREATMENTS,

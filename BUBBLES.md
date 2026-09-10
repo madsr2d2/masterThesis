@@ -544,6 +544,71 @@ confirms no real curve triggers it. The affected test assertion was widened
 from exact equality to a documented, explicit bound rather than silently
 weakened.
 
+### 6.5 The arrival set has a soft edge, and the bar is inherited
+
+Almost every candidate rise is decided by **one number**: `z_before`, the
+kink test's score on the reading the jump departs from. `z_after` clears the
+bar comfortably on all of them, so the verdict turns on that single score
+and the threshold it is compared against.
+
+**That threshold does not sit in a gap.** `scope.arrival_margins` is the
+table. Sorted, the deciding scores run smoothly through the bar: the closest
+admitted sits at **−5.05σ** and the closest rejected at **−4.85σ**, a gap of
+**0.20σ**, with candidates densely either side. Compare
+`DETACHMENT_SNR_FLOOR`, which is defensible exactly because nothing in the
+archive falls between 20.7 and 36.8 — there is no such break here.
+
+**And the bar is inherited rather than calibrated for this question.**
+`bubble_arrivals` takes its `kink_sigma` from `OUTLIER_SIGMA`, pinned for
+`isolated_outliers`, which asks whether a single reading is suspect — not
+whether a level stepped. Nothing has ever been calibrated against the
+arrival question itself, because there is no break in the distribution to
+calibrate against.
+
+So a handful of admitted arrivals sit just past an arbitrary line, and a
+handful of rejected ones just short of it. Nothing published rests on where
+it falls — `bubble_sensitivity` moves no order under any repair — but **an
+individual jump argued about one curve at a time has to be read against
+this**, not against the bar alone. Exp 139 cuvette 2's rise at 3720 s is the
+worked example: a 13.8σ step that misses admission at −4.63σ, argued over at
+length, and unresolvable on that curve's own evidence in either direction.
+
+### 6.6 `_is_excursion` measures recovery in absolute absorbance
+
+The recovery test asks whether an event is undone by what follows, comparing
+raw absorbance while the chemistry climbs underneath. That comparison is
+biased, and **in opposite directions for the two ways the test is used**:
+
+- for a **fall**, the reaction *adds* to the apparent recovery, so a real
+  detachment on a fast-rising curve looks more like a spike.
+  `_local_step_scale`'s `sigma * baseline` clause exists for this and
+  compensates for part of it;
+- for a **rise**, the test runs on the negated curve, so the reaction
+  *subtracts* from the apparent recovery, and a spike that was genuinely
+  given back can read as having stayed. Nothing compensates that direction.
+
+This was measured on 2026-09-10 rather than left as a worry, and **the
+measurement is why nothing was changed**. A trend-relative test — subtracting
+the local signed median step before comparing — would keep 15 falls the
+current one rejects as excursions, on 13 curves, and lose none. It moves no
+arrival at all. It moves nothing published: the block's peroxide order goes
++0.704 → +0.705 and the fitted gas rate +1.343 → +1.371, both far inside
+their own errors.
+
+But it re-admits **exp 149 cuvette 5**, whose four falls are the documented
+instrument excursions that forced the recovery clause in the first place
+(§4.4) — the curve where an unfiltered repair removed 0.0097 AU from a trace
+that rose 0.0262, flattening a real early rise into a straight line. The
+obvious escape does not work: detrending only the multi-reading depth clause
+and leaving the adjacent-reading test alone changes **nothing at all**,
+374 detachments before and after, every pinned case identical. All 15 gained
+falls come from detrending the adjacent clause, which is precisely the clause
+that re-admits 149.5's spike. The 15 cannot be had without the 1.
+
+The bias is therefore real, measured, and deliberately left in place: it buys
+nothing published and cannot be separated from a known false positive.
+DATA_VERIFICATION.md 2026-09-10 has the sweep.
+
 ## 7. Downstream consequences
 
 `vmax_corrected`, `tau_corrected` and `tau_slow_corrected` are the rate and

@@ -1158,6 +1158,38 @@ def bubble_arrivals(times, values, noise, events=None, sigma=BUBBLE_DROP_SIGMA,
     a real archive curve triggers it; `test_bubble_arrivals` sweeps the
     archive.
     """
+    return [(row["index"], row["gain"])
+            for row in arrival_candidates(times, values, noise, events,
+                                          sigma=sigma, recovery=recovery,
+                                          kink_sigma=kink_sigma, window=window,
+                                          depth=depth, floor=floor)
+            if row["admitted"]]
+
+
+def arrival_candidates(times, values, noise, events=None,
+                       sigma=BUBBLE_DROP_SIGMA,
+                       recovery=BUBBLE_RECOVERY_FRACTION,
+                       kink_sigma=OUTLIER_SIGMA,
+                       window=EXCURSION_LOCAL_WINDOW,
+                       depth=EXCURSION_RECOVERY_DEPTH,
+                       floor=DETACHMENT_SNR_FLOOR):
+    """
+    Every rise `bubble_arrivals` considered, with the score that decided it.
+
+    `bubble_arrivals` IS this, filtered on `admitted` -- one source of truth
+    for a verdict that three documents now quote, rather than a survey that
+    reimplements the rule it is meant to describe.
+
+    One dict per candidate: `index` (the reading the jump lands on), `gain`,
+    `step_sigma`, `z_before` / `z_after` (the kink test's two scores),
+    `released` (a confirmed detachment departs within `depth`, so the recovery
+    veto is skipped), `excursion` (the veto's verdict where it was asked) and
+    `admitted`.
+
+    WHAT IT IS FOR: `z_before` is what decides almost all of them, and
+    `scope.arrival_margins` reads this to show WHERE the bar falls in that
+    distribution. It falls in a continuum, not a gap -- see BUBBLES.md.
+    """
     times = np.asarray(times, dtype=float)
     values = np.asarray(values, dtype=float)
     if len(values) < 2 or not np.isfinite(noise) or noise <= 0:
@@ -1173,24 +1205,31 @@ def bubble_arrivals(times, values, noise, events=None, sigma=BUBBLE_DROP_SIGMA,
         return []
     z = local_outlier_z(times, values, noise)
     releases = [start for start, _ in events]
-    arrivals = []
+    rows = []
     for index in candidates:
         index = int(index)
         start, stop = index, index + 1
         released = any(0 <= release - stop <= depth for release in releases)
-        if not released and _is_excursion(-values, (start, stop),
-                                          recovery=recovery, window=window):
-            continue
-        before, after = z[start], z[stop]
-        if not (np.isfinite(before) and np.isfinite(after)):
-            continue
-        if before > -kink_sigma or after < kink_sigma:
-            continue
+        excursion = (False if released
+                     else _is_excursion(-values, (start, stop),
+                                        recovery=recovery, window=window))
+        before, after = float(z[start]), float(z[stop])
         baseline = _local_step_scale(values, start, stop, window)
         gain = max(float(values[stop] - values[start]) - baseline, 0.0)
-        if gain > 0:
-            arrivals.append((stop, gain))
-    return arrivals
+        kinked = (np.isfinite(before) and np.isfinite(after)
+                  and before <= -kink_sigma and after >= kink_sigma)
+        rows.append({
+            "index": stop,
+            "time_s": float(times[stop]),
+            "gain": gain,
+            "step_sigma": float((values[stop] - values[start]) / noise),
+            "z_before": before,
+            "z_after": after,
+            "released": released,
+            "excursion": excursion,
+            "admitted": bool(not excursion and kinked and gain > 0),
+        })
+    return rows
 
 
 def split_arrivals(arrivals, events):

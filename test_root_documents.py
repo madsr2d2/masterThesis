@@ -316,6 +316,32 @@ def main():
               f"{agreement.loc[[135, 138, 139, 140, 142]].agreement.max():.3f}")
     doc.claim("the skill: that range", "0.92 to\n  0.97", document=SKILL)
 
+    doc.section("the arrival set's soft edge, as BUBBLES.md states it")
+    # BUBBLES.md 6.5 argues from WHERE the kink bar falls in the distribution
+    # of the score that decides almost every candidate. That is a claim about
+    # a continuum, so it needs the two numbers either side of the bar and the
+    # gap between them, re-derived rather than remembered.
+    margins = scope.arrival_margins()
+    decided = margins[margins.z_after >= curve_metrics.OUTLIER_SIGMA]
+    admitted = decided[decided.admitted].z_before
+    rejected = decided[~decided.admitted & (decided.z_before > -curve_metrics.OUTLIER_SIGMA)].z_before
+    doc.check("the bar is inherited from OUTLIER_SIGMA",
+              curve_metrics.OUTLIER_SIGMA == 5.0,
+              f"{curve_metrics.OUTLIER_SIGMA}")
+    doc.claim("BUBBLES.md: the closest admitted candidate",
+              f"**{admitted.max():.2f}σ**", document=BUBBLES)
+    doc.claim("BUBBLES.md: and the closest rejected one",
+              f"**{rejected.min():.2f}σ**", document=BUBBLES)
+    doc.claim("BUBBLES.md: the gap between them",
+              f"**{abs(admitted.max() - rejected.min()):.2f}σ**",
+              document=BUBBLES)
+    doc.check("which is a continuum, not a gap -- under half a sigma",
+              abs(admitted.max() - rejected.min()) < 0.5,
+              f"{abs(admitted.max() - rejected.min()):.2f} sigma")
+    doc.check("and the whole archive's arrivals are few enough to name",
+              int(margins.admitted.sum()) == 89,
+              f"{int(margins.admitted.sum())}")
+
     doc.section("every guarded document is real and was actually read")
     # The guard is worth nothing if a path stopped resolving: a missing file
     # would make every `present=False` claim pass by finding nothing.
