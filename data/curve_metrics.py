@@ -1311,12 +1311,25 @@ def arrival_candidates(times, values, noise, events=None,
     for a verdict that three documents now quote, rather than a survey that
     reimplements the rule it is meant to describe.
 
-    One dict per `accumulate` phase: `index` (the reading the jump lands on),
-    `gain`, `step_sigma` (the whole phase, in units of the curve's noise),
-    `anomaly` (its largest step in units of the local one), `z_before` /
-    `z_after` (the kink test's two scores), `excursion` (whether `_excursions`
-    paired it off against an adjacent fall), `sized` (whether it moves enough
-    to be an event at all) and `admitted`.
+    One dict per `accumulate` phase: `start` and `index` (the readings the
+    jump departs from and lands on), `gain`, `step_sigma` (the whole phase, in
+    units of the curve's noise), `anomaly` (its largest step in units of the
+    local one), `z_before` / `z_after` (the kink test's two scores),
+    `excursion` (whether `_excursions` paired it off against an adjacent
+    fall), `sized` (whether it moves enough to be an event at all) and
+    `admitted`.
+
+    `start` IS THE ONLY PLACE AN ARRIVAL'S EXTENT IS REPORTED. `bubble_arrivals`
+    returns `(index, gain)` and `split_arrivals` and `apply_gains` both need
+    only those, because a released arrival is paid for at its landing and an
+    unreleased one shifts the curve from its landing on -- neither operator
+    cares how many readings the gas took to arrive. A DRAWING does: a page
+    that marks an arrival at `index - 1 .. index` marks one reading of a
+    bubble that grew over four, which is exactly the thing the 2026-09-11
+    merge fixed and precisely what such a page exists to show. Exp 44.1's
+    arrival spans readings 87-90, exp 138.4's 394-398, exp 135.1's 273-277 and
+    exp 49.1's 110-112. Added 2026-09-11 after `scratch/detection_review.html`
+    drew all four one interval wide.
 
     WHAT IT IS FOR: `z_before` is what decides most of the ones that get this
     far, and `scope.arrival_margins` reads this to show WHERE the bar falls in
@@ -1351,6 +1364,7 @@ def arrival_candidates(times, values, noise, events=None,
         excursion = position in spikes
         sized = rise >= sigma * noise
         rows.append({
+            "start": start,
             "index": stop,
             "time_s": float(times[stop]),
             "gain": gain,

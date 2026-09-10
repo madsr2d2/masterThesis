@@ -70,11 +70,29 @@ def _discard(module):
 
 
 def _read(module, curve):
-    """One version's verdict on one curve: events and arrivals."""
+    """
+    One version's verdict on one curve: events, and arrivals AS SPANS.
+
+    `bubble_arrivals` returns `(landing, gain)` -- the operators that consume
+    it do not need the extent -- so the span comes from `arrival_candidates`'
+    `start`, which is the only place it is reported.
+
+    THE OLD MODULE HAS NO `start`, AND ITS ABSENCE IS THE FINDING. Before the
+    rewrite every arrival was exactly one interval by construction: candidates
+    were single steps and were never merged. So `index - 1` is not a fallback
+    that loses information there, it is that version's answer -- and drawing
+    the two columns this way is what makes the merge visible at all.
+    """
     times = np.asarray(curve.times, dtype=float)
     values = np.asarray(curve.absorbance, dtype=float)
     events = module.detachments(values, curve.noise)
-    arrivals = module.bubble_arrivals(times, values, curve.noise, events)
+    landings = dict(module.bubble_arrivals(times, values, curve.noise, events))
+    spans = {}
+    for row in module.arrival_candidates(times, values, curve.noise, events):
+        if row["admitted"]:
+            spans[row["index"]] = row.get("start", row["index"] - 1)
+    arrivals = [(spans.get(index, index - 1), index, gain)
+                for index, gain in sorted(landings.items())]
     return events, arrivals
 
 
@@ -105,7 +123,13 @@ def _draw(curve, events, arrivals, window=None):
         # rather than nothing at all. On a curve with seventeen events and a
         # twenty-reading window that is fifteen smears down the edges, and it
         # reads as detections the panel is not making.
-        if hi_index < shift or lo_index > shift + len(times) - 1:
+        #
+        # THE TEST IS STRICT, because an event that ENDS on the window's first
+        # reading, or STARTS on its last, has no positive-width overlap with
+        # what is drawn -- it happened outside. A non-strict test clamped both
+        # its edges onto that one boundary reading and drew the same
+        # zero-width band, which is how exp 49.1 carried two of them.
+        if hi_index <= shift or lo_index >= shift + len(times) - 1:
             return
         lo = float(times[max(0, lo_index - shift)])
         hi = float(times[min(len(times) - 1, hi_index - shift)])
@@ -115,8 +139,8 @@ def _draw(curve, events, arrivals, window=None):
 
     for start, stop in events:
         band(start, stop, EVENT_BAND_COLOUR)
-    for index, _gain in arrivals:
-        band(index - 1, index, ARRIVAL_BAND_COLOUR)
+    for start, index, _gain in arrivals:
+        band(start, index, ARRIVAL_BAND_COLOUR)
     axes.line(times, values, MUTED, width=0.9, opacity=0.6)
     axes.points(times, values, MUTED, radius=2.4, opacity=0.9,
                 stroke="white", stroke_width=0.7)
@@ -158,18 +182,20 @@ def _pair(curve, before, after, window, heading, note):
     new_events, new_arrivals = _read(after, curve)
     inside = lambda pairs: [p for p in pairs
                             if window[0] <= p[0] <= window[1]]
+    landed = lambda arrivals: [a for a in arrivals
+                               if window[0] <= a[1] <= window[1]]
     left = panel(
         f"before &mdash; {len(old_events)} detachments, "
         f"{len(old_arrivals)} arrivals",
         f"{len(inside(old_events))} and "
-        f"{len([a for a in old_arrivals if window[0] <= a[0] <= window[1]])} "
+        f"{len(landed(old_arrivals))} "
         f"in this window",
         _draw(curve, old_events, old_arrivals, window))
     right = panel(
         f"after &mdash; {len(new_events)} detachments, "
         f"{len(new_arrivals)} arrivals",
         f"{len(inside(new_events))} and "
-        f"{len([a for a in new_arrivals if window[0] <= a[0] <= window[1]])} "
+        f"{len(landed(new_arrivals))} "
         f"in this window",
         _draw(curve, new_events, new_arrivals, window))
     return (f"<h3>{heading}</h3>"
@@ -196,8 +222,8 @@ def _classify(before, after, lookup):
             continue
         old_falls = {i for a, b in old_events for i in range(a, b)}
         new_falls = {i for a, b in new_events for i in range(a, b)}
-        old_landings = {i for i, _ in old_arrivals}
-        new_landings = {i for i, _ in new_arrivals}
+        old_landings = {i for _, i, _ in old_arrivals}
+        new_landings = {i for _, i, _ in new_arrivals}
         if (len(new_events) < len(old_events)) and new_falls >= old_falls:
             merged.append((key, (len(old_events), len(new_events))))
         gained = sorted(new_landings - old_landings)
