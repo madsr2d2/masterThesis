@@ -550,6 +550,38 @@ def _asymptote(fit, times):
     return (intercept, intercept + v_ss * float(times[-1]))
 
 
+def _initial_tangent(fit, times):
+    """
+    The fitted curve's tangent at t = 0: `A(0) + v(0).t`.
+
+    THE OTHER END OF THE SAME FUNCTION. `_asymptote` is the line the fit
+    settles onto as t -> infinity and this is the line it leaves from, so its
+    slope is the fitted initial rate `v(0) = v_ss - sum B_i/tau_i` -- read off
+    `ProgressFit.rate`, which is the analytic derivative, not differenced.
+
+    AND THE TWO LINES CHECK EACH OTHER. They cross where
+    `t = sum B_i / sum (B_i/tau_i)`, which on a one-phase fit is EXACTLY tau:
+    the rule the panel draws at tau passes through their intersection. On a
+    two-phase fit the crossing is a mixture of both clocks, weighted by
+    amplitudes that may carry opposite signs, and is not a clock of anything
+    -- so it is drawn but never marked.
+
+    NOT `scope.frame`'s `v0`. That column is `curve_metrics.initial_rate`, a
+    line fitted to the first 20% of the READINGS, which is a window and an
+    estimator; this is the drawn function's own slope at its own origin. On an
+    accelerating curve the two can differ by the whole of the induction.
+
+    Returns (v0, (y0, y1)) at the ends of `times`, or None where the form did
+    not resolve.
+    """
+    rate = fit.rate(np.array([0.0]))
+    start = fit.predict(np.array([0.0]))
+    if not (np.isfinite(rate[0]) and np.isfinite(start[0])):
+        return None
+    v0, y0 = float(rate[0]), float(start[0])
+    return v0, (y0, y0 + v0 * float(times[-1]))
+
+
 def _clocks(fit):
     """
     The drawn fit's own time constants, as (time, label) pairs.
@@ -698,6 +730,13 @@ def progress_panel(fit, row, conditions, subhead, footer="", marks=(),
     if ends is not None:
         axes.line([0.0, float(times[-1])], list(ends), chem_colour,
                   width=1.0, dash="1 3", opacity=0.7)
+    # AND THE TANGENT AT t = 0: v(0), the other end of the same function.
+    # Dashed where the asymptote is dotted, so the two read apart; full width
+    # like it, so on a one-phase fit the tau rule lands on their crossing.
+    tangent = _initial_tangent(chem_fit, times)
+    if tangent is not None:
+        axes.line([0.0, float(times[-1])], list(tangent[1]), chem_colour,
+                  width=1.0, dash="5 3", opacity=0.7)
 
     # THE FIT'S OWN CLOCKS, in the colour of the fit they belong to. Nothing
     # here is labelled with its estimator, because the estimator is the fitted
@@ -713,11 +752,31 @@ def progress_panel(fit, row, conditions, subhead, footer="", marks=(),
     # it IS the maximum of that curve. Marked there rather than as a vertical
     # through the readings, where a rate has no position to point at.
     peak, peak_at = chem_fit.peak_rate
+    peak_label = None
     if np.isfinite(peak) and np.isfinite(peak_at) and 0 < peak_at < times[-1]:
         drax.points([peak_at], [peak], chem_colour, radius=3.0, stroke="white",
                     stroke_width=0.8)
-        drax.note(drax._fx(peak_at) + 4, drax._fy(peak) - 4,
-                  f"v_peak {peak:.2e}", chem_colour, size=9.0)
+        peak_label = (drax._fx(peak_at) + 4, drax._fy(peak) - 4)
+        drax.note(*peak_label, f"v_peak {peak:.2e}", chem_colour, size=9.0)
+    # v(0) THE SAME WAY, at the strip's left end: the dashed tangent above is
+    # its geometry and this is its number. It is the derivative curve's own
+    # value at t = 0, so it sits on that curve by construction.
+    #
+    # ITS LABEL GOES BELOW THE POINT whenever it would otherwise meet
+    # v_peak's, which always sits above its own. That is a curve whose rate
+    # peaks early at close to where it started, and it was 72 of the 690
+    # panels when both labels went above; below is also where the label has to
+    # go when v(0) IS the strip's maximum, as on a burst, or it leaves the top.
+    if tangent is not None:
+        v0 = tangent[0]
+        drax.points([0.0], [v0], chem_colour, radius=3.0, stroke="white",
+                    stroke_width=0.8)
+        x, above = drax._fx(0.0) + 5, drax._fy(v0) - 4
+        near = (peak_label is not None and abs(peak_label[0] - x) < 75
+                and abs(peak_label[1] - above) < 11)
+        top = not np.isfinite(peak) or v0 >= peak
+        drax.note(x, drax._fy(v0) + 12 if (near or top) else above,
+                  f"v(0) {v0:.2e}", chem_colour, size=9.0)
 
     # THE GAS, LABELLED. One label per detachment and one per arrival, so the
     # two directions read apart at a glance: a detachment is dashed, an

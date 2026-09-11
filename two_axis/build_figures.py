@@ -498,6 +498,7 @@ def build_curves_page():
             "<code>v_ss</code> as its slope and <code>ΣB</code> as its "
             "distance from the curve at t = 0, and every parameter of the "
             "function printed in each header is visible on the drawing. "
+            "The long-dashed line from the curve's start is its tangent at t = 0, whose slope is the fitted initial rate <code>v(0) = v_ss − ΣB/τ</code>, labelled on the derivative strip; on a one-phase fit it crosses the asymptote exactly at τ. "
             "<code>v_peak</code> is marked on the derivative strip, where it "
             "is the maximum rather than a guess at one. Anything drawn in "
             "brackets — <em>v_max (20% block)</em> — is a different estimator "

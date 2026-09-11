@@ -398,7 +398,7 @@ def build_curves_page():
             "where its profile interval resolves. The dotted line is the "
             "asymptote <code>c − ΣB + v_ss·t</code>, so <code>v_ss</code> is "
             "its slope and <code>ΣB</code> its distance from the curve at "
-            "t = 0. A mark in brackets is a different estimator and names it: "
+            "t = 0. The long-dashed line from the curve's start is its tangent at t = 0, whose slope is the fitted initial rate <code>v(0) = v_ss − ΣB/τ</code>, labelled on the derivative strip; on a one-phase fit it crosses the asymptote exactly at τ. A mark in brackets is a different estimator and names it: "
             "<em>v_max (20% block)</em> is the steepest 20% window of the "
             "readings, not a fitted parameter. Where a curve carries gas, "
             "purple is the reconstruction "
