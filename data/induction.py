@@ -1193,7 +1193,7 @@ def joint_clocks(table, axis="h2o2", control="s0", rate="vmax_corrected",
     return pd.DataFrame(rows).set_index(["clock", "role"])
 
 
-def peroxide_ladder(table):
+def peroxide_ladder(table, parameter="vmax"):
     """
     The cuvettes that move [H2O2] with everything else held, one row each.
 
@@ -1201,8 +1201,18 @@ def peroxide_ladder(table):
     top peroxide, four step the peroxide at the top substrate. Only the second
     arm is a peroxide ladder, and taking the whole run instead puts the
     substrate ladder into a fit that has no term for it.
+
+    `parameter` is the rate the ladder will be asked about, and only curves
+    where it is finite and positive are kept. It was `table.vmax > 0` whatever
+    `peroxide_saturation` was asked to fit, which held while that was always
+    `vmax` -- positive on every live curve -- and broke the first time it was
+    not: the fitted rate at t = 0 is negative on the early-trough curves and
+    the log of it took the profile down with it. Found 2026-09-11 by
+    `rate_choice`, the first caller to vary the rate.
     """
-    live = table[table.live & (table.vmax > 0) & (table.h2o2 > 0)]
+    rate = table[parameter].to_numpy(dtype=float)
+    live = table[table.live & np.isfinite(rate) & (rate > 0)
+                 & (table.h2o2 > 0)]
     if not len(live):
         return live
     top = live.groupby("experiment").s0.transform("max")
@@ -1232,7 +1242,7 @@ def peroxide_saturation(table, parameter="vmax", grid=SATURATION_GRID,
     first order, and the profiled K with a 95% interval and the perhydrate
     fraction it implies at the archive's working 82.5 mM.
     """
-    ladder = peroxide_ladder(table)
+    ladder = peroxide_ladder(table, parameter)
     if len(ladder) < 10:
         return {"points": int(len(ladder))}
     h = ladder.h2o2.to_numpy(dtype=float)

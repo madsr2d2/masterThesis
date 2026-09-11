@@ -535,6 +535,16 @@ def _frame(scope):
             "v_peak_corrected_time": float(progress_fixed.peak_rate[1]),
             "v0_fit_corrected": float(progress_fixed.rate(np.array([0.0]))[0]),
             "v0_fit_resolved_corrected": bool(progress_fixed.chosen.resolved),
+            # AND THE SAME FIT'S t -> INFINITY SLOPE, which `v_ss` below is
+            # NOT: that column is `fit_burst_bounded`'s, the one-phase form,
+            # while this is the drawn `fit_progress` form -- the dotted
+            # asymptote on every curves page. With `v0_fit_corrected` and
+            # `v_peak_corrected` it completes the three rates the fitted
+            # function defines, so `rate_choice` can put all three beside
+            # `vmax` without fitting anything. On a two-phase curve it is an
+            # extrapolation past the decline and can be negative; read
+            # `rate_choice.candidate_coverage` before using it.
+            "v_ss_fit_corrected": float(progress_fixed.v_ss),
             "tau_fast": float(progress.two.tau1 if progress.phases == 2
                               else burst.tau),
             "tau_slow": float(progress.two.tau2 if progress.phases == 2
@@ -968,7 +978,7 @@ ORDER_PARAMETERS = ("v0", "vmax", "net", "gain")
 AGREEMENT_FLOOR = 0.70
 
 
-def strong_runs(scope=TWO_AXIS_BLOCK, floor=AGREEMENT_FLOOR):
+def strong_runs(scope=TWO_AXIS_BLOCK, floor=AGREEMENT_FLOOR, parameter="vmax"):
     """
     The experiments whose own cuvettes predict their own rates.
 
@@ -976,8 +986,15 @@ def strong_runs(scope=TWO_AXIS_BLOCK, floor=AGREEMENT_FLOOR):
     are measured over these; quoting them over all 17 runs moves the substrate
     order of vmax from +0.01 to +0.11 and drops the fit's R2 from 0.88 to 0.81,
     because the runs that fail this test contribute scatter and no signal.
+
+    WHICH RUNS ARE STRONG IS ITSELF A CHOICE OF RATE. `parameter` is the rate
+    `concentration_agreement` correlates with each run's composition, and it
+    was fixed at `vmax` with nothing to say so -- so every "over the strong
+    runs" in this package inherited that estimator twice, once in the
+    response and once in the selection. `rate_choice.strong_runs_by_rate`
+    varies it.
     """
-    table = concentration_agreement(scope)
+    table = concentration_agreement(scope, parameter=parameter)
     return tuple(sorted(int(e) for e in
                         table.index[table.agreement >= floor]))
 

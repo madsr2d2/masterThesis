@@ -270,12 +270,27 @@ def independent_check():
     }
 
 
-def rate_ladders(parameter="vmax", terms=RATE_TERMS, ladders=None):
-    """Every pH ladder's rate order, read the same way. `scope.PH_LADDERS`."""
+def rate_ladders(parameter="vmax", terms=RATE_TERMS, ladders=None,
+                 frame=None):
+    """
+    Every pH ladder's rate order, read the same way. `scope.PH_LADDERS`.
+
+    `frame` restricts every ladder to rows of a caller's table, still through
+    `_ladder_scope` so a two-axis ladder keeps only its strong runs.
+    `rate_choice` passes one masked to a common set of curves, so that
+    comparing two rate columns compares the columns and not which curves each
+    happened to keep. A ladder read this way carries no schedule control --
+    see `rate_ladder` -- which prices the order and does not move it.
+    """
     ladders = scope.PH_LADDERS if ladders is None else ladders
     rows = []
     for name, experiments in ladders.items():
-        result = rate_ladder(experiments, parameter=parameter, terms=terms)
+        if frame is None:
+            result = rate_ladder(experiments, parameter=parameter, terms=terms)
+        else:
+            kept = _ladder_scope(experiments)
+            result = rate_ladder(experiments, parameter=parameter, terms=terms,
+                                 frame=frame[frame.experiment.isin(kept)])
         result["ladder"] = name
         rows.append(result)
     return rows

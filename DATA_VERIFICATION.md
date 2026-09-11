@@ -94,6 +94,54 @@ the numbers above. All 27 routine gates pass, plus the optimiser suite.
 
 ---
 
+## 2026-09-11 (second entry) — which rate an order is measured on: the comparison, and one latent bug it found
+
+`vmax` (`curve_metrics.peak_rate`, the steepest 20% block slope of the
+readings) is the rate nearly every headline order in the package is measured
+on, and it is not a parameter of the fitted function the curves pages draw.
+Before deciding whether to replace it, `data/rate_choice.py` puts every
+headline result on six candidates side by side -- `vmax`, `vmax_corrected`,
+and the drawn gas-corrected fit's own v(0), peak, in-run peak and v_ss --
+routing each through the SAME functions that produced the published numbers.
+`data/test_rate_choice.py` gates that its `vmax` column IS those functions
+called the published way.
+
+**No number from the comparison is recorded here as a finding**, because
+none has been adopted; the decision it informs is still open.
+
+Three pieces of plumbing it needed, none of which moves a published number:
+
+- `scope.frame` carries `v_ss_fit_corrected`, the drawn fit's asymptote. The
+  existing `v_ss` column is `fit_burst_bounded`'s one-phase form, not the
+  function the panels draw.
+- `scope.strong_runs` takes `parameter` (default `vmax`, unchanged). Which
+  runs count as strong is itself a choice of rate, and it had been fixed
+  with nothing to say so.
+- `ph_role.rate_ladders` takes an optional `frame`, applied through the
+  existing `_ladder_scope`. Handed the archive's own frame it reproduces the
+  default path ladder by ladder (gated).
+
+**The latent bug.** `induction.peroxide_ladder` filtered on `table.vmax > 0`
+whatever rate `peroxide_saturation` was asked to fit -- so its `parameter`
+argument was only half-honoured. That was invisible while every caller used
+`vmax`, which is positive on every live curve, and crashed on the first caller
+to vary it: the fitted v(0) is negative on the early-trough curves and the log
+of it emptied the profile. It now filters on the rate it is asked about. For
+`vmax` the ladder is exactly the one the old filter built (gated, 63 curves),
+so the published saturation test (F = 32) is unchanged.
+
+**One design lesson, recorded because the obvious version is wrong.** Holding
+every candidate to one common set of curves -- so a difference is the
+statistic and not the sample -- was tried first as a single mask over all six.
+It is not neutral: between them the fitted v(0) and v_ss go non-positive on
+every curve of exps 44 and 49, the boric ladder's two runs above pH 10, which
+ARE its turnover. The joint mask quietly truncated that ladder below its peak
+and moved even plain `vmax`'s boric order from -0.034 to +0.186. The shipped
+version pairs each candidate with the reference on that candidate's own
+usable curves, and `candidate_coverage` names the whole runs each one loses.
+
+---
+
 ## 2026-09-11 — the bubble detection layer rewritten as segmentation
 
 `BUBBLE_REWRITE.md` was the plan; this is the record, and that file is now
