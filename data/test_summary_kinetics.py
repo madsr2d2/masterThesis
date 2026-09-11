@@ -23,7 +23,10 @@ import pandas as pd
 from fit_dataset import build_curves, group_curves
 from summary_kinetics import (ABSORPTION_FLOOR, BURST_TAU_CAP, DEAD_CURVE_SNR,
                               DESIGN_AXES, INITIAL_WINDOW,
-                              ActivationSinkFit, fit_activation_sink, fit_burst,
+                              ActivationSinkFit, InhibitionFit, TwoStepFit,
+                              fit_activation_inhibition, fit_activation_sink,
+                              fit_burst, fit_two_step_activation,
+                              _two_step_integral, _two_step_survival,
                               fit_progress, fit_two_phase, line_fit,
                               _two_phase_design,
                               OUTLIER_FACTOR, REPLICATE_RSD, absorbed_axes,
@@ -692,6 +695,62 @@ def test_activation_sink_form():
           f"{fit.acceleration:.2e} in {fit.acceleration_interval}")
 
 
+def test_two_step_and_inhibition_forms():
+    """
+    The two alternatives to the sink solve their own rate laws and recover
+    what was planted -- and the two-step form's rate leaves t = 0 flat, which
+    is the whole of what distinguishes it from one relaxation.
+    """
+    print("\ntwo-step activation and product inhibition")
+    times = np.arange(0, 100) * 60.0
+    generator = np.random.default_rng(5)
+    # H is the integral of S, checked by the trapezium rule, including the
+    # degenerate and one-step limits where the closed form changes.
+    worst = 0.0
+    for a, b in ((300.0, 1500.0), (800.0, 800.0), (0.0, 900.0), (799.9, 800.0)):
+        survival = _two_step_survival(times, a, b)
+        numeric = np.concatenate([[0.0], np.cumsum(
+            (survival[1:] + survival[:-1]) / 2 * np.diff(times))])
+        h = _two_step_integral(times, [a], [b])[0]
+        worst = max(worst, float(np.max(np.abs(h - numeric)) / np.max(h)))
+    check("H is the integral of S, at every limit", worst < 1e-3,
+          f"worst {worst:.1e} of the trapezium rule's own error")
+    planted = TwoStepFit(0.1, 0.0, 2e-5, 600.0, 1500.0, 0.0, 0.0, 0.0,
+                         len(times))
+    check("the two-step rate leaves t = 0 flat",
+          abs(planted.rate(np.array([0.0, 1.0]))[1]) < 1e-9)
+    fit = fit_two_step_activation(
+        times, planted.predict(times) + generator.normal(0, 2e-4, len(times)))
+    check("a two-step activation earns its second step", fit.step_earned,
+          f"F {fit.step_f:.1f}")
+    check("and recovers both clocks", abs(fit.tau1 - 600) < 0.3 * 600
+          and abs(fit.tau2 - 1500) < 0.3 * 1500,
+          f"{fit.tau1:.0f} s and {fit.tau2:.0f} s")
+    check("and v_act", abs(fit.v_act - 2e-5) < 0.05 * 2e-5, f"{fit.v_act:.3e}")
+
+    planted = InhibitionFit(0.1, 1e-6, 3e-5, 700.0, 0.05, 0.0, len(times))
+    product = planted.predict(times) - 0.1
+    production = 3e-5 + (1e-6 - 3e-5) * np.exp(-times / 700.0)
+    check("the inhibition rate is its rate law's",
+          np.max(np.abs(planted.rate(times)
+                        - production / (1 + product / 0.05))) < 1e-15)
+    noisy = planted.predict(times) + generator.normal(0, 2e-4, len(times))
+    one = fit_burst(times, noisy)
+    fit = fit_activation_inhibition(
+        times, noisy, starts=[(one.v0, one.v_ss, one.tau, 1e3)])
+    # Ki trades against tau and v_act along a real valley (0.017 at 1500 s
+    # fits some draws as well as 0.045 at 780 s), so what a fit OWES is the
+    # bottom of it: a cost no higher than the planted curve's own. Ki itself
+    # is only held to the valley's width.
+    truth = float(((noisy - planted.predict(times)) ** 2).sum())
+    check("an inhibited curve is fitted to its own minimum from a one-phase "
+          "start", fit.sse <= truth, f"{fit.sse:.3e} against {truth:.3e}")
+    check("with Ki inside the valley", 0.05 / 3 < fit.ki < 0.05 * 3,
+          f"{fit.ki:.3f}")
+    check("and fits far better than the one-phase form it nests",
+          fit.sse < 0.2 * one.sse, f"{fit.sse:.2e} against {one.sse:.2e}")
+
+
 if __name__ == "__main__":
     test_line_slope()
     test_line_intercept_and_floor()
@@ -707,5 +766,6 @@ if __name__ == "__main__":
     test_real_block()
     test_two_phase_and_selection()
     test_activation_sink_form()
+    test_two_step_and_inhibition_forms()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

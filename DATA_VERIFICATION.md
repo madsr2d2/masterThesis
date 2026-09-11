@@ -8,6 +8,95 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-11 (fifth entry) — the 100 curves the activation-sink form cannot hold
+
+Every curves page now draws the activation-sink form (dashed slate) beside the
+chosen fit, with its rate on the derivative strip, v_act as a dotted level
+where resolved, and its parameters in the footer. This entry is what the 100
+live curves whose two-phase free asymptote beats it
+(`asymptote_f_corrected` > 12) turned out to be. `data/activation_sink.py`
+prints all of it; **nothing is adopted**.
+
+**What the extra parameter is.** With k ≤ 1/τ the two-phase form IS the
+activation-sink form plus a straight line d·t, and d is the two-phase form's
+v_ss. So the question for each curve is what that line is, and the same six
+parameters carry several chemical readings that one curve cannot tell apart.
+Two five-parameter alternatives were added to `summary_kinetics` so that each
+reading could be asked of every curve beside the sink:
+
+- `fit_two_step_activation` -- E → E′ → E\*, a rate leaving t = 0 FLAT and
+  rising sigmoidally. In two-phase terms it is B₁ < 0 < B₂ with
+  B₁τ₂² + B₂τ₁² = 0, the sign pattern `TwoPhaseFit.kind` calls "mixed" and
+  reads as a burst followed by a lag. Nested in the two-phase form.
+- `fit_activation_inhibition` -- the same production slowed as
+  1/(1 + P/Ki): no plateau, a decline slower than any exponential.
+
+**A fault in the inhibition fit, found by its own recovery test.** Far out in
+Ki the form is the one-phase form plus a term shrinking as 1/Ki, the cost is
+flat in log Ki, and an optimiser started there never left: a planted Ki of
+0.05 came back as 1562 at the one-phase form's own cost. A Ki ladder fixed the
+start but left it resting in the valley at χ² 8 above the planted truth. Starts
+from the linearisation P + P²/(2Ki) = V(t), a three-column solve per τ node,
+now land in the valley, and over 20 noise draws the fit reaches 0.3 to 9.7 in
+χ² BELOW the truth. Ki is not well identified along that valley (0.017 at
+1500 s fits some draws as well as 0.045 at 780 s), so the test now asks for
+the minimum and holds Ki only to the valley's width. Before the fix, the
+whole-curve sink-versus-inhibition count on catalysed 4OMe read 27 to 13; it is
+22 to 15.
+
+**The 100, by what each is** (`remaining_summary`). "Rescued" means a five-
+parameter chemistry is within F = 12 of the two-phase form on one degree of
+freedom, so the free asymptote is no longer needed:
+
+| group | curves | best five-parameter form | rescued |
+|---|---|---|---|
+| gas (carries a detachment) | 40 | two-step 26, sink 8, inhibition 6 | 8 |
+| second rise, gas-free | 27 | two-step 23 | 3 |
+| floor, gas-free | 28 (22 catalysed) | inhibition 19 | 13 (11 by inhibition) |
+| through zero, gas-free | 5 | sink 3 | 0 |
+
+24 of the 100 are rescued. What the rest say:
+
+- **Gas (40, all catalysed).** 40% of the 100 carry a detachment against 13%
+  of the curves the form holds. The misfit sits where the reconstruction's
+  residual has structure (z ±20-40 on exps 44.4 and 49.4), and is not read as
+  chemistry.
+- **Second rise (27).** A rate that falls and then rises again. It NEEDS THE
+  CATALYST: "mixed" is 45 of 311 catalysed live curves and 0 of 75
+  enzyme-free (`second_rise_needs_the_catalyst`). And the rise runs on ITS
+  RUN'S OWN ACTIVATION CLOCK: against the one-phase lags beside it the ratio
+  is a median 1.13 over 10 pairs in 5 runs, |log ratio| 0.29 against 0.40
+  between two lags of one run (`second_rise_clocks`). The two-step form is
+  the best five-parameter reading on 23 but rescues only 3, because it forces
+  the rate to leave t = 0 flat and these curves leave it falling. The reading
+  that fits is six-parameter: a catalyst starting partly active, losing it
+  fast (the burst), then activating on the run's own clock.
+- **Floor (28).** A rate still falling at the end but more slowly than an
+  exponential approach to a plateau allows -- exps 12, 28 and 38 among them,
+  the archive's highest-signal curves (ΔA 0.5-0.8). Exps 28 and 38 are
+  enzyme-free, the channel `product_fate` finds declining on a clock. The
+  inhibition SHAPE fits 19 best and rescues 11; this is a statement about the
+  shape, not evidence of inhibition, which `product_fate`'s stoichiometric
+  argument already disfavours for the catalysed curves.
+- **Through zero (5).** A negative drawn asymptote (exps 55.2, 55.4, 127.1,
+  150.6, 151.3), and on two of them, 150.6 and 151.3, absorbance that falls
+  inside the run; on the other three the fall is the extrapolation's. A sink
+  can only bring a lag to a plateau; a fall below it needs production itself
+  to stop -- a catalyst or oxidant that dies -- and none of the three forms
+  has that.
+
+**Sink against inhibition, whole curve, where the sink is resolved**
+(`sink_versus_inhibition`, ΔAIC > 2 either way): catalysed BnOH favours the
+sink 28 to 12 (median ΔAIC −11.4); catalysed 4OMe 22 to 15 (median +0.1, a tie
+at the median); enzyme-free 4OMe favours inhibition 9 to 5. On catalysed 4OMe
+the whole curve discriminates far less than `product_fate`'s tail transform
+(24 to 0 on 29 phosphate curves), which reads only the decline.
+
+New tests: `test_summary_kinetics.test_two_step_and_inhibition_forms` (9
+checks) and `test_activation_sink.test_the_remaining_curves_are_the_frames`.
+
+---
+
 ## 2026-09-11 (fourth entry) — a third fitted form, from the archive's own findings, evaluated against the drawn one
 
 `summary_kinetics.fit_activation_sink` fits every curve with one rate law for

@@ -95,11 +95,25 @@ def test_the_contest_adds_up():
           (table.free_asymptote <= table.curves).all())
 
 
+def test_the_remaining_curves_are_the_frames():
+    print("\nremaining_curves")
+    data = scope.frame()
+    table = activation_sink.remaining_curves(scope.TWO_AXIS_BLOCK)
+    failing = data[data.live & (data.asymptote_f_corrected
+                                > activation_sink.TWO_PHASE_F)]
+    check("is exactly the curves whose free asymptote is earned",
+          len(table) == len(failing), f"{len(table)} of {len(failing)}")
+    check("and every one has one group",
+          table.group.isin(["gas", "second rise", "through zero",
+                            "floor"]).all())
+
+
 if __name__ == "__main__":
     test_the_frame_is_the_fit()
     test_the_form_is_the_earned_one()
     test_the_blank_is_the_flag()
     test_the_contest_adds_up()
+    test_the_remaining_curves_are_the_frames()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)

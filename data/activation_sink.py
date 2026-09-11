@@ -40,11 +40,14 @@ import pandas as pd
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import functools
+
 import induction
 import rate_choice
 import scope
 import slowdown
-from summary_kinetics import TWO_PHASE_F
+from summary_kinetics import (TWO_PHASE_F, fit_activation_inhibition,
+                              fit_two_step_activation)
 
 # The form's own clock, beside the two-phase form's slow clock that the
 # published +1 row reads. Same (clock, gate, windowed) shape as
@@ -217,6 +220,226 @@ def contest_by_drawn_kind(block=None):
     return table
 
 
+# The three five-parameter forms, by the column name `alternative_forms`
+# gives each one's residual sum of squares.
+FIVE_PARAMETER_FORMS = ("sink", "two_step", "inhibition")
+
+
+@functools.lru_cache(maxsize=4)
+def _alternative_forms(block):
+    rows = []
+    fits = scope.fits(block)
+    data = scope.frame(block)
+    for row in data[data.live].itertuples():
+        shape = fits[(row.experiment, row.sample)]
+        times, values = shape.times, shape.corrected
+        sink = shape.activation_sink
+        one = shape.progress_corrected.one
+        two = shape.progress_corrected.two
+        step = fit_two_step_activation(times, values)
+        # Started from the sink (Ki = v_act/k matches its early slope-per-
+        # product) and from the one-phase form (Ki far out, which IS it).
+        starts = [(one.v0, one.v_ss, one.tau, 1e3 * max(np.ptp(values), 1e-6))]
+        if sink.k > 0 and sink.v_act > 0:
+            starts.append((sink.v0, sink.v_act, sink.tau, sink.v_act / sink.k))
+        if np.isfinite(step.tau2):
+            starts.append((step.v0, step.v_act, step.tau2,
+                           1e3 * max(np.ptp(values), 1e-6)))
+        inhibition = fit_activation_inhibition(times, values, starts=starts)
+        rows.append({
+            "experiment": row.experiment, "sample": row.sample,
+            "substrate": row.substrate, "catalysed": bool(row.e0 > 0),
+            "drawn": row.progress_kind_corrected,
+            "points": len(times), "events": len(shape.events),
+            "one_phase": float(one.sse), "two_phase": float(two.sse),
+            # The sink's best k > 0 cost whether or not k was earned: `sse` is
+            # the SELECTED form's, which is k = 0 where the sink did not pay,
+            # and a four-parameter cost read against one degree of freedom
+            # overstates its failure. sink_f = (sse0 - sse5)/(sse5/(n - 5))
+            # inverts exactly to sse5 = sse0 / (1 + sink_f/(n - 5)).
+            "sink": float(sink.sse_no_sink
+                          / (1 + sink.sink_f / max(1, len(times) - 5))
+                          if np.isfinite(sink.sink_f) else sink.sse),
+            "two_step": float(step.sse),
+            "inhibition": float(inhibition.sse),
+            "step_earned": step.step_earned,
+            "tau1": step.tau1, "tau2": step.tau2, "ki": inhibition.ki,
+            "inhibition_v_act": inhibition.v_act})
+    return pd.DataFrame(rows)
+
+
+def alternative_forms(block=None):
+    """
+    Every live curve's residual sum of squares under the three five-parameter
+    forms -- the activation-sink, the two-step activation and the activation-
+    inhibition -- beside the one- and two-phase forms, all on the rebuilt
+    series. `summary_kinetics` has the three forms' chemistry.
+
+    Adds, per form, `<form>_f`: the two-phase form's one extra parameter over
+    it, ((sse_form - sse_two) / 1) / (sse_two / (n - 6)). The sink and the
+    two-step forms nest inside the two-phase form, so for them this is an F
+    test; the inhibition form does not, and for it the same number is a
+    comparison on the same scale, not a test. `best` is the lowest-cost of the
+    three and `adequate` whether it stays within TWO_PHASE_F of the two-phase
+    form -- whether the curve needs the free asymptote at all once the right
+    five-parameter chemistry is asked.
+
+    MEMOISED: the inhibition form is a nonlinear fit from up to three starts,
+    about 15 s over the archive.
+    """
+    table = _alternative_forms(scope.archive() if block is None
+                               else block).copy()
+    degrees = (table.points - 6).clip(lower=1)
+    for form in FIVE_PARAMETER_FORMS:
+        table[f"{form}_f"] = ((table[form] - table.two_phase)
+                              / (table.two_phase / degrees))
+    costs = table[list(FIVE_PARAMETER_FORMS)]
+    table["best"] = costs.idxmin(axis=1)
+    table["best_f"] = table[[f"{f}_f" for f in FIVE_PARAMETER_FORMS]].min(axis=1)
+    table["adequate"] = table.best_f <= TWO_PHASE_F
+    return table
+
+
+def remaining_curves(block=None):
+    """
+    The curves the activation-sink form cannot hold, and what each one is.
+
+    "Cannot hold" is `asymptote_f_corrected` > TWO_PHASE_F -- the two-phase
+    form's free asymptote earned over the form the curve was reported in. One
+    row each, with `group`:
+
+      gas            carries a detachment, so the misfit may be the
+                     reconstruction's and is not read as chemistry
+      second rise    drawn "mixed" or "two lags": a rate that falls and then
+                     rises again, which one relaxation cannot do
+      through zero   the drawn asymptote is negative
+      floor          the drawn asymptote is a positive steady rate
+
+    and, from `alternative_forms`, which five-parameter chemistry fits it best
+    and whether that one is `rescued` -- within TWO_PHASE_F of the two-phase
+    form on one degree of freedom, so the free asymptote is no longer needed.
+    """
+    data = _live(block)
+    failing = data[data.asymptote_f_corrected > TWO_PHASE_F]
+    fits = scope.fits(scope.archive() if block is None else block)
+    forms = alternative_forms(block).set_index(["experiment", "sample"])
+    rows = []
+    for row in failing.itertuples():
+        key = (row.experiment, row.sample)
+        shape = fits[key]
+        if shape.events:
+            group = "gas"
+        elif row.progress_kind_corrected in ("mixed", "two lags"):
+            group = "second rise"
+        elif row.v_ss_fit_corrected < 0:
+            group = "through zero"
+        else:
+            group = "floor"
+        form = forms.loc[key]
+        rows.append({"experiment": row.experiment, "sample": row.sample,
+                     "substrate": row.substrate,
+                     "catalysed": bool(row.e0 > 0),
+                     "drawn": row.progress_kind_corrected, "group": group,
+                     "best": form.best, "rescued": bool(form.adequate),
+                     "two_step_f": form.two_step_f,
+                     "inhibition_f": form.inhibition_f,
+                     "sink_f": form.sink_f})
+    return pd.DataFrame(rows)
+
+
+def remaining_summary(block=None):
+    """`remaining_curves` counted: per group, how many, and what rescues them."""
+    table = remaining_curves(block)
+    out = []
+    for group, g in table.groupby("group"):
+        out.append({"group": group, "curves": len(g),
+                    "catalysed": int(g.catalysed.sum()),
+                    "rescued_two_step": int(((g.best == "two_step")
+                                             & g.rescued).sum()),
+                    "rescued_inhibition": int(((g.best == "inhibition")
+                                               & g.rescued).sum()),
+                    "best_two_step": int((g.best == "two_step").sum()),
+                    "best_inhibition": int((g.best == "inhibition").sum()),
+                    "best_sink": int((g.best == "sink").sum())})
+    return pd.DataFrame(out).set_index("group")
+
+
+def second_rise_needs_the_catalyst(block=None):
+    """
+    How many live curves the drawn form calls "mixed" -- a rate that falls
+    and then rises -- with and without the catalyst. The control
+    `induction/` uses for the lag: if the pattern were mixing, thermal
+    equilibration or the cell, the enzyme-free cuvettes would carry it too.
+    """
+    live = _live(block)
+    return (live.assign(catalysed=live.e0 > 0, mixed=lambda d:
+                        d.progress_kind_corrected == "mixed")
+            .groupby("catalysed").agg(curves=("mixed", "size"),
+                                      mixed=("mixed", "sum")))
+
+
+def second_rise_clocks(block=None):
+    """
+    The late rise of a "mixed" curve against its own run's lags.
+
+    If the rise is the catalyst activating after an early burst, its clock is
+    the run's activation clock, which the one-phase lags beside it measure.
+    One row per (mixed curve with a resolved slow clock, one-phase lag in the
+    same run with a resolved clock): both clocks and their ratio. The
+    reference is `lag_pairs`, the same |log ratio| between two lags of one
+    run -- how far apart two readings of the SAME clock sit here.
+    """
+    live = _live(block)
+    fits = scope.fits(scope.archive() if block is None else block)
+    lags = live[(live.phases_corrected == 1)
+                & (live.progress_kind_corrected == "lag")
+                & live.tau_resolved_corrected]
+
+    def clock(row):
+        return fits[(row.experiment, row.sample)].progress_corrected.one.tau
+    rows = []
+    for row in live[live.progress_kind_corrected == "mixed"].itertuples():
+        two = fits[(row.experiment, row.sample)].progress_corrected.two
+        if not two.resolved:
+            continue
+        for lag in lags[lags.experiment == row.experiment].itertuples():
+            rows.append({"experiment": row.experiment, "mixed": row.sample,
+                         "lag": lag.sample, "rise_tau": float(two.tau2),
+                         "lag_tau": float(clock(lag))})
+    pairs = pd.DataFrame(rows)
+    pairs["ratio"] = pairs.rise_tau / pairs.lag_tau
+    reference = []
+    for _, run in lags.groupby("experiment"):
+        taus = [clock(r) for r in run.itertuples()]
+        reference += [abs(np.log(a / b)) for i, a in enumerate(taus)
+                      for b in taus[i + 1:]]
+    pairs.attrs["lag_pairs_abs_log_ratio"] = float(np.median(reference))
+    pairs.attrs["lag_pairs"] = len(reference)
+    return pairs
+
+
+def sink_versus_inhibition(block=None):
+    """
+    The sink and the inhibition form head to head, same parameter count, on
+    every live curve whose sink is resolved: per channel, how many favour
+    each by more than 2 in AIC (n ln(sse_sink / sse_inhibition), positive for
+    inhibition). `product_fate` makes the same comparison on the tail's
+    rolling rate; this is the whole curve.
+    """
+    forms = alternative_forms(block)
+    frame = _live(block).set_index(["experiment", "sample"])
+    state = frame.k_sink_state_corrected.reindex(
+        pd.MultiIndex.from_frame(forms[["experiment", "sample"]])).to_numpy()
+    resolved = forms[state == "resolved"].copy()
+    resolved["delta_aic"] = resolved.points * np.log(resolved.sink
+                                                     / resolved.inhibition)
+    return resolved.groupby(["substrate", "catalysed"]).agg(
+        curves=("delta_aic", "size"),
+        inhibition=("delta_aic", lambda d: int((d > 2).sum())),
+        sink=("delta_aic", lambda d: int((d < -2).sum())),
+        median_delta_aic=("delta_aic", "median"))
+
+
 def main():
     pd.set_option("display.width", 250)
     pd.set_option("display.max_colwidth", 60)
@@ -234,6 +457,19 @@ def main():
     print(sink_agreement().round(2).to_string())
     print("\nthe +1 rule through the form's own clock (two-axis block)")
     print(own_clock_plus_one().round(3).to_string())
+    print("\nthe curves the form cannot hold, and what each one is")
+    print(remaining_summary().to_string())
+    print("\n...a second rise needs the catalyst")
+    print(second_rise_needs_the_catalyst().to_string())
+    pairs = second_rise_clocks()
+    print("\n...and runs on its run's own activation clock")
+    print(pairs.round(2).to_string())
+    print(f"median ratio {pairs.ratio.median():.2f}; |log ratio| "
+          f"{np.abs(np.log(pairs.ratio)).median():.2f} against "
+          f"{pairs.attrs['lag_pairs_abs_log_ratio']:.2f} between two lags of "
+          f"one run ({pairs.attrs['lag_pairs']} pairs)")
+    print("\nsink against inhibition, whole curve, where the sink is resolved")
+    print(sink_versus_inhibition().round(1).to_string())
     print("\nwhat each rate can be read on")
     print(rate_choice.candidate_coverage()
           .loc[list(ACTIVATION_SINK_RATES)].to_string())

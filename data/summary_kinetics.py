@@ -1222,17 +1222,22 @@ class ActivationSinkFit:
 
 
 def _activation_sink_nodes(scaled, values, tau, k):
+    """(beta, inverse, costs) at every (tau, k) node, in span-scaled units."""
+    return _three_column_nodes(values, *_activation_sink_columns(scaled, tau, k))
+
+
+def _three_column_nodes(values, h, g):
     """
-    (beta, inverse, costs) at every (tau, k) node, in span-scaled units.
+    (beta, inverse, costs) for the design [1, h, g] at every node, one row of
+    h and g per node -- the linear half of every five-parameter form here.
 
     The normal equations are assembled from the two grid-dependent columns
     without materialising an (nodes, n, 3) design, and the residuals are
     computed directly rather than by expanding y.y - 2 b.X'y + b'X'X b, which
     loses the digits that matter on a curve fitted to its noise.
     """
-    h, g = _activation_sink_columns(scaled, tau, k)
-    count = len(scaled)
-    normal = np.empty((len(tau), 3, 3))
+    count = h.shape[1]
+    normal = np.empty((h.shape[0], 3, 3))
     normal[:, 0, 0] = count
     normal[:, 0, 1] = normal[:, 1, 0] = h.sum(axis=1)
     normal[:, 0, 2] = normal[:, 2, 0] = g.sum(axis=1)
@@ -1243,7 +1248,7 @@ def _activation_sink_nodes(scaled, values, tau, k):
     # spreads it over every core -- 112 s of CPU for 4 s of wall time over
     # the archive, and with `run_gates.py` running eight processes at once
     # that oversubscription doubled the suite's wall time.
-    target = np.stack([np.full(len(tau), values.sum()),
+    target = np.stack([np.full(h.shape[0], values.sum()),
                        np.einsum("in,n->i", h, values),
                        np.einsum("in,n->i", g, values)], axis=1)
     with np.errstate(all="ignore"):
@@ -1380,6 +1385,292 @@ def fit_activation_sink(times, values, cap=BURST_TAU_CAP, floor=BURST_TAU_FLOOR,
         acceleration_interval=intervals["acceleration"],
         tau_grid=(float(taus[0] * span), float(taus[-1] * span)),
         k_grid_top=float(ks[-1] / span))
+
+
+# --- two alternatives to the sink, for the curves it cannot hold -----------
+#
+# The activation-sink form fails the two-phase form's free asymptote on 100 of
+# 386 live curves (DATA_VERIFICATION.md, 2026-09-11 fourth entry), and two
+# shapes account for most of them. Each has a chemical reading with the same
+# five parameters, so each can be asked of every curve beside the sink.
+#
+#   TWO-STEP ACTIVATION. E -> E' -> E*, the catalyst passing through an
+#   intermediate on its way to the active form. The fraction not yet active is
+#   S(t) = (tau1 e^(-t/tau1) - tau2 e^(-t/tau2)) / (tau1 - tau2), symmetric in
+#   the two clocks, and the rate is v_act + (v0 - v_act) S(t). S'(0) = 0, so
+#   the rate LEAVES t = 0 FLAT: a sigmoidal onset, which no single relaxation
+#   gives. In the two-phase form's terms it is B1 < 0 < B2 with
+#   B1 tau2^2 + B2 tau1^2 = 0 -- the sign pattern `TwoPhaseFit.kind` calls
+#   "mixed" and reads as a burst followed by a lag. It nests inside the
+#   two-phase form (one constraint) and contains the one-phase form at
+#   tau1 = 0. tau1 = tau2 is the limit S = (1 + t/tau) e^(-t/tau).
+#
+#   PRODUCT INHIBITION. The same production v(t) = v_act + (v0 - v_act)
+#   e^(-t/tau), slowed by the product it has made, P' = v(t)/(1 + P/Ki).
+#   Separating gives P + P^2/(2 Ki) = V(t) with V the one-phase product, so
+#   P = Ki (sqrt(1 + 2V/Ki) - 1): no plateau, a decline slower than any
+#   exponential, which is what the sink's k P cannot give on a long tail.
+#   `slowdown._inhibition_shape` is the v0 = 0 case. Ki -> infinity is the
+#   one-phase form; the form is not linear in its amplitudes, so it is fitted
+#   by bounded least squares rather than profiled.
+@dataclass(frozen=True)
+class TwoStepFit:
+    """A = c + v_act t + (v0 - v_act) H(t), H the integral of S."""
+    c: float
+    v0: float
+    v_act: float
+    tau1: float
+    tau2: float
+    sse: float
+    sse_one_step: float       # tau1 = 0: the one-phase form
+    step_f: float             # one-degree F for tau1 > 0 over tau1 = 0
+    points: int
+
+    @property
+    def step_earned(self):
+        return bool(np.isfinite(self.step_f) and self.step_f > TWO_PHASE_F)
+
+    def predict(self, times):
+        times = np.asarray(times, dtype=float)
+        if not np.isfinite(self.tau2):
+            return np.full(len(times), np.nan)
+        h = _two_step_integral(times, [self.tau1], [self.tau2])[0]
+        return self.c + self.v0 * h + self.v_act * (times - h)
+
+    def rate(self, times):
+        times = np.asarray(times, dtype=float)
+        if not np.isfinite(self.tau2):
+            return np.full(len(times), np.nan)
+        return self.v_act + (self.v0 - self.v_act) * _two_step_survival(
+            times, self.tau1, self.tau2)
+
+
+def _two_step_survival(times, tau1, tau2):
+    """S(t), the fraction of catalyst not yet active, for one (tau1, tau2)."""
+    times = np.asarray(times, dtype=float)
+    if tau1 <= 0:
+        return np.exp(-times / tau2)
+    if abs(tau2 - tau1) <= 1e-6 * tau2:
+        return (1 + times / tau2) * np.exp(-times / tau2)
+    return ((tau1 * np.exp(-times / tau1) - tau2 * np.exp(-times / tau2))
+            / (tau1 - tau2))
+
+
+def _two_step_integral(times, tau1, tau2):
+    """H(t) = integral of S, one row per (tau1, tau2) node."""
+    times = np.asarray(times, dtype=float)
+    tau1 = np.atleast_1d(np.asarray(tau1, dtype=float))
+    tau2 = np.atleast_1d(np.asarray(tau2, dtype=float))
+    firsts, first_index = np.unique(tau1, return_inverse=True)
+    seconds, second_index = np.unique(tau2, return_inverse=True)
+    with np.errstate(all="ignore"):
+        e1 = np.where(firsts[:, None] > 0,
+                      np.exp(-times[None, :] / np.where(firsts > 0, firsts,
+                                                        1.0)[:, None]), 0.0)
+    e2 = np.exp(-times[None, :] / seconds[:, None])
+    e1, e2 = e1[first_index], e2[second_index]
+    a, b = tau1[:, None], tau2[:, None]
+    same = (np.abs(b - a) <= 1e-6 * b)[:, 0]
+    with np.errstate(all="ignore"):
+        h = (a ** 2 * (1 - e1) - b ** 2 * (1 - e2)) / np.where(same[:, None],
+                                                                1.0, a - b)
+    if same.any():
+        h[same] = (2 * b[same] * (1 - e2[same]) - times * e2[same])
+    return h
+
+
+def fit_two_step_activation(times, values, cap=BURST_TAU_CAP,
+                            floor=BURST_TAU_FLOOR,
+                            points=ACTIVATION_SINK_TAU_POINTS,
+                            zoom_points=ACTIVATION_SINK_ZOOM_POINTS):
+    """
+    Fit A = c + v_act t + (v0 - v_act) H(t; tau1, tau2), tau1 <= tau2.
+
+    Profiled like `fit_activation_sink`: a coarse (tau1, tau2) grid, then a
+    zoomed one over its basin, with the tau1 = 0 column on `fit_burst`'s own
+    240-point grid so that `step_f` is against the one-phase form fitted as
+    finely as `fit_burst` fits it. Reports the best node whether or not the
+    second step is earned; `step_earned` says which.
+    """
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    times = times - times[0]
+    count = len(times)
+    span = times[-1] if count else 0.0
+    blank = TwoStepFit(*([np.nan] * 8), count)
+    if span <= 0 or count < BURST_MINIMUM_POINTS + 1:
+        return blank
+    scaled = times / span
+    grid = np.logspace(np.log10(floor), np.log10(cap), points)
+    first, second = np.meshgrid(grid, grid, indexing="ij")
+    keep = first <= second
+    tau1, tau2 = first[keep], second[keep]
+    one = np.logspace(np.log10(floor), np.log10(cap), BURST_GRID_POINTS)
+    tau1 = np.concatenate([tau1, np.zeros(len(one))])
+    tau2 = np.concatenate([tau2, one])
+
+    def solve(a, b):
+        h = _two_step_integral(scaled, a, b)
+        return _three_column_nodes(values, h, scaled[None, :] - h)
+    beta, _, costs = solve(tau1, tau2)
+    degrees = max(1, count - ACTIVATION_SINK_PARAMETERS)
+    loose = costs.min() * (1 + ACTIVATION_SINK_ZOOM * CHI2_95 / degrees)
+    near = (costs <= loose) & (tau1 > 0)
+    if near.any():
+        step = grid[1] / grid[0]
+        box1 = np.logspace(np.log10(max(tau1[near].min() / step, grid[0])),
+                           np.log10(min(tau1[near].max() * step, grid[-1])),
+                           zoom_points)
+        box2 = np.logspace(np.log10(max(tau2[near].min() / step, grid[0])),
+                           np.log10(min(tau2[near].max() * step, grid[-1])),
+                           zoom_points)
+        z1, z2 = np.meshgrid(box1, box2, indexing="ij")
+        zkeep = z1 <= z2
+        more_beta, _, more_costs = solve(z1[zkeep], z2[zkeep])
+        tau1 = np.concatenate([tau1, z1[zkeep]])
+        tau2 = np.concatenate([tau2, z2[zkeep]])
+        beta = np.concatenate([beta, more_beta])
+        costs = np.concatenate([costs, more_costs])
+    if not np.isfinite(costs.min()):
+        return blank
+    best = int(np.argmin(costs))
+    sse, sse_one = float(costs[best]), float(costs[tau1 == 0].min())
+    c, v0, v_act = (float(v) for v in beta[best])
+    return TwoStepFit(
+        c=c, v0=v0 / span, v_act=v_act / span,
+        tau1=float(tau1[best] * span), tau2=float(tau2[best] * span),
+        sse=max(sse, 0.0), sse_one_step=max(sse_one, 0.0),
+        step_f=(float((sse_one - sse) / (sse / degrees)) if sse > 0
+                else np.nan),
+        points=count)
+
+
+@dataclass(frozen=True)
+class InhibitionFit:
+    """A = c + Ki (sqrt(1 + 2 V(t)/Ki) - 1), V the one-phase product."""
+    c: float
+    v0: float
+    v_act: float
+    tau: float
+    ki: float
+    sse: float
+    points: int
+
+    def _product(self, times):
+        return (self.v_act * times
+                - (self.v_act - self.v0) * self.tau
+                * (1 - np.exp(-times / self.tau)))
+
+    def predict(self, times):
+        times = np.asarray(times, dtype=float)
+        if not np.isfinite(self.ki):
+            return np.full(len(times), np.nan)
+        inside = np.maximum(1 + 2 * self._product(times) / self.ki, 0.0)
+        return self.c + self.ki * (np.sqrt(inside) - 1)
+
+    def rate(self, times):
+        """P' = v(t) / (1 + P/Ki), analytically."""
+        times = np.asarray(times, dtype=float)
+        if not np.isfinite(self.ki):
+            return np.full(len(times), np.nan)
+        production = (self.v_act
+                      + (self.v0 - self.v_act) * np.exp(-times / self.tau))
+        return production / np.sqrt(
+            np.maximum(1 + 2 * self._product(times) / self.ki, 1e-12))
+
+
+def _inhibition_starts(times, values, points=24, keep=3):
+    """
+    Starts for `fit_activation_inhibition` that land IN its valley.
+
+    P + P^2/(2 Ki) = V(t) is linear in (v0, v_act, 1/(2 Ki)) at fixed tau,
+    taking c as the first reading, so a tau grid of three-column solves maps
+    the valley the optimiser alone stops short of: on a planted Ki of 0.05,
+    Ki, tau and v_act trade along it (0.017 at 1500 s fits as well as 0.045
+    at 780 s) and a start off it came to rest at chi2 8 above the truth. The
+    `keep` lowest-residual nodes with a positive 1/(2 Ki) are returned, in AU
+    and seconds. Errors in P sit on both sides of this regression, so these
+    are starts for the least squares and never results.
+    """
+    span = times[-1]
+    product = values - values[0]
+    rows = []
+    for tau in np.logspace(np.log10(span * BURST_TAU_FLOOR),
+                           np.log10(span * BURST_TAU_CAP), points):
+        h = tau * (1 - np.exp(-times / tau))
+        design = np.column_stack([h, times - h, -product ** 2])
+        (v0, v_act, w), *_ = np.linalg.lstsq(design, product, rcond=None)
+        if w > 0:
+            residual = product - design @ np.array([v0, v_act, w])
+            rows.append((float(residual @ residual), v0, v_act, tau,
+                         1 / (2 * w)))
+    return [row[1:] for row in sorted(rows)[:keep]]
+
+
+def fit_activation_inhibition(times, values, starts=()):
+    """
+    Fit the activation-inhibition form by bounded least squares.
+
+    `starts` are (v0, v_act, tau, ki) guesses in AU and seconds -- the sink and
+    one-phase solutions, which is where a caller has them. Each start is run
+    at its own Ki AND at a ladder of Ki at 0.1, 1 and 10 times the curve's own
+    rise, and the lowest cost kept. The ladder is not optional: far out in Ki
+    the form is the one-phase form plus a term shrinking as 1/Ki, the cost is
+    flat in log Ki, and an optimiser started there never leaves -- a planted
+    Ki of 0.05 came back as 1562 from a one-phase start, at the one-phase
+    form's own cost. Time and the rates are scaled by the span inside the
+    solve, and tau and Ki are fitted in logs, so every parameter the optimiser
+    moves is O(1).
+    """
+    from scipy.optimize import least_squares
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    times = times - times[0]
+    count = len(times)
+    span = times[-1] if count else 0.0
+    blank = InhibitionFit(*([np.nan] * 6), count)
+    if span <= 0 or count < BURST_MINIMUM_POINTS + 1:
+        return blank
+    scaled = times / span
+    reach = max(float(np.ptp(values)), 1e-6)
+
+    def model(x):
+        c, v0, v_act, log_tau, log_ki = x
+        tau, ki = np.exp(log_tau), np.exp(log_ki)
+        product = v_act * scaled - (v_act - v0) * tau * (
+            1 - np.exp(-scaled / tau))
+        return c + ki * (np.sqrt(np.maximum(1 + 2 * product / ki, 0.0)) - 1)
+
+    best = None
+    ladder = [(v0, v_act, tau, rung * reach)
+              for v0, v_act, tau, _ in starts for rung in (0.1, 1.0, 10.0)]
+    for v0, v_act, tau, ki in list(starts) + ladder + _inhibition_starts(
+            times, values):
+        if not all(np.isfinite([v0, v_act, tau, ki])) or tau <= 0 or ki <= 0:
+            continue
+        x0 = [values[0], v0 * span, v_act * span, np.log(tau / span),
+              np.log(min(ki, 1e6 * reach))]
+        lower = [-np.inf, -np.inf, -np.inf, np.log(BURST_TAU_FLOOR),
+                 np.log(1e-4 * reach)]
+        upper = [np.inf, np.inf, np.inf, np.log(BURST_TAU_CAP),
+                 np.log(1e6 * reach)]
+        x0 = np.clip(x0, lower, upper)
+        try:
+            result = least_squares(lambda x: model(x) - values, x0,
+                                   bounds=(lower, upper), x_scale="jac",
+                                   max_nfev=400)
+        except ValueError:
+            continue
+        cost = float(result.fun @ result.fun)
+        if np.isfinite(cost) and (best is None or cost < best[0]):
+            best = (cost, result.x)
+    if best is None:
+        return blank
+    cost, (c, v0, v_act, log_tau, log_ki) = best
+    return InhibitionFit(c=float(c), v0=float(v0 / span),
+                         v_act=float(v_act / span),
+                         tau=float(np.exp(log_tau) * span),
+                         ki=float(np.exp(log_ki)), sse=cost, points=count)
 
 
 def buffer_concentrations(dataset_path=DATASET_PATH):
