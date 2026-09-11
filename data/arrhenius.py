@@ -389,9 +389,15 @@ def pooled_arrhenius(parameter="v_ss", experiments=TEMPERATURE_SERIES,
         [1.0 / kelvin]
         + [(np.isclose(frame.s0, s0)).astype(float) for s0 in rungs])
     y = np.log(rate)
+    # Exactly determined is not measured: with no residual degrees of freedom
+    # `max(1, ...)` reported an error of zero. `scope.orders` has the history.
+    dof = len(y) - int(np.linalg.matrix_rank(design)) if len(y) else 0
+    if dof < 1:
+        return {"activation_kJ": np.nan, "stderr_kJ": np.nan, "rms": np.nan,
+                "n": int(len(y)), "dof": int(max(dof, 0)),
+                "rungs": len(rungs)}
     beta, *_ = np.linalg.lstsq(design, y, rcond=None)
     residual = y - design @ beta
-    dof = max(1, len(y) - design.shape[1])
     variance = float(residual @ residual) / dof
     covariance = variance * np.linalg.pinv(design.T @ design)
     return {"activation_kJ": float(-beta[0] * GAS_CONSTANT / 1000.0),

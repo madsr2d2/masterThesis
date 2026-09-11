@@ -230,6 +230,96 @@ def test_strong_runs_default_is_unchanged():
           f"{scope.strong_runs()}")
 
 
+def test_the_shape_classes_mean_what_they_say():
+    """
+    Each class's definition, checked against the identity it implies.
+
+    On a one-phase fit v(t) = v_ss - (B/tau) e^(-t/tau), so B < 0 (a burst)
+    puts v(0) ABOVE v_ss and B > 0 (a lag) puts it BELOW -- exactly, for
+    every member. On a lag-then-fall the peak is by definition the largest
+    fitted rate, so it cannot sit below v(0), and the class keeps only curves
+    whose peak is inside the run.
+    """
+    print("\nthe shape classes mean what their names say")
+    data = scope.frame(scope.archive())
+    for name in rate_choice.SHAPE_CLASSES:
+        members = data[rate_choice.shape_members(data, name)]
+        check(f"{name}: every member is live", members.live.all(),
+              f"{len(members)} curves")
+    burst = data[rate_choice.shape_members(data, "burst")]
+    check("burst: v(0) > v_ss on every member",
+          (burst.v0_fit_corrected > burst.v_ss_fit_corrected).all())
+    lag = data[rate_choice.shape_members(data, "lag")]
+    check("lag: v(0) < v_ss on every member",
+          (lag.v0_fit_corrected < lag.v_ss_fit_corrected).all())
+    check("both one-phase classes are resolved fits only",
+          burst.v0_fit_resolved_corrected.all()
+          and lag.v0_fit_resolved_corrected.all())
+    fall = data[rate_choice.shape_members(data, "lag then fall")]
+    peak_at = fall.v_peak_corrected_time.astype(float)
+    check("lag then fall: the peak is inside the run and not below v(0)",
+          ((peak_at > 0) & (peak_at <= fall.duration_s)).all()
+          and (fall.v_peak_corrected >= fall.v0_fit_corrected).all(),
+          f"{len(fall)} curves")
+    for name, spec in rate_choice.SHAPE_CLASSES.items():
+        members = data[rate_choice.shape_members(data, name)]
+        usable = members[(members[spec["late"]] > 0)
+                         & np.isfinite(members[spec["early"]])]
+        check(f"{name}: the ratio column is early / late",
+              np.allclose(usable[spec["ratio"]],
+                          usable[spec["early"]] / usable[spec["late"]]))
+
+
+def test_the_ratio_order_is_the_difference_of_the_orders():
+    """
+    THE REASON THE RATIO IS THERE. On the same curves, an OLS fit of
+    log(early/late) is exactly the fit of log(early) minus that of
+    log(late), so the ratio's order IS the difference and its error is the
+    error of the difference. That holds only if all four roles really do
+    share their curves -- so this is also the check that they do.
+    """
+    print("\ninside a class, the ratio's order is early minus late")
+    for name, analysis in (("burst", "two-axis [S] order, all live"),
+                           ("burst", "two-axis [H2O2] order, all live"),
+                           ("lag", "activation energy, kJ/mol")):
+        table = rate_choice.shape_split(name)
+        rows = table[table.analysis == analysis].set_index("role")
+        check(f"{name}, {analysis}: all four roles on the same curves",
+              rows.curves.nunique() == 1, f"{rows.curves.unique()}")
+        difference = rows.estimate["early"] - rows.estimate["late"]
+        check(f"{name}, {analysis}: ratio = early - late",
+              np.isclose(rows.estimate["ratio"], difference),
+              f"{rows.estimate['ratio']:+.4f} against {difference:+.4f}")
+
+
+def test_an_exactly_determined_fit_is_not_measured():
+    """
+    An exactly determined fit passes through every point, and `max(1, ...)`
+    reported its zero residual as an error of 0.000. It must come back as NaN.
+    """
+    print("\nan exactly determined fit is not a measurement")
+    import pandas as pd
+    # Two runs of two cuvettes, each moving both axes two-fold: two orders
+    # plus two run offsets is four parameters on four curves.
+    planted = pd.DataFrame({
+        "experiment": [1, 1, 2, 2], "live": True,
+        "s0": [1.0, 2.0, 1.0, 3.0], "h2o2": [1.0, 3.0, 2.0, 1.0],
+        "rate": [1.0, 2.5, 1.7, 2.2]})
+    fit = scope.orders("rate", frame=planted, within=True)
+    check("scope.orders returns NaN, not +/- 0",
+          np.isnan(fit["stderr_s0"]) and np.isnan(fit["order_s0"]),
+          f"{fit['order_s0']} +/- {fit['stderr_s0']}")
+    series = pd.DataFrame({"kelvin": [288.15, 298.15, 308.15],
+                           "s0": [1.0, 1.0, 2.0], "e0": 1.0,
+                           "rate": [1.0, 2.0, 3.0]})
+    energy = arrhenius.pooled_arrhenius("rate", frame=series)
+    check("arrhenius.pooled_arrhenius returns NaN, not +/- 0",
+          np.isnan(energy["stderr_kJ"]), f"{energy['stderr_kJ']}")
+    empty = scope.ph_order("vmax", ladders={})
+    check("scope.ph_order with nothing to fit is an empty table",
+          empty.empty and empty.index.name == "ladder")
+
+
 if __name__ == "__main__":
     test_every_candidate_is_a_frame_column()
     test_the_baseline_is_the_published_machinery()
@@ -238,6 +328,9 @@ if __name__ == "__main__":
     test_the_pairwise_mask_is_a_pair()
     test_peroxide_ladder_honours_its_parameter()
     test_strong_runs_default_is_unchanged()
+    test_the_shape_classes_mean_what_they_say()
+    test_the_ratio_order_is_the_difference_of_the_orders()
+    test_an_exactly_determined_fit_is_not_measured()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)

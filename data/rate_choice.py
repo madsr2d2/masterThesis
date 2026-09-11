@@ -109,13 +109,15 @@ def _common(data, columns):
     return data
 
 
-def _frames(common=None):
+def _frames(common=None, shape=None):
     """
-    The tables each analysis reads, standard or masked.
+    The tables each analysis reads, standard or restricted.
 
     `common` is None for the standard tables, or a tuple of rate columns to
     hold to one set of curves -- `order_comparison` passes (candidate,
-    reference).
+    reference). `shape` names a `SHAPE_CLASSES` entry: every rate column is
+    blanked on curves outside that class, so each analysis sees only the class
+    and nothing else about the frame changes.
     """
     strong = scope.strong_runs()
     ladder_runs = tuple(sorted(set().union(*scope.PH_LADDERS.values())))
@@ -126,13 +128,21 @@ def _frames(common=None):
         "ladders": None,
         "ph_ladders": scope.ph_ladders(strong),
     }
-    if common:
-        frames["block"] = _common(frames["block"], common)
-        frames["strong"] = _common(frames["strong"], common)
-        frames["series"] = _common(frames["series"], common)
-        frames["ladders"] = _common(scope.frame(ladder_runs), common)
-        frames["ph_ladders"] = {label: _common(group, common) for label, group
-                                in frames["ph_ladders"].items()}
+    if not common and shape is None:
+        return frames
+
+    def restrict(data):
+        if shape is not None:
+            data = data.copy()
+            columns = [c for c in SHAPE_RATE_COLUMNS if c in data]
+            data.loc[~shape_members(data, shape).to_numpy(), columns] = np.nan
+        return _common(data, common) if common else data
+    frames["block"] = restrict(frames["block"])
+    frames["strong"] = restrict(frames["strong"])
+    frames["series"] = restrict(frames["series"])
+    frames["ladders"] = restrict(scope.frame(ladder_runs))
+    frames["ph_ladders"] = {label: restrict(group) for label, group
+                            in frames["ph_ladders"].items()}
     return frames
 
 
@@ -170,7 +180,14 @@ def _boric(rate, frames):
 
 
 def _arrhenius(rate, frames):
-    fit = arrhenius.pooled_arrhenius(rate, frame=frames["series"])
+    # A RATIO OF TWO RATES IS NOT DIVIDED BY THE ENZYME. `pooled_arrhenius`
+    # turns a rate into a turnover by dividing by [enz]; a ratio is already
+    # dimensionless, and dividing it adds a stray -log[enz] to the response,
+    # which moves the slope wherever [enz] tracks temperature. It put the lag
+    # class's ratio at 52.6 kJ/mol where early minus late is 57.9, and
+    # `test_rate_choice` caught it on the identity the ratio exists for.
+    fit = arrhenius.pooled_arrhenius(rate, frame=frames["series"],
+                                     per_enzyme=rate not in RATIO_COLUMNS)
     return fit["activation_kJ"], fit["stderr_kJ"], fit["n"], np.nan
 
 
@@ -207,7 +224,7 @@ RATE_ANALYSES = (
 
 
 def order_comparison(common=False, rates=tuple(RATE_CANDIDATES),
-                     reference=DIVERGENCE_REFERENCE):
+                     reference=DIVERGENCE_REFERENCE, shape=None):
     """
     Every analysis in `RATE_ANALYSES`, on every candidate rate.
 
@@ -225,11 +242,14 @@ def order_comparison(common=False, rates=tuple(RATE_CANDIDATES),
     THE STRONG RUNS ARE HELD FIXED at `scope.strong_runs()` in both, so the
     comparison isolates the rate. Which runs would be strong under each
     candidate is a separate question, and `strong_runs_by_rate` asks it.
+
+    `shape` restricts every analysis to one `SHAPE_CLASSES` class; see
+    `shape_split`, which is the reading of it that means something.
     """
-    shared = _frames()
+    shared = _frames(shape=shape)
     rows = []
     for rate in rates:
-        frames = _frames((rate, reference)) if common else shared
+        frames = _frames((rate, reference), shape) if common else shared
         for name, extra_is, analysis in RATE_ANALYSES:
             estimate, stderr, curves, extra = analysis(rate, frames)
             row = {"analysis": name, "rate": rate,
@@ -392,6 +412,193 @@ def strong_runs_by_rate(rates=tuple(RATE_CANDIDATES)):
     return pd.DataFrame(rows).set_index("rate")
 
 
+# THE SHAPE SPLIT. A fitted rate means a different stage of the mechanism on
+# a different shape of curve, so the rates are compared WITHIN a shape, where
+# each has one reading. Each class names an EARLY rate and a LATE one, and the
+# per-curve ratio of the two (a `scope.frame` column), whose order is exactly
+# the difference of their orders on the same curves:
+#
+#   burst            one phase, B < 0, tau resolved. The classical
+#                    pre-steady-state burst: v(0) the fast first turnover,
+#                    v_ss the slower step that then sets turnover.
+#   lag              one phase, B > 0, tau resolved. v(0) the rate before the
+#                    catalyst has activated, v_ss the activated steady rate.
+#   lag then fall    two phases, B1 > 0 > B2, the fitted maximum INSIDE the
+#                    run. v(0) before activation, the peak the activated rate
+#                    before the extent-dependent decline (`product_fate`). Its
+#                    v_ss lies past that decline and is not used.
+#
+# "mixed" (B1 < 0 < B2) is left out on purpose: its two amplitudes trade
+# against each other without moving the curve, which is what put its fitted
+# peak at ~3x vmax (`shape_divergence`). So are unresolved one-phase fits --
+# `ProgressFit.kind` labels those from the sign of B alone, without asking
+# whether tau was located, so the resolution gate is applied here.
+SHAPE_CLASSES = {
+    "burst": {
+        "early": "v0_fit_corrected", "late": "v_ss_fit_corrected",
+        "ratio": "v0_over_ss_fit_corrected",
+        "reading": "fast first turnover over the slower step that sets it",
+    },
+    "lag": {
+        "early": "v0_fit_corrected", "late": "v_ss_fit_corrected",
+        "ratio": "v0_over_ss_fit_corrected",
+        "reading": "rate before activation over the activated steady rate",
+    },
+    "lag then fall": {
+        "early": "v0_fit_corrected", "late": "v_peak_corrected",
+        "ratio": "v0_over_peak_corrected",
+        "reading": "rate before activation over the peak before the decline",
+    },
+}
+
+# The per-curve ratios: dimensionless, so never divided by [enz].
+RATIO_COLUMNS = tuple(sorted({c["ratio"] for c in SHAPE_CLASSES.values()}))
+
+# Every column a shape restriction blanks outside its class.
+SHAPE_RATE_COLUMNS = tuple(RATE_CANDIDATES) + RATIO_COLUMNS
+
+
+def shape_members(data, name):
+    """
+    Which rows of `data` belong to `SHAPE_CLASSES[name]`, as a boolean Series.
+
+    Live curves only: a dead curve has no shape worth the name, and every
+    analysis drops it anyway.
+    """
+    kind = data.progress_kind_corrected
+    live = data.live.astype(bool)
+    if name in ("burst", "lag"):
+        return (live & (data.phases_corrected == 1)
+                & data.v0_fit_resolved_corrected.astype(bool) & (kind == name))
+    if name == "lag then fall":
+        peak_at = data.v_peak_corrected_time.astype(float)
+        inside = (np.isfinite(peak_at) & (peak_at > 0)
+                  & (peak_at <= data.duration_s))
+        return live & (data.phases_corrected == 2) & (kind == name) & inside
+    raise ValueError(f"unknown shape class {name!r}")
+
+
+def shape_class_counts():
+    """
+    How many live curves each class holds, and where.
+
+    `two-axis runs >= 2` is the number that decides whether the two-axis
+    orders are identified at all inside a class: they carry one offset per
+    run, so a run contributing a single curve of the class contributes
+    nothing to the slope.
+    """
+    data = scope.frame(scope.archive())
+    places = {"archive": scope.archive(),
+              "two-axis": scope.TWO_AXIS_BLOCK,
+              "temperature series": scope.TEMPERATURE_SERIES}
+    places.update(scope.PH_LADDERS)
+    rows = []
+    for name in SHAPE_CLASSES:
+        members = data[shape_members(data, name)]
+        row = {"class": name}
+        for label, runs in places.items():
+            row[label] = int(members.experiment.isin(runs).sum())
+        in_block = members[members.experiment.isin(scope.TWO_AXIS_BLOCK)]
+        per_run = in_block.groupby("experiment").size()
+        row["two-axis runs >= 2"] = int((per_run >= 2).sum())
+        row["median pH"] = float(members.pH.median())
+        rows.append(row)
+    return pd.DataFrame(rows).set_index("class")
+
+
+def shape_selection():
+    """
+    Does belonging to a class depend on the composition? The bias check.
+
+    A curve's shape is an OUTCOME of its composition, so restricting an
+    order to one shape conditions on something the axes may cause. If bursts
+    sit at the top of a run's peroxide ladder, a burst-only peroxide order is
+    read over a truncated axis and is biased by the selection itself.
+
+    Two numbers per class. Within the two-axis block, the correlation of
+    membership with log[S] and with log[H2O2] after each is centred on its own
+    run -- the same within-run contrast the orders use, so it is the
+    selection those orders actually see. And across the archive, the rank
+    correlation of membership with pH, which is a between-run axis. Near zero
+    means the class is a slice across the design; large means read that
+    class's orders as conditional on shape.
+    """
+    data = scope.frame(scope.archive())
+    live = data[data.live]
+    block = live[live.experiment.isin(scope.TWO_AXIS_BLOCK)]
+    rows = []
+    for name in SHAPE_CLASSES:
+        member = shape_members(block, name).astype(float)
+        row = {"class": name, "two-axis members": int(member.sum())}
+        centred = member - member.groupby(block.experiment).transform("mean")
+        for axis in ("s0", "h2o2"):
+            x = np.log(block[axis].astype(float))
+            x = x - x.groupby(block.experiment).transform("mean")
+            ok = centred.abs().sum() > 0 and x.abs().sum() > 0
+            row[f"within-run r, log {axis}"] = (
+                float(np.corrcoef(centred, x)[0, 1]) if ok else np.nan)
+        everywhere = shape_members(live, name).astype(float)
+        row["archive rank r, pH"] = float(
+            everywhere.rank().corr(live.pH.rank()))
+        rows.append(row)
+    return pd.DataFrame(rows).set_index("class")
+
+
+def shape_split(name, reference=DIVERGENCE_REFERENCE):
+    """
+    Every analysis, inside one shape class, on its early rate, its late rate,
+    their ratio and the reference -- ALL ON THE SAME CURVES.
+
+    The class's members are further held to the curves where all four are
+    finite and positive, so the four columns of every row share their curves.
+    That is what makes the ratio's row mean something: on the same rows an
+    OLS fit of log(early/late) is exactly the fit of log(early) minus the fit
+    of log(late), so its estimate is the difference of the two orders and its
+    error is the error OF THAT DIFFERENCE, which two separate fits sharing
+    their curves cannot give. (`test_rate_choice` checks the identity.)
+
+    Returns the long table `order_comparison` does, one row per
+    (analysis, rate), with `role` saying which of the four each rate is.
+
+    READ THE LADDER ROWS WITH THEIR chi2, AND MOSTLY DO NOT READ THEM. Inside
+    one class the pH ladders keep 4 to 12 curves each, against the three
+    parameters each ladder fit carries, and the pooled value can sit exactly
+    at zero from three ladders that disagree at chi2 = 31 (the burst ratio
+    does). The two-axis rows are the ones a class can support, and
+    `shape_class_counts`' `two-axis runs >= 2` says how well.
+
+    TWO MORE LIMITS, both measured on 2026-09-11 and both properties of the
+    archive rather than of this function:
+
+      v(0) IS NOT A POSITIVE RATE ON A DEEP LAG. It is <= 0 on 31% of the
+      lag class and 34% of lag-then-fall (17 of that class's 25 two-axis
+      curves), so every order of v(0) inside a lag class is read over the
+      SHALLOW lags only, and the deepest -- the coldest runs, on the
+      temperature series -- drop out.
+
+      ON THE TEMPERATURE SERIES THE TWO LAG CLASSES SIT ON DISJOINT
+      TEMPERATURES: one-phase lags are exactly the 15, 20 and 30 C runs and
+      lag-then-fall exactly 25, 35 and 40 C. The shape a curve earns is set
+      by its temperature (and run length), so each class's activation energy
+      is a three-temperature fit over part of the range, and the two classes
+      cannot be compared as if they spanned the same one.
+    """
+    spec = SHAPE_CLASSES[name]
+    roles = {"early": spec["early"], "late": spec["late"],
+             "ratio": spec["ratio"], "reference": reference}
+    frames = _frames(common=tuple(roles.values()), shape=name)
+    rows = []
+    for analysis_name, extra_is, analysis in RATE_ANALYSES:
+        for role, rate in roles.items():
+            estimate, stderr, curves, extra = analysis(rate, frames)
+            rows.append({"class": name, "analysis": analysis_name,
+                         "role": role, "rate": rate,
+                         "estimate": float(estimate), "stderr": float(stderr),
+                         "curves": int(curves), "extra": float(extra),
+                         "extra_is": extra_is})
+    return pd.DataFrame(rows)
+
+
 if __name__ == "__main__":
     pd.set_option("display.width", 250)
     pd.set_option("display.max_colwidth", 60)
@@ -415,3 +622,22 @@ if __name__ == "__main__":
     print(divergence_against_ph().round(3).to_string())
     print("\nwhich runs would be strong under each rate")
     print(strong_runs_by_rate().to_string())
+    print("\n\nTHE SHAPE SPLIT: where each class lives")
+    print(shape_class_counts().to_string())
+    print("\n...and whether membership tracks the composition (the bias check)")
+    print(shape_selection().round(3).to_string())
+    for name, spec in SHAPE_CLASSES.items():
+        table = shape_split(name)
+        print(f"\n{name.upper()}: {spec['reading']}   "
+              "estimate +/- error (curves) [extra]")
+        for analysis in [a for a, _, _ in RATE_ANALYSES]:
+            rows = table[table.analysis == analysis]
+            if not (rows.curves > 0).any():
+                continue
+            print(f"\n  {analysis}")
+            for r in rows.itertuples():
+                text = (f"{r.estimate:+.3f} +/- {r.stderr:.3f} ({r.curves})"
+                        if np.isfinite(r.estimate) else f"-- ({r.curves})")
+                if np.isfinite(r.extra):
+                    text += f" [{r.extra:.2f}]"
+                print(f"    {r.role:<10} {r.rate:<26} {text}")

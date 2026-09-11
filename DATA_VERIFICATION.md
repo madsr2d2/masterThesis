@@ -94,6 +94,55 @@ the numbers above. All 27 routine gates pass, plus the optimiser suite.
 
 ---
 
+## 2026-09-11 (third entry) — the rate comparison split by curve shape, and two faults it exposed in the order machinery
+
+`rate_choice.shape_split` compares each fitted rate INSIDE one shape of curve,
+where it has a single mechanistic reading: `burst` (one phase, tau resolved:
+v(0) the fast first turnover, v_ss the slower step), `lag` (one phase, tau
+resolved: v(0) before activation, v_ss after it) and `lag then fall` (two
+phases, peak inside the run: v(0) against the peak before the decline). Each
+class's early rate, late rate and their per-curve ratio -- new `scope.frame`
+columns `v0_over_ss_fit_corrected` and `v0_over_peak_corrected` -- are read on
+identical curves, so the ratio's order is exactly early minus late with the
+error of that difference (gated).
+
+As with the second entry, **nothing here is adopted and no finding is
+recorded**; the decision is still open. What IS recorded is what was wrong.
+
+**1. An exactly determined fit reported an error of zero.** `scope.orders` --
+the package's only log-log order machinery -- `scope.ph_order` and
+`arrhenius.pooled_arrhenius` all divided the residual by
+`max(1, n - rank)`. With as many parameters as curves the fit passes through
+every point, the residual is zero, and that idiom turned "no degrees of freedom
+left" into "+/- 0.000". It never fired on a whole block; restricted to one
+shape class it produced an order of -4.779 +/- 0.000 on 8 curves. All three
+now return NaN -- not measured -- when `n - rank < 1`. All 28 gates are
+unchanged, so no published number was sitting on an exactly determined fit.
+The same idiom remains in about seventeen per-curve fits (curve_metrics,
+summary_kinetics, induction) where a run's hundreds of readings make it
+harmless; they are left alone.
+
+**2. `scope.ph_order` raised `KeyError` when no ladder had enough curves**,
+because `set_index` was called on a table with no columns. It returns an empty
+table now.
+
+**3. A ratio of two rates was divided by the enzyme concentration.**
+`pooled_arrhenius` divides each rate by [enz] to make a turnover; a ratio is
+already dimensionless, and dividing it added a stray -log[enz] that moved the
+slope wherever [enz] tracks temperature. The comparison now passes
+`per_enzyme=False` for the ratio columns. Caught by the identity test before
+any number left the module (52.6 read where early minus late is 57.9).
+
+Two properties of the archive the split has to be read against, both measured:
+the fitted v(0) is <= 0 on 31% of the lag class and 34% of lag-then-fall (17 of
+the latter's 25 two-axis curves), so v(0)'s orders inside a lag class see only
+the shallow lags; and on the temperature series the two lag classes sit on
+DISJOINT temperatures -- one-phase lags exactly the 15, 20 and 30 C runs,
+lag-then-fall exactly 25, 35 and 40 C -- so each class's activation energy is
+a three-temperature fit over part of the range.
+
+---
+
 ## 2026-09-11 (second entry) — which rate an order is measured on: the comparison, and one latent bug it found
 
 `vmax` (`curve_metrics.peak_rate`, the steepest 20% block slope of the

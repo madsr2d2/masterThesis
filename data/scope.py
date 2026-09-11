@@ -545,6 +545,27 @@ def _frame(scope):
             # extrapolation past the decline and can be negative; read
             # `rate_choice.candidate_coverage` before using it.
             "v_ss_fit_corrected": float(progress_fixed.v_ss),
+            # THE EARLY RATE OVER THE LATE ONE, per curve, so an order of the
+            # RATIO is available to `scope.orders` like any column -- and the
+            # order of a ratio is exactly the difference of the two orders, on
+            # the same curves, with the right error on that difference (two
+            # separate fits share their curves and cannot give it).
+            # `rate_choice.SHAPE_CLASSES` says which is meaningful where: over
+            # `v_ss` on a ONE-phase curve (a burst's fast step over its slow
+            # one; a lag's pre-activation rate over its activated one), over
+            # the peak on a lag-then-fall. NaN where the denominator is not a
+            # positive rate; a negative v(0) gives a negative ratio, which the
+            # log-log machinery drops the way it drops any non-positive rate.
+            "v0_over_ss_fit_corrected": (
+                float(progress_fixed.rate(np.array([0.0]))[0])
+                / float(progress_fixed.v_ss)
+                if np.isfinite(progress_fixed.v_ss) and progress_fixed.v_ss > 0
+                else np.nan),
+            "v0_over_peak_corrected": (
+                float(progress_fixed.rate(np.array([0.0]))[0])
+                / float(progress_fixed.peak_rate[0])
+                if np.isfinite(progress_fixed.peak_rate[0])
+                and progress_fixed.peak_rate[0] > 0 else np.nan),
             "tau_fast": float(progress.two.tau1 if progress.phases == 2
                               else burst.tau),
             "tau_slow": float(progress.two.tau2 if progress.phases == 2
@@ -1103,7 +1124,18 @@ def orders(parameter="v0", scope=TWO_AXIS_BLOCK, within=True, live_only=True,
             "n": len(data), "r2": np.nan}
     coefficients, *_ = np.linalg.lstsq(design_matrix, y, rcond=None)
     residual = y - design_matrix @ coefficients
-    degrees = max(1, len(y) - np.linalg.matrix_rank(design_matrix))
+    # AN EXACTLY DETERMINED FIT IS NOT A MEASUREMENT. With as many parameters
+    # as curves the fit passes through every point, the residual is zero, and
+    # `max(1, ...)` -- the idiom this used, and still used in a score of places
+    # where a curve's hundreds of readings make it harmless -- turned "no
+    # degrees of freedom left" into "an error of 0.000". On a big block that
+    # never happens; `rate_choice.shape_split` restricts to one shape class
+    # and produced an order of -4.779 +/- 0.000 on 8 curves before this.
+    degrees = len(y) - np.linalg.matrix_rank(design_matrix)
+    if degrees < 1:
+        return {f"order_{t}": np.nan for t in terms} | {
+            f"stderr_{t}": np.nan for t in terms} | {
+            "n": len(data), "r2": np.nan}
     variance = float(residual @ residual) / degrees
     covariance = variance * np.linalg.pinv(design_matrix.T @ design_matrix)
     total = float(((y - y.mean()) ** 2).sum())
@@ -1361,7 +1393,10 @@ def ph_order(parameter="vmax", scope=TWO_AXIS_BLOCK, axis=PH_AXIS,
         beta, *_ = np.linalg.lstsq(design_matrix, y, rcond=None)
         residual = y - design_matrix @ beta
         rank = int(np.linalg.matrix_rank(design_matrix))
-        variance = float(residual @ residual) / max(1, len(y) - rank)
+        # Exactly determined is not measured -- see `orders`.
+        if len(y) - rank < 1:
+            continue
+        variance = float(residual @ residual) / (len(y) - rank)
         covariance = variance * np.linalg.pinv(design_matrix.T @ design_matrix)
         total = float(((y - y.mean()) ** 2).sum())
         rows.append({"ladder": label,
@@ -1374,7 +1409,13 @@ def ph_order(parameter="vmax", scope=TWO_AXIS_BLOCK, axis=PH_AXIS,
                      "stderr": float(np.sqrt(max(covariance[0, 0], 0.0))),
                      "r2": float(1 - (residual @ residual) / total)
                      if total > 0 else np.nan})
-    return pd.DataFrame(rows).set_index("ladder")
+    # An EMPTY table when no ladder has enough curves, not a KeyError: the
+    # columns are named so `set_index` has one to find. Nothing in the
+    # package hit this until `rate_choice.shape_split` asked a pH order of one
+    # shape class, which can leave a ladder with two curves.
+    columns = ["ladder", "runs", "curves", "cuvettes", "pH_low", "pH_high",
+               "order", "stderr", "r2"]
+    return pd.DataFrame(rows, columns=columns).set_index("ladder")
 
 
 ACCELERATION_SPLIT = 9.0
