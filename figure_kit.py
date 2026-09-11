@@ -83,6 +83,12 @@ ARRIVAL_BAND_COLOUR = "#2f6fb0"
 # panels and between folders.
 FIT_COLOUR = ACCENT                # the fit to the readings as recorded
 CHEMISTRY_COLOUR = "#8a5aa8"       # the rebuilt series, and the fit to it
+# The activation-sink form (`summary_kinetics.fit_activation_sink`), drawn
+# over the rebuilt series BESIDE the chosen form while it is being evaluated.
+# Near-black slate and dashed: it has to read apart from the rust and purple
+# fits by lightness AND by line style, from the grey readings by being far
+# darker, and from the blue arrival wash by being a line at full strength.
+ACTIVATION_SINK_COLOUR = "#23303d"
 
 # A quiet tail -- the stretch after the last detachment, where `debubble`
 # subtracts nothing because nothing was watched to leave. Past about one
@@ -235,7 +241,7 @@ def residual_axes(times, residual, width=340, height=72, pad=(56, 12, 30, 8),
 
 def derivative_axes(times, progress, width=340, height=72, pad=(56, 12, 30, 8),
                     colour=ACCENT, bands=(), band_colour=EVENT_BAND_COLOUR,
-                    samples=300):
+                    samples=300, companion=None):
     """
     A third strip beneath `residual_axes`: dA/dt of the FITTED curve.
 
@@ -262,12 +268,17 @@ def derivative_axes(times, progress, width=340, height=72, pad=(56, 12, 30, 8),
     three panels' plot AREAS line up when stacked in one panel div -- a
     reader should be able to look straight down from a reading, through its
     residual, to the rate the fit assigns it at that instant.
+
+    `companion` is further rates the caller will draw itself, held inside the
+    limits the way `progress_axes`' companion holds a second series.
     """
     from svgplot import Axes
     times = np.asarray(times, dtype=float)
     grid = np.linspace(0.0, float(times[-1]), samples)
     rate = np.asarray(progress.rate(grid), dtype=float)
-    finite = rate[np.isfinite(rate)]
+    extent = (rate if companion is None
+              else np.concatenate([rate, np.asarray(companion, dtype=float)]))
+    finite = extent[np.isfinite(extent)]
     lo = min(float(finite.min()), 0.0) if len(finite) else 0.0
     hi = max(float(finite.max()), 1e-9) if len(finite) else 1e-9
     margin = max((hi - lo) * 0.12, 1e-12)
@@ -582,6 +593,34 @@ def _initial_tangent(fit, times):
     return v0, (y0, y0 + v0 * float(times[-1]))
 
 
+def _activation_sink_note(sink):
+    """
+    The activation-sink form's parameters, for a panel's footer.
+
+    Each is quoted with the flag that says whether it is pinned, because on a
+    run still accelerating at its last reading v_act and tau are not -- only
+    their ratio is -- and a bare number there would assert what the fit's own
+    interval refuses. Written "tau = 781 s" and not "tau 781 s": the second is
+    the drawn fit's clock label, which `test_progress_panels` reads.
+    """
+    if not np.isfinite(sink.tau):
+        return ""
+
+    def quoted(value, unit, resolved):
+        text = f"{value:.3g}{unit}"
+        return text if resolved else f"{text} (unresolved)"
+    parts = [f"v_act = {quoted(sink.v_act, '', sink.v_act_resolved)}",
+             f"v₀ = {quoted(sink.v0, '', sink.v0_resolved)}",
+             f"τ = {quoted(sink.tau, ' s', sink.tau_resolved)}"]
+    if sink.sink_earned:
+        parts.append(f"k = {quoted(sink.k, '/s', sink.k_state == 'resolved')}")
+    else:
+        parts.append(f"k = 0 (sink not earned, F {sink.sink_f:.1f})")
+    return ("<span style='color:" + ACTIVATION_SINK_COLOUR + "'>"
+            "dashed slate: P′ = v_act + (v₀ − v_act)e^(−t/τ) − kP, "
+            + sink.kind + " · " + ", ".join(parts) + "</span>")
+
+
 def _clocks(fit):
     """
     The drawn fit's own time constants, as (time, label) pairs.
@@ -715,10 +754,47 @@ def progress_panel(fit, row, conditions, subhead, footer="", marks=(),
                   title=f"suspect reading: point {index} at "
                         f"t={times[index]:.0f} s")
 
+    # THE ACTIVATION-SINK FORM, over the rebuilt series, dashed slate. It is
+    # drawn BESIDE the chosen form and not instead of it: the header's
+    # function is still the one the residual strip and the clocks are read
+    # against, and this form's own parameters go in the footer, where each
+    # says whether it is pinned. Its v_act is marked on the derivative strip
+    # only where resolved, for the reason tau_2 is: a line at an unpinned
+    # value asserts a location.
+    sink = fit.activation_sink
+    smooth = np.linspace(0.0, float(times[-1]), 300)
+    sink_rate = sink_level = None
+    if np.isfinite(sink.tau):
+        axes.line(smooth, sink.predict(smooth), ACTIVATION_SINK_COLOUR,
+                  width=1.2, dash="6 3")
+        sink_rate = sink.rate(smooth)
+        if sink.v_act_resolved:
+            sink_level = float(sink.v_act)
+
     residual = (chem_values - chem_fit.predict(times)) / fit.noise
     bands = detach_bands + arrive_bands
     rax = residual_axes(times, residual, colour=chem_colour, bands=bands)
-    drax = derivative_axes(times, chem_fit, colour=chem_colour, bands=bands)
+    held = [] if sink_rate is None else list(sink_rate)
+    # v_act IS A COUNTERFACTUAL -- the rate with activation done and no
+    # product yet -- and where activation and sink overlap it lies well above
+    # any rate the run reached (exp 44.4: 2.9e-04 against a peak of 1.2e-04).
+    # Held in the limits it flattens the strip the rates are read off, so
+    # past twice the strip's own maximum it is noted at the top instead.
+    in_run = np.concatenate([np.asarray(chem_fit.rate(smooth), dtype=float),
+                             np.asarray(held, dtype=float)])
+    in_run = in_run[np.isfinite(in_run)]
+    off_scale = (sink_level is not None and len(in_run)
+                 and sink_level > 2.0 * max(float(in_run.max()), 0.0))
+    if sink_level is not None and not off_scale:
+        held.append(sink_level)
+    drax = derivative_axes(times, chem_fit, colour=chem_colour, bands=bands,
+                           companion=held or None)
+    if sink_rate is not None:
+        drax.line(smooth, sink_rate, ACTIVATION_SINK_COLOUR, width=1.1,
+                  dash="6 3")
+    if sink_level is not None and not off_scale:
+        drax.line([0.0, float(times[-1])], [sink_level, sink_level],
+                  ACTIVATION_SINK_COLOUR, width=0.9, dash="1 3")
     stack = [axes, rax, drax]
 
     # THE ASYMPTOTE: v_ss and sum B, read off one line. Drawn under the rules
@@ -777,6 +853,23 @@ def progress_panel(fit, row, conditions, subhead, footer="", marks=(),
         top = not np.isfinite(peak) or v0 >= peak
         drax.note(x, drax._fy(v0) + 12 if (near or top) else above,
                   f"v(0) {v0:.2e}", chem_colour, size=9.0)
+    # v_act's label at the strip's RIGHT end, on its own dotted level, below
+    # the line where v_peak's label would otherwise sit on it -- and v_peak's
+    # label runs about 75 px right of its point, so the test is whether that
+    # span reaches this label's, not where the point is.
+    if sink_level is not None:
+        right = drax.width - drax.right - 2
+        if off_scale:
+            drax.note(right, drax.top + 8, f"v_act {sink_level:.2e} (off scale)",
+                      ACTIVATION_SINK_COLOUR, size=9.0, anchor="end")
+        else:
+            y = drax._fy(sink_level) - 3
+            crowded = (peak_label is not None
+                       and peak_label[0] + 75 > right - 70
+                       and abs(peak_label[1] - y) < 11)
+            drax.note(right, y + 13 if crowded else y,
+                      f"v_act {sink_level:.2e}", ACTIVATION_SINK_COLOUR,
+                      size=9.0, anchor="end")
 
     # THE GAS, LABELLED. One label per detachment and one per arrival, so the
     # two directions read apart at a glance: a detachment is dashed, an
@@ -810,7 +903,8 @@ def progress_panel(fit, row, conditions, subhead, footer="", marks=(),
         axes.render("", "ΔA", xticks=False)
         + rax.render("", "z", xticks=False)
         + drax.render("time, s", "dA/dt"),
-        footer, table)
+        "<br>".join(text for text in (footer, _activation_sink_note(sink))
+                    if text), table)
 
 
 def curves_page_title(block):
