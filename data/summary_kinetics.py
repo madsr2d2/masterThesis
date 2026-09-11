@@ -976,6 +976,412 @@ def fit_burst_bounded(times, values, cap=BURST_TAU_CAP, floor=BURST_TAU_FLOOR,
     )
 
 
+# --- the activation-sink form: one rate law the archive's findings imply ----
+#
+# THE CHEMISTRY. Three results elsewhere in this package describe the same
+# curves from different ends: the induction is the catalyst becoming active on
+# its OWN clock (`induction/`), the decline is linear in the PRODUCT made
+# (`product_fate/`, `slowdown.sink_fit`), and on 17 curves the rate at mixing
+# is below zero (`early_trough/`). Written as one rate law for the product
+# P = A - c:
+#
+#     P' = v_act + (v0 - v_act) exp(-t/tau) - k P,        P(0) = 0
+#
+# v0 is the rate at mixing (a burst above v_act, a lag below it, the trough
+# below zero), tau the catalyst's own relaxation, v_act the fully activated rate
+# with no product yet -- the counterfactual an initial-rate order asks about --
+# and k the product-driven decline. The solution is
+#
+#     P(t) = v_act [I(k, t) - h(t)] + v0 h(t),
+#     I(r, t) = (1 - exp(-r t)) / r,     h(t) = exp(-k t) I(1/tau - k, t),
+#
+# LINEAR in (c, v0, v_act) at fixed (tau, k), so it is profiled on a 2-D grid
+# the way `fit_two_phase` is and has no local minima to fall into. k = 0 is
+# exactly the one-phase form (v_ss = v_act, B = (v_act - v0) tau), which makes
+# "does the sink earn its parameter" a one-degree F test.
+#
+# WHAT ONE CURVE CANNOT SAY. For k > 0 the solution spans {1, exp(-t/tau),
+# exp(-k t)}: it IS `fit_two_phase`'s form with v_ss held at zero, so it nests
+# inside that form as well (a second one-degree test, `two_phase_f` in scope),
+# and it is SYMMETRIC in the two relaxations. The curve fixes both rates and
+# not which of them is the catalyst's -- the limit `slowdown.
+# deceleration_drivers` states for time against product, which only a
+# comparison ACROSS curves can break. The assignment is therefore a
+# CONVENTION: the faster relaxation belongs to the catalyst, k <= 1/tau. On a
+# lag that then falls it is the only reading that makes chemical sense -- the
+# other one has the rate falling BECAUSE the catalyst finished activating --
+# but it is imposed, not measured, and v_act depends on it: at the plateau
+# v_act = k P(inf), so the swapped assignment would give P(inf)/tau instead.
+ACTIVATION_SINK_TAU_POINTS = 48
+ACTIVATION_SINK_K_POINTS = 40
+# The smallest nonzero k, in units of 1/span: a decline of about 1% of the rate
+# across the whole run, below which k = 0 fits as well on any curve here.
+ACTIVATION_SINK_K_FLOOR = 1e-2
+ACTIVATION_SINK_PARAMETERS = 5
+# The zoomed grid: its points per axis, and how far past the 95% threshold a
+# coarse node may sit and still set the box. 25 x 3.84 is a chi2 margin of
+# about 100, enough to catch a valley the coarse nodes straddle.
+ACTIVATION_SINK_ZOOM_POINTS = 48
+ACTIVATION_SINK_ZOOM = 25.0
+
+
+def _relaxation_integral(rates, times):
+    """
+    The integral of exp(-r s) over [0, t], one row per rate: (1 - e^(-r t))/r,
+    and t itself where r t is too small for that quotient to be computed.
+    """
+    rates = np.maximum(np.atleast_1d(np.asarray(rates, dtype=float)), 0.0)
+    rates = rates[:, None]
+    times = np.asarray(times, dtype=float)[None, :]
+    x = rates * times
+    safe = np.where(rates > 0, rates, 1.0)
+    with np.errstate(all="ignore"):
+        return np.where(x > 1e-9, -np.expm1(-x) / safe, times * (1.0 - 0.5 * x))
+
+
+def _activation_sink_columns(times, tau, k):
+    """
+    (h, g): the v0 and v_act columns of the design, one row per (tau, k).
+
+    h = (e^(-kt) - e^(-t/tau)) / (1/tau - k), and g = I(k, t) - h. Both
+    exponentials are computed once per DISTINCT tau and k and shared across
+    the nodes that use them -- the grids are products, so that is 48 of each
+    rather than one per node, and it is what makes the fit affordable on all
+    402 curves. Where 1/tau - k is too small for the difference to keep its
+    digits (k near 1/tau, the degenerate point) the series in d = 1/tau - k
+    is used instead, t e^(-kt) (1 - d t/2 + d^2 t^2/6), whose first term is
+    the exact limit.
+    """
+    times = np.asarray(times, dtype=float)
+    tau = np.atleast_1d(np.asarray(tau, dtype=float))
+    k = np.atleast_1d(np.asarray(k, dtype=float))
+    taus, tau_index = np.unique(tau, return_inverse=True)
+    ks, k_index = np.unique(k, return_inverse=True)
+    decay_tau = np.exp(-np.outer(1.0 / taus, times))[tau_index]
+    decay_k = np.exp(-np.outer(ks, times))
+    integral_k = _relaxation_integral(ks, times)[k_index]
+    decay_k = decay_k[k_index]
+    gap = np.maximum(1.0 / tau - k, 0.0)
+    near = gap * (times[-1] if len(times) else 0.0) <= 1e-3
+    with np.errstate(all="ignore"):
+        h = (decay_k - decay_tau) / np.where(near, 1.0, gap)[:, None]
+    if near.any():
+        # Row by row: only the few nodes sitting on the degenerate point.
+        x = gap[near][:, None] * times
+        h[near] = times * decay_k[near] * (1.0 - x / 2.0 + x ** 2 / 6.0)
+    return h, integral_k - h
+
+
+def _grid_interval(estimates, variances, costs, threshold):
+    """
+    A linear parameter's 95% profile interval over the whole (tau, k) grid.
+
+    At one node the residual sum of squares rises by (a - a_hat)^2 / q for a
+    parameter held at a, q being its diagonal of (X'X)^-1, so the node admits
+    a_hat +/- sqrt((threshold - cost) q). The profile interval is the union
+    over nodes -- the nonlinear uncertainty (which node) and the linear one
+    (where on it) together, which a covariance at the best node cannot give.
+    """
+    inside = costs <= threshold
+    if not inside.any():
+        return np.nan, np.nan
+    reach = np.sqrt(np.maximum(threshold - costs[inside], 0.0)
+                    * np.maximum(variances[inside], 0.0))
+    return (float((estimates[inside] - reach).min()),
+            float((estimates[inside] + reach).max()))
+
+
+@dataclass(frozen=True)
+class ActivationSinkFit:
+    """
+    One curve as production relaxing onto v_act on the catalyst's clock, with
+    the product drained at rate constant k. See the section comment above.
+
+    RESOLUTION IS PER PARAMETER, and which parameters a curve can resolve is
+    set by its run length against its clocks, not by the form:
+
+      tau_resolved       its profile interval clears both ends of the grid
+      v_act_resolved     the interval is inside +/- BURST_V0_HALFWIDTH of it,
+                         AND tau's interval stops short of the grid cap -- a
+                         curve still accelerating at its last reading slides
+                         along v_act/tau = constant, and the cap would
+                         otherwise truncate that valley into a false interval
+      v0_resolved        inside +/- BURST_V0_HALFWIDTH of the curve's rate
+                         scale, max(|v0|, |v_act|), so a lag starting from
+                         zero can still be resolved; and tau's interval stops
+                         short of the floor, where v0 diverges into a step
+      acceleration       P''(0) = (v_act - v0)/tau - k v0, THE combination a
+                         still-accelerating curve does determine
+      k_state            "none" (k = 0 inside the interval), "resolved", or
+                         "unbounded" (the interval reaches the grid top)
+    """
+    c: float
+    v0: float
+    v_act: float
+    tau: float
+    k: float
+    acceleration: float
+    sse: float                # the SELECTED form's: sink if earned, else k = 0
+    sse_no_sink: float        # the best k = 0 node: the one-phase form
+    sink_f: float             # one-degree F for k > 0 over k = 0
+    sink_earned: bool         # sink_f > TWO_PHASE_F, the second phase's bar
+    points: int
+    tau_interval: tuple
+    k_interval: tuple
+    v0_interval: tuple
+    v_act_interval: tuple
+    acceleration_interval: tuple
+    tau_grid: tuple           # (floor, cap), the grid's own ends
+    k_grid_top: float
+
+    @property
+    def tau_resolved(self):
+        low, high = self.tau_interval
+        return bool(np.isfinite(low) and low > self.tau_grid[0] * 1.05
+                    and high < self.tau_grid[1] * 0.95)
+
+    @property
+    def k_state(self):
+        low, high = self.k_interval
+        if not np.isfinite(low):
+            return "unresolved"
+        if low <= 0:
+            return "none"
+        if high >= self.k_grid_top * 0.95:
+            return "unbounded"
+        return "resolved"
+
+    def _narrow(self, interval, scale):
+        low, high = interval
+        return bool(np.isfinite(low) and np.isfinite(high) and scale > 0
+                    and (high - low) / 2 <= BURST_V0_HALFWIDTH * scale)
+
+    @property
+    def v_act_resolved(self):
+        return bool(self._narrow(self.v_act_interval, abs(self.v_act))
+                    and self.tau_interval[1] < self.tau_grid[1] * 0.95)
+
+    @property
+    def v0_resolved(self):
+        return bool(self._narrow(self.v0_interval,
+                                 max(abs(self.v0), abs(self.v_act)))
+                    and self.tau_interval[0] > self.tau_grid[0] * 1.05)
+
+    @property
+    def acceleration_resolved(self):
+        return bool(self._narrow(self.acceleration_interval,
+                                 abs(self.acceleration))
+                    and self.tau_interval[0] > self.tau_grid[0] * 1.05)
+
+    @property
+    def parameters(self):
+        """How many the selected form spends: 5 with the sink, 4 without."""
+        return ACTIVATION_SINK_PARAMETERS if self.sink_earned else 4
+
+    @property
+    def kind(self):
+        if not np.isfinite(self.v_act):
+            return "unresolved"
+        shape = "lag" if self.v0 < self.v_act else "burst"
+        return shape + (" then sink" if self.sink_earned else "")
+
+    @property
+    def plateau(self):
+        """P(inf) = v_act/k, the product level where the sink balances production."""
+        return float(self.v_act / self.k) if self.k > 0 else float("inf")
+
+    def predict(self, times):
+        times = np.asarray(times, dtype=float)
+        if not np.isfinite(self.tau):
+            return np.full(len(times), np.nan)
+        h, g = _activation_sink_columns(times, self.tau, self.k)
+        return self.c + self.v0 * h[0] + self.v_act * g[0]
+
+    def rate(self, times):
+        """P' = v_act e^(-kt) + (v0 - v_act)(e^(-t/tau) - k h), analytically."""
+        times = np.asarray(times, dtype=float)
+        if not np.isfinite(self.tau):
+            return np.full(len(times), np.nan)
+        h, _ = _activation_sink_columns(times, self.tau, self.k)
+        return (self.v_act * np.exp(-self.k * times)
+                + (self.v0 - self.v_act)
+                * (np.exp(-times / self.tau) - self.k * h[0]))
+
+    @property
+    def peak_rate(self):
+        """The largest fitted rate, and when: (rate, time), like ProgressFit's."""
+        if not np.isfinite(self.tau):
+            return np.nan, np.nan
+        if self.k <= 0:
+            return ((float(self.v_act), float("inf")) if self.v_act > self.v0
+                    else (float(self.v0), 0.0))
+        grid = np.linspace(0.0, 6.0 * max(self.tau, 1.0 / self.k), 4000)
+        rate = self.rate(grid)
+        best = int(np.argmax(rate))
+        return float(rate[best]), float(grid[best])
+
+
+def _activation_sink_nodes(scaled, values, tau, k):
+    """
+    (beta, inverse, costs) at every (tau, k) node, in span-scaled units.
+
+    The normal equations are assembled from the two grid-dependent columns
+    without materialising an (nodes, n, 3) design, and the residuals are
+    computed directly rather than by expanding y.y - 2 b.X'y + b'X'X b, which
+    loses the digits that matter on a curve fitted to its noise.
+    """
+    h, g = _activation_sink_columns(scaled, tau, k)
+    count = len(scaled)
+    normal = np.empty((len(tau), 3, 3))
+    normal[:, 0, 0] = count
+    normal[:, 0, 1] = normal[:, 1, 0] = h.sum(axis=1)
+    normal[:, 0, 2] = normal[:, 2, 0] = g.sum(axis=1)
+    normal[:, 1, 1] = np.einsum("in,in->i", h, h)
+    normal[:, 1, 2] = normal[:, 2, 1] = np.einsum("in,in->i", h, g)
+    normal[:, 2, 2] = np.einsum("in,in->i", g, g)
+    # einsum, not `h @ values`: a matrix-vector product goes to BLAS, which
+    # spreads it over every core -- 112 s of CPU for 4 s of wall time over
+    # the archive, and with `run_gates.py` running eight processes at once
+    # that oversubscription doubled the suite's wall time.
+    target = np.stack([np.full(len(tau), values.sum()),
+                       np.einsum("in,n->i", h, values),
+                       np.einsum("in,n->i", g, values)], axis=1)
+    with np.errstate(all="ignore"):
+        try:
+            inverse = np.linalg.inv(normal)
+        except np.linalg.LinAlgError:
+            # One singular node fails the whole batch; the pseudo-inverse is
+            # ten times slower and only needed then.
+            inverse = np.linalg.pinv(normal)
+        beta = np.einsum("ijk,ik->ij", inverse, target)
+        residual = (values[None, :] - beta[:, :1] - beta[:, 1:2] * h
+                    - beta[:, 2:3] * g)
+        costs = np.einsum("in,in->i", residual, residual)
+    return beta, inverse, np.where(np.isfinite(costs), costs, np.inf)
+
+
+def _product_nodes(taus, ks):
+    """Every (tau, k) pair of two grids with k <= 1/tau, as two flat arrays."""
+    row, column = np.nonzero(ks[None, :] <= (1.0 / taus)[:, None] * (1 + 1e-9))
+    return taus[row], ks[column]
+
+
+def fit_activation_sink(times, values, cap=BURST_TAU_CAP, floor=BURST_TAU_FLOOR,
+                        tau_points=ACTIVATION_SINK_TAU_POINTS,
+                        k_points=ACTIVATION_SINK_K_POINTS,
+                        k_floor=ACTIVATION_SINK_K_FLOOR,
+                        zoom_points=ACTIVATION_SINK_ZOOM_POINTS):
+    """
+    Fit P' = v_act + (v0 - v_act) e^(-t/tau) - k P, profiling (tau, k >= 0).
+
+    The tau grid is `fit_burst`'s range; k runs from 0 through k_floor/span to
+    the fastest 1/tau, and a node is kept only where k <= 1/tau (the section
+    comment says why that is a convention). Time is scaled by the span inside
+    the solve, so the design's columns are O(1).
+
+    THREE NODE SETS, because one grid cannot both find the basin and measure
+    it. The coarse (tau, k) grid finds it; on a well-determined curve the
+    valley is then NARROWER THAN ONE COARSE STEP, every coarse node sits off
+    its floor, and an interval read off them misses the truth -- the planted
+    trough's v0 interval covered its own value 33% of the time on the coarse
+    grid alone, and still under 80% with the grid made 3x finer everywhere.
+    So a zoomed grid is laid over the coarse nodes within ACTIVATION_SINK_ZOOM
+    times the 95% threshold (one coarse step wider each side), and the k = 0
+    column gets `fit_burst`'s own 240-point tau grid, so that the sink's F
+    test is against the one-phase form fitted as finely as `fit_burst` does.
+    """
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    times = times - times[0]
+    count = len(times)
+    span = times[-1] if count else 0.0
+    nothing = (np.nan, np.nan)
+    blank = ActivationSinkFit(*([np.nan] * 9 + [False, count] + [nothing] * 6
+                                + [np.nan]))
+    if span <= 0 or count < BURST_MINIMUM_POINTS + 1:
+        return blank
+
+    scaled = times / span
+    taus = np.logspace(np.log10(floor), np.log10(cap), tau_points)
+    ks = np.concatenate([[0.0], np.logspace(np.log10(k_floor),
+                                            np.log10(1.0 / floor), k_points)])
+    tau, k = _product_nodes(taus, ks)
+    one_phase = np.logspace(np.log10(floor), np.log10(cap), BURST_GRID_POINTS)
+    tau = np.concatenate([tau, one_phase])
+    k = np.concatenate([k, np.zeros(len(one_phase))])
+    beta, inverse, costs = _activation_sink_nodes(scaled, values, tau, k)
+    degrees = max(1, count - ACTIVATION_SINK_PARAMETERS)
+    loose = costs.min() * (1 + ACTIVATION_SINK_ZOOM * CHI2_95 / degrees)
+    near = (costs <= loose) & (k > 0)
+    if near.any():
+        tau_step = taus[1] / taus[0]
+        k_step = ks[2] / ks[1]
+        box_tau = np.logspace(
+            np.log10(max(tau[near].min() / tau_step, taus[0])),
+            np.log10(min(tau[near].max() * tau_step, taus[-1])), zoom_points)
+        box_k = np.logspace(
+            np.log10(max(k[near].min() / k_step, ks[1])),
+            np.log10(min(k[near].max() * k_step, ks[-1])), zoom_points)
+        zoom_tau, zoom_k = _product_nodes(box_tau, box_k)
+        more = _activation_sink_nodes(scaled, values, zoom_tau, zoom_k)
+        tau, k = np.concatenate([tau, zoom_tau]), np.concatenate([k, zoom_k])
+        beta, inverse, costs = (np.concatenate([a, b])
+                                for a, b in zip((beta, inverse, costs), more))
+    if not np.isfinite(costs.min()):
+        return blank
+    # THE FORM THE CURVE EARNS, as in `fit_progress`: the sink is reported
+    # only where it clears TWO_PHASE_F over k = 0. Otherwise every quantity
+    # below -- the best node, the intervals, the kind -- is the one-phase
+    # form's, profiled on the k = 0 column alone; reading v0 against v_act at
+    # an unearned k is how a one-phase burst came to be labelled a lag.
+    sse, sse_no_sink = float(costs.min()), float(costs[k == 0].min())
+    sink_f = (float((sse_no_sink - sse) / (sse / degrees)) if sse > 0
+              else np.nan)
+    earned = bool(np.isfinite(sink_f) and sink_f > TWO_PHASE_F)
+    parameters = ACTIVATION_SINK_PARAMETERS if earned else 4
+    costs = np.where((k >= 0) if earned else (k == 0), costs, np.inf)
+    best = int(np.argmin(costs))
+    threshold = costs[best] * (1 + CHI2_95 / max(1, count - parameters))
+
+    def profile(axis):
+        grid, index = np.unique(axis, return_inverse=True)
+        low = np.full(len(grid), np.inf)
+        np.minimum.at(low, index, costs)
+        inside = grid[low <= threshold]
+        return ((float(inside.min()), float(inside.max())) if len(inside)
+                else (np.nan, np.nan))
+
+    tau_low, tau_high = profile(tau)
+    k_low, k_high = profile(k)
+    # The rates, in scaled units (AU per span), and P''(0) in AU per span^2.
+    # Each is a linear functional w . beta of the node's own solution.
+    accel_w = np.stack([np.zeros_like(tau), -(1.0 / tau + k), 1.0 / tau], axis=1)
+    functionals = {
+        "v0": (beta[:, 1], inverse[:, 1, 1], span),
+        "v_act": (beta[:, 2], inverse[:, 2, 2], span),
+        "acceleration": (np.einsum("ij,ij->i", accel_w, beta),
+                         np.einsum("ij,ijk,ik->i", accel_w, inverse, accel_w),
+                         span ** 2)}
+    intervals = {}
+    for name, (estimate, variance, unit) in functionals.items():
+        low, high = _grid_interval(estimate, variance, costs, threshold)
+        intervals[name] = (low / unit, high / unit)
+    c, v0, v_act = (float(v) for v in beta[best])
+    return ActivationSinkFit(
+        c=c, v0=v0 / span, v_act=v_act / span,
+        tau=float(tau[best] * span), k=float(k[best] / span),
+        acceleration=float(functionals["acceleration"][0][best] / span ** 2),
+        sse=max(float(costs[best]), 0.0), sse_no_sink=max(sse_no_sink, 0.0),
+        sink_f=sink_f, sink_earned=earned,
+        points=count,
+        tau_interval=(tau_low * span, tau_high * span),
+        k_interval=(k_low / span, k_high / span),
+        v0_interval=intervals["v0"], v_act_interval=intervals["v_act"],
+        acceleration_interval=intervals["acceleration"],
+        tau_grid=(float(taus[0] * span), float(taus[-1] * span)),
+        k_grid_top=float(ks[-1] / span))
+
+
 def buffer_concentrations(dataset_path=DATASET_PATH):
     """{(experiment, sample): [buf] in mM} -- the one axis `Curve` does not carry."""
     data = add_solution_columns(pd.read_csv(dataset_path))

@@ -8,6 +8,109 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-11 (fourth entry) — a third fitted form, from the archive's own findings, evaluated against the drawn one
+
+`summary_kinetics.fit_activation_sink` fits every curve with one rate law for
+the product P = A − c,
+
+    P' = v_act + (v0 − v_act)·e^(−t/τ) − k·P,    P(0) = 0,
+
+which is `induction/`'s catalyst clock, `product_fate/`'s product-linear
+decline and `early_trough/`'s negative initial rate written as one function.
+`scope.curve_fit` makes it once per curve on the rebuilt series
+(`CurveFit.activation_sink`); `scope.frame` carries 16 columns off it;
+`rate_choice.RATE_CANDIDATES` carries `v_act_corrected` and
+`v_act_where_resolved_corrected`; `data/activation_sink.py` is the evaluation
+and `python data/activation_sink.py` prints every number below. **Nothing is
+adopted**: no page draws the form and no published number reads it.
+
+**What the form is, exactly.** For k > 0 its solution spans
+{1, e^(−t/τ), e^(−kt)}, so it is `fit_two_phase`'s form with v_ss held at zero,
+and at k = 0 it is exactly the one-phase form. Both comparisons are therefore
+nested F tests: the sink over k = 0 (one parameter, `sink_f_corrected`), and
+the two-phase form's free asymptote over this form (`asymptote_f_corrected`).
+It is also SYMMETRIC in its two relaxations -- one curve fixes both rates and
+not which is the catalyst's, the time-versus-product limit
+`deceleration_drivers` states -- so the assignment is a convention, the faster
+relaxation being the catalyst's (k ≤ 1/τ). v_act depends on it: at the plateau
+v_act = k·P(∞), and the swap would give P(∞)/τ.
+
+**Two faults in the first version, both found before any number left it.**
+
+1. *Intervals on a coarse grid missed the truth.* Profiled on a 48 × 41
+   (τ, k) grid, the planted trough's v0 interval covered its own value in 33%
+   of 60 noise draws, and a planted lag-with-sink's v_act interval in 2%. A
+   grid 3× finer everywhere still covered under 80%: on a well-determined
+   curve the cost valley is narrower than one step, so every node sits off its
+   floor. A zoomed 48 × 48 grid over the basin (coarse nodes within 25× the
+   95% threshold, one coarse step wider each side), plus `fit_burst`'s own
+   240-point τ grid for the k = 0 column, brings coverage to 0.87-0.98 for v0,
+   v_act and τ against a nominal 0.95 on all three planted shapes.
+2. *The fit spun every core.* `h @ values` goes to BLAS, which spread it over
+   all 32 cores: 112 s of CPU for 4 s of wall time over the archive, eight
+   gate processes did it at once, and `run_gates.py` went from 118 s to 237 s
+   (271 s before the exponentials were shared across nodes). With `einsum`
+   instead: 2.7 s wall and 2.0 s CPU over the archive, suite 126 s.
+
+A third, a labelling fault: the fit first reported its best node whether or
+not the sink earned its parameter, and 35 one-phase bursts came out as lags. It
+now reports the form the curve earns, as `fit_progress` does.
+
+**Where it holds (386 live curves).** It agrees with the drawn form on every
+one-phase curve (121 bursts, 88 lags; 13 of them gain a sink) and takes 80 of
+97 lag-then-fall as lag-then-sink. The two-phase form's free asymptote beats it
+(F > 12) on **100**: all 44 "mixed", both "two lags", 38 lag-then-fall and 16
+burst-then-fall. There the drawn form's asymptote either runs through zero
+(17 curves: 15 lag-then-fall, 2 burst-then-fall) or levels onto a steady rate
+-- a median 30% of the peak on the other 23 lag-then-fall, 7% on the other 14
+burst-then-fall -- and a product sink can do neither; on "mixed" the asymptote
+IS the peak (median 1.005), a second rise. Its residual on those 100 sits a
+median 1.18× the drawn form's (interquartile 1.08-1.51, 90th percentile 1.92).
+`activation_sink.contest_by_drawn_kind`.
+
+**What it resolves.** v_act on 233 of 386, τ on 260, v0 on 328; on 60 more
+only P''(0) = (v_act − v0)/τ − k·v0 is resolved -- runs still accelerating at
+their last reading, which fix v_act/τ and not v_act -- and on 93 neither, 71 of
+which do resolve v0. Of the 112 curves whose drawn-form peak lies outside the
+run, 56 resolve v_act. On the two-axis block its τ resolves on 78 of 110 live
+curves against `tau_slow_corrected`'s 33.
+
+**The independent check.** Once the activation is over the form is
+P' = v_act − kP, which is the line `slowdown.sink_fit` regresses the rolling
+rate on the product with, model-free, over the tail. Where both exist, v_act
+agrees with its intercept to a median log ratio of +0.01 to +0.02 in three
+channels (r = 0.96-0.98), and k with its slope to +0.02 to +0.09 (r = 0.67 on
+catalysed 4OMe, 0.91 and 0.98 elsewhere). Enzyme-free 4OMe is the exception,
+k −0.35 and v_act −0.24 -- the channel `product_fate` finds declining on a
+CLOCK rather than on product, where the sink form is the wrong mechanism.
+
+**What v_act does to the headline results**, each beside `vmax_corrected` on
+the same curves (`order_comparison(common=True)`), all v_act then resolved-only:
+
+| analysis | v_act (curves) | ref | resolved only | ref |
+|---|---|---|---|---|
+| two-axis [S] | +0.091 ± 0.084 (107) | +0.114 | +0.266 ± 0.118 (71) | +0.155 |
+| two-axis [H2O2] | +0.866 ± 0.125 (107) | +0.705 | +0.752 ± 0.160 (71) | +0.645 |
+| two-axis pH, strong | +0.757 ± 0.078 (55) | +0.593 | +0.651 ± 0.100 (36) | +0.601 |
+| three ladders [HOO-] | +0.570 ± 0.034, χ² 16.1 | +0.592 | +0.555 ± 0.036, χ² 1.8 | +0.577 |
+| boric [HOO-] | +0.126 ± 0.037 (36) | −0.024 | +0.191 ± 0.036 (18) | −0.009 |
+| activation energy | 95.9 ± 4.2 (23) | 90.1 | 96.0 ± 4.7 (21) | 89.5 |
+| +1 through tau_slow | +0.154 ± 0.324, 2.6σ | +0.774 | −0.102 ± 0.496, 2.2σ | +0.540 |
+| saturation, F vs a = 1 | 4.9 | 45.3 | 12.8 | — |
+
+Through the form's OWN clock -- v_act and τ off one fit, which is what the +1
+rule is about -- the two-axis peroxide axis gives **+0.721 ± 0.189 on 77
+curves, 1.5σ short of +1**, and the substrate control misses +1 by 6.1σ;
+`vmax_corrected` through the same clock gives +0.557 ± 0.136, 3.3σ short. The
++1 row through `tau_slow` collapses under v_act because that pairs this form's
+rate with the two-phase form's clock.
+
+New gate `data/test_activation_sink.py` (8 checks on the two-axis block's real
+curves) and `test_summary_kinetics.test_activation_sink_form` (15 on planted
+ones). All 29 routine gates pass.
+
+---
+
 ## 2026-09-12 — the curves pages marked a clock from a model the curve rejected
 
 **What was wrong.** Every folder's `progress_curves.html` drew its progress fit

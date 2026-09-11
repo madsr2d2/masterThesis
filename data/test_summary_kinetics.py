@@ -22,7 +22,8 @@ import pandas as pd
 
 from fit_dataset import build_curves, group_curves
 from summary_kinetics import (ABSORPTION_FLOOR, BURST_TAU_CAP, DEAD_CURVE_SNR,
-                              DESIGN_AXES, INITIAL_WINDOW, fit_burst,
+                              DESIGN_AXES, INITIAL_WINDOW,
+                              ActivationSinkFit, fit_activation_sink, fit_burst,
                               fit_progress, fit_two_phase, line_fit,
                               _two_phase_design,
                               OUTLIER_FACTOR, REPLICATE_RSD, absorbed_axes,
@@ -617,6 +618,80 @@ def test_two_phase_and_selection():
           f"{exact.sse:.9e} against {float(residual @ residual):.9e}")
 
 
+def _planted_activation_sink(times, c, v0, v_act, tau, k):
+    """A noiseless activation-sink curve, and the object that drew it."""
+    fit = ActivationSinkFit(c, v0, v_act, tau, k, 0.0, 0.0, 0.0, 0.0, True,
+                            len(times), *([(0.0, 0.0)] * 6), 0.0)
+    return fit.predict(times), fit
+
+
+def test_activation_sink_form():
+    """
+    The activation-sink form solves its own rate law, recovers what was
+    planted, nests the one-phase form at k = 0, and resolves only what a run
+    can determine.
+
+    The last is the check that matters most: a curve still accelerating at its
+    last reading determines v_act/tau and not v_act, and a fit that reported
+    v_act resolved there would be quoting the grid cap.
+    """
+    print("\nactivation-sink form")
+    times = np.arange(0, 100) * 60.0
+    generator = np.random.default_rng(3)
+    noise = 2e-4
+
+    values, drawn = _planted_activation_sink(times, 0.1, 1e-6, 2e-5, 800.0, 2e-4)
+    product = values - values[0]
+    ode = 2e-5 + (1e-6 - 2e-5) * np.exp(-times / 800.0) - 2e-4 * product
+    check("the analytic rate is the rate law's",
+          np.max(np.abs(drawn.rate(times) - ode)) < 1e-15,
+          f"{np.max(np.abs(drawn.rate(times) - ode)):.1e}")
+    # k = 1/tau is where the closed form divides by zero; the columns must
+    # take the limit, t exp(-t/tau), rather than return nan.
+    _, edge = _planted_activation_sink(times, 0.0, 0.0, 2e-5, 800.0, 1 / 800.0)
+    limit = 2e-5 * (-np.expm1(-times / 800.0) * 800.0
+                    - times * np.exp(-times / 800.0))
+    check("k = 1/tau takes its limit", np.allclose(edge.predict(times), limit,
+                                                   rtol=1e-9, atol=1e-15))
+
+    fit = fit_activation_sink(times, values + generator.normal(0, noise, len(times)))
+    check("a lag with a sink earns the sink", fit.sink_earned and
+          fit.kind == "lag then sink", f"{fit.kind}, F {fit.sink_f:.0f}")
+    for name, got, want, tolerance in (("v_act", fit.v_act, 2e-5, 0.1),
+                                       ("tau", fit.tau, 800.0, 0.3),
+                                       ("k", fit.k, 2e-4, 0.3)):
+        check(f"and recovers {name}", abs(got - want) < tolerance * abs(want),
+              f"{got:.3e} against {want:.3e}")
+    check("and resolves v_act, tau and k", fit.v_act_resolved
+          and fit.tau_resolved and fit.k_state == "resolved")
+    check("the faster relaxation is the catalyst's", fit.k <= 1 / fit.tau)
+    two = fit_two_phase(times, values + generator.normal(0, noise, len(times)))
+    check("a planted sink is inside the two-phase form's reach",
+          two.sse < fit.sse * 1.5, f"{two.sse:.3e} against {fit.sse:.3e}")
+
+    values, _ = _planted_activation_sink(times, 0.1, -5e-6, 2e-5, 500.0, 1e-4)
+    fit = fit_activation_sink(times, values + generator.normal(0, noise, len(times)))
+    check("a trough's negative v0 is recovered",
+          fit.v0_interval[1] < 0 and abs(fit.v0 + 5e-6) < 0.2 * 5e-6,
+          f"{fit.v0:.2e} in {fit.v0_interval[0]:.2e}..{fit.v0_interval[1]:.2e}")
+
+    values, _ = _planted_activation_sink(times, 0.1, 1e-6, 2e-5, 800.0, 0.0)
+    noisy = values + generator.normal(0, noise, len(times))
+    fit, one = fit_activation_sink(times, noisy), fit_burst(times, noisy)
+    check("a pure lag is refused the sink", not fit.sink_earned
+          and fit.k == 0 and fit.kind == "lag", f"F {fit.sink_f:.1f}")
+    check("and at k = 0 v_act is the one-phase v_ss",
+          abs(fit.v_act - one.v_ss) < 0.01 * abs(one.v_ss),
+          f"{fit.v_act:.4e} against {one.v_ss:.4e}")
+
+    values, _ = _planted_activation_sink(times, 0.1, 1e-6, 2e-5, 20000.0, 0.0)
+    fit = fit_activation_sink(times, values + generator.normal(0, noise, len(times)))
+    check("a curve still accelerating does not resolve v_act",
+          not fit.v_act_resolved and not fit.tau_resolved)
+    check("but does resolve its initial acceleration", fit.acceleration_resolved,
+          f"{fit.acceleration:.2e} in {fit.acceleration_interval}")
+
+
 if __name__ == "__main__":
     test_line_slope()
     test_line_intercept_and_floor()
@@ -631,5 +706,6 @@ if __name__ == "__main__":
     test_outliers()
     test_real_block()
     test_two_phase_and_selection()
+    test_activation_sink_form()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))
     sys.exit(1 if FAILURES else 0)

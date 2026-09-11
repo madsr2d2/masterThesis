@@ -82,6 +82,11 @@ RATE_CANDIDATES = {
     "v_peak_corrected": "fitted rate's maximum, over all t",
     "lag_peak": "fitted rate's maximum inside the run",
     "v_ss_fit_corrected": "fitted rate as t -> infinity",
+    # The activation-sink form's (`summary_kinetics.fit_activation_sink`),
+    # off `scope.CurveFit.activation_sink`: the activated rate with no product
+    # made, on every curve, and then only where its interval is narrow.
+    "v_act_corrected": "activation-sink form: activated rate, no product",
+    "v_act_where_resolved_corrected": "the same, blank where unresolved",
 }
 
 # The rate the shape comparison measures every other candidate against: the
@@ -300,6 +305,9 @@ def candidate_coverage(block=None):
                            length and so carries the schedule
       v_ss_fit_corrected   two-phase curves, where the asymptote lies past the
                            decline rather than after the activation
+      v_act_corrected      the activation-sink form's v_act is not pinned --
+                           mostly curves still accelerating at their last
+                           reading, where only v_act/tau is
 
     `block` is a scope; the default is the whole archive.
     """
@@ -316,6 +324,9 @@ def candidate_coverage(block=None):
         "lag_peak": ("maximum at the last reading", beyond),
         "v_ss_fit_corrected": ("two-phase: past the decline",
                                live.phases_corrected.to_numpy() == 2),
+        "v_act_corrected": ("v_act unresolved",
+                            ~live.v_act_resolved_corrected.to_numpy(bool)),
+        "v_act_where_resolved_corrected": ("", np.zeros(len(live), dtype=bool)),
     }
     rows = []
     for rate, description in RATE_CANDIDATES.items():

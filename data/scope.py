@@ -51,7 +51,8 @@ from curve_metrics import (ACCELERATION_SIGMA, BUBBLE_DROP_SIGMA,
 from fit_dataset import (TWO_AXIS_BLOCK, TWO_AXIS_GROUP, build_curves,
                          in_block, source_floor)
 from solution_chemistry import dominant_buffer_pair
-from summary_kinetics import CHI2_95, fit_burst_bounded, fit_progress
+from summary_kinetics import (CHI2_95, fit_activation_sink,
+                              fit_burst_bounded, fit_progress)
 
 # A run's own cuvettes have to move an axis by at least this much before that
 # axis counts as measured inside the run rather than across experiments.
@@ -140,6 +141,11 @@ class CurveFit:
     progress_corrected: object     # ...and on the rebuilt series
     burst: object                  # fit_burst_bounded on the readings
     burst_corrected: object        # ...and on the rebuilt series
+    # The activation-sink form (`summary_kinetics.fit_activation_sink`), on
+    # the rebuilt series only: it is being EVALUATED against the drawn form,
+    # not drawn, and CLAUDE.md's rule is that a clock is read off the rebuilt
+    # curve. `activation_sink_table` is the comparison.
+    activation_sink: object
 
     @property
     def chopped(self):
@@ -230,7 +236,8 @@ def curve_fit(curve):
         progress=fit_progress(times, values),
         progress_corrected=fit_progress(times, corrected),
         burst=fit_burst_bounded(times, values, noise_floor=floor),
-        burst_corrected=fit_burst_bounded(times, corrected, noise_floor=floor))
+        burst_corrected=fit_burst_bounded(times, corrected, noise_floor=floor),
+        activation_sink=fit_activation_sink(times, corrected))
     _FITS[key] = fit
     return fit
 
@@ -287,6 +294,43 @@ def frame(scope=TWO_AXIS_BLOCK):
     five folders. Same reasoning as `_gas_curves`.
     """
     return _frame(scope).copy()
+
+
+def _activation_sink_frame_columns(shape, progress_fixed):
+    """`frame`'s columns for one curve's activation-sink fit."""
+    fit = shape.activation_sink
+    values = shape.corrected
+    two = progress_fixed.two
+    degrees = max(1, fit.points - 6)
+    # The two-phase form nests the selected one either way (v_ss = 0 with the
+    # sink, B2 = 0 without), so this is a plain F on the parameters it adds.
+    extra = 6 - fit.parameters
+    return {
+        "v_act_corrected": fit.v_act,
+        "v_act_resolved_corrected": fit.v_act_resolved,
+        # The same rate blank wherever it is not pinned, so an analysis that
+        # reads a column reads only the curves the form resolves.
+        "v_act_where_resolved_corrected": (fit.v_act if fit.v_act_resolved
+                                           else np.nan),
+        "v0_act_corrected": fit.v0,
+        "v0_act_resolved_corrected": fit.v0_resolved,
+        "tau_act_corrected": fit.tau,
+        "tau_act_resolved_corrected": fit.tau_resolved,
+        "k_sink_corrected": fit.k,
+        "k_sink_state_corrected": fit.k_state,
+        "accel0_corrected": fit.acceleration,
+        "accel0_resolved_corrected": fit.acceleration_resolved,
+        "act_sink_kind_corrected": fit.kind,
+        "sink_f_corrected": fit.sink_f,
+        "asymptote_f_corrected": (
+            float(((fit.sse - two.sse) / extra) / (two.sse / degrees))
+            if np.isfinite(two.sse) and two.sse > 0 else np.nan),
+        "act_sink_resid_corrected": model_residual(
+            values, fit.predict(shape.times), 5, shape.noise),
+        "progress_resid_corrected": model_residual(
+            values, progress_fixed.predict(shape.times),
+            6 if progress_fixed.phases == 2 else 4, shape.noise),
+    }
 
 
 @functools.lru_cache(maxsize=16)
@@ -566,6 +610,17 @@ def _frame(scope):
                 / float(progress_fixed.peak_rate[0])
                 if np.isfinite(progress_fixed.peak_rate[0])
                 and progress_fixed.peak_rate[0] > 0 else np.nan),
+            # THE ACTIVATION-SINK FORM, off the rebuilt series, beside the
+            # drawn one rather than instead of it until
+            # `activation_sink.form_contest` says where it holds. v_act is the
+            # activated rate with no product made; its resolution flag is the
+            # one to read, because on a curve still accelerating at its last
+            # reading only `accel0` (P''(0)) is determined -- see
+            # `summary_kinetics.ActivationSinkFit`. `asymptote_f` is the
+            # two-phase form's one extra degree of freedom (a free v_ss where
+            # this form has zero) over this one: large means the curve levels
+            # onto a steady rate the sink cannot give.
+            **_activation_sink_frame_columns(shape, progress_fixed),
             "tau_fast": float(progress.two.tau1 if progress.phases == 2
                               else burst.tau),
             "tau_slow": float(progress.two.tau2 if progress.phases == 2
