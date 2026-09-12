@@ -290,6 +290,35 @@ def test_ladder_mm_recovers_planted_vmax_and_km():
           diag["agree"] == diag["resolved"], f"{diag['agree']}/{diag['resolved']}")
 
 
+def test_a_michaelis_fit_sees_one_peroxide_level_per_run():
+    """
+    THE L's TWO ARMS MAY NOT BOTH GO INTO A SUBSTRATE CURVE.
+
+    A Michaelis-Menten fit reads rate against [S]. The 4OMe ladders hold one
+    peroxide level per run, so `_substrate_arm` is a no-op there and every
+    published boric number is untouched. The two-axis ladders are an L with
+    2-4 levels per run, and feeding both arms in charges the peroxide arm's
+    scatter to the substrate curve: `km_resolved` was False on every one of
+    those runs, which reads as "this block does not saturate".
+    """
+    print("\na Michaelis-Menten fit sees one peroxide level per run")
+    for name in ("boric 4OMe", "phosphate 4OMe"):
+        ladder = ph_role.MM_LADDERS[name]
+        data = scope.frame(tuple(ladder))
+        kept = ph_role._mm_frame(ladder, "v_peak_corrected")
+        check(f"{name} is unchanged by the arm guard",
+              len(kept) == int(data.live.sum()),
+              f"{len(kept)} of {int(data.live.sum())} live")
+    ladder = scope.PH_LADDER_TWO_AXIS_LOW
+    data = scope.frame(tuple(ladder))
+    kept = ph_role._mm_frame(ladder, "v_peak_corrected")
+    levels = kept.groupby("experiment").h2o2.nunique()
+    check("a two-axis ladder is cut to its substrate arm",
+          len(kept) < int(data.live.sum()) and bool((levels == 1).all()),
+          f"{len(kept)} of {int(data.live.sum())} live, "
+          f"{sorted(levels.unique())} peroxide levels per run")
+
+
 def test_km_enzyme_check_detects_a_planted_dependence():
     """
     `km_enzyme_check` has to be a real test, not a rubber stamp: plant Km
@@ -413,6 +442,7 @@ if __name__ == "__main__":
     test_the_buffer_axis_cannot_move_the_ph_order()
     test_only_phosphate_can_corroborate_the_two_axis_block()
     test_ladder_mm_recovers_planted_vmax_and_km()
+    test_a_michaelis_fit_sees_one_peroxide_level_per_run()
     test_km_enzyme_check_detects_a_planted_dependence()
     test_the_decomposition_attributes_a_pure_km_decline_to_km_alone()
     test_the_decomposition_attributes_a_pure_vmax_decline_to_vmax_alone()

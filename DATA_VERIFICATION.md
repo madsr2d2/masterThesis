@@ -8,6 +8,52 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-12 — a Michaelis-Menten fit was reading both arms of the L
+
+**What was wrong.** `ph_role._mm_frame` handed `scope.mm_fit` every live
+cuvette of a run. A Michaelis-Menten fit reads a rate against `[S]`, and the
+two 4OMe ladders hold ONE peroxide level per run, so that was right for them
+-- but the two-axis ladders (`PH_LADDER_TWO_AXIS_LOW`/`_HIGH`) are an L
+carrying 2-4 levels per run. Their peroxide arm sits at one substrate with
+rates set by peroxide, and all of that scatter was charged to the substrate
+curve.
+
+**What it read.** Pointed at either two-axis ladder, `ladder_mm_table` gave
+r2 ~ 0 and `km_resolved` False on every run -- which reads as "this block does
+not saturate in substrate", when what it means is that the wrong cuvettes were
+in the fit. Restricted to each run's substrate arm (its top peroxide, which is
+`induction.ladder_arms`' own definition) the same call resolves Km on 2 of 7
+and 2 of 9 runs, r2 medians 0.26 and 0.51.
+
+**Nothing published moves.** The guard is a no-op on the 4OMe ladders, the
+only ones any document reads: `ph/check_numbers.py` passes its 55 claims
+unchanged, and boric's Km values (7 of 9 resolved on `v_peak_corrected`,
+median 5.67 mM) are exactly as `ph/ANALYSIS.md` 3a has them.
+
+**Where substrate saturation IS resolved**, per run, across the archive's
+substrate ladders -- the answer to "does an order make sense on an axis that
+saturates", which is what raised this:
+
+| ladder | response | runs | Km resolved | median Km |
+|---|---|---|---|---|
+| phosphate 4OMe | `vmax_corrected` | 9 | 6 | 2.12 mM |
+| phosphate 4OMe | `v_peak_corrected` | 9 | 5 | 3.67 mM |
+| boric 4OMe | `vmax_corrected` | 9 | 6 | 6.55 mM |
+| boric 4OMe | `v_peak_corrected` | 9 | 7 | 5.67 mM |
+| two-axis substrate arm (17 runs) | `vmax_corrected` | 17 | 4 | 0.82 mM |
+
+So the substrate axis saturates and the archive can measure it. The two-axis
+block's substrate rungs (0.216-10.816 mM) sit mostly ABOVE its own resolved
+Km, which is what its apparent order of +0.109 +/- 0.048 is: a tangent to a
+saturation curve read high on the curve, not an absence of substrate
+dependence. `v_act_corrected` resolves Km less often than `vmax_corrected`
+(4, 2 and 1-2 runs), being an extrapolated counterfactual with wider
+intervals -- read that before using it as a Michaelis-Menten response.
+
+New gate check `test_ph_role.test_a_michaelis_fit_sees_one_peroxide_level_per_run`.
+
+---
+
 ## 2026-09-11 (fifth entry) — the 100 curves the activation-sink form cannot hold
 
 Every curves page now draws the activation-sink form (dashed slate) beside the

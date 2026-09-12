@@ -383,6 +383,31 @@ MM_LADDERS = {
 }
 
 
+def _substrate_arm(data):
+    """
+    Each run's cuvettes at ONE peroxide level -- the rungs that ladder [S].
+
+    A Michaelis-Menten fit reads a rate against [S], so a run whose cuvettes
+    ALSO move [H2O2] puts several peroxide levels at the same substrate and
+    charges the scatter between them to the substrate curve. The two 4OMe
+    ladders hold one peroxide level per run, so this is a no-op there and
+    every published number off `ladder_mm_table` is unchanged. The two-axis
+    ladders are an L carrying 2-4 levels per run, and there it is the
+    difference between a Km on 4 of 17 runs and none at all: pointed at them
+    `ladder_mm_table` returned r2 ~ 0 and `km_resolved` False on every run
+    until 2026-09-12, which reads as "this block does not saturate" when what
+    it means is that the wrong cuvettes were in the fit.
+
+    The arm kept is the run's TOP peroxide -- `induction.ladder_arms`' own
+    definition of the substrate arm, so the two agree by construction.
+    """
+    if data.empty:
+        return data
+    top = data.groupby("experiment").h2o2.transform("max")
+    return data[np.isclose(data.h2o2.to_numpy(dtype=float),
+                           top.to_numpy(dtype=float))]
+
+
 def _mm_frame(experiments, response):
     """
     The ladder's own cuvettes, restricted the way `response` requires.
@@ -405,7 +430,7 @@ def _mm_frame(experiments, response):
     """
     data = scope.frame(tuple(experiments))
     if response not in ("v0_fit", "v0_fit_corrected"):
-        return data[data.live]
+        return _substrate_arm(data[data.live])
     resolved_column = ("v0_fit_resolved" if response == "v0_fit"
                        else "v0_fit_resolved_corrected")
     data = data[data.live & data[resolved_column]].copy()
@@ -414,7 +439,7 @@ def _mm_frame(experiments, response):
                       troughs.loc[troughs.genuine, "sample"]))
     data["trough_genuine"] = [(e, s) in genuine
                              for e, s in zip(data.experiment, data["sample"])]
-    return data
+    return _substrate_arm(data)
 
 
 def ladder_mm_table(experiments, response="v_peak_corrected", frame=None):
