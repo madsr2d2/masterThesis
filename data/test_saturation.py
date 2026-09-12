@@ -102,6 +102,76 @@ def test_one_binding_constant_is_told_from_two():
           f"and {apart['K_k_act_corrected']:.4f}")
 
 
+def _planted_series(activation_kJ, km_enthalpy_kJ, km_25=3.0, noise=0.01,
+                    seed=7):
+    """
+    A temperature series whose Vmax and Km each carry a KNOWN barrier.
+
+    Six runs, four substrate rungs each, rate = Vmax [S]/(Km + [S]) with
+    Vmax Arrhenius in T and Km van 't Hoff in T. `km_enthalpy_kJ` = 0 plants
+    a Km that does not move, which is what the archive's own series looks
+    like; a nonzero one has to be told from it, or the decomposition is
+    asserting rather than measuring.
+    """
+    generator = np.random.default_rng(seed)
+    gas = 8.314462618 / 1000.0
+    reference = 298.15
+    rows = []
+    for experiment, celsius in zip((14, 15, 16, 17, 18, 19),
+                                   (25.0, 35.0, 40.0, 30.0, 20.0, 15.0)):
+        kelvin = celsius + 273.15
+        step = 1 / reference - 1 / kelvin
+        vmax = 1e-4 * np.exp(activation_kJ / gas * step)
+        km = km_25 * np.exp(km_enthalpy_kJ / gas * step)
+        for sample, s0 in enumerate((1.85, 3.7, 5.55, 7.399), start=1):
+            rate = vmax * s0 / (km + s0) * float(
+                np.exp(generator.normal(0, noise)))
+            rows.append({
+                "experiment": experiment, "sample": sample, "live": True,
+                "temperature": celsius, "s0": s0, "h2o2": 82.5,
+                "buf": 80.0 - 5 * sample, "e0": 0.273, "pH": 7.0,
+                "substrate": "4OMe-BnOH", "buffer": "Phosphate",
+                "vmax_corrected": rate, "v_peak_corrected": rate,
+                "v_act_corrected": rate, "v0_act_corrected": rate,
+                "v_act_resolved_corrected": True,
+                "v0_act_resolved_corrected": True,
+                "k_act_corrected": np.nan, "k_sink_corrected": np.nan,
+                "tau_act_resolved_corrected": False})
+    return pd.DataFrame(rows)
+
+
+def test_the_barrier_is_split_between_vmax_and_km():
+    print("\nwhere the barrier sits: Vmax or Km")
+    for planted_km in (0.0, 30.0):
+        frame = _planted_series(80.0, planted_km)
+        entry = _with_frame(frame, saturation.michaelis_temperature,
+                            experiments=(14, 15, 16, 17, 18, 19))[0]
+        check(f"Vmax's barrier comes back with Km planted at "
+              f"{planted_km:.0f} kJ/mol",
+              abs(entry["vmax_kJ"] - 80.0) < 8.0,
+              f"{entry['vmax_kJ']:.1f} +/- {entry['vmax_stderr_kJ']:.1f}")
+        check(f"...and Km's own {planted_km:.0f} kJ/mol is recovered",
+              abs(entry["km_kJ"] - planted_km) < 12.0,
+              f"{entry['km_kJ']:+.1f} +/- {entry['km_stderr_kJ']:.1f}")
+    flat = _with_frame(_planted_series(80.0, 0.0),
+                       saturation.michaelis_temperature,
+                       experiments=(14, 15, 16, 17, 18, 19))[0]
+    moving = _with_frame(_planted_series(80.0, 30.0),
+                         saturation.michaelis_temperature,
+                         experiments=(14, 15, 16, 17, 18, 19))[0]
+    check("a moving Km is told from a flat one",
+          moving["km_kJ"] - flat["km_kJ"] > 15.0,
+          f"{flat['km_kJ']:+.1f} against {moving['km_kJ']:+.1f} kJ/mol")
+    # The rung reconstruction: with Km fixed every rung predicts the same
+    # barrier; with Km moving they must not.
+    spread = flat["rungs"].predicted_kJ.max() - flat["rungs"].predicted_kJ.min()
+    moved = moving["rungs"].predicted_kJ.max() - moving["rungs"].predicted_kJ.min()
+    check("a fixed Km predicts one barrier at every rung", spread < 1.0,
+          f"{spread:.2f} kJ/mol across the rungs")
+    check("...and a moving Km predicts a different one at each",
+          moved > spread, f"{moved:.2f} kJ/mol across the rungs")
+
+
 def test_michaelis_is_asked_of_rates_only():
     print("\nthe substrate axis")
     table = saturation.michaelis_by_element(scope.PH_LADDER_BORIC)
@@ -131,6 +201,7 @@ def test_the_buffer_confound_is_reported():
 if __name__ == "__main__":
     test_a_planted_binding_constant_comes_back()
     test_one_binding_constant_is_told_from_two()
+    test_the_barrier_is_split_between_vmax_and_km()
     test_michaelis_is_asked_of_rates_only()
     test_the_buffer_confound_is_reported()
     print(f"\n{len(FAILURES)} failure(s)"

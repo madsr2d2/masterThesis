@@ -277,6 +277,8 @@ def michaelis_by_element(block=None, elements=SATURATION_ELEMENTS,
                 "experiment": int(experiment), "element": column,
                 "substrate": run.substrate.iloc[0],
                 "buffer": run.buffer.iloc[0],
+                "temperature": float(run.temperature.median()),
+                "e0": float(run.e0.median()),
                 "catalysed": bool(run.e0.median() > 0),
                 "pH": float(run.pH.median()), "rungs": fit["n"],
                 "s_low": float(usable.s0.min()), "s_high": float(usable.s0.max()),
@@ -285,6 +287,79 @@ def michaelis_by_element(block=None, elements=SATURATION_ELEMENTS,
                 "km_resolved": bool(fit["km_resolved"]), "r2": fit["r2"],
                 "buffer_r": buffer_r})
     return pd.DataFrame(rows)
+
+
+def michaelis_temperature(experiments=None, elements=SATURATION_ELEMENTS,
+                          resolved_only=False):
+    """
+    WHERE THE BARRIER SITS: in Vmax, or in Km?
+
+    The temperature series ladders four substrate rungs at one peroxide in
+    every one of its six runs, so each temperature earns its own (Vmax, Km)
+    and the two can be given separate Arrhenius fits. A rate read at a fixed,
+    sub-saturating [S] mixes them --
+
+        v = Vmax [S] / (Km + [S])
+        d ln v / d(1/T) = d ln Vmax / d(1/T)
+                          - [Km/(Km + [S])] . d ln Km / d(1/T)
+
+    -- so an activation energy measured on the rate alone is the Vmax barrier
+    only if Km does not move with temperature. `ph/` asked the same question
+    of the pH axis and found BOTH moving (`ph_role.turnover_decomposition`).
+
+    Returns a dict per element: `vmax_kJ` (Arrhenius on Vmax/[enz], the
+    turnover), `km_kJ` (the same fit applied to Km -- the enthalpy of the
+    binding equilibrium if Km is one, which for Km = (k_off + k_cat)/k_on it
+    need not be, so read it as apparent), and the reconstruction: for each
+    substrate rung, the activation energy the fitted (Vmax, Km) pair PREDICTS
+    at that rung against the one the rung's own rates give
+    (`arrhenius.rung_fits`). `resolved_only` drops temperatures whose Km its
+    own four cuvettes do not locate -- 35 C on this series.
+    """
+    import arrhenius
+    experiments = arrhenius.TEMPERATURE_SERIES if experiments is None \
+        else experiments
+    table = michaelis_by_element(experiments, elements=elements)
+    out = []
+    for column, _, _, is_rate in elements:
+        if not is_rate:
+            continue
+        rows = table[table.element == column].sort_values("temperature")
+        if resolved_only:
+            rows = rows[rows.km_resolved]
+        if len(rows) < 3:
+            continue
+        kelvin = rows.temperature.to_numpy(dtype=float) + 273.15
+        turnover = rows.vmax.to_numpy(dtype=float) / rows.e0.to_numpy(dtype=float)
+        vmax_fit = arrhenius.arrhenius_fit(kelvin, turnover) or {}
+        km_fit = arrhenius.arrhenius_fit(kelvin, rows.km.to_numpy(dtype=float)) or {}
+        entry = {"element": column, "temperatures": int(len(rows)),
+                 "km_resolved": int(rows.km_resolved.sum()),
+                 "vmax_kJ": vmax_fit.get("activation_kJ", np.nan),
+                 "vmax_stderr_kJ": vmax_fit.get("stderr_kJ", np.nan),
+                 "vmax_rms": vmax_fit.get("rms", np.nan),
+                 "km_kJ": km_fit.get("activation_kJ", np.nan),
+                 "km_stderr_kJ": km_fit.get("stderr_kJ", np.nan),
+                 "km_median": float(np.nanmedian(rows.km)),
+                 "km_low": float(np.nanmin(rows.km)),
+                 "km_high": float(np.nanmax(rows.km))}
+        # The reconstruction, rung by rung: what the (Vmax, Km) pair predicts
+        # a rate at that [S] should do with temperature, against what it does.
+        measured = arrhenius.rung_fits(column, experiments=experiments)
+        predicted = []
+        for s0 in measured.index:
+            rate = (rows.vmax.to_numpy(dtype=float) * float(s0)
+                    / (rows.km.to_numpy(dtype=float) + float(s0))
+                    / rows.e0.to_numpy(dtype=float))
+            fit = arrhenius.arrhenius_fit(kelvin, rate) or {}
+            predicted.append({
+                "s0": float(s0),
+                "predicted_kJ": fit.get("activation_kJ", np.nan),
+                "measured_kJ": float(measured.loc[s0, "activation_kJ"]),
+                "measured_stderr_kJ": float(measured.loc[s0, "stderr_kJ"])})
+        entry["rungs"] = pd.DataFrame(predicted)
+        out.append(entry)
+    return out
 
 
 def michaelis_summary(table=None):
@@ -315,6 +390,20 @@ def main():
     resolved = table[table.km_resolved]
     print(f"\n{len(resolved)} of {len(table)} per-run fits resolve Km; "
           f"{resolved.experiment.nunique()} experiments")
+    print("\nthe temperature series: is the barrier in Vmax or in Km?")
+    for resolved_only in (False, True):
+        print(f"  {'Km-resolved temperatures only' if resolved_only else 'all six temperatures'}")
+        for entry in michaelis_temperature(resolved_only=resolved_only):
+            print(f"    {entry['element']:18s} T {entry['temperatures']} "
+                  f"(Km resolved {entry['km_resolved']})  "
+                  f"Vmax {entry['vmax_kJ']:6.1f} +/- {entry['vmax_stderr_kJ']:4.1f} kJ/mol   "
+                  f"Km {entry['km_kJ']:+6.1f} +/- {entry['km_stderr_kJ']:4.1f} kJ/mol   "
+                  f"Km {entry['km_low']:.1f}-{entry['km_high']:.1f} mM")
+    print("\n  rung by rung, what (Vmax, Km) predicts against what the rung does")
+    for entry in michaelis_temperature():
+        if entry["element"] != "vmax_corrected":
+            continue
+        print(entry["rungs"].round(1).to_string(index=False))
 
 
 if __name__ == "__main__":

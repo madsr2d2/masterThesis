@@ -8,6 +8,63 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-12 (third entry) — the temperature series' barrier is in Vmax, not in Km
+
+`saturation.michaelis_temperature`. Each of the six temperature-series runs
+ladders four substrate rungs at one peroxide, so each temperature earns its
+own (Vmax, Km) and the two can be given separate Arrhenius fits. This matters
+because a rate read at a fixed, sub-saturating [S] mixes them:
+
+    v = Vmax [S]/(Km + [S])
+    d ln v/d(1/T) = d ln Vmax/d(1/T) - [Km/(Km + [S])] . d ln Km/d(1/T)
+
+so an activation energy measured on the rate is the Vmax barrier ONLY if Km
+does not move. `ph/` asked this of the pH axis and found both moving
+(`ph_role.turnover_decomposition`, ANALYSIS.md 3a); temperature is the other
+way.
+
+**Km resolves at 5 of the 6 temperatures** on `vmax_corrected` and
+`v_peak_corrected` (35 C is the one that does not), over 2.0-5.1 mM.
+
+| element | temperatures | Vmax barrier, kJ/mol | Km barrier, kJ/mol |
+|---|---|---|---|
+| vmax_corrected | 6 | 90.1 +/- 5.6 | +0.0 +/- 12.2 |
+| vmax_corrected | 5, Km-resolved | 86.1 +/- 3.9 | -6.9 +/- 11.6 |
+| v_peak_corrected | 6 | 84.0 +/- 5.1 | -9.6 +/- 10.0 |
+| v_peak_corrected | 5, Km-resolved | 79.8 +/- 1.9 | -17.0 +/- 6.4 |
+| v_act_corrected | 6 | 149.3 +/- 54.5 | +68.1 +/- 56.3 |
+
+**Km carries no temperature dependence the series can measure** -- +0.0 +/-
+12.2 kJ/mol on the element that resolves it best -- so the published
+activation energy IS the Vmax barrier and needs no correction for saturation.
+The 6-point Vmax fit's 90.1 +/- 5.6 lands on `arrhenius.pooled_arrhenius`'
+90.098 +/- 1.484 over the same series' 24 curves, which is a check on the
+per-run route rather than a second measurement.
+
+**The rung reconstruction agrees.** With Km flat, the (Vmax, Km) pair predicts
+the SAME barrier at every substrate rung -- 89.8 kJ/mol at all four -- against
+94.5 +/- 2.8, 86.0 +/- 3.0, 88.4 +/- 2.7 and 91.5 +/- 2.7 measured rung by
+rung (`arrhenius.rung_fits`). The scatter is what `rungs_agree` already prices
+as noise on six points.
+
+**Two cautions, and one loose end.** `[buf]` moves with `[S]` inside every run
+of this series (50-80 mM, r = -0.96), so this Km is a Km OF THE PAIR, like
+every other 4OMe ladder's. `vmax` over-reads the barrier by about 1.9 kJ/mol
+at the cold end (`arrhenius.truncation_sensitivity`). And `v_peak_corrected`
+read over its five Km-resolved temperatures gives -17.0 +/- 6.4 kJ/mol for Km,
+2.7 sigma from zero and the only hint here that Km might fall with
+temperature; it rests on one element and five points, and `vmax_corrected`
+over the same five gives -6.9 +/- 11.6. Not claimed either way.
+`v_act_corrected` is too noisy on this series to say anything (149 +/- 55).
+
+Gate: `test_saturation.test_the_barrier_is_split_between_vmax_and_km` plants
+a series with a 80 kJ/mol Vmax barrier and a Km that either does not move or
+carries 30 kJ/mol, and requires the decomposition to tell them apart (+1.4
+against +31.5) and to predict one barrier per rung in the first case and
+different ones in the second.
+
+---
+
 ## 2026-09-12 (second entry) — saturating fits, per element of the fitted curve
 
 `data/saturation.py`. Where an axis saturates, an order is the TANGENT to a
