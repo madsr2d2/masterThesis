@@ -315,6 +315,15 @@ def _activation_sink_frame_columns(shape, progress_fixed):
         "v0_act_corrected": fit.v0,
         "v0_act_resolved_corrected": fit.v0_resolved,
         "tau_act_corrected": fit.tau,
+        # The activation's RATE CONSTANT, 1/tau. A pre-equilibrium predicts
+        # its form and not the clock's -- 1/tau = k_off(1 + K h), rising with
+        # peroxide and never saturating, against the activated rate's own
+        # K h/(1 + K h). The two logarithmic slopes sum to 1, which IS
+        # `induction.joint_clocks`' +1 rule; `saturation.shared_binding`
+        # asks them for one K. Gated by `tau_act_resolved_corrected`, like
+        # the clock it inverts.
+        "k_act_corrected": (1.0 / fit.tau if np.isfinite(fit.tau)
+                            and fit.tau > 0 else np.nan),
         "tau_act_resolved_corrected": fit.tau_resolved,
         "k_sink_corrected": fit.k,
         "k_sink_state_corrected": fit.k_state,

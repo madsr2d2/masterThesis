@@ -8,6 +8,81 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-12 (second entry) — saturating fits, per element of the fitted curve
+
+`data/saturation.py`. Where an axis saturates, an order is the TANGENT to a
+saturation curve over whatever rungs the run happened to carry, so the summary
+is the saturating parameter and the order is derived from it. This entry is
+that fit, asked of each element of `fit_activation_sink` separately. **Nothing
+is adopted**; no published number moves.
+
+**The peroxide axis, on the two-axis block's peroxide arm**, each element
+gated to the curves where its own interval resolves it. `order` is the free
+power a log-log fit would report; K is profiled with the exponent FIXED at 1,
+the way `induction.peroxide_saturation` fixes it:
+
+| element | free power | K, /mM | bound at 82.5 mM | curves |
+|---|---|---|---|---|
+| v_act | +0.548 (0.30-0.80) | 0.0515 (0.011-0.192) | 0.81 | 44 |
+| k_act = 1/tau | +0.012 (-0.24 to +0.26) | 0.0020 (unconstrained) | -- | 47 |
+| k, the sink | -0.279 (-0.76 to +0.21) | free power only | -- | 18 |
+| v0 | +0.312 (0.07-0.56) | 0.138 (0.045-0.79) | 0.92 | 45 |
+| vmax_corrected | +0.598 (0.48-0.71) | 0.0397 (0.021-0.069) | 0.77 | 63 |
+
+**THE PRE-EQUILIBRIUM'S TWO HALVES DO NOT COME OUT AS IT REQUIRES.** For
+E + H2O2 in pre-equilibrium the activated rate saturates, v ~ K h/(1 + K h),
+while the relaxation clock RISES, 1/tau = k_off(1 + K h) -- and their
+logarithmic slopes, 1/(1 + K h) and K h/(1 + K h), sum to 1 at every h. That
+sum IS `induction.joint_clocks`' +1 rule, which is why the rule survives
+saturation when the individual orders do not. At the v_act fit's own K = 0.05
+and the working 82.5 mM the scheme wants the CLOCK to carry 0.80 of the +1
+and the rate 0.20. Observed, it is the other way round: the rate carries
++0.548 and the clock +0.012, consistent with no peroxide dependence at all.
+`shared_binding` fits both forms with one K against each having its own and
+rejects the shared one at **F = 4.87 on 1 degree of freedom** (91 points, 58
+dof) -- weak-to-moderate, and in the direction of two different constants
+(0.0515 against 0.0020).
+
+Their SUM, +0.56, is compatible within errors with `joint_clocks`' +0.757 +/-
+0.289 for the same pair, which is measured differently (all cuvettes, the
+substrate control axis alongside, per-run offsets) -- so this is not a
+contradiction of the published row. What is new is the SPLIT, which the +1
+rule cannot see: an arithmetic sum near 1 can be reached by a rate and clock
+that divide it in a way the scheme forbids.
+
+**The substrate axis, per RUN.** `michaelis_by_element` fits within one
+experiment -- exp 48's own four cuvettes give exp 48's own (Vmax, Km) -- on
+each run's substrate arm, for the rate-like elements only. A Michaelis-Menten
+form describes a RATE; fitted to a clock it returned Km at the grid floor on
+39 of 42 runs with r2 ~ 0, so `k_act` and the sink's `k` are excluded by
+construction and get an order there instead. **115 of 248 per-run fits resolve
+Km, over 51 experiments**:
+
+| channel | element | runs | resolved | median Km |
+|---|---|---|---|---|
+| 4OMe phosphate, catalysed | vmax_corrected | 18 | 12 | 2.34 mM |
+| 4OMe boric, catalysed | vmax_corrected | 10 | 6 | 7.30 mM |
+| BnOH pyrophosphate (two-axis) | vmax_corrected | 17 | 6 | 0.22 mM |
+| 4OMe phosphate, catalysed | v_act | 15 | 8 | 3.61 mM |
+
+`v_act` resolves Km on fewer runs than `vmax_corrected` everywhere (8 against
+12, 1 against 6, 2 against 6), being an extrapolated counterfactual with wider
+intervals; quote the pair.
+
+**THE 4OMe LADDERS' Km IS A Km OF THE [S]/[buf] PAIR.** Substrate volume
+displaced buffer volume there, so within a run log[buf] tracks log[S] at
+r = -0.96 to -0.97, and the column `buffer_r` carries it per run. Exps 135-151
+hold [buf] fixed and carry no such term (`buffer_r` is blank) -- but they sit
+mostly ABOVE their own Km. Neither block gives a clean, well-resolved Km on
+its own, and the two fail in opposite directions.
+
+New gate `data/test_saturation.py`: a planted K comes back per element, a
+planted SHARED K is not rejected (F 0.00) and two different K are (F 21410),
+no clock is given a Michaelis-Menten fit, and the buffer confound is flagged
+where it exists and absent where it does not.
+
+---
+
 ## 2026-09-12 — a Michaelis-Menten fit was reading both arms of the L
 
 **What was wrong.** `ph_role._mm_frame` handed `scope.mm_fit` every live
