@@ -280,6 +280,104 @@ def test_linear_data_leaves_alpha_unidentified():
           f"width {row['alpha_high'] - row['alpha_low']:.2f}")
 
 
+def _planted_activation(K_true, scheme, noise=0.02, seed=5):
+    """
+    A buffer activation planted on the REAL titration design.
+
+    Exps 32, 34-37 step [buf] inside a run with [S] and [H2O2] fixed, so a
+    per-run level is the whole of what absorbs pH, [S] and [enz], and the
+    activation form is read off the buffer contrast inside the run. `scheme`
+    is "relaxation" (1 + K[buf], an activator), "bound" (K[buf]/(1 + K[buf]),
+    the saturating-activation alternative) or "inhibition" (1/(1 + K[buf])).
+    """
+    frame = scope.frame(scope.BUFFER_TITRATIONS).copy()
+    generator = np.random.default_rng(seed)
+    levels = {int(e): 10 ** generator.normal(0, 0.4)
+              for e in frame.experiment.unique()}
+    level = frame.experiment.map(levels).to_numpy(dtype=float)
+    buf = frame.buf.to_numpy(dtype=float)
+    wobble = np.exp(generator.normal(0, noise, len(frame)))
+    if scheme == "relaxation":
+        clock = 1.0 + K_true * buf
+    elif scheme == "bound":
+        clock = K_true * buf / (1.0 + K_true * buf)
+    elif scheme == "inhibition":
+        clock = 1.0 / (1.0 + K_true * buf)
+    else:
+        raise ValueError(f"unknown scheme {scheme!r}")
+    frame["k_act_corrected"] = level * clock * wobble
+    frame["tau_act_corrected"] = 1.0 / frame["k_act_corrected"].to_numpy(float)
+    frame["v_act_corrected"] = (level * (K_true * buf / (1.0 + K_true * buf))
+                                * wobble)
+    frame["v_act_resolved_corrected"] = True
+    frame["tau_act_resolved_corrected"] = True
+    frame["k_sink_corrected"] = np.nan
+    frame["v0_act_corrected"] = np.nan
+    frame["v0_act_resolved_corrected"] = False
+    frame["vmax_corrected"] = np.nan
+    frame["v_peak_corrected"] = np.nan
+    return frame
+
+
+def test_a_planted_buffer_K_comes_back():
+    print("\na planted buffer K on the clock")
+    row = _with_frame(_planted_activation(0.02, "relaxation"),
+                      saturation.activation_by_buffer).loc["k_act_corrected"]
+    check("the relaxation K is recovered",
+          row.K_relaxation_low <= 0.02 <= row.K_relaxation_high,
+          f"K {row.K_relaxation:.4f} "
+          f"[{row.K_relaxation_low:.4f}, {row.K_relaxation_high:.4f}]")
+    check("...and the relaxation form beats the bound form",
+          row.sse_relaxation < row.sse_bound,
+          f"{row.sse_relaxation:.4f} against {row.sse_bound:.4f}")
+
+
+def test_an_activator_is_told_from_an_inhibitor():
+    print("\nan activator against an inhibitor")
+    activator = _with_frame(_planted_activation(0.02, "relaxation"),
+                            saturation.activation_by_buffer).loc["k_act_corrected"]
+    check("a rise in the clock is called activating",
+          activator.bound == "activating (-1,0)",
+          f"tau order {activator.tau_order:+.3f} "
+          f"[{activator.tau_order_low:+.3f}, {activator.tau_order_high:+.3f}]"
+          f" -> {activator.bound}")
+    inhibitor = _with_frame(_planted_activation(0.02, "inhibition"),
+                            saturation.activation_by_buffer).loc["k_act_corrected"]
+    check("a fall is called inhibiting",
+          inhibitor.bound == "inhibiting (0,+1)",
+          f"tau order {inhibitor.tau_order:+.3f} "
+          f"[{inhibitor.tau_order_low:+.3f}, {inhibitor.tau_order_high:+.3f}]"
+          f" -> {inhibitor.bound}")
+
+
+def test_the_peroxide_axis_is_unchanged():
+    """
+    The generalisation's defaults must reproduce the Step-1 fit exactly.
+
+    Frozen from `binding_by_element()` BEFORE the axis/rows arguments were
+    added, so a change to the default path is caught rather than absorbed.
+    """
+    print("\nthe peroxide axis, unchanged by the generalisation")
+    frozen = {
+        "v_act_corrected": (0.5476, 0.0515, 15.6406, 14.7257),
+        "k_act_corrected": (0.0117, 0.0020, 18.3918, 18.4516),
+        "k_sink_corrected": (-0.2788, np.nan, np.nan, 7.9813),
+        "v0_act_corrected": (0.3122, 0.1381, 12.7598, 13.1701),
+        "vmax_corrected": (0.5977, 0.0397, 10.1554, 10.1553),
+        "v_peak_corrected": (0.6628, 0.0258, 35.4356, 35.2164),
+    }
+    table = saturation.binding_by_element()
+    for element, (order, k, scheme_sse, power_sse) in frozen.items():
+        row = table.loc[element]
+        check(f"{element} is unchanged",
+              abs(row.order - order) < 5e-4
+              and (np.isnan(k) or abs(row.K - k) < 5e-4)
+              and (np.isnan(scheme_sse) or abs(row.scheme_sse - scheme_sse) < 5e-4)
+              and abs(row.power_sse - power_sse) < 5e-4,
+              f"order {row.order:.4f}, K {row.K:.4f}, "
+              f"schemes {row.scheme_sse:.4f}/{row.power_sse:.4f}")
+
+
 def test_the_buffer_confound_is_reported():
     print("\nthe [S]/[buf] pair")
     table = saturation.michaelis_by_element(scope.PH_LADDER_PHOSPHATE)
@@ -301,6 +399,9 @@ if __name__ == "__main__":
     test_a_planted_species_comes_back()
     test_the_two_species_are_told_apart()
     test_linear_data_leaves_alpha_unidentified()
+    test_a_planted_buffer_K_comes_back()
+    test_an_activator_is_told_from_an_inhibitor()
+    test_the_peroxide_axis_is_unchanged()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)

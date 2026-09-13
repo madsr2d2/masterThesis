@@ -8,6 +8,109 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-13 (second entry) — what activates the catalyst: the clock confirms the +1 on the lever, and the free order straddles zero
+
+`saturation.activation_by_buffer`, `saturation.activation_buffer_table` and
+`saturation.activation_plus_one`. `induction.joint_buffer_order` met the
+parameter-free +1 pre-equilibrium rule on the BUFFER axis, but through the
+LANDMARK and on only two runs (34, 32). The activation clock
+`k_act_corrected = 1/tau_act` is fitted to the progress curve and carries no
+rolling window, so the same question can be asked on all five buffer
+titrations (`scope.BUFFER_TITRATIONS`, 20 live curves, `tau_act` resolved on
+20 of 20 and `v_act` on 19). Inside every run [S] and [H2O2] are fixed and
+only [buf] moves, so the per-run levels absorb pH, [S] and [enz] and there is
+no [S]/[buf] collinearity here.
+
+**Checkpoint 2 reproduced first:** the 3.2 table (exps 32, 34-37; 20 live;
+`tau_act` 20/20, `v_act` 19/20; `bubble_load` 0 on every curve; no
+`tau_act > 1.8 x duration_s`).
+
+`binding_by_element` and `shared_binding` were generalised with `axis` and
+`rows` arguments, defaulting to the peroxide arm. The default path is
+UNCHANGED, and the test below freezes it: every element's order, K and both
+SSEs reproduce the Step-1 values to 5e-4.
+
+**One row per element, one free level per run** (`activation_by_buffer`):
+
+| element | curves | order in [buf] | interval | K | K interval |
+|---|---|---|---|---|---|
+| k_act_corrected | 20 | +0.217 | [-0.419, +0.848] | 0.0036 (relaxation) | [0.0001, 0.2712] |
+| v_act_corrected | 19 | +0.317 | [-0.189, +0.828] | 0.0552 | [0.0058, 3.1623] |
+| vmax_corrected | 20 | +0.357 | [+0.102, +0.608] | 0.0489 | [0.0196, 0.1381] |
+| v_peak_corrected | 20 | +0.322 | [+0.057, +0.588] | 0.0562 | [0.0213, 0.1700] |
+
+For `k_act_corrected` the CLOCK order is `-order`: **tau_order = -0.217
+[-0.848, +0.419]**. An ACTIVATING species needs that in (-1, 0), an INHIBITING
+one in (0, +1); this interval straddles 0, so `bound` = **"straddles"** -- the
+block does not decide it on the free order. Neither does the saturating form
+settle it: the relaxation K (SSE 9.6254) is slightly preferred to the bound K
+(0.7655, SSE 9.8329), but the relaxation K spans two decades
+[0.0001, 0.2712], so the preference is not a measurement.
+
+**The parameter-free +1 rule, through the same clock**
+(`activation_plus_one`, regressing log(v) - log(tau_act) on log[buf] with one
+level per run, `floor=None` with the resolution gate):
+
+| rate | cut | curves | runs | order | stderr | sigma from +1 |
+|---|---|---|---|---|---|---|
+| v_act_corrected | all five | 20 | 5 | 0.460 | 0.520 | 1.04 |
+| v_act_corrected | lever (34, 32) | 8 | 2 | 1.036 | 0.252 | 0.14 |
+| vmax_corrected | all five | 20 | 5 | 0.572 | 0.310 | 1.38 |
+| vmax_corrected | lever (34, 32) | 8 | 2 | 1.055 | 0.253 | 0.22 |
+
+**On the two runs the published result used, the window-free clock reproduces
+the windowed landmark**: 1.036 +/- 0.252 against +1.094 +/- 0.150, a
+difference of 0.058 +/- 0.294. That is the like-for-like comparison the two-run
+cut was for. On all five the clock gives 0.460 +/- 0.520, consistent with +1 at
+1.04 sigma but also with 0, so it adds little on its own.
+
+**One shared buffer K is not rejected.** `shared_binding(axis="buf")` gives
+K_shared = **0.0176** [0.0011, 0.2361] against a K each (separate SSE 14.1394,
+shared 14.9876), F = **1.62** on 27 degrees -- the pre-equilibrium's one-K
+prediction survives on the buffer axis, where it did not on the peroxide axis
+(F = 4.87).
+
+**Controls** (`activation_buffer_table`): dropping each run in turn, the clock's
+free order stays between +0.057 and +0.302 with every interval straddling 0 --
+no one run decides the non-result. `gated=False` is identical to A because the
+gate costs no curve here. The one control that moves the RATE order is dropping
+exp 34: `vmax_corrected` falls from +0.357 [+0.102, +0.608] to +0.107
+[-0.124, +0.337], so the rate's positive buffer order rests on that run's
+sub-50 mM rungs.
+
+**Verdict: not decided by the clock's own order, and consistent with the
+buffer as the activating species where it can be tested.** The block's free
+tau-order straddles 0, so per the plan this is "not decided on this block" --
+but the +1 rule, which is parameter-free, is met through the clock on the
+lever, and one shared K is not rejected. The strongest statement is the lever
+cross-check; the all-five fit does not strengthen it.
+
+**Cautions.**
+
+- **Only total buffer is measurable.** pH is one value per run, so acid and
+  base forms are proportional inside a run and no species is named.
+- **General base against buffer perhydrate cannot be separated here**: they
+  differ by a [buf].[H2O2] term and no run moves both ([buf] is the only axis
+  stepping inside these runs).
+- **The gas does not enter** -- `bubble_load` is 0 on all 20 curves, though
+  pH 7.50-7.53 is at the archive's gas onset (none below 7.5).
+- **No clock is capped**: no curve has `tau_act_corrected > 1.8 x duration_s`,
+  despite the runs differing 4.5x in length.
+- `v_act` is unresolved on one curve (exp 37), so the rates are read on 19-20
+  curves.
+- The shared K's interval still spans two decades; "not rejected" is not
+  "pinned".
+
+**Tests.** `data/test_saturation.py`: `test_a_planted_buffer_K_comes_back`
+(relaxation K recovered and beats the bound form), `test_an_activator_is_told_from_an_inhibitor`
+(a planted rise is called activating and a planted fall inhibiting),
+`test_the_peroxide_axis_is_unchanged` (the generalisation's defaults reproduce
+Step 1 to 5e-4). Existing tests unchanged; `run_gates.py` green (30 gates).
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-13 — which peroxide species saturates the catalyst: neither alone
 
 `saturation.binding_species` and `saturation.species_table`. The rate is said

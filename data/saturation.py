@@ -124,41 +124,66 @@ def _element_rows(table, column, gate, block_gate=True):
     return ladder
 
 
+def _buffer_rows(table, column, gate, gated=True):
+    """
+    One element's usable buffer-titration rows: live, positive, >= 3 rungs.
+
+    The buffer titrations step [buf] inside a run with [S] and [H2O2] fixed,
+    so no ladder selection is needed -- unlike the peroxide arm, which has to
+    choose an arm of the L. A run must still ladder at least three rungs for
+    its curvature to mean anything.
+    """
+    values = table[column].to_numpy(dtype=float)
+    live = table[table.live & np.isfinite(values) & (values > 0)
+                 & (table.buf > 0)]
+    if gate is not None and gated and len(live):
+        live = live[live[gate].to_numpy(dtype=bool)]
+    if not len(live):
+        return live
+    counts = live.groupby("experiment").buf.transform("nunique")
+    return live[counts >= 3]
+
+
 def binding_by_element(block=scope.TWO_AXIS_BLOCK, elements=SATURATION_ELEMENTS,
                        gated=True, grid=SATURATION_GRID, span=SATURATION_SPAN,
-                       cutoff=PROFILE_F):
+                       cutoff=PROFILE_F, axis="h2o2", rows=None,
+                       working=WORKING_PEROXIDE):
     """
-    Each element's own K on the peroxide axis, beside its free power.
+    Each element's own K on a concentration axis, beside its free power.
 
     One row per element: the free power `order` (what `scope.orders` would
     give, and a tangent), the scheme's profiled `K` with a 95% interval, the
-    bound fraction it implies at `WORKING_PEROXIDE`, and both SSEs so that
-    "the scheme fits as well as a free power" can be read rather than
-    asserted. `gated=True` keeps only curves where that element's own
-    interval resolves it; `gated=False` is the same fit on every curve the
-    element is positive on, and the gap between the two is the resolution's
-    price.
+    bound fraction it implies at `working`, and both SSEs so that "the scheme
+    fits as well as a free power" can be read rather than asserted.
+    `gated=True` keeps only curves where that element's own interval resolves
+    it; `gated=False` is the same fit on every curve the element is positive
+    on, and the gap between the two is the resolution's price.
 
     The scheme's exponent is FIXED at 1 for the reason
     `induction.peroxide_saturation` fixes it: a free exponent lets the
     saturating form buy a fit that is a curve through the points and not the
     hypothesis.
+
+    `axis` and `rows` generalise it to another ladder and another row picker
+    (`_buffer_rows` for [buf]); the defaults are exactly the peroxide arm and
+    reproduce the original fit unchanged.
     """
     table = scope.frame(block)
+    pick = rows if rows is not None else _element_rows
     constants = np.logspace(*span, grid)
     powers = np.linspace(-1.0, 2.0, grid)
-    rows = []
+    output = []
     for column, gate, shape, _ in elements:
-        ladder = _element_rows(table, column, gate, gated)
+        ladder = pick(table, column, gate, gated)
         if len(ladder) < 10:
-            rows.append({"element": column, "curves": int(len(ladder))})
+            output.append({"element": column, "curves": int(len(ladder))})
             continue
-        h = ladder.h2o2.to_numpy(dtype=float)
+        x = ladder[axis].to_numpy(dtype=float)
         y = np.log(ladder[column].to_numpy(dtype=float))
         groups = ladder.experiment.to_numpy()
         _, levels = _levelled(y, np.zeros(len(y)), groups)
         degrees = max(1, len(y) - levels - 1)
-        power_sse = np.array([_levelled(y, a * np.log(h), groups)[0]
+        power_sse = np.array([_levelled(y, a * np.log(x), groups)[0]
                               for a in powers])
         best = int(np.argmin(power_sse))
         inside = powers[power_sse
@@ -172,18 +197,18 @@ def binding_by_element(block=scope.TWO_AXIS_BLOCK, elements=SATURATION_ELEMENTS,
                "power_sse": float(power_sse[best])}
         if shape is not None:
             scheme_sse = np.array([
-                _levelled(y, _scheme(shape, k, h), groups)[0]
+                _levelled(y, _scheme(shape, k, x), groups)[0]
                 for k in constants])
             top = int(np.argmin(scheme_sse))
             allowed = constants[scheme_sse
                                 <= scheme_sse[top] * (1.0 + cutoff / degrees)]
-            bound = constants[top] * WORKING_PEROXIDE
+            bound = constants[top] * working
             row.update(K=float(constants[top]),
                        K_low=float(allowed.min()), K_high=float(allowed.max()),
                        scheme_sse=float(scheme_sse[top]),
                        bound_fraction=float(bound / (1 + bound)))
-        rows.append(row)
-    return pd.DataFrame(rows).set_index("element")
+        output.append(row)
+    return pd.DataFrame(output).set_index("element")
 
 
 def binding_species(block=scope.TWO_AXIS_BLOCK, element="vmax_corrected",
@@ -356,7 +381,8 @@ def species_table(block=scope.TWO_AXIS_BLOCK):
 def shared_binding(block=scope.TWO_AXIS_BLOCK,
                    elements=("v_act_corrected", "k_act_corrected"),
                    gated=True, grid=SATURATION_GRID, span=SATURATION_SPAN,
-                   cutoff=PROFILE_F):
+                   cutoff=PROFILE_F, axis="h2o2", rows=None,
+                   working=WORKING_PEROXIDE):
     """
     Do the activated rate and the activation clock share ONE binding constant?
 
@@ -370,17 +396,19 @@ def shared_binding(block=scope.TWO_AXIS_BLOCK,
     Returns the two separate K, the shared K with its interval, both SSEs and
     the F. `curves` is per element; the elements do NOT have to be measurable
     on the same curves, since each carries its own per-run levels.
+    `axis` and `rows` generalise it exactly as `binding_by_element`'s do.
     """
     table = scope.frame(block)
+    pick = rows if rows is not None else _element_rows
     shapes = {column: shape for column, _, shape, _ in SATURATION_ELEMENTS}
     gates = {column: gate for column, gate, _, _ in SATURATION_ELEMENTS}
     constants = np.logspace(*span, grid)
     pieces, separate, out = [], 0.0, {"elements": list(elements)}
     for column in elements:
-        ladder = _element_rows(table, column, gates[column], gated)
+        ladder = pick(table, column, gates[column], gated)
         if len(ladder) < 10:
             return out | {"curves": {column: int(len(ladder))}}
-        h = ladder.h2o2.to_numpy(dtype=float)
+        h = ladder[axis].to_numpy(dtype=float)
         y = np.log(ladder[column].to_numpy(dtype=float))
         groups = np.array([f"{column}/{e}" for e in ladder.experiment])
         sse = np.array([_levelled(y, _scheme(shapes[column], k, h), groups)[0]
@@ -407,8 +435,159 @@ def shared_binding(block=scope.TWO_AXIS_BLOCK,
         "f": (float((total[best] - separate) / (separate / degrees))
               if separate > 0 else np.nan),
         "points": int(points), "degrees": int(degrees),
-        "bound_fraction": float(constants[best] * WORKING_PEROXIDE
-                                / (1 + constants[best] * WORKING_PEROXIDE))}
+        "bound_fraction": float(constants[best] * working
+                                / (1 + constants[best] * working))}
+
+
+def activation_by_buffer(block=scope.BUFFER_TITRATIONS, gated=True, runs=None):
+    """
+    WHAT ACTIVATES THE CATALYST: the buffer, on the window-free clock.
+
+    `induction.joint_buffer_order` met the +1 pre-equilibrium rule on the
+    BUFFER axis, but through the LANDMARK and on only two runs (34, 32). The
+    activation clock `k_act_corrected = 1/tau_act` is a fitted constant with
+    no rolling window, so the same question can be asked on all five
+    titrations (20 live curves, tau_act resolved on 20).
+
+    One row per element, each fit with a free level per run (pH, [S] and
+    [enz] differ between runs and are absorbed; [S] and [H2O2] are fixed
+    INSIDE every run, so unlike the 4OMe substrate ladders there is no
+    [S]/[buf] collinearity here). Reported:
+
+      - the free power in [buf] and its interval, for every element;
+      - for the rates, the bound-form K with its interval;
+      - for `k_act_corrected`, the relaxation-form K against the bound-form K
+        (the activation is a RISE: 1/tau = k_r(1 + K[buf]), which saturates as
+        k_max K[buf]/(1 + K[buf]) only if it is an activation to a fixed
+        ceiling -- the two differ by one parameter and the SSEs decide);
+      - `tau_order = -order`, because the +1 rule is stated on the CLOCK: an
+        ACTIVATING species needs d ln tau/d ln[buf] in (-1, 0), an INHIBITING
+        one in (0, +1), and a coefficient outside its bound falsifies the
+        scheme rather than fitting it. `bound` is the verdict on the interval.
+    """
+    def picker(table, column, gate, block_gate):
+        ladder = _buffer_rows(table, column, gate, block_gate and gated)
+        if runs is not None:
+            ladder = ladder[ladder.experiment.isin(list(runs))]
+        return ladder
+
+    base = binding_by_element(block=block, elements=SATURATION_ELEMENTS,
+                              gated=gated, axis="buf", rows=picker)
+    bound = binding_by_element(
+        block=block, gated=gated, axis="buf", rows=picker,
+        elements=(("k_act_corrected", "tau_act_resolved_corrected",
+                   "bound", False),))
+
+    def verdict(low, high):
+        if high < 0 and low > -1:
+            return "activating (-1,0)"
+        if low > 0 and high < 1:
+            return "inhibiting (0,+1)"
+        if high <= -1 or low >= 1:
+            return "outside both"
+        return "straddles"
+
+    output = []
+    for element, row in base.iterrows():
+        entry = {"element": element, "curves": row.get("curves"),
+                 "runs": row.get("runs"), "order": row.get("order"),
+                 "order_low": row.get("order_low"),
+                 "order_high": row.get("order_high")}
+        if element == "k_act_corrected":
+            entry["tau_order"] = -row["order"]
+            entry["tau_order_low"] = -row["order_high"]
+            entry["tau_order_high"] = -row["order_low"]
+            entry["bound"] = verdict(entry["tau_order_low"],
+                                     entry["tau_order_high"])
+            entry["K_relaxation"] = row.get("K")
+            entry["K_relaxation_low"] = row.get("K_low")
+            entry["K_relaxation_high"] = row.get("K_high")
+            entry["sse_relaxation"] = row.get("scheme_sse")
+            if element in bound.index:
+                entry["K_bound"] = bound.loc[element, "K"]
+                entry["K_bound_low"] = bound.loc[element, "K_low"]
+                entry["K_bound_high"] = bound.loc[element, "K_high"]
+                entry["sse_bound"] = bound.loc[element, "scheme_sse"]
+        elif row.get("scheme") == "bound":
+            entry["K"] = row.get("K")
+            entry["K_low"] = row.get("K_low")
+            entry["K_high"] = row.get("K_high")
+        output.append(entry)
+    return pd.DataFrame(output).set_index("element")
+
+
+def activation_buffer_table(block=scope.BUFFER_TITRATIONS):
+    """
+    `activation_by_buffer` over the controls: all five titrations, each run
+    dropped in turn, without exp 34 (the only run below 50 mM), and ungated.
+
+    Two runs (the `BUFFER_LEVER`, 8 curves) fall below the per-run-level fit's
+    ten-curve floor, so their like-for-like comparison with the published
+    landmark is `activation_plus_one`'s lever cut, not a row here.
+    """
+    runs = sorted(scope.frame(block).experiment.unique())
+    cuts = [("A all five", None, True)]
+    cuts += [(f"C leave out {e}", [r for r in runs if r != e], True)
+             for e in runs]
+    cuts += [("D without 34", [r for r in runs if r != 34], True),
+             ("E ungated", None, False)]
+    output = []
+    for label, subset, gated in cuts:
+        table = activation_by_buffer(block=block, gated=gated, runs=subset)
+        for element in ("k_act_corrected", "v_act_corrected",
+                        "vmax_corrected", "v_peak_corrected"):
+            if element not in table.index:
+                continue
+            row = table.loc[element]
+            output.append({
+                "cut": label, "element": element,
+                "curves": row.curves, "runs": row.runs,
+                "order": row.order, "order_low": row.order_low,
+                "order_high": row.order_high,
+                "tau_order": row.get("tau_order", np.nan),
+                "tau_order_low": row.get("tau_order_low", np.nan),
+                "tau_order_high": row.get("tau_order_high", np.nan),
+                "bound": row.get("bound", "-"),
+                "K": row.get("K", np.nan),
+                "K_relaxation": row.get("K_relaxation", np.nan),
+                "K_bound": row.get("K_bound", np.nan),
+                "sse_relaxation": row.get("sse_relaxation", np.nan),
+                "sse_bound": row.get("sse_bound", np.nan)})
+    return pd.DataFrame(output).set_index(["cut", "element"])
+
+
+def activation_plus_one(block=scope.BUFFER_TITRATIONS):
+    """
+    The +1 rule through the new clock, on the buffer axis.
+
+    `1/tau = k_f[buf] + k_r` gives d ln v/d ln[buf] - d ln tau/d ln[buf] = 1
+    for every K and every [buf]. `induction.joint_order` fits that as ONE
+    regression (the two hand-differenced orders share errors), with one level
+    per run. Run for both rates the rule can be read on, on all five
+    titrations and on the two runs the published landmark result used, so the
+    new clock and the old landmark can be compared like for like.
+
+    `floor=None` with the resolution gate, never a floor: a floor would put an
+    unresolved constant ON the floor and call it the fastest curve in the
+    block.
+    """
+    table = scope.frame(block)
+    output = []
+    for rate in ("v_act_corrected", "vmax_corrected"):
+        for label, runs in (("all five", None), ("lever", induction.BUFFER_LEVER)):
+            subset = table if runs is None \
+                else table[table.experiment.isin(list(runs))]
+            got = induction.joint_order(
+                subset, axis="buf", rate=rate, timescale="tau_act_corrected",
+                gate="tau_act_resolved_corrected", floor=None,
+                minimum=4, live_only=True)
+            output.append({"rate": rate, "cut": label,
+                           "curves": got.get("points", 0),
+                           "runs": got.get("runs", 0),
+                           "order": got.get("slope", np.nan),
+                           "stderr": got.get("stderr", np.nan),
+                           "sigma": got.get("sigma", np.nan)})
+    return pd.DataFrame(output).set_index(["rate", "cut"])
 
 
 def michaelis_by_element(block=None, elements=SATURATION_ELEMENTS,
@@ -562,6 +741,16 @@ def main():
     print("\nwhich species saturates the catalyst (alpha 0 = H2O2, 1 = HOO-)")
     species = species_table()
     print(species.round(4).to_string())
+    print("\nwhat activates the catalyst: the buffer, on the window-free clock")
+    print(activation_by_buffer().round(4).to_string())
+    print("\n...and its controls")
+    print(activation_buffer_table().round(4).to_string())
+    print("\nthe +1 pre-equilibrium through that clock")
+    print(activation_plus_one().round(3).to_string())
+    print("\n...one shared buffer K for the rate and the clock?")
+    print({k: (round(v, 4) if isinstance(v, float) else v)
+           for k, v in shared_binding(block=scope.BUFFER_TITRATIONS,
+                                      axis="buf", rows=_buffer_rows).items()})
     print("\none binding constant for the rate and the clock?")
     shared = shared_binding()
     print({k: (round(v, 4) if isinstance(v, float) else v)
