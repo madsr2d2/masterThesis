@@ -23,6 +23,7 @@ import pandas as pd
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import induction
 import saturation
 import scope
 
@@ -186,6 +187,99 @@ def test_michaelis_is_asked_of_rates_only():
           len(boric) >= 6, f"{len(boric)} of {table.experiment.nunique()} runs")
 
 
+def _planted_species(alpha_true, K_true, noise, seed=11):
+    """
+    A species exponent planted on the REAL peroxide arm.
+
+    The two-axis block's own design is the point: pH is fixed inside a run and
+    [H2O2] moves, while hoo/h2o2 is constant inside a run and spans 17,600x
+    between them. A run's level absorbs its height, and only the shared K and
+    the exponent alpha are free.
+    """
+    ladder = induction.peroxide_ladder(scope.frame(), "vmax_corrected")
+    frame = ladder[["experiment", "sample", "h2o2", "hoo", "s0", "pH",
+                    "live"]].copy()
+    generator = np.random.default_rng(seed)
+    levels = {int(e): 10 ** generator.normal(0, 0.4)
+              for e in frame.experiment.unique()}
+    fraction = frame.hoo.to_numpy(dtype=float) / frame.h2o2.to_numpy(dtype=float)
+    x = frame.h2o2.to_numpy(dtype=float) * fraction ** alpha_true
+    level = frame.experiment.map(levels).to_numpy(dtype=float)
+    frame["vmax_corrected"] = (level * (K_true * x / (1.0 + K_true * x))
+                               * np.exp(generator.normal(0, noise, len(frame))))
+    frame["bubble_load"] = 0.0
+    return frame
+
+
+def _real_scatter():
+    """The real arm's own log residual scatter, the noise to plant at."""
+    fitted = saturation.binding_species()
+    return float(np.sqrt(fitted["sse_best"] / fitted["degrees"]))
+
+
+def _species_K(alpha_true):
+    """The K per alpha, chosen from the frame so the curvature is in range."""
+    ladder = induction.peroxide_ladder(scope.frame(), "vmax_corrected")
+    if alpha_true == 0.0:
+        return 0.04
+    return float(1.0 / np.median(ladder.hoo.to_numpy(dtype=float)))
+
+
+def test_a_planted_species_comes_back():
+    print("\na planted species exponent")
+    noise = _real_scatter()
+    for alpha_true in (0.0, 1.0):
+        frame = _planted_species(alpha_true, _species_K(alpha_true), noise)
+        row = _with_frame(frame, saturation.binding_species)
+        check(f"alpha = {alpha_true:.0f} is recovered",
+              row["alpha_low"] <= alpha_true <= row["alpha_high"],
+              f"alpha {row['alpha']:.3f} "
+              f"[{row['alpha_low']:.2f}, {row['alpha_high']:.2f}]")
+        check(f"...and the HOO- fit at alpha = {alpha_true:.0f} behaves",
+              row["delta_aic"] < 0.0 if alpha_true == 0.0
+              else row["delta_aic"] > 0.0,
+              f"delta_aic {row['delta_aic']:.1f}")
+
+
+def test_the_two_species_are_told_apart():
+    print("\nH2O2 against HOO-")
+    full = _real_scatter()
+    for noise, label in ((full, "real noise"), (full / 2.0, "half noise")):
+        zero = _with_frame(_planted_species(0.0, 0.04, noise),
+                           saturation.binding_species)
+        one = _with_frame(_planted_species(1.0, _species_K(1.0), noise),
+                          saturation.binding_species)
+        check(f"the H2O2 planting excludes alpha = 1 at {label}",
+              zero["alpha_high"] < 1.0,
+              f"[{zero['alpha_low']:.2f}, {zero['alpha_high']:.2f}]")
+        check(f"the HOO- planting excludes alpha = 0 at {label}",
+              one["alpha_low"] > 0.0,
+              f"[{one['alpha_low']:.2f}, {one['alpha_high']:.2f}]")
+
+
+def test_linear_data_leaves_alpha_unidentified():
+    """
+    A ladder in which every run is linear cannot say which species binds.
+
+    The guard is not `alpha_at_edge`: with the axis rescaled by its own
+    geometric mean (so the K grid reaches the HOO- optimum as well as the
+    H2O2 one) a flat profile yields a WIDE interval rather than one that runs
+    into the grid end. What matters is that the interval still admits both
+    species -- a test that read an unidentified exponent as a measurement
+    would fail here by reporting an interval that excludes one of them.
+    """
+    print("\na design with no curvature")
+    frame = _planted_species(1.0, 1e-15, 0.01)
+    row = _with_frame(frame, saturation.binding_species)
+    check("a straight ladder admits both species",
+          row["alpha_low"] < 0.0 < 1.0 < row["alpha_high"],
+          f"alpha {row['alpha']:.2f} "
+          f"[{row['alpha_low']:.2f}, {row['alpha_high']:.2f}]")
+    check("...and the interval is wide enough to be no answer",
+          row["alpha_high"] - row["alpha_low"] > 1.0,
+          f"width {row['alpha_high'] - row['alpha_low']:.2f}")
+
+
 def test_the_buffer_confound_is_reported():
     print("\nthe [S]/[buf] pair")
     table = saturation.michaelis_by_element(scope.PH_LADDER_PHOSPHATE)
@@ -204,6 +298,9 @@ if __name__ == "__main__":
     test_the_barrier_is_split_between_vmax_and_km()
     test_michaelis_is_asked_of_rates_only()
     test_the_buffer_confound_is_reported()
+    test_a_planted_species_comes_back()
+    test_the_two_species_are_told_apart()
+    test_linear_data_leaves_alpha_unidentified()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)

@@ -8,6 +8,121 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-13 — which peroxide species saturates the catalyst: neither alone
+
+`saturation.binding_species` and `saturation.species_table`. The rate is said
+to saturate in peroxide (K ~ 0.04 /mM, ~77% bound at 82.5 mM), and three
+existing results name the ANION: the half order in [HOO-] across three pH
+ladders, `early_trough`'s [enz]/[HOO-] driver, and the gas's pH onset. None can
+name the species that is BOUND. This test can: inside each run of the
+two-axis block's peroxide arm pH is fixed and [H2O2] moves, while hoo/h2o2 is
+constant inside a run and spans 17,600x between runs, so the per-run levels
+absorb each run's height but not where its curvature sits.
+
+Instead of comparing two SSEs, the binding species is a free exponent alpha on
+
+    x = h2o2 . (hoo/h2o2)**alpha
+
+with alpha = 0 the H2O2 hypothesis and alpha = 1 the HOO- one. `binding_species`
+profiles K on the module's log grid for each alpha and returns alpha-hat, its
+interval, whether it touches the grid edge, K at alpha = 0 and 1 and
+`delta_aic = N ln(sse0/sse1)`, positive favouring HOO-. `species_table` runs
+the control matrix.
+
+**Checkpoint reproduced first:** `binding_by_element()` for `vmax_corrected`
+gated still gives order +0.5977, K = 0.0397 /mM, bound fraction 0.7663.
+
+**Three defects found and fixed on the way.**
+
+1. **The K grid could not reach HOO- binding at all.**
+   `SATURATION_SPAN = (-4.0, 0.5)` caps K at 10^0.5 = 3.16 /mM, but HOO-
+   binding needs K ~ 1/median(hoo) ~ 59 /mM, so alpha = 1 was unfittable:
+   a noiseless planting at alpha = 1 recovered alpha = **0.600** [0.57, 0.60].
+   K is now profiled on the axis's own geometric-mean scale (a bijection, so
+   the alpha profile is unchanged; only the grid's reach is). Noiseless
+   recovery is then exact at both ends -- alpha = 0 and alpha = 1 to three
+   digits.
+2. **The reported K was scaled wrong by a factor of scale².** It was multiplied
+   by the scale instead of divided; K at alpha = 0 read **12.05** where
+   `binding_by_element` says 0.0397. Divided, it reads **0.03952**, matching.
+3. **`SPECIES_ALPHAS` was `[-0.5, 1.5]`, too narrow.** The real minimum is near
+   -0.6, so the estimate was truncated at the edge. Widened to `[-2.0, 2.0]`.
+
+**Planted tests, before the real data** (all pass, and test 3 is the plan's
+stop condition). On the REAL design, at the real residual scatter
+(sqrt(sse_best/degrees) = 0.40), an alpha = 0 planting comes back [−0.17, +0.18]
+and an alpha = 1 planting [0.60, 1.38], each excluding the other species at
+both the real and half the real noise. A straight ladder leaves a 1.98-wide
+interval containing both. So the design CAN separate H2O2 from HOO- when the
+data are one of them.
+
+**The control matrix** (`saturation.species_table()`; alpha-hat and its 95%
+interval, `edge` = the interval touches the grid end, so the estimate is not
+located):
+
+| cut | curves | runs | alpha | interval | edge | delta_aic |
+|---|---|---|---|---|---|---|
+| A vmax_corrected, all runs | 63 | 17 | -0.600 | [-1.075, -0.325] | no | -42.2 |
+| B raw vmax | 63 | 17 | -0.675 | [-2.000, -0.300] | yes | -28.0 |
+| C v_peak_corrected | 63 | 17 | -1.025 | [-2.000, -0.375] | yes | -11.3 |
+| D v_act_corrected, gated | 44 | 16 | -1.075 | [-2.000, -0.175] | yes | -13.3 |
+| E vmax_corrected, strong runs | 44 | 11 | -0.375 | [-0.750, -0.075] | no | -33.7 |
+| F vmax_corrected, bubble_load <= 1 | 60 | 17 | -0.575 | [-1.050, -0.275] | no | -31.9 |
+| H vmax_corrected, exps 136-142 | 26 | 7 | -0.725 | [-1.625, -0.250] | no | -16.2 |
+| I vmax_corrected, exps 143-151 | 33 | 9 | -0.750 | [-2.000, -0.275] | yes | -14.3 |
+
+Leave-one-run-out, 17 fits: alpha ranges **-0.700 to -0.500**, every interval
+interior and entirely below 0 -- no one run decides it. Two further controls
+the matrix does not list: dropping the three drift-dominated low-pH runs
+(149-151) gives -0.500 [-0.925, -0.200], and keeping only runs with >= 4
+peroxide rungs gives -0.575 [-1.075, -0.275]. `delta_aic` is negative in
+every cut, so **H2O2 fits better than HOO- everywhere**, by 11 to 42 in
+2 ln-likelihood units.
+
+**Verdict: neither species alone, and the exponent is negative rather than
+undecided.** The headline interval [-1.075, -0.325] lies entirely outside
+[0, 1] and does not touch the grid edge, so both H2O2 (alpha = 0) and HOO-
+(alpha = 1) are rejected, HOO- emphatically. The sign is the opposite of the
+one HOO- binding predicts: the per-run effective constant K_eff = K
+(hoo/h2o2)^alpha **falls** as pH rises, so the high-pH runs are the LEAST
+saturated, not the most. This is what the plan's table calls a pH effect on K
+itself -- the catalyst's own protonation, not the peroxide speciation. It is
+reported, not forced.
+
+Rows C, D and I reach the -2 edge, so on the model-based rates and the high
+composition set the exponent is not even located; only the model-free
+headline, the strong-run, no-bubble, low-ladder and leave-one-out cuts do.
+
+**Cautions.**
+
+- **The gas is not the cause.** It is made from peroxide and would straighten
+  the high-pH runs, biasing alpha UP toward 0. The bubble-free cut F gives
+  -0.575, the same as A's -0.600.
+- **The weak low-pH runs are the flattest, and they are drift, not
+  chemistry** -- exps 149-151 sit at the bottom of the pH ladder at a few
+  1e-7 AU/s. They pull alpha negative, but dropping them still leaves
+  -0.500 [-0.925, -0.200], so the sign does not depend on them. It rests
+  least firmly on the strong-run cut E, whose interval's upper edge is only
+  -0.075.
+- **The saturating form is not established on this axis in the first place.**
+  A free power and the bound scheme fit equally well (`binding_by_element`:
+  power_sse 10.1553 against scheme_sse 10.1554), so alpha here is a SHAPE
+  exponent and not proof of a binding equilibrium.
+- The two composition sets H and I OVERLAP, so they do not disagree, and
+  [buf] is constant across this block, so the buffer is not moving with pH.
+- `[H2O2]` and `[S]` both step inside these runs (the block is an L), but the
+  arm is at the top substrate with a per-run level, so the substrate is
+  absorbed; the peroxide arm is the axis.
+
+**Tests.** `data/test_saturation.py`: `test_a_planted_species_comes_back`,
+`test_the_two_species_are_told_apart` (the stop condition, both at real and
+half noise), `test_linear_data_leaves_alpha_unidentified`. Existing tests
+unchanged; `run_gates.py` green (30 gates).
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-12 (third entry) — the temperature series' barrier is in Vmax, not in Km
 
 `saturation.michaelis_temperature`. Each of the six temperature-series runs

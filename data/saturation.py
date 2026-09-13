@@ -76,6 +76,13 @@ SATURATION_ELEMENTS = (
 # is `scope.mm_fit`'s own floor: two for (Vmax, Km) and one for a residual.
 MICHAELIS_MINIMUM_RUNGS = 3
 
+# The species exponent's grid: x = h2o2 * (hoo/h2o2)**alpha, alpha = 0 is
+# H2O2 binding and alpha = 1 is HOO- binding. The range reaches past both so
+# an estimate outside [0, 1] can be seen rather than clipped -- and it reaches
+# well past, because on the real arm the minimum sits near -0.6, and a grid
+# stopping at -0.5 would truncate it and report the edge as the answer.
+SPECIES_ALPHAS = np.linspace(-2.0, 2.0, 161)
+
 
 def _scheme(shape, constant, peroxide):
     """The log-offset a scheme puts on log(response), per reading."""
@@ -84,6 +91,12 @@ def _scheme(shape, constant, peroxide):
     if shape == "relaxation":
         return np.log(1.0 + constant * peroxide)
     raise ValueError(f"unknown scheme {shape!r}")
+
+
+def _level_design(groups):
+    """One indicator column per group, the design the levels are fitted on."""
+    return np.column_stack([(groups == g).astype(float)
+                            for g in np.unique(groups)])
 
 
 def _levelled(y, offset, groups):
@@ -97,8 +110,7 @@ def _levelled(y, offset, groups):
     different quantities in different units, and only their SHAPE against
     peroxide is being asked to agree.
     """
-    design = np.column_stack([(groups == g).astype(float)
-                              for g in np.unique(groups)])
+    design = _level_design(groups)
     beta, *_ = np.linalg.lstsq(design, y - offset, rcond=None)
     residual = y - offset - design @ beta
     return float(residual @ residual), design.shape[1]
@@ -172,6 +184,173 @@ def binding_by_element(block=scope.TWO_AXIS_BLOCK, elements=SATURATION_ELEMENTS,
                        bound_fraction=float(bound / (1 + bound)))
         rows.append(row)
     return pd.DataFrame(rows).set_index("element")
+
+
+def binding_species(block=scope.TWO_AXIS_BLOCK, element="vmax_corrected",
+                    gated=True, alphas=SPECIES_ALPHAS, grid=SATURATION_GRID,
+                    span=SATURATION_SPAN, cutoff=PROFILE_F, runs=None,
+                    exclude_bubbles=False, shape=None):
+    """
+    WHICH PEROXIDE SPECIES SATURATES THE CATALYST: H2O2, or its anion HOO-?
+
+    On the two-axis block's peroxide arm pH is fixed inside each run and
+    [H2O2] moves, while the HOO- fraction hoo/h2o2 is constant inside a run
+    and spans a factor of ~17,600 between runs. The per-run levels absorb each
+    run's height but not where its curvature sits, so the two hypotheses make
+    different predictions the offsets cannot hide.
+
+    Instead of comparing two SSEs, the binding species is a free exponent
+    alpha on the axis,
+
+        x = h2o2 * (hoo/h2o2)**alpha
+
+    with alpha = 0 meaning H2O2 binds and alpha = 1 meaning HOO- binds. For
+    each alpha the scheme's K is profiled on the existing log grid and the
+    minimum SSE kept, which gives a profile over alpha; the interval is the
+    usual `sse <= best (1 + cutoff/degrees)` one. An estimate at the grid edge
+    is reported as `alpha_at_edge` rather than read as a result. `delta_aic`
+    is positive when alpha = 1 fits better than alpha = 0.
+
+    `runs` restricts to a subset of experiments (leave-one-out, one ladder);
+    `exclude_bubbles` drops curves whose `bubble_load` exceeds 1, since gas is
+    made from peroxide and would straighten exactly the high-pH runs HOO-
+    binding says should be saturated. `shape` overrides the form looked up in
+    `SATURATION_ELEMENTS` (needed for raw `vmax`, which is not listed there).
+
+    An exactly determined fit is not a measurement: if the points do not
+    outnumber the per-run levels plus the two parameters by at least one, the
+    estimate is returned NaN.
+    """
+    table = scope.frame(block)
+    shapes = {column: form for column, _, form, _ in SATURATION_ELEMENTS}
+    gates = {column: gate for column, gate, _, _ in SATURATION_ELEMENTS}
+    if shape is None:
+        shape = shapes.get(element)
+    if shape is None:
+        return {"element": element, "curves": 0, "runs": 0,
+                "alpha": np.nan, "alpha_low": np.nan, "alpha_high": np.nan,
+                "alpha_at_edge": True, "K_best": np.nan, "sse_best": np.nan,
+                "sse_alpha0": np.nan, "K_alpha0": np.nan,
+                "sse_alpha1": np.nan, "K_alpha1": np.nan,
+                "delta_aic": np.nan, "degrees": 0}
+    ladder = _element_rows(table, element, gates.get(element), gated)
+    if runs is not None:
+        ladder = ladder[ladder.experiment.isin(list(runs))]
+    if exclude_bubbles:
+        ladder = ladder[ladder.bubble_load <= 1]
+    hoo = ladder.hoo.to_numpy(dtype=float)
+    ladder = ladder[np.isfinite(hoo) & (hoo > 0)]
+    if len(ladder) < 10:
+        return {"element": element, "curves": int(len(ladder)),
+                "runs": int(ladder.experiment.nunique()),
+                "alpha": np.nan, "alpha_low": np.nan, "alpha_high": np.nan,
+                "alpha_at_edge": True, "K_best": np.nan, "sse_best": np.nan,
+                "sse_alpha0": np.nan, "K_alpha0": np.nan,
+                "sse_alpha1": np.nan, "K_alpha1": np.nan,
+                "delta_aic": np.nan, "degrees": 0}
+    h = ladder.h2o2.to_numpy(dtype=float)
+    fraction = ladder.hoo.to_numpy(dtype=float) / h
+    y = np.log(ladder[element].to_numpy(dtype=float))
+    groups = ladder.experiment.to_numpy()
+    points = len(y)
+    levels = int(len(np.unique(groups)))
+    degrees = points - levels - 2
+    base = {"element": element, "curves": points, "runs": levels}
+    if degrees < 1:
+        return base | {"alpha": np.nan, "alpha_low": np.nan,
+                       "alpha_high": np.nan, "alpha_at_edge": True,
+                       "K_best": np.nan, "sse_best": np.nan,
+                       "sse_alpha0": np.nan, "K_alpha0": np.nan,
+                       "sse_alpha1": np.nan, "K_alpha1": np.nan,
+                       "delta_aic": np.nan, "degrees": int(degrees)}
+    constants = np.logspace(*span, grid)
+    # The least-squares residual with the levels free is a projection, so the
+    # pseudo-inverse of the (fixed) level design makes the profiled sweep cheap
+    # and gives the same SSE `_levelled` does, to numerical precision.
+    design = _level_design(groups)
+    pinv = np.linalg.pinv(design)
+
+    def profiled(alpha, ks):
+        # K IS PROFILED ON THE AXIS'S OWN SCALE. The optimum K is about the
+        # reciprocal of the axis, and x = h2o2 (hoo/h2o2)**alpha moves through
+        # 17,600x between alpha = 0 and alpha = 1, so a K grid fixed in 1/mM
+        # reaches the H2O2 optimum near 0.04 and MISSES the HOO- one near
+        # 1/median(hoo) -- alpha = 1 could not be fitted at all. Dividing x by
+        # its own geometric mean makes the profiled constant dimensionless and
+        # near 1 where the curvature is, for every alpha. The rescaling is a
+        # bijection on K, so the profile over alpha is unchanged by it; only
+        # the grid's reach is.
+        x = h * fraction ** alpha
+        scale = float(np.exp(np.mean(np.log(x))))
+        scaled = x / scale
+        out = np.empty(len(ks))
+        for index, k in enumerate(ks):
+            residual = y - _scheme(shape, k, scaled)
+            residual = residual - np.einsum(
+                "ij,j->i", design, np.einsum("ij,j->i", pinv, residual))
+            out[index] = float(np.einsum("i,i->", residual, residual))
+        return out, scale
+
+    profile = np.empty(len(alphas))
+    for index, alpha in enumerate(alphas):
+        profile[index] = profiled(alpha, constants)[0].min()
+    best = int(np.argmin(profile))
+    allowed = alphas[profile <= profile[best] * (1.0 + cutoff / degrees)]
+    best_sse, best_scale = profiled(alphas[best], constants)
+    zero_sse, zero_scale = profiled(0.0, constants)
+    one_sse, one_scale = profiled(1.0, constants)
+    sse_zero, sse_one = float(zero_sse.min()), float(one_sse.min())
+    return base | {
+        "alpha": float(alphas[best]),
+        "alpha_low": float(allowed.min()), "alpha_high": float(allowed.max()),
+        "alpha_at_edge": bool(allowed.min() <= alphas[0]
+                              or allowed.max() >= alphas[-1]),
+        "K_best": float(constants[int(np.argmin(best_sse))] / best_scale),
+        "sse_best": float(best_sse.min()),
+        "sse_alpha0": sse_zero,
+        "K_alpha0": float(constants[int(np.argmin(zero_sse))] / zero_scale),
+        "sse_alpha1": sse_one,
+        "K_alpha1": float(constants[int(np.argmin(one_sse))] / one_scale),
+        "delta_aic": float(points * np.log(sse_zero / sse_one))
+        if sse_one > 0 else np.nan,
+        "degrees": int(degrees)}
+
+
+def species_table(block=scope.TWO_AXIS_BLOCK):
+    """
+    `binding_species` over the control matrix: the headline, the raw-rate
+    check, the model-based rate, the activated rate, the strong runs, the
+    bubble-free cut, leave-one-run-out, and each composition set alone.
+
+    One row per (element, cut). The leave-one-out rows are labelled by the
+    dropped experiment so their spread can be summarised rather than quoted
+    as one number.
+    """
+    low, high = scope.PH_LADDER_TWO_AXIS_LOW, scope.PH_LADDER_TWO_AXIS_HIGH
+    calls = [
+        ("A all runs", dict(element="vmax_corrected", gated=True)),
+        ("B raw vmax", dict(element="vmax", shape="bound")),
+        ("C v_peak", dict(element="v_peak_corrected")),
+        ("D v_act gated", dict(element="v_act_corrected")),
+        ("E strong runs", dict(element="vmax_corrected",
+                               runs=scope.strong_runs())),
+        ("F no bubbles", dict(element="vmax_corrected", exclude_bubbles=True)),
+        ("H ladder low", dict(element="vmax_corrected", runs=low)),
+        ("I ladder high", dict(element="vmax_corrected", runs=high)),
+    ]
+    runs = sorted(scope.frame(block).experiment.unique())
+    calls += [(f"G leave out {run}", dict(element="vmax_corrected",
+                                          runs=[e for e in runs if e != run]))
+              for run in runs]
+    rows = []
+    for cut, kwargs in calls:
+        row = binding_species(block=block, **kwargs)
+        rows.append({"element": row["element"], "cut": cut, **{
+            key: row[key] for key in ("curves", "runs", "alpha", "alpha_low",
+                                      "alpha_high", "alpha_at_edge", "K_best",
+                                      "sse_alpha0", "sse_alpha1", "delta_aic",
+                                      "degrees")}})
+    return pd.DataFrame(rows).set_index(["element", "cut"])
 
 
 def shared_binding(block=scope.TWO_AXIS_BLOCK,
@@ -380,6 +559,9 @@ def main():
     print(binding_by_element().round(4).to_string())
     print("\n...and on every curve the element is positive on")
     print(binding_by_element(gated=False).round(4).to_string())
+    print("\nwhich species saturates the catalyst (alpha 0 = H2O2, 1 = HOO-)")
+    species = species_table()
+    print(species.round(4).to_string())
     print("\none binding constant for the rate and the clock?")
     shared = shared_binding()
     print({k: (round(v, 4) if isinstance(v, float) else v)
