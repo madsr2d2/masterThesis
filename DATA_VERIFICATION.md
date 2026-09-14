@@ -8,7 +8,156 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-14 (second entry) — the extended model's ladder, re-read: nothing is established, and on 4OMe the sink and the activation earn
+
+A review of the entry below (commit 8954989). The model extension it describes
+stands: every new term is exactly OFF at its default and the six model tests
+pass. The READING of the M0-M4b ladder does not. Its verdict -- "substrate
+saturation earns, activation does not" -- rests on F values read against the
+wrong models, on fits that did not reach their optimum, and on a misreading of
+the saved 4OMe M4b constants. Nothing in it is adopted, and neither is anything
+here.
+
+**What was built.** `fit_kinetics.MODEL_PARENTS`, a rewritten
+`fit_kinetics.ladder_f_test` and a new `fit_kinetics.ladder_checks`, with the
+gate `data/test_fit_ladder.py`. `LAG_PEAK_FRACTION` names the 0.15 lag
+threshold `report` used inline. No fit was re-run; everything below is read off
+the saved `data/fits/*_M*.json`.
+
+**A bug in the F test, and the misreadings built on it.**
+
+1. **`ladder_f_test` read each model against whichever rung was LISTED before
+   it**, not the model it extends. M2 (which adds K4 to M1) was differenced
+   against M1b, a model it does not contain: BnOH stage 2 read F = -197.3 and
+   4OMe stage 2 F = -137.1. Against M1 they are F = 0.00 (does not earn) and
+   F = -10.10 (an optimiser failure, below). M4b was never in the table at all.
+2. **A stage-2 cost is only comparable on the same frozen background.** M1b and
+   M3 change stage 1, so their stage 2 is fitted on a different base from their
+   parent's, and differencing the costs prices the background, not a stage-2
+   term. Those rows now read "not nested: stage 1 differs".
+3. **A larger model that fits WORSE than the one it contains is an optimiser
+   failure**, not a term that "does not earn" -- no optimum can do it. 4OMe M1
+   (6.459e6 against M0's 6.457e6) and M2 (6.492e6 against M1's 6.459e6) are
+   both that, so `km_s` and `K4` were never tested on the 4OMe catalysed block.
+   BnOH M4 stage 2 did not converge; BnOH M3 stage 2 saved no correlation
+   matrix (non-finite), with `k6` and `km_s` at their lower bounds and
+   `k5` = 318 against `K4` = 4520, of which only the ratio is anything.
+
+**The ladder, re-read** (`ladder_f_test`; F against the parent, bar
+`TWO_PHASE_F` = 12):
+
+| block | term | stage | vs | F | verdict |
+|---|---|---|---|---|---|
+| BnOH | km_s | 2 | M0 | 1515 | earns |
+| BnOH | km_s_background | 1 | M1 | 1191 | earns |
+| BnOH | K4 | 2 | M1 | 0.00 | does not earn (K4/k5 correlation 1.000) |
+| BnOH | k_sink | 1 | M2 | **1153** | earns |
+| BnOH | k_act_r, K_act | 2 | M3 | 5.3 | not converged |
+| BnOH | k_act_r, K_act | 2 | M1b | 4.5 | does not earn |
+| 4OMe | km_s | 2 | M0 | -0.68 | optimiser failure |
+| 4OMe | km_s_background | 1 | M1 | 259201 | earns |
+| 4OMe | K4 | 2 | M1 | -10.10 | optimiser failure |
+| 4OMe | k_sink | 1 | M2 | **3232** | earns |
+| 4OMe | k_act_r, K_act | 2 | M3 | **203** | earns |
+| 4OMe | k_act_r, K_act | 2 | M1b | **901** | earns |
+
+So the entry's "`k_sink` only moves stage 1's local minimum rather than
+improving it" is wrong: M3 beats its parent M2 at F = 1153 and 3232, and is
+worse only than M1b, which it does not contain. And "the activation term never
+clears the bar" is wrong on 4OMe, where it clears it at F = 203 and 901.
+
+**The saved 4OMe M4b constants were misread.** The entry says M4b "sets k5 = k6
+= k_act_r = 0" and that `k_act_r` "runs to its lower bound and supplies no
+lag". The save has `k5` = 3.24e-7 and `k6` = 2.79e-8, and `k_act_r` sits at the
+BOTTOM of its range, 1e-8 /s -- the slowest activation the bounds allow. OFF is
+the other end, infinity. `k_act_r` and `K_act` (315) correlate at 1.000, so
+only their product is identified, ~3.2e-6 /mM/s: an activation time of about
+1600 s at 200 mM buffer and 6300 s at 50 mM. The model LAGS on 17 of 24
+catalysed curves against 9 in the data (`ladder_checks`), so activation here
+over-supplies a lag rather than failing to supply one.
+
+**What the fits do to the substrate order** (`ladder_checks`: the order of each
+curve's net rise in [S], one offset per run, through `scope.orders` -- a proxy
+for the initial-rate order F1 quotes):
+
+| block, stage | data | M0 | M1b | M4b | lag, data / M4b |
+|---|---|---|---|---|---|
+| BnOH enzyme-free (23) | +0.214 +/- 0.097 | +0.991 | **+0.016** | +0.016 | 11 / 0 |
+| BnOH catalysed (20) | +0.465 +/- 0.183 | +0.974 | **+0.118** | +0.103 | 3 / 0 |
+| 4OMe enzyme-free (37) | +0.270 +/- 0.038 | +0.862 | +0.170 | +0.170 | 7 / 0 |
+| 4OMe catalysed (24) | +0.503 +/- 0.351 | +0.697 | +0.407 | +0.471 | 9 / 17 |
+
+"Substrate saturation earns" is a saturation that OVERSHOOTS. On BnOH
+`km_s_background` sits at its lower bound (0.01 mM) and correlates with `k0` at
+1.000 -- a background that does not depend on [S] at all -- and the model's
+order falls from the data's +0.214 to +0.016; the catalysed `km_s` takes the
+catalysed order from +0.465 to +0.118. The models that fit better do so by
+leaving F1's substrate order on the other side of the data.
+
+**And on 4OMe the enzyme-free substrate ladders are ladders in [buf] too.**
+`induction.composition_collinearity` on the 37 enzyme-free curves: all 9 runs
+that step [S] step [buf] against it, median r = **-0.974**, none at constant
+buffer. A background rising less than proportionally with [S] is there
+equally a background with a positive order in [buf], and `km_s_background`
+cannot tell the two apart. On BnOH 3 of the 5 enzyme-free ladders hold [buf]
+fixed, and every catalysed ladder does. On the 4OMe catalysed block only exp
+16 steps [S] (4 curves), so `km_s` is not identified there -- M1b puts it at
+its upper bound.
+
+**What the plan got wrong** (PLAN_MECHANISM_NEXT_STEPS.md 4, written before
+this review, not by the agent that ran it):
+
+- `r` is a stage-1 parameter, so the stage-2 activation can never move it, and
+  acceptance 2 ("does r drop below 1 once M4 supplies a lag") could not be
+  tested. The entry's "met on 4OMe (M4b r = 0.273)" is the background fit's r.
+- `k_sink` was put in stage 1, but `product_fate`'s first-order sink is a
+  CATALYSED finding; the enzyme-free curves decline on a clock instead. The
+  4OMe M3 "sink" arrives with `r` = 1.8 and `k_can` = 2.8e7, which is F3's
+  lag-through-r route rather than a sink.
+- A one-term-at-a-time ladder in a sequential fit needs one shared stage 1 for
+  every stage-2 comparison, and every child warm-started from its parent. The
+  plan asked for neither.
+- F > 12 cannot discriminate at this misfit: the fits sit 23-650x the noise
+  over thousands of serially correlated readings, and one term cleared the bar
+  at 259,201. "Earns" says a term helps THIS model, not that it is the missing
+  chemistry.
+- The [S]/[buf] confound in the enzyme-free runs was not flagged.
+
+**And the planted recovery does not test recovery.**
+`test_extended_parameter_recovery` starts `EXTENDED_INITIAL` essentially at the
+planted truth (log10 `k5` -6 against -6.0, `K4` -1.3 against -1.30, `km_s` 0.5
+against 0.48), with `restarts=0` and stage 1 given as the truth. Its six
+catalysed cuvettes all sit at `s0` = 1.0 (the `[:6]` slice of its design), it
+plants one noise seed at 2e-4 rather than the block's noise, and it never
+checks `k_act_r` or `K_act` at noise. The commit's "planted recovery is exact
+for every parameter we report" does not follow from it.
+
+**Verdict: nothing about which terms belong is established.** Where a
+comparison is valid: on 4OMe the stage-1 sink and the stage-2 activation both
+earn, but the activation over-lags and the "sink" rides on r = 1.8; on BnOH the
+activation does not earn, on a block where no catalysed run moves [buf] and
+only 3 of 20 catalysed curves lag. Substrate saturation earns wherever it is
+identified and drives the model's substrate order below the data's. The 4OMe
+catalysed block is 378-650x the noise under every model, so the model is
+missing something large that adding terms one at a time will not find. Step 3
+is to be redone per `PLAN_STEP3_REVISED.md`.
+
+**Tests.** `data/test_fit_ladder.py`: the parent reading, the optimiser-failure
+verdict, the stage-2 background rule and the bar, on a planted ladder whose
+listed-order and parent readings disagree; then the real saves, including the
+BnOH background order falling below the data's, the 4OMe [S]/[buf]
+collinearity and the 4OMe M4b over-lag.
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-14 — the extended mechanism model: substrate saturation earns, activation does not
+
+> **The reading of this entry is superseded by the second entry above**: the F
+> values below were read against the wrong models, several ladder fits did not
+> reach their optimum, and the 4OMe M4b constants were misread. The model
+> extension and its tests stand.
 
 `data/kinetic_model.py`, `data/fit_kinetics.py`, the M0-M4 ladder and
 `saturation`'s two steps. FITTING.md F1 (the reduced model is exactly first

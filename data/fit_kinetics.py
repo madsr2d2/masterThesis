@@ -39,6 +39,7 @@ from fit_dataset import (BASELINE_POINTS, TWO_AXIS_BLOCK,
                          in_block)
 from kinetic_model import (LOG_PARAMETERS, PARAMETER_NAMES, Conditions,
                            RateConstants, observable, pack, unpack)
+from summary_kinetics import TWO_PHASE_F
 
 # Bounds in the optimiser's own coordinates: log10 for rate constants, linear
 # for r. Wide enough not to shape the answer, tight enough that the integrator
@@ -578,8 +579,8 @@ def report(result, title):
     shapes = [(row["peak_data"], row["peak_model"]) for row in result.per_curve
               if np.isfinite(row.get("peak_data", np.nan))]
     if shapes:
-        late_data = sum(1 for d, _ in shapes if d > 0.15)
-        late_model = sum(1 for _, m in shapes if m > 0.15)
+        late_data = sum(1 for d, _ in shapes if d > LAG_PEAK_FRACTION)
+        late_model = sum(1 for _, m in shapes if m > LAG_PEAK_FRACTION)
         print(f"\n  shape: {late_data}/{len(shapes)} measured curves reach peak slope "
               f"past 15% into the run")
         print(f"         {late_model}/{len(shapes)} modelled curves do")
@@ -622,57 +623,216 @@ def to_dict(result, title):
     }
 
 
-def ladder_f_test(block, models=("M0", "M1", "M1b", "M2", "M3", "M4"),
-                  directory="data/fits"):
-    """
-    The weighted F between successive rungs of the M0-M4 ladder, per stage.
+# Which model each rung of the ladder EXTENDS. A term is read against the model
+# it adds to, never against whichever rung was listed before it. Until
+# 2026-09-14 `ladder_f_test` did the latter, so M2's K4 was differenced against
+# M1b -- a model M2 does not contain -- and came back at F = -197.
+MODEL_PARENTS = {"M1": "M0", "M1b": "M1", "M2": "M1", "M3": "M2", "M4": "M3",
+                 "M4b": "M1b"}
 
-    `F = ((cost_small - cost_big)/delta_p) / (cost_big/(N - p_big))` on the
-    weighted least-squares cost the fitter itself minimises, with N the number
-    of residual points and p_big the number of free parameters. The bar is the
-    package's `TWO_PHASE_F` = 12, which allows for the serially correlated
-    residuals of a progress curve. A term that does not clear it is NOT
-    supported and must not be carried into the next model.
+# How far, relatively, a larger model's cost may sit above its parent's before
+# it is called an optimiser failure. At its optimum a model that CONTAINS
+# another can never fit worse, so anything past round-off means the optimiser
+# missed the larger model's optimum, and no F built on that pair means anything.
+NESTING_TOLERANCE = 1e-6
 
-    Reads the `--model` saves for one block. `block` is the (substrate,
-    temperature, buffer) key the curves carry, and N is counted from the same
-    `build_curves` the fits read, so the F-test's denominator is the fit's own.
-    """
+# A curve "lags" when its steepest slope comes later than this share of the
+# run -- the count `report` prints and FITTING.md's lag fraction reads.
+LAG_PEAK_FRACTION = 0.15
+
+
+def _ladder_saves(block, models, directory):
+    """The `--model` saves for one block, keyed by model; absent rungs skipped."""
     import os
 
-    curves, _ = build_curves()
-    scoped = [c for c in curves if c.group == block]
-    points = {1: sum(len(c) for c in scoped if c.conditions.e0 == 0),
-              2: sum(len(c) for c in scoped if c.conditions.e0 > 0)}
     substrate, temperature, buffer_name = block
-    rows = []
-    previous = {}
+    saves = {}
     for model in models:
         path = os.path.join(directory, f"{substrate}_{temperature:.0f}C_"
                             f"{buffer_name}_{model}.json")
-        if not os.path.exists(path):
+        if os.path.exists(path):
+            with open(path) as handle:
+                saves[model] = json.load(handle)
+    return saves
+
+
+def _same_background(one, two):
+    """
+    Whether two saved stage-1 constant tables are the same background.
+
+    A name a save does not carry is at its OFF default (the M0 saves predate
+    the extensions), and None is how `to_dict` writes an infinite OFF value.
+    """
+    defaults = RateConstants()
+    for name in PARAMETER_NAMES:
+        values = []
+        for table in (one, two):
+            value = table.get(name, getattr(defaults, name))
+            values.append(np.inf if value is None else float(value))
+        first, second = values
+        if np.isinf(first) or np.isinf(second):
+            if first != second:
+                return False
+        elif not np.isclose(first, second, rtol=1e-9, atol=0.0):
+            return False
+    return True
+
+
+def ladder_f_test(block, models=tuple(MODEL_STAGES), directory="data/fits",
+                  points=None):
+    """
+    The weighted F of each rung of the M0-M4 ladder against the model it
+    EXTENDS (`MODEL_PARENTS`), per stage, with a verdict on whether that F is
+    a comparison at all.
+
+    `F = ((cost_small - cost_big)/delta_p) / (cost_big/(N - p_big))` on the
+    weighted least-squares cost the fitter minimises, N the residual points
+    and p_big the larger model's free parameters, against the package's
+    `TWO_PHASE_F`. The verdicts, in the order they are tested:
+
+      - "not nested": the parent frees a parameter the child does not.
+      - "not nested: stage 1 differs": a STAGE-2 cost is only comparable when
+        both models froze the SAME background. M3 adds `k_sink` to stage 1,
+        so its stage 2 is fitted on a different base from M2's, and
+        differencing the two costs prices the background, not a stage-2 term.
+      - "nothing added": the child frees no new parameter in this stage.
+      - "optimiser failure": the larger model fits WORSE than the one it
+        contains (beyond `NESTING_TOLERANCE`), which cannot happen at its
+        optimum.
+      - "parent not converged" / "not converged": the optimiser's own flag.
+      - "earns" / "does not earn": F against the bar.
+
+    READ "EARNS" WITH THE MISFIT BESIDE IT. These fits sit tens to hundreds of
+    times the noise over thousands of serially correlated readings, and there
+    any term that absorbs any systematic misfit clears F = 12 -- one cleared
+    it at 259,200. "Earns" says the term helps this model; it does not say the
+    term is the missing chemistry.
+
+    `points` is {1: N_stage1, 2: N_stage2}; left None it is counted from the
+    `build_curves` the fits read, so the denominator is the fit's own.
+    """
+    saves = _ladder_saves(block, models, directory)
+    if points is None:
+        curves, _ = build_curves()
+        scoped = [c for c in curves if c.group == block]
+        points = {1: sum(len(c) for c in scoped if c.conditions.e0 == 0),
+                  2: sum(len(c) for c in scoped if c.conditions.e0 > 0)}
+    rows = []
+    for model in models:
+        if model not in saves:
             continue
-        with open(path) as handle:
-            payload = json.load(handle)
         for stage, key in ((1, "stage_1"), (2, "stage_2")):
-            if key not in payload:
+            entry = saves[model].get(key)
+            if entry is None:
                 continue
-            entry = payload[key]
             cost = float(entry["cost"])
-            count = len(entry["free_parameters"])
-            row = {"stage": stage, "model": model, "free": count,
-                   "cost": cost, "rms_absorbance": entry["rms_absorbance"]}
-            small = previous.get(stage)
-            if small is not None:
-                delta = count - small["free"]
-                degrees = points[stage] - count
-                row["delta_cost"] = small["cost"] - cost
-                row["f"] = ((small["cost"] - cost) / delta
-                            / (cost / degrees)) if delta > 0 and degrees > 0 \
-                    else np.nan
-                row["vs"] = small["model"]
+            free = list(entry["free_parameters"])
+            row = {"stage": stage, "model": model, "free": len(free),
+                   "cost": cost, "rms_absorbance": entry["rms_absorbance"],
+                   "converged": bool(entry.get("converged", True)),
+                   "vs": None, "added": "", "f": np.nan, "verdict": "baseline"}
+            parent = MODEL_PARENTS.get(model)
+            small = saves.get(parent, {}).get(key) if parent else None
+            if small is None:
+                rows.append(row)
+                continue
+            row["vs"] = parent
+            added = [name for name in free if name not in small["free_parameters"]]
+            row["added"] = ",".join(added)
+            if not set(small["free_parameters"]) <= set(free):
+                row["verdict"] = "not nested"
+            elif stage == 2 and not _same_background(
+                    saves[parent]["stage_1"]["constants"],
+                    saves[model]["stage_1"]["constants"]):
+                row["verdict"] = "not nested: stage 1 differs"
+            elif not added:
+                row["verdict"] = "nothing added"
+            else:
+                degrees = points[stage] - len(free)
+                small_cost = float(small["cost"])
+                row["f"] = ((small_cost - cost) / len(added) / (cost / degrees)
+                            if degrees > 0 and cost > 0 else np.nan)
+                if cost > small_cost * (1.0 + NESTING_TOLERANCE):
+                    row["verdict"] = "optimiser failure"
+                elif not small.get("converged", True):
+                    row["verdict"] = "parent not converged"
+                elif not row["converged"]:
+                    row["verdict"] = "not converged"
+                else:
+                    row["verdict"] = ("earns" if row["f"] > TWO_PHASE_F
+                                      else "does not earn")
             rows.append(row)
-            previous[stage] = {"model": model, "free": count, "cost": cost}
+    return pd.DataFrame(rows)
+
+
+def ladder_checks(block, models=tuple(MODEL_STAGES), directory="data/fits",
+                  curves=None):
+    """
+    What the F test cannot see, per model and stage, off the `--model` saves.
+
+    - `converged`, whether a correlation matrix was saved (`to_dict` drops a
+      non-finite one), the largest |correlation| and its pair, and `at_bound`.
+      A pair at 1.000 is one identified combination, not two constants.
+    - The SUBSTRATE ORDER the data and the model give, through
+      `scope.orders` with one offset per run, on each curve's NET RISE. That
+      is a proxy for the initial-rate order FITTING.md F1 quotes, and good for
+      the comparison it is used for here: whether a fitted saturation leaves
+      the model's order where the data's is.
+    - The lag counts, `peak_* > LAG_PEAK_FRACTION`, data against model.
+    - `induction.composition_collinearity` on the same curves: where [buf]
+      moves with [S] inside the runs, an order or a saturation "in [S]" is one
+      in the PAIR, and a background that saturates in substrate is equally
+      one that falls with buffer.
+    """
+    import induction
+    import scope
+
+    saves = _ladder_saves(block, models, directory)
+    if curves is None:
+        curves, _ = build_curves()
+    conditions = pd.DataFrame([
+        {"experiment": c.experiment, "sample": c.sample, "s0": c.conditions.s0,
+         "buf": c.conditions.buf, "live": True}
+        for c in curves if c.group == block])
+    rows = []
+    for model in models:
+        if model not in saves:
+            continue
+        for stage, key in ((1, "stage_1"), (2, "stage_2")):
+            entry = saves[model].get(key)
+            if entry is None:
+                continue
+            table = pd.DataFrame(entry["per_curve"]).merge(
+                conditions, on=["experiment", "sample"])
+            data = scope.orders("net_data", frame=table, terms=("s0",),
+                                live_only=False)
+            fitted = scope.orders("net_model", frame=table, terms=("s0",),
+                                  live_only=False)
+            collinear = induction.composition_collinearity(table)
+            names = entry["free_parameters"]
+            raw = entry.get("correlation")
+            largest, pair = np.nan, None
+            if raw is not None and len(names) > 1:
+                magnitude = np.abs(np.array(raw, dtype=float))
+                np.fill_diagonal(magnitude, 0.0)
+                i, j = np.unravel_index(int(np.nanargmax(magnitude)),
+                                        magnitude.shape)
+                largest, pair = float(magnitude[i, j]), f"{names[i]}/{names[j]}"
+            rows.append({
+                "stage": stage, "model": model, "curves": int(len(table)),
+                "converged": bool(entry.get("converged", True)),
+                "correlation_saved": raw is not None,
+                "largest_correlation": largest, "pair": pair,
+                "at_bound": ",".join(f"{name}:{side}" for name, side
+                                     in (entry.get("at_bound") or {}).items()),
+                "order_data": data["order_s0"], "stderr_data": data["stderr_s0"],
+                "order_model": fitted["order_s0"],
+                "stderr_model": fitted["stderr_s0"],
+                "lag_data": int((table.peak_data > LAG_PEAK_FRACTION).sum()),
+                "lag_model": int((table.peak_model > LAG_PEAK_FRACTION).sum()),
+                "s0_buf_runs": collinear.get("runs", 0),
+                "s0_buf_median_r": collinear.get("median", np.nan),
+                "s0_buf_constant_runs": collinear.get("constant_buffer", 0)})
     return pd.DataFrame(rows)
 
 

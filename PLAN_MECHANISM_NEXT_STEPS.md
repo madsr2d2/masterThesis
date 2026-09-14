@@ -468,6 +468,12 @@ Checkpoint 2: reproduce the 3.2 table from `scope.frame(scope.BUFFER_TITRATIONS)
 
 ## 4. Step 3 — extend the mechanism model, then fit
 
+> **Superseded 2026-09-14.** Stages 3.0-3.1 below were done (commit 8954989).
+> Stages 3.2-3.3 and the acceptance list are replaced by
+> `PLAN_STEP3_REVISED.md`, after the review in `DATA_VERIFICATION.md`
+> 2026-09-14 (second entry). Its verdict was built on F values read against
+> the wrong models and on fits that did not reach their optimum.
+
 ### 4.1 The question, and why the existing fit cannot answer it
 
 The archive has one mechanism fit (`data/fits/BnOH_25C_Phosphate.json`), made by
