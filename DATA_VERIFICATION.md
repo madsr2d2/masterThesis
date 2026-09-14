@@ -8,6 +8,73 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-14 (fifth entry) — the curve-parameter tables: machinery only
+
+`PLAN_CURVES_TO_MECHANISM.md` Task 2. The four element tables Stage A fits.
+
+What was asked: one function per substrate that builds every table the
+rate-law search is run on, with every exclusion counted.
+What was built: `data/rate_laws.py` (`curve_parameters`, `_element_reasons`,
+`_element_column`); the gate `data/test_rate_laws.py`.
+Bugs found: none.
+
+Rows are `scope.frame(scope.archive())` with `live` and `e0 > 0`, minus the
+catalysed curves `activation_sink.remaining_curves()` lists. The anchors
+reproduce exactly: 311 live catalysed curves, 94 removed as "form cannot hold
+the curve", 217 remaining. Per substrate and element, with each table's buffer
+counts:
+
+| substrate | element | curves | runs | Phosphate | Boric | Pyrophosphate |
+|---|---|---|---|---|---|---|
+| 4OMe-BnOH | `v_act` | 73 | 32 | 56 | 12 | 5 |
+| 4OMe-BnOH | `k_act_lag` | 70 | 29 | 51 | 15 | 4 |
+| 4OMe-BnOH | `k_act_burst` | 11 | 5 | 9 | 0 | 2 |
+| 4OMe-BnOH | `k_sink` | 44 | 21 | 32 | 11 | 1 |
+| BnOH | `v_act` | 65 | 29 | 6 | 10 | 49 |
+| BnOH | `k_act_lag` | 28 | 18 | 4 | 2 | 22 |
+| BnOH | `k_act_burst` | 46 | 24 | 5 | 10 | 31 |
+| BnOH | `k_sink` | 27 | 18 | 4 | 3 | 20 |
+
+`excluded`, per element and reason (`form cannot hold the curve` is counted
+per element because the removed rows are candidates for every one of them; the
+family counts are the removed rows of that family):
+
+| substrate | element | reason | count |
+|---|---|---|---|
+| 4OMe-BnOH | `v_act` | form cannot hold the curve | 42 |
+| 4OMe-BnOH | `v_act` | not resolved | 32 |
+| 4OMe-BnOH | `k_act_lag` | form cannot hold the curve | 30 |
+| 4OMe-BnOH | `k_act_lag` | not resolved | 14 |
+| 4OMe-BnOH | `k_act_burst` | form cannot hold the curve | 12 |
+| 4OMe-BnOH | `k_act_burst` | not resolved | 10 |
+| 4OMe-BnOH | `k_sink` | form cannot hold the curve | 42 |
+| 4OMe-BnOH | `k_sink` | not resolved | 61 |
+| BnOH | `v_act` | form cannot hold the curve | 52 |
+| BnOH | `v_act` | not resolved | 47 |
+| BnOH | `k_act_lag` | form cannot hold the curve | 30 |
+| BnOH | `k_act_lag` | not resolved | 16 |
+| BnOH | `k_act_burst` | form cannot hold the curve | 22 |
+| BnOH | `k_act_burst` | not resolved | 22 |
+| BnOH | `k_sink` | form cannot hold the curve | 52 |
+| BnOH | `k_sink` | not resolved | 85 |
+
+No curve is excluded as "non-positive estimate" or "non-positive interval
+end". The curves whose own `v_act <= 0` number 4 (4OMe-BnOH) and 10 (BnOH),
+all inside the "not resolved" rows. 4OMe-BnOH's `k_act_burst` table is under
+15 curves, so Tasks 4-5 do not fit it and Task 6 uses the fallback.
+
+Verdicts (from `curve_parameters`): the archive, substrate, element-table and
+shared-run anchors of the plan reproduce exactly; `_log_se` on
+(e^-1, e^1) is 2 / (2 x 1.96).
+Health flags: none.
+Not identified: none.
+Could overturn this: `remaining_curves` and the resolution flags decide which
+curves enter; a different form would admit different curves.
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-14 (fourth entry) — the two-axis sheets read as enzyme references: machinery only
 
 `PLAN_CURVES_TO_MECHANISM.md` Task 1. The reference-channel design classifier.
