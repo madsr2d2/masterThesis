@@ -354,6 +354,16 @@ def build_curves(dataset_path=DATASET_PATH, directory=CURVE_DIRECTORY,
                 h2o2=float(row["[h2o2]"]),
                 e0=float(row["[enz]"]),
                 hoo=float(row["[HOO-]"]),
+                buf=float(row["[buf]"]),
+                # `species` is what K4 binds. `saturation.binding_species`
+                # rejects BOTH H2O2 and HOO- as the sole saturating species on
+                # the two-axis block (DATA_VERIFICATION.md 2026-09-13), so no
+                # species identity is established; the total peroxide is
+                # carried because it is the concentration that enters the
+                # unextended rate and makes K4 a saturation of the established
+                # form. On these phosphate blocks [H2O2] is one value per run,
+                # so K4 is a weak lever whatever it binds (Stage 3.3, M2).
+                species=float(row["[h2o2]"]),
             ),
         ))
     report["dropped"] = dropped

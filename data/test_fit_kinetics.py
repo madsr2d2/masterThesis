@@ -20,8 +20,10 @@ import pandas as pd
 from fit_dataset import (BASELINE_POINTS, TWO_AXIS_BLOCK, TWO_AXIS_GROUP,
                          QUANTISATION_SIGMA, Curve, build_curves, curve_noise,
                          group_curves, in_block, select_fittable)
-from fit_kinetics import (BOUNDS, FAILURE_RESIDUAL, INITIAL, STAGE_ONE,
-                          STAGE_TWO, fit_group, residuals, sequential_fit)
+from fit_kinetics import (BOUNDS, EXTENDED_INITIAL, FAILURE_RESIDUAL, INITIAL,
+                          STAGE_ONE, STAGE_ONE_EXTENDED, STAGE_TWO,
+                          STAGE_TWO_EXTENDED, fit_group, residuals,
+                          sequential_fit)
 from kinetic_model import Conditions, RateConstants, observable, simulate
 import scope
 from read_rre import RRE_SIGMA
@@ -325,6 +327,104 @@ def test_stage_two_recovery():
           f"x100 -> {above:.3g}")
 
 
+# The extended model's own validation gate. The truth is at the real 4OMe / 40 C
+# scale: k5 ~ 1e-6 (F5 fits k5' = 1.4e-7), k6 ~ 5e-3, K4 ~ 0.05 (Step 1),
+# km_s ~ 3 mM (saturation), k_act_r ~ 1e-3 (tau ~ 1000 s) and K_act ~ 0.05
+# (Step 2's K_shared). k_can and k3 are NOT asserted: F4 makes k3 a lower bound
+# and k_can degenerate with it, so the fitted pair is not a recovery target.
+EXTENDED_TRUTH = RateConstants(k_can=5.0, k3=2e-2, k0=2e-8, k5=1e-6, k6=5e-3,
+                               r=1.5, k_sink=1e-3, K4=0.05, km_s=3.0,
+                               k_act_r=1e-3, K_act=0.05, km_s_background=3.0)
+
+# Points must leave BASELINE_POINTS inside len//10 or the fit applies a
+# different baseline from the builder -- see baseline_like_data.
+EXTENDED_POINTS = 50
+
+
+def _extended_conditions(s, h, e, b):
+    return Conditions(s0=s, h2o2=h, e0=e, hoo=2e-3, buf=b, species=h)
+
+
+def _planted_extended(conditions_list, sigma, seed=0, duration=3000.0):
+    generator = np.random.default_rng(seed)
+    times = np.linspace(0.0, duration, EXTENDED_POINTS)
+    curves = []
+    for index, conditions in enumerate(conditions_list):
+        signal = observable(EXTENDED_TRUTH, conditions, times)
+        measured = 1.23 * signal + generator.normal(0.0, sigma, EXTENDED_POINTS)
+        measured -= np.median(measured[:BASELINE_POINTS])
+        curves.append(Curve(
+            experiment=900 + index, sample=1, substrate="4OMe-BnOH",
+            buffer="Phosphate", pH=7.0, temperature=40.0, epsilon=1.23,
+            times=times, absorbance=measured, baseline=0.0,
+            noise=max(sigma, QUANTISATION_SIGMA), conditions=conditions))
+    return curves
+
+
+def test_extended_parameter_recovery():
+    """
+    The extended fitter's validation gate, kept to a size the slow suite can
+    afford: stage 1 noiseless on five substrate rungs, stage 2 noiseless and at
+    instrument noise on six catalysed cuvettes.
+
+    Stage 2 is fitted with the TRUE background as its base rather than stage
+    1's fitted one, so this asks whether the catalysed parameters are
+    identifiable and not whether k_can (which F4 leaves degenerate) was found.
+    """
+    print("\nextended parameter recovery from synthetic curves")
+    background = [ _extended_conditions(s, 82.5, 0.0, 80.0)
+                   for s in (0.7, 1.5, 3.0, 6.0, 10.0)]
+    first = fit_group(_planted_extended(background, 0.0), STAGE_ONE_EXTENDED,
+                      restarts=0, seed=1, initial=EXTENDED_INITIAL)
+    for name, decades in (("km_s_background", 0.2), ("k_sink", 0.3),
+                          ("k0", 0.3)):
+        found = getattr(first.constants, name)
+        expected = getattr(EXTENDED_TRUTH, name)
+        check(f"extended stage 1 noiseless: {name} recovered",
+              abs(np.log10(found) - np.log10(expected)) < decades,
+              f"{found:.3g} vs {expected:.3g} "
+              f"({np.log10(found / expected):+.2f} dec)")
+    check("extended stage 1 noiseless: r recovered",
+          abs(first.constants.r - EXTENDED_TRUTH.r) < 0.1,
+          f"{first.constants.r:.3f} vs {EXTENDED_TRUTH.r:.3f}")
+
+    catalysed = [_extended_conditions(s, h, e, b)
+                 for s in (1.0, 8.0) for h in (35.0, 82.5)
+                 for e in (0.05, 0.15) for b in (50.0, 150.0)][:6]
+    second = fit_group(_planted_extended(catalysed, 0.0, seed=3),
+                       STAGE_TWO_EXTENDED, base=EXTENDED_TRUTH,
+                       restarts=0, seed=1, initial=EXTENDED_INITIAL)
+    check("extended stage 2 noiseless: the fit is exact",
+          second.cost < 1e-3, f"cost {second.cost:.2e}")
+    for name, decades in (("k5", 0.1), ("k6", 0.1), ("K4", 0.1),
+                          ("km_s", 0.1), ("k_act_r", 0.1), ("K_act", 0.1)):
+        found = getattr(second.constants, name)
+        expected = getattr(EXTENDED_TRUTH, name)
+        check(f"extended stage 2 noiseless: {name} recovered",
+              abs(np.log10(found) - np.log10(expected)) < decades,
+              f"{found:.4g} vs {expected:.4g} "
+              f"({np.log10(found / expected):+.2f} dec)")
+
+    noisy = fit_group(_planted_extended(catalysed, 2e-4, seed=11),
+                      STAGE_TWO_EXTENDED, base=EXTENDED_TRUTH,
+                      restarts=0, seed=1, initial=EXTENDED_INITIAL)
+    # k5, K4 and km_s survive instrument noise. k6 does not: it is the
+    # autocatalytic loop F6 finds inert at the real fit, so its constant is a
+    # lower bound like k3, not a recovery target. k_act_r and K_act drift
+    # together because they are -0.99 correlated, which is asserted below.
+    for name, decades in (("k5", 0.4), ("K4", 0.4), ("km_s", 0.4)):
+        found = getattr(noisy.constants, name)
+        expected = getattr(EXTENDED_TRUTH, name)
+        check(f"extended stage 2 at instrument noise: {name} recovered",
+              abs(np.log10(found) - np.log10(expected)) < decades,
+              f"{found:.4g} vs {expected:.4g} "
+              f"({np.log10(found / expected):+.2f} dec)")
+    pair = second.correlation[STAGE_TWO_EXTENDED.index("k_act_r"),
+                              STAGE_TWO_EXTENDED.index("K_act")]
+    check("k_act_r and K_act are entangled and must be profiled together",
+          abs(pair) > 0.9, f"correlation {pair:+.3f}")
+
+
 def test_residual_machinery():
     print("\nresidual machinery")
     truth = RateConstants(k_can=5.0, k3=2e-2, k0=3e-9, r=2.0)
@@ -443,6 +543,15 @@ def test_configuration():
           not set(STAGE_ONE) & set(STAGE_TWO))
     check("the failure penalty is finite",
           np.isfinite(FAILURE_RESIDUAL))
+    extended = set(STAGE_ONE_EXTENDED + STAGE_TWO_EXTENDED)
+    check("every extended parameter has bounds", extended <= set(BOUNDS))
+    check("every extended parameter has a starting value",
+          extended <= set(EXTENDED_INITIAL))
+    check("every extended starting value lies inside its bounds",
+          all(BOUNDS[n][0] <= EXTENDED_INITIAL[n] <= BOUNDS[n][1]
+              for n in EXTENDED_INITIAL))
+    check("the extended stages are disjoint",
+          not set(STAGE_ONE_EXTENDED) & set(STAGE_TWO_EXTENDED))
 
 
 if __name__ == "__main__":
@@ -453,6 +562,7 @@ if __name__ == "__main__":
     test_parameter_recovery()
     test_k3_is_a_lower_bound_only()
     test_stage_two_recovery()
+    test_extended_parameter_recovery()
     test_residual_machinery()
     test_configuration()
     print(f"\n{len(FAILURES)} failure(s)" + (": " + ", ".join(FAILURES) if FAILURES else ""))

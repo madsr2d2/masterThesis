@@ -47,14 +47,28 @@ from dataclasses import dataclass, replace
 import numpy as np
 from scipy.integrate import solve_ivp
 
-# The fitted parameters, in the order the packing helpers use.
-PARAMETER_NAMES = ("k_can", "k3", "k0", "k5", "k6", "r")
+# The fitted parameters, in the order the packing helpers use. The first six
+# are the original reduced model; the remainder are the extensions, every one
+# defaulting to the value that switches it OFF so the extended model at its
+# defaults is the old model exactly.
+PARAMETER_NAMES = ("k_can", "k3", "k0", "k5", "k6", "r",
+                   "k_sink", "K4", "km_s", "k_act_r", "K_act",
+                   "km_s_background")
 
 # Parameters that are rate constants and so are fitted in log10 space; `r` is a
 # ratio of extinction coefficients, is allowed to be exactly zero (that is the
 # pure-aldehyde reading the fit is meant to adjudicate), and so is fitted
 # linearly.
-LOG_PARAMETERS = ("k_can", "k3", "k0", "k5", "k6")
+#
+# The extensions are fitted in log10 too. Three switch off at zero (k_sink,
+# K4, K_act) and three at infinity (km_s, k_act_r, km_s_background); log10
+# cannot hold zero or infinity, so a free extension is bounded away from its
+# OFF value by the lower/upper bound and the fitter treats a value AT that
+# bound as off (see fit_kinetics.BOUNDS). The OFF values themselves are only
+# ever defaults, never free values, so they are never packed.
+LOG_PARAMETERS = ("k_can", "k3", "k0", "k5", "k6",
+                  "k_sink", "K4", "km_s", "k_act_r", "K_act",
+                  "km_s_background")
 
 # The state vector integrated by `solve_ivp`.
 STATE_NAMES = ("A", "PBA", "S")
@@ -62,13 +76,26 @@ STATE_NAMES = ("A", "PBA", "S")
 
 @dataclass(frozen=True)
 class RateConstants:
-    """One set of rate constants, shared across every curve in a fit group."""
+    """
+    One set of rate constants, shared across every curve in a fit group.
+
+    The last six are the extensions, every one defaulting to OFF so the model
+    at its defaults is the original reduced system. `k_act_r` and `km_s` are
+    off at infinity, the others at zero.
+    """
     k_can: float = 0.0   # v_can = k_can [A]^2 [HOO-]
     k3: float = 0.0      # v3    = k3 [PBA][S]
     k0: float = 0.0      # uncatalysed seed:  v = k0 [H2O2][S]
     k5: float = 0.0      # catalysed seed:    v = k5 E0 [H2O2][S]
     k6: float = 0.0      # v6    = k6 E0 [PBA]
     r: float = 0.0       # eps(benzoate) / eps(benzaldehyde) at the assay wavelength
+    # --- extensions, OFF at these values ---------------------------------
+    k_sink: float = 0.0          # first-order product sink: v_sink = k_sink [A]
+    K4: float = 0.0              # catalyst binding of `species`: free = 1/(1+K4 x)
+    km_s: float = float("inf")   # substrate half-saturation of the catalysed seed
+    k_act_r: float = float("inf")  # activation relaxation k_r, 1/s (inf = active at t=0)
+    K_act: float = 0.0           # activation constant on [buf], 1/mM
+    km_s_background: float = float("inf")  # the same, for the uncatalysed seed k0
 
     def replace(self, **changes):
         return replace(self, **changes)
@@ -80,31 +107,77 @@ class Conditions:
     One cuvette. `hoo` is [HOO-] in mM and carries all of the pH and
     ionic-strength dependence, so this module never sees a pH -- that
     conversion is `solution_chemistry.hydroperoxide`'s job.
+
+    `buf` and `species` are the extensions' extra conditions: the total buffer
+    concentration (mM) the activation constant K_act acts on, and the
+    concentration (mM) the catalyst binds through K4. Both default to NaN and
+    are only read when their constant is on.
     """
     s0: float            # [S] at t = 0, mM
     h2o2: float          # [H2O2], mM, held constant
     e0: float            # total catalyst, mM (0 for the enzyme-free controls)
     hoo: float           # [HOO-], mM
     a0: float = 0.0      # trace aldehyde present at t = 0, mM
+    buf: float = float("nan")      # total buffer, mM, for K_act
+    species: float = float("nan")  # what K4 binds, mM
 
 
-def rates(state, constants, conditions):
-    """The four lumped rates, given a state vector. Clamped non-negative."""
+def rates(state, constants, conditions, time=0.0):
+    """
+    The lumped rates, given a state vector and a time. Clamped non-negative.
+
+    The extensions all enter as factors that are EXACTLY 1 at their OFF
+    defaults, so the old four rates are recovered bit for bit:
+
+      phi    = 1 - exp(-t k_act_r (1 + K_act[buf]))   the catalyst activating on
+             its own clock; 1 at every t when k_act_r = inf
+      free   = 1/(1 + K4[species])                    the catalyst not bound;
+            1 when K4 = 0
+      sat_s  = 1/(1 + [S]/km_s)                       1 when km_s = inf
+      v_sink = k_sink [A]                             the first-order product
+             loss; 0 when k_sink = 0
+
+    `time` is the fifth argument rather than the first because `rhs` already
+    receives solve_ivp's time and every caller passes state/constants/conditions
+    positionally.
+    """
     aldehyde, peracid, substrate = (max(x, 0.0) for x in state)
     v_can = constants.k_can * aldehyde * aldehyde * conditions.hoo
     v3 = constants.k3 * peracid * substrate
-    v_seed = (constants.k0 + constants.k5 * conditions.e0) * conditions.h2o2 * substrate
-    v6 = constants.k6 * conditions.e0 * peracid
-    return v_can, v3, v_seed, v6
+
+    if not np.isfinite(constants.k_act_r):
+        phi = 1.0
+    else:
+        bump = (constants.K_act * conditions.buf
+                if constants.K_act != 0.0 and np.isfinite(conditions.buf)
+                else 0.0)
+        exponent = max(time, 0.0) * constants.k_act_r * (1.0 + bump)
+        phi = 1.0 - np.exp(-exponent) if np.isfinite(exponent) else 1.0
+    free = (1.0 / (1.0 + constants.K4 * conditions.species)
+            if constants.K4 != 0.0 and np.isfinite(conditions.species)
+            else 1.0)
+    sat_s = (1.0 / (1.0 + substrate / constants.km_s)
+             if np.isfinite(constants.km_s) else 1.0)
+    sat_background = (1.0 / (1.0 + substrate / constants.km_s_background)
+                      if np.isfinite(constants.km_s_background) else 1.0)
+
+    seed = (constants.k0 * sat_background
+            + constants.k5 * conditions.e0 * phi * free * sat_s)
+    v_seed = seed * conditions.h2o2 * substrate
+    v6 = constants.k6 * conditions.e0 * phi * free * peracid
+    v_sink = constants.k_sink * aldehyde
+    return v_can, v3, v_seed, v6, v_sink
 
 
 def rhs(_time, state, constants, conditions):
     """dy/dt for y = (A, PBA, S). Signature matches `solve_ivp`'s."""
-    v_can, v3, v_seed, v6 = rates(state, constants, conditions)
+    v_can, v3, v_seed, v6, v_sink = rates(state, constants, conditions, _time)
+    # The sink turns aldehyde into benzoate, so it leaves S and PBA alone and
+    # BA absorbs it through the aryl conservation in `simulate`.
     return (
-        -2.0 * v_can + v3 + v_seed + v6,   # dA/dt
-        v_can - v3 - v6,                   # dPBA/dt
-        v_can - v3 - v_seed - v6,          # dS/dt
+        -2.0 * v_can + v3 + v_seed + v6 - v_sink,   # dA/dt
+        v_can - v3 - v6,                            # dPBA/dt
+        v_can - v3 - v_seed - v6,                   # dS/dt
     )
 
 

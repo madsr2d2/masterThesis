@@ -30,19 +30,26 @@ import json
 from dataclasses import dataclass, field
 
 import numpy as np
+import pandas as pd
 from scipy.optimize import least_squares
 
 from curve_metrics import peak_position
 from fit_dataset import (BASELINE_POINTS, TWO_AXIS_BLOCK,
                          TWO_AXIS_GROUP, build_curves, group_curves,
                          in_block)
-from kinetic_model import (LOG_PARAMETERS, Conditions, RateConstants,
-                           observable, pack, unpack)
+from kinetic_model import (LOG_PARAMETERS, PARAMETER_NAMES, Conditions,
+                           RateConstants, observable, pack, unpack)
 
 # Bounds in the optimiser's own coordinates: log10 for rate constants, linear
 # for r. Wide enough not to shape the answer, tight enough that the integrator
 # is not asked to do something absurd. A fitted value sitting ON a bound is
 # reported as such -- for r especially, that is the result, not a detail.
+#
+# The extensions are bounded so that the OFF value is the FAR bound, and a
+# fitted value AT that bound is "off" (see report and to_dict): k_sink, K4 and
+# K_act are off at 0 (lower), km_s, k_act_r and km_s_background at infinity
+# (upper). k_act_r and km_s are physical at small positive values, so their
+# lower bound is just wide, not off.
 BOUNDS = {
     "k_can": (-8.0, 8.0),
     "k3": (-10.0, 6.0),
@@ -50,16 +57,72 @@ BOUNDS = {
     "k5": (-8.0, 10.0),
     "k6": (-8.0, 10.0),
     "r": (0.0, 5.0),
+    "k_sink": (-10.0, 2.0),
+    "K4": (-8.0, 6.0),
+    "km_s": (-2.0, 4.0),
+    "k_act_r": (-8.0, 2.0),
+    "K_act": (-8.0, 4.0),
+    "km_s_background": (-2.0, 4.0),
 }
 
 # Starting points, in the same coordinates. The scaling behind k_can: the seed
 # makes aldehyde at v0 = k0[H2O2][S], so over a run of length T the pool reaches
 # ~v0*T, and steps 1-2 only matter once k_can*[HOO-]*(v0*T)^2 is comparable to
 # v0 -- which for this dataset's numbers puts k_can near 1 mM^-2 s^-1.
-INITIAL = {"k_can": 0.0, "k3": -2.0, "k0": -9.0, "k5": 0.0, "k6": 0.0, "r": 0.3}
+INITIAL = {"k_can": 0.0, "k3": -2.0, "k0": -9.0, "k5": 0.0, "k6": 0.0, "r": 0.3,
+           # extensions. k_sink from the product sink (~1e-4 s^-1, slowdown),
+           # km_s from the per-run Michaelis fits (2-7 mM, saturation), k_act_r
+           # from the activation clock (tau ~ hundreds of s), K4 and K_act
+           # weakly determined.
+           "k_sink": -4.0, "K4": -1.0, "km_s": 0.5, "k_act_r": -2.0,
+           "K_act": -1.0, "km_s_background": 0.5}
+
+# The extended stages' starting table. The original k5 = 1 is six decades above
+# the real seed scale, and the extensions add k6, K4, km_s, k_act_r and K_act,
+# whose priors come from the same fits: k6 from F5 (4.4e-3), K4 from Step 1
+# (K ~ 0.04-0.05 /mM), km_s from `saturation.michaelis_by_element` (2-7 mM),
+# k_act_r from the activation clock (tau ~ hundreds of s) and K_act from Step 2
+# (K_shared 0.018 /mM). The old path never sees this table.
+EXTENDED_INITIAL = {"k_can": 0.0, "k3": -2.0, "k0": -9.0, "k5": -6.0,
+                    "k6": -2.0, "r": 0.3, "k_sink": -4.0, "K4": -1.3,
+                    "km_s": 0.5, "k_act_r": -2.5, "K_act": -1.5,
+                    "km_s_background": 0.5}
+
+# The original six, which is what the base RateConstants is built from. The
+# extensions must stay at their OFF defaults in `base` unless a stage actually
+# frees them, or the "untouched" path would silently run the extended model.
+BASE_PARAMETERS = ("k_can", "k3", "k0", "k5", "k6", "r")
 
 STAGE_ONE = ("k_can", "k3", "k0", "r")
 STAGE_TWO = ("k5", "k6")
+
+# The extended splits (Stage 3.2). Stage 1 is all E0 = 0, so only the sink and
+# a saturable BACKGROUND seed can be asked of it; the catalysed binding,
+# saturation and activation are stage 2's.
+STAGE_ONE_EXTENDED = STAGE_ONE + ("k_sink", "km_s_background")
+STAGE_TWO_EXTENDED = STAGE_TWO + ("K4", "km_s", "k_act_r", "K_act")
+
+# The nested ladder of Stage 3.3, one tuple pair per model. Each model's stage
+# 1 is the background model and stage 2 adds the catalysed term; a term is
+# "earned" by the weighted F test and is not carried into the next model if it
+# is not (that is why M2 builds on M1 and not M1b). `M4` is what `--extended`
+# selects.
+MODEL_STAGES = {
+    "M0": (STAGE_ONE, STAGE_TWO),
+    "M1": (STAGE_ONE, STAGE_TWO + ("km_s",)),
+    "M1b": (STAGE_ONE + ("km_s_background",), STAGE_TWO + ("km_s",)),
+    "M2": (STAGE_ONE, STAGE_TWO + ("km_s", "K4")),
+    "M3": (STAGE_ONE + ("k_sink",), STAGE_TWO + ("km_s", "K4")),
+    "M4": (STAGE_ONE + ("k_sink",),
+           STAGE_TWO + ("km_s", "K4", "k_act_r", "K_act")),
+    # The EARNED-term model: M4 built on the terms that cleared the F bar and
+    # dropping the ones that did not (K4 adds nothing on either block; k_sink
+    # only moves stage 1's local minimum). It is what Stage 3.3's "do not carry
+    # them into the next model" asks for, and it is the model the activation
+    # question is actually asked of.
+    "M4b": (STAGE_ONE + ("km_s_background",),
+            STAGE_TWO + ("km_s", "k_act_r", "K_act")),
+}
 
 # What a failed integration costs. Large enough that the optimiser walks away,
 # finite so it never poisons the Jacobian with a NaN.
@@ -291,7 +354,8 @@ def _screen(points, free_names, base, curves, weighting, keep):
     return [point for _, point in scored[:keep]]
 
 
-def fit_group(curves, free_names, base=None, weighting="curve", restarts=4, seed=0):
+def fit_group(curves, free_names, base=None, weighting="curve", restarts=4,
+              seed=0, initial=None):
     """
     Fits `free_names` to `curves`, holding everything else at `base`.
 
@@ -300,12 +364,19 @@ def fit_group(curves, free_names, base=None, weighting="curve", restarts=4, seed
     which always run, and the `restarts` best of a screened Latin-hypercube
     sample. Neither alone is enough -- see _guaranteed_points and
     SCREEN_SAMPLES, each of which records the failure that put it here.
+
+    `initial` overrides the starting table (default `INITIAL`). The extended
+    fit needs it because the original nominal k5 = 1 is six decades above the
+    real seed scale (~1e-6): from there the catalysed fit cannot find the
+    planted or the real basin, which is a starting problem and not a chemistry
+    one.
     """
     base = base or RateConstants(**{name: 10.0 ** INITIAL[name] if name in LOG_PARAMETERS
-                                    else INITIAL[name] for name in INITIAL})
+                                    else INITIAL[name] for name in BASE_PARAMETERS})
+    table = INITIAL if initial is None else initial
     lower = np.array([BOUNDS[name][0] for name in free_names])
     upper = np.array([BOUNDS[name][1] for name in free_names])
-    start = np.array([INITIAL[name] for name in free_names])
+    start = np.array([table[name] for name in free_names])
 
     starts = _guaranteed_points(free_names, start, lower, upper)
     starts += _screen(_hypercube(free_names, lower, upper, seed),
@@ -361,7 +432,8 @@ def fit_group(curves, free_names, base=None, weighting="curve", restarts=4, seed
     )
 
 
-def sequential_fit(curves, weighting="curve", restarts=4, seed=0, on_stage=None):
+def sequential_fit(curves, weighting="curve", restarts=4, seed=0, on_stage=None,
+                   extended=False, stages=None):
     """
     Stage 1 on the enzyme-free curves, then stage 2 on the catalysed ones with
     stage 1 frozen. Returns (stage_one, stage_two); stage_two is None when the
@@ -370,15 +442,29 @@ def sequential_fit(curves, weighting="curve", restarts=4, seed=0, on_stage=None)
     `on_stage(name, result)` is called as each stage finishes. A full fit takes
     tens of minutes, and stage 1's answer is worth having on screen before
     stage 2 starts rather than after it ends.
+
+    `extended=True` swaps in `STAGE_ONE_EXTENDED` / `STAGE_TWO_EXTENDED`; a
+    `stages=(one, two)` pair names a specific rung of the M0-M4 ladder
+    (`MODEL_STAGES`). The old path is untouched: stage 1 zeroes k5 and k6 as
+    before and the base constants keep the extensions OFF.
     """
+    if stages is not None:
+        stage_one, stage_two = stages
+    else:
+        stage_one = STAGE_ONE_EXTENDED if extended else STAGE_ONE
+        stage_two = STAGE_TWO_EXTENDED if extended else STAGE_TWO
     enzyme_free = [c for c in curves if c.conditions.e0 == 0]
     catalysed = [c for c in curves if c.conditions.e0 > 0]
     if not enzyme_free:
         raise ValueError("no enzyme-free curves in this block: "
                          "stage 1 has nothing to determine the background from")
 
-    first = fit_group(enzyme_free, STAGE_ONE, weighting=weighting,
-                      restarts=restarts, seed=seed)
+    # The extended starting table only for a model that actually has
+    # extensions free; M0 through `stages` is still the old path.
+    old_path = stages is None and not extended
+    start_table = None if old_path or stages == MODEL_STAGES["M0"] else EXTENDED_INITIAL
+    first = fit_group(enzyme_free, stage_one, weighting=weighting,
+                      restarts=restarts, seed=seed, initial=start_table)
     # Enzyme-free curves carry no information about k5 or k6 -- both are
     # multiplied by E0 = 0 -- so stage 1 must not report whatever value they
     # happened to be seeded with. Zeroing them keeps the reported constants
@@ -389,8 +475,9 @@ def sequential_fit(curves, weighting="curve", restarts=4, seed=0, on_stage=None)
         on_stage("stage_1", first)
     if not catalysed:
         return first, None
-    second = fit_group(catalysed, STAGE_TWO, base=first.constants,
-                       weighting=weighting, restarts=restarts, seed=seed)
+    second = fit_group(catalysed, stage_two, base=first.constants,
+                       weighting=weighting, restarts=restarts, seed=seed,
+                       initial=start_table)
     if on_stage:
         on_stage("stage_2", second)
     return first, second
@@ -447,7 +534,9 @@ def report_profile(profile):
 # --- reporting -------------------------------------------------------------
 
 UNITS = {"k_can": "mM^-2 s^-1", "k3": "mM^-1 s^-1", "k0": "mM^-1 s^-1",
-         "k5": "mM^-2 s^-1", "k6": "mM^-1 s^-1", "r": ""}
+         "k5": "mM^-2 s^-1", "k6": "mM^-1 s^-1", "r": "",
+         "k_sink": "s^-1", "K4": "mM^-1", "km_s": "mM",
+         "k_act_r": "s^-1", "K_act": "mM^-1", "km_s_background": "mM"}
 
 
 def report(result, title):
@@ -513,8 +602,9 @@ def to_dict(result, title):
     return {
         "block": title,
         "free_parameters": list(result.free_names),
-        "constants": {name: getattr(result.constants, name)
-                      for name in ("k_can", "k3", "k0", "k5", "k6", "r")},
+        "constants": {name: (None if not np.isfinite(getattr(result.constants, name))
+                             else float(getattr(result.constants, name)))
+                      for name in PARAMETER_NAMES},
         "standard_errors_log10": {k: (None if not np.isfinite(v) else float(v))
                                   for k, v in result.standard_errors.items()},
         "at_bound": result.at_bound,
@@ -532,6 +622,60 @@ def to_dict(result, title):
     }
 
 
+def ladder_f_test(block, models=("M0", "M1", "M1b", "M2", "M3", "M4"),
+                  directory="data/fits"):
+    """
+    The weighted F between successive rungs of the M0-M4 ladder, per stage.
+
+    `F = ((cost_small - cost_big)/delta_p) / (cost_big/(N - p_big))` on the
+    weighted least-squares cost the fitter itself minimises, with N the number
+    of residual points and p_big the number of free parameters. The bar is the
+    package's `TWO_PHASE_F` = 12, which allows for the serially correlated
+    residuals of a progress curve. A term that does not clear it is NOT
+    supported and must not be carried into the next model.
+
+    Reads the `--model` saves for one block. `block` is the (substrate,
+    temperature, buffer) key the curves carry, and N is counted from the same
+    `build_curves` the fits read, so the F-test's denominator is the fit's own.
+    """
+    import os
+
+    curves, _ = build_curves()
+    scoped = [c for c in curves if c.group == block]
+    points = {1: sum(len(c) for c in scoped if c.conditions.e0 == 0),
+              2: sum(len(c) for c in scoped if c.conditions.e0 > 0)}
+    substrate, temperature, buffer_name = block
+    rows = []
+    previous = {}
+    for model in models:
+        path = os.path.join(directory, f"{substrate}_{temperature:.0f}C_"
+                            f"{buffer_name}_{model}.json")
+        if not os.path.exists(path):
+            continue
+        with open(path) as handle:
+            payload = json.load(handle)
+        for stage, key in ((1, "stage_1"), (2, "stage_2")):
+            if key not in payload:
+                continue
+            entry = payload[key]
+            cost = float(entry["cost"])
+            count = len(entry["free_parameters"])
+            row = {"stage": stage, "model": model, "free": count,
+                   "cost": cost, "rms_absorbance": entry["rms_absorbance"]}
+            small = previous.get(stage)
+            if small is not None:
+                delta = count - small["free"]
+                degrees = points[stage] - count
+                row["delta_cost"] = small["cost"] - cost
+                row["f"] = ((small["cost"] - cost) / delta
+                            / (cost / degrees)) if delta > 0 and degrees > 0 \
+                    else np.nan
+                row["vs"] = small["model"]
+            rows.append(row)
+            previous[stage] = {"model": model, "free": count, "cost": cost}
+    return pd.DataFrame(rows)
+
+
 def main():
     import argparse
 
@@ -547,6 +691,12 @@ def main():
                              "be reported")
     parser.add_argument("--list", action="store_true",
                         help="list the blocks that have both stages, then exit")
+    parser.add_argument("--extended", action="store_true",
+                        help="fit the extended model (sink, saturation, "
+                             "activation) instead of the reduced one")
+    parser.add_argument("--model", choices=tuple(MODEL_STAGES), default=None,
+                        help="a rung of the nested M0-M4 ladder (Stage 3.3); "
+                             "overrides --extended")
     parser.add_argument("--save", default=None)
     parser.add_argument("--scope", choices=("two-axis", "all"),
                         default="two-axis",
@@ -606,12 +756,20 @@ def main():
                                  restarts=arguments.restarts))
         return 0
 
+    if arguments.model:
+        stages = MODEL_STAGES[arguments.model]
+    elif arguments.extended:
+        stages = (STAGE_ONE_EXTENDED, STAGE_TWO_EXTENDED)
+    else:
+        stages = None
+    stage_one, stage_two = stages if stages else (STAGE_ONE, STAGE_TWO)
     titles = {
-        "stage_1": f"STAGE 1  enzyme-free  ->  {', '.join(STAGE_ONE)}",
-        "stage_2": f"STAGE 2  catalysed  ->  {', '.join(STAGE_TWO)}   (stage 1 frozen)",
+        "stage_1": f"STAGE 1  enzyme-free  ->  {', '.join(stage_one)}",
+        "stage_2": f"STAGE 2  catalysed  ->  {', '.join(stage_two)}   (stage 1 frozen)",
     }
     first, second = sequential_fit(block, weighting=arguments.weighting,
                                    restarts=arguments.restarts,
+                                   extended=arguments.extended, stages=stages,
                                    on_stage=lambda name, result: report(result, titles[name]))
     if second is None:
         print("\nSTAGE 2 skipped: no catalysed curves in this block")

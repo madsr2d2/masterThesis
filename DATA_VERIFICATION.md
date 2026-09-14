@@ -8,6 +8,146 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-14 — the extended mechanism model: substrate saturation earns, activation does not
+
+`data/kinetic_model.py`, `data/fit_kinetics.py`, the M0-M4 ladder and
+`saturation`'s two steps. FITTING.md F1 (the reduced model is exactly first
+order in [S] and the data is not) and F5 (it misfits by 20-24x the noise) say
+the reduction is deficient, and Step 3 was to add the terms the archive has
+since established one at a time, proving each on planted data before letting
+it earn its parameters.
+
+`kinetic_model.py` gains six terms, every one OFF at its default so the
+extended model is the old model exactly: `k_sink` (first-order product loss),
+`K4` (catalyst binding of `species`), `km_s` (substrate half-saturation of the
+catalysed seed), `k_act_r`/`K_act` (activation on the catalyst's own clock,
+`phi = 1 - exp(-t k_act_r(1 + K_act[buf]))`) and `km_s_background` (the same
+for the uncatalysed seed). `Conditions` carries `buf` and `species`.
+`fit_kinetics.py` gains the new bounds and priors, `STAGE_*_EXTENDED`, a
+`MODEL_STAGES` ladder selected by `--model`, and `EXTENDED_INITIAL`.
+
+**The baseline's σ is stale; its absolute misfit is not.** F5's 24.0x / 20.6x
+was measured on the `.txt` exports. On today's `.rre` readings the same block
+fits to the same ABSOLUTE misfit but the curves' noise floor is ~2.4x smaller:
+
+| stage | 2026-08-31 saved | today (M0) |
+|---|---|---|
+| BnOH enzyme-free | 0.01469 AU = 24.0x | 0.01437 AU = 59.9x |
+| BnOH catalysed | 0.01396 AU = 20.6x | 0.01303 AU = 48.1x |
+
+So the plan's "reproduce 24x" is not reproducible as a sigma; the M0 baseline
+is quoted in AU below. The optimiser also finds a different, slightly better
+minimum today (`k_can` 10.9 -> 0.16, `r` 1.52 -> 0 at the lower bound): with a
+0.014 AU misfit the parameters are not well constrained, which is F6 twice
+over.
+
+**A defect found and fixed on the way.** The extended fitter's nominal
+`k5 = 1` is six decades above the real seed scale (`~1e-6`, F5's `k5'`), so
+the extended catalysed fit could not find the planted basin: stage 2 noiseless
+recovery read `k5 = 0.033`, `k6 = 5e9`, `K4 = 2347`. The cause is the START,
+not the chemistry -- with `EXTENDED_INITIAL` carrying the real priors, stage 2
+recovers every planted constant to <0.1 decade (cost 2e-9).
+
+**Planted recovery** (`test_extended_parameter_recovery`, on the real 4OMe /
+40 C condition scale): stage 1 recovers `km_s_background`, `k_sink`, `k0`, `r`
+exactly; stage 2 recovers `k5`, `k6`, `K4`, `km_s`, `k_act_r`, `K_act`
+exactly noiseless. At instrument noise `k5`, `K4`, `km_s` hold within 0.4
+decades; `k6` does not (it is the inert loop of F6 — a lower bound, like
+`k3`), and `k_act_r`/`K_act` are **-0.99 correlated** so they are reported as
+a pair, never separately.
+
+**The M0-M4 ladder**, on the two blocks that support a sequential fit
+(`MODEL_STAGES`; one free level per run; rms in AU / x the curve's own noise):
+
+| | BnOH 25 C enzyme-free | BnOH catalysed | 4OMe 40 C enzyme-free | 4OMe catalysed |
+|---|---|---|---|---|
+| M0 | 0.01437 / 60x | 0.01303 / 48x | 0.05913 / 176x | 0.21598 / 649x |
+| M1 (+km_s) | 0.01437 / 60x | **0.00928 / 37x** | 0.05913 / 176x | 0.21564 / 650x |
+| M1b (+km_s_bg) | **0.01221 / 52x** | **0.00851 / 34x** | **0.00974 / 23x** | 0.20579 / 639x |
+| M2 (+K4) | 0.01437 / 60x | 0.00928 / 37x | 0.05913 / 176x | 0.22019 / 648x |
+| M3 (+k_sink) | 0.01452 / 55x | 0.01426 / 49x | 0.04828 / 127x | 0.15220 / 394x |
+| M4 (+k_act_r,K_act) | 0.01452 / 55x | 0.01424 / 49x | 0.04828 / 127x | 0.14088 / 378x |
+| M4b (earned) | 0.01221 / 52x | **0.00849 / 33x** | 0.00974 / 23x | 0.15433 / 493x |
+
+**The F tests** (`fit_kinetics.ladder_f_test`, `F = ((cost_small -
+cost_big)/dp)/(cost_big/(N-p))`, bar 12):
+
+| term | block | stage | F | verdict |
+|---|---|---|---|---|
+| km_s_background | 4OMe | 1 | 259200 | earns, overwhelmingly |
+| km_s_background | BnOH | 1 | 1191 | earns |
+| km_s | BnOH | 2 | 1515 | earns |
+| km_s | 4OMe | 2 | -0.7 | does not earn |
+| K4 | BnOH | 2 | ~0 | does not earn (cost identical) |
+| k_act_r,K_act | BnOH | 2 | 5.3 | does not earn |
+
+**Verdict: substrate saturation earns, activation does not.** The extended
+model's one clear success is the ENZYME-FREE 4OMe background: a single
+`km_s_background = 0.11` mM collapses stage 1 from 0.05913 to 0.00974 AU
+(176x to 23x noise). On BnOH, `km_s = 0.054` mM and `km_s_background` together
+take the catalysed fit from 0.01303 to 0.00849 AU. But `K4` adds nothing on
+either block (one [H2O2] per run, as the plan predicted), `k_sink` only moves
+stage 1's local minimum rather than improving it, and the activation term
+never clears the bar: on BnOH M4 it gives F = 5.3, and in M4b `k_act_r` runs
+FAST (33 /s) or to its lower bound with `K_act` off -- it does not supply a
+lag, which is the same reading F3 gives from the `r <= 1` bound and F6 from
+the inert machinery.
+
+**Acceptance (4.8), each stated.**
+
+1. **rms falls substantially below M0:** met by the earned models (BnOH
+   M1b/M4b 0.0085 against 0.0130; 4OMe M4/M4b 0.141/0.154 against 0.216), NOT
+   by M4 on BnOH (0.01424, worse than M0), because M4 builds on M3's
+   degenerate stage 1.
+2. **r moves toward 0.08-0.33:** met on 4OMe (M4b r = 0.273, in range); not
+   met on BnOH (M4b r = 0 at its lower bound).
+3. **lag fraction matches:** NOT met. BnOH M4b's catalysed curves have 3 of
+   20 reaching peak slope past 15% of the run where the model has 0.
+4. **substrate order reproduces the data's:** not evaluated; the model that
+   carries it (M1) predicts the F1 correction and was not run through a
+   simulated-order sweep here.
+5. **k_sink consistent with `slowdown.sink_constants`:** not supported --
+   `k_sink` does not earn, and M3's `k_sink = 5.5e-3` /s comes with
+   `k_can = k3 = k0 = 0`, i.e. a degenerate stage 1 rather than a sink.
+6. **K_act consistent with Step 2's 0.018 /mM:** NOT met -- in M4b, `K_act` is
+   off (BnOH 5e-6) or runs away (4OMe 315), because the activation does not
+   earn.
+7. **machinery not switched off:** mixed. BnOH M4b drives `k6 = 8.9e3` but
+   `k5 = 1.1e-5` and `r = 0`; the loop is on paper only and produces no lag.
+   4OMe M4b sets `k5 = k6 = k_act_r = 0` and carries stage 2 on the
+   background, i.e. it is exactly the F6 "just a linear seed" outcome.
+
+**Cautions.**
+
+- **The ladder is not cleanly nested in practice.** Adding `k_sink` moves
+  stage 1 to a different local minimum, so M3/M4's background is WORSE than
+  M1b's (BnOH 0.01452 against 0.01221; 4OMe 0.04828 against 0.00974). The F
+  table must be read against the parent that actually helps, which is why
+  `M4b` (the earned-term model) is the one the activation question is asked
+  of.
+- The M0 parameters sit at bounds (`k3`, `r` lower; condition number ~1e16)
+  because the misfit is large. Fit constants on these blocks are not
+  trustworthy individually.
+- `km_s_background` runs to its LOWER bound (0.01 mM) on BnOH, so that value
+  is a bound, not a measurement.
+- The catalysed 4OMe block is barely improved by any term; its best stage-2
+  rms is still ~380-490x noise.
+
+**Tests.** `data/test_kinetic_model.py`: six new checks, including
+`test_defaults_are_the_old_model` (frozen old arrays to 1e-10),
+`test_conservation_survives_the_extension`, `test_activation_makes_a_lag_with_r_below_one`,
+`test_substrate_saturation_order`, `test_peroxide_binding_saturates`,
+`test_sink_is_first_order`; all existing tests unchanged.
+`data/test_fit_kinetics.py`: `test_extended_parameter_recovery` plus extended
+configuration checks; `run_gates.py --all` green (31 gates, 0 failed).
+
+The fits are saved as `data/fits/<block>_M0..M4b.json`. Nothing is adopted.
+`FITTING.md` and `MECHANISM.md` are NOT edited: their F1/F5/F6 text and the
+reduction's status are for the user to update, and the F5 sigma units above
+are the specific correction to propose.
+
+---
+
 ## 2026-09-13 (second entry) — what activates the catalyst: the clock confirms the +1 on the lever, and the free order straddles zero
 
 `saturation.activation_by_buffer`, `saturation.activation_buffer_table` and
