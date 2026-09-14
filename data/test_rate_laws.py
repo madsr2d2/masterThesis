@@ -8,6 +8,7 @@ carries. If one differs, stop -- the plan's A1.
 
     python data/test_rate_laws.py
 """
+import json
 import os
 import sys
 
@@ -268,6 +269,123 @@ def test_within_run_check_catches_a_between_run_confound():
     check("the two disagree", bool(row.disagree))
 
 
+def test_every_run_is_held_out_once_and_never_trained_on():
+    print("\nthe leave-one-run-out folds")
+    experiments, s0 = [], []
+    for run in range(1, 7):
+        for step in (0.0, 1.0, 2.0):
+            experiments.append(run)
+            s0.append(run + step)
+    table = _synthetic_table(len(s0), experiment=experiments, s0=s0)
+    table["y"] = np.log(table.s0.to_numpy(dtype=float))
+    result = rate_laws.cross_validate(table, {"S": "power"})
+    scored = set(result["scores"].index)
+    check("every run is held out exactly once",
+          scored == set(range(1, 7)) and result["skipped"] == 0, str(scored))
+    trained_on_self = [run for run in scored
+                       if run in result["trained"][run]]
+    check("no fold trained on the run it scores", not trained_on_self,
+          str(trained_on_self))
+    missing = [run for run in scored
+               if set(result["trained"][run]) != set(range(1, 7)) - {run}]
+    check("every fold trained on every other run", not missing, str(missing))
+
+
+def test_the_tie_rule():
+    print("\nthe tie rule")
+    folds = range(10)
+    alternate = np.array([(-1.0) ** i for i in folds])
+    scores = pd.DataFrame(
+        [np.ones(10),
+         1.0 + 0.2 + 0.5 * alternate,
+         1.0 + 1.0 + 0.5 * alternate],
+        index=["best", "tied", "not"], columns=folds)
+    tied = rate_laws.tie_set(scores)
+    check("the best model and the within-error model are tied",
+          set(tied) == {"best", "tied"}, str(tied))
+    check("the model outside the error is not tied", "not" not in tied,
+          str(tied))
+
+
+def test_term_verdicts():
+    print("\nthe verdict strings")
+    dropped = pd.DataFrame(
+        [{"family": "T", "option": "arrhenius",
+          "reason": "fewer than 2 distinct values"}])
+    none = {"S": None, "H": None, "HOO": None, "BUF": None, "E": None,
+            "T": None}
+    cases = (
+        ("S: power in every tied model",
+         [dict(none, S="power")], dropped),
+        ("S: a dependence in every tied model, option undecided (mm, power)",
+         [dict(none, S="power"), dict(none, S="mm")], dropped),
+        ("S: absent from every tied model", [dict(none)], dropped),
+        ("S: undecided", [dict(none, S="power"), dict(none)], dropped),
+        ("T: not identifiable on this table (fewer than 2 distinct values)",
+         [dict(none)], dropped),
+    )
+    for expected, tie, table in cases:
+        family = expected.split(":")[0]
+        verdicts = rate_laws.term_verdicts(tie, table, "v_act")
+        check(expected, verdicts[family] == expected, str(verdicts[family]))
+
+
+def _planted_identifiability(workers=1):
+    """
+    What the real 4OMe-BnOH design can identify when the truth is known.
+
+    The realistic planted model of the plan: `S:mm` with Km = 2 mM,
+    `HOO:power` 0.5, `BUF:bind` with K_B = 0.02 /mM and the Task 3
+    intercepts, with noise at each row's own sqrt(se^2 + SE_FLOOR^2), seeds
+    0, 1 and 2. The search is run on each; the verdict tables are saved to
+    `data/fits/rate_laws/planted_identifiability.json` and read back on later
+    runs of the gate (the plan's skip-existing rule for long jobs).
+    """
+    path = os.path.join(rate_laws.RATE_LAW_DIR, "planted_identifiability.json")
+    if os.path.exists(path):
+        with open(path) as handle:
+            return json.load(handle)
+    os.makedirs(rate_laws.RATE_LAW_DIR, exist_ok=True)
+    table = _tables()["4OMe-BnOH"]["elements"]["v_act"].copy()
+    s0 = table.s0.to_numpy(dtype=float)
+    hoo = table.hoo.to_numpy(dtype=float)
+    buf = table.buf.to_numpy(dtype=float)
+    intercept = {"Boric": 0.0, "Phosphate": -0.5, "Pyrophosphate": 0.5}
+    signal = (np.array([intercept[b] for b in table.buffer])
+              + np.log(s0 / (2.0 + s0)) + 0.5 * np.log(hoo)
+              + np.log(0.02 * buf / (1.0 + 0.02 * buf)))
+    spread = np.sqrt(table.se.to_numpy(dtype=float) ** 2
+                     + rate_laws.SE_FLOOR ** 2)
+    report = {"substrate": "4OMe-BnOH", "element": "v_act", "seeds": {}}
+    for seed in (0, 1, 2):
+        planted = table.copy()
+        planted["y"] = signal + np.random.default_rng(seed).normal(
+            0.0, spread)
+        found = rate_laws._search_table(planted, "v_act", workers=workers)
+        report["seeds"][str(seed)] = {
+            "verdicts": found["verdicts"],
+            "tie": found["tie"],
+            "tie_size": len(found["tie"]),
+            "models": found["models"],
+        }
+    with open(path, "w") as handle:
+        json.dump(report, handle, default=float, indent=1, sort_keys=True)
+    return report
+
+
+def test_the_search_finds_a_realistic_planted_model():
+    """Recorded, not asserted: the planted identifiability of the design."""
+    print("\nthe realistic planted model (recorded, not asserted)")
+    report = _planted_identifiability()
+    check("the planted record covers the three seeds",
+          set(report["seeds"]) == {"0", "1", "2"}, str(set(report["seeds"])))
+    for seed, found in sorted(report["seeds"].items()):
+        summary = ", ".join(sorted(found["verdicts"].values()))
+        print(f"  seed {seed}: tie {found['tie_size']} of {found['models']} "
+              f"models")
+        print(f"    {summary}")
+
+
 if __name__ == "__main__":
     test_the_archive_anchors()
     test_the_substrate_anchors()
@@ -278,6 +396,10 @@ if __name__ == "__main__":
     test_health_flags()
     test_identifiability_rules()
     test_within_run_check_catches_a_between_run_confound()
+    test_every_run_is_held_out_once_and_never_trained_on()
+    test_the_tie_rule()
+    test_term_verdicts()
+    test_the_search_finds_a_realistic_planted_model()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)

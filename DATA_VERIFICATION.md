@@ -8,6 +8,262 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-14 (seventh entry) — the rate-law search: HOO:power in every tied 4OMe v_act model and every BnOH v_act model, undecided under the cuts
+
+`PLAN_CURVES_TO_MECHANISM.md` Task 4. Every model allowed by
+`TERM_OPTIONS` and `term_identifiable`, scored by leave-one-run-out.
+
+What was asked: the rate-law search per substrate and element, with the
+sensitivity cuts.
+What was built: `data/rate_laws.py` (`enumerate_models`, `cross_validate`,
+`tie_set`, `term_verdicts`, `_apply_cut`, `_search_table`, `search`); the
+tests `test_every_run_is_held_out_once_and_never_trained_on`,
+`test_the_tie_rule`, `test_term_verdicts` and
+`test_the_search_finds_a_realistic_planted_model` in `data/test_rate_laws.py`;
+the saves in `data/fits/rate_laws/`.
+Bugs found: `within_run_check` raised on a tied model whose run design carried
+no shared coefficient (`pd.DataFrame([]).set_index`); it now builds the empty
+frame with its columns.
+
+**Pilot (A5).** `cross_validate` on the 4OMe-BnOH `v_act` table's heaviest
+model (S:mm, H:bind, BUF:bind: three nonlinear constants) is 13.63 s over 32
+folds, 0.43 s/fold. The upper-bound projection over all seven fitted tables,
+`sum(models x runs) x 0.43 s / 8 workers` = 19836 x 0.43 / 8, is about 18
+minutes per pass; the four passes per substrate (all, S-gas, S-weak, S-pyro)
+are under 12 hours, so A5 holds. The 25 real searches below, run at 8 workers,
+took 519 s on the saves already present.
+
+**The 4OMe-BnOH planted identifiability**, the same table's realistic planted
+model (S:mm Km 2 mM, HOO:power 0.5, BUF:bind K_B 0.02, Task 3 intercepts) at
+seeds 0, 1 and 2, tie 90, 90 and 85 of 216 models: `BUF: undecided`;
+`E: undecided`; `H: undecided`; `HOO: power in every tied model`;
+`S: undecided`; `T: undecided` (all three seeds). The real `T: arrhenius in
+every tied model` on that table is therefore not what the design alone
+supplies.
+
+### 4OMe-BnOH
+
+`v_act`, all: 73 curves / 32 runs; 216 models, 0 folds skipped, tie 34.
+
+| rank | CV score | model |
+|---|---|---|
+| 1 | 2706.37 | S:power, HOO:power, BUF:bind, T:arrhenius |
+| 2 | 2798.06 | S:power, HOO:power, BUF:power, T:arrhenius |
+| 3 | 2872.58 | S:power, HOO:power, BUF:bind, E:power, T:arrhenius |
+| 4 | 3000.95 | S:power, HOO:power, BUF:power, E:power, T:arrhenius |
+| 5 | 3018.72 | S:power, HOO:power, T:arrhenius |
+| 6 | 3160.45 | S:mm, HOO:power, BUF:power, T:arrhenius |
+| 7 | 3207.14 | S:power, HOO:power, E:power, T:arrhenius |
+| 8 | 3273.78 | S:mm, HOO:power, BUF:bind, T:arrhenius |
+| 9 | 3361.27 | S:mm, HOO:power, BUF:power, E:power, T:arrhenius |
+| 10 | 3443.37 | S:mm, HOO:power, BUF:bind, E:power, T:arrhenius |
+
+Verdicts: `BUF: undecided`; `E: undecided`; `H: undecided`;
+`HOO: power in every tied model`; `S: undecided`;
+`T: arrhenius in every tied model`.
+Health flags over the tie: none.
+Within-run disagreements: `a_H` in 2 of 34 tied models; `a_HOO` in 20 of 34.
+
+`k_act_lag`, all: 70 curves / 29 runs; 144 models, 0 folds skipped, tie 86.
+
+| rank | CV score | model |
+|---|---|---|
+| 1 | 2274.67 | S:power, E:power, T:arrhenius |
+| 2 | 2338.72 | H:relax, E:power, T:arrhenius |
+| 3 | 2390.04 | S:power, H:relax, E:power, T:arrhenius |
+| 4 | 2399.24 | BUF:relax, E:power, T:arrhenius |
+| 5 | 2412.02 | S:power, T:arrhenius |
+| 6 | 2424.17 | S:power, BUF:relax, E:power, T:arrhenius |
+| 7 | 2425.36 | E:power, T:arrhenius |
+| 8 | 2499.99 | H:relax, T:arrhenius |
+| 9 | 2514.72 | H:relax, BUF:relax, E:power, T:arrhenius |
+| 10 | 2526.05 | S:power, H:relax, T:arrhenius |
+
+Verdicts: `BUF: undecided`; `E: undecided`; `H: undecided`;
+`HOO: undecided`; `S: undecided`; `T: undecided`.
+Health flags over the tie: 2 of 86 tied models carry `at bound: K_H`.
+Within-run disagreements: `a_S` in 22 of 86 tied models.
+
+`k_act_burst`: 11 curves after the exclusions, below 15, not fitted.
+`k_sink`, all: 44 curves / 21 runs; 72 models, 1 fold skipped, tie 66.
+
+| rank | CV score | model |
+|---|---|---|
+| 1 | 1420.45 | HOO:power, T:arrhenius |
+| 2 | 1443.61 | S:power, HOO:power, T:arrhenius |
+| 3 | 1504.79 | S:power |
+| 4 | 1518.33 | S:power, HOO:power |
+| 5 | 1541.03 | S:power, T:arrhenius |
+| 6 | 1573.47 | HOO:power, BUF:power, T:arrhenius |
+| 7 | 1576.26 | S:mm, HOO:power, T:arrhenius |
+| 8 | 1591.40 | S:power, BUF:power, T:arrhenius |
+| 9 | 1595.57 | S:power, HOO:power, BUF:power, T:arrhenius |
+| 10 | 1663.99 | T:arrhenius |
+
+Verdicts: `BUF: undecided`; `E: undecided`;
+`H: not identifiable on this table (fewer than 2 distinct values)`;
+`HOO: undecided`; `S: undecided`; `T: undecided`.
+Health flags over the tie: 15 of 66 tied models carry `at bound: K_B`;
+4 of 66 carry `at bound: Km`.
+Within-run disagreements: `a_S` in 12 of 66 tied models.
+
+### BnOH
+
+`v_act`, all: 65 curves / 29 runs; 108 models, 0 folds skipped, tie 36.
+
+| rank | CV score | model |
+|---|---|---|
+| 1 | 3734.74 | S:mm, H:power, HOO:power, BUF:power |
+| 2 | 3826.26 | S:mm, H:power, HOO:power, BUF:power, E:power |
+| 3 | 3835.14 | S:mm, H:bind, HOO:power, BUF:power |
+| 4 | 3950.39 | S:mm, H:bind, HOO:power, BUF:power, E:power |
+| 5 | 3960.06 | S:mm, H:power, HOO:power |
+| 6 | 3960.07 | S:mm, H:power, HOO:power, BUF:bind |
+| 7 | 4108.54 | S:mm, H:power, HOO:power, E:power |
+| 8 | 4108.55 | S:mm, H:power, HOO:power, BUF:bind, E:power |
+| 9 | 4214.11 | S:mm, HOO:power, BUF:power |
+| 10 | 4228.26 | S:mm, H:bind, HOO:power, BUF:bind |
+
+Verdicts: `BUF: undecided`; `E: undecided`; `H: undecided`;
+`HOO: power in every tied model`; `S: undecided`;
+`T: not identifiable on this table (fewer than 2 distinct values)`.
+Health flags over the tie: 15 of 36 tied models carry `at bound: K_B`.
+Within-run disagreements: none.
+
+`k_act_lag`, all: 28 curves / 18 runs; 24 models, 0 folds skipped, tie 19.
+
+| rank | CV score | model |
+|---|---|---|
+| 1 | 447.07 | H:relax, E:power |
+| 2 | 448.34 | S:power, H:relax, E:power |
+| 3 | 465.69 | H:relax, HOO:power, E:power |
+| 4 | 476.41 | S:power, H:relax, HOO:power, E:power |
+| 5 | 492.56 | S:power, H:power, E:power |
+| 6 | 497.30 | H:power, E:power |
+| 7 | 505.35 | S:power, E:power |
+| 8 | 520.99 | H:power, HOO:power, E:power |
+| 9 | 535.83 | S:power, H:power, HOO:power, E:power |
+| 10 | 562.03 | S:power, HOO:power, E:power |
+
+Verdicts: `BUF: not identifiable on this table (SD after the offsets are
+removed below the floor)`; `E: undecided`; `H: undecided`;
+`HOO: undecided`; `S: undecided`;
+`T: not identifiable on this table (fewer than 2 distinct values)`.
+Health flags over the tie: none.
+Within-run disagreements: `a_H` in 2 of 19 tied models; `a_HOO` in 5 of 19.
+
+`k_act_burst`, all: 46 curves / 24 runs; 72 models, 0 folds skipped, tie 70.
+
+| rank | CV score | model |
+|---|---|---|
+| 1 | 970.18 | S:power, H:power, HOO:power |
+| 2 | 970.47 | S:power, H:power, HOO:power, BUF:relax |
+| 3 | 970.50 | S:power, H:power, BUF:power |
+| 4 | 971.69 | S:power, H:power, HOO:power, BUF:power |
+| 5 | 982.07 | S:power, H:power, BUF:power, E:power |
+| 6 | 990.14 | S:power, H:power |
+| 7 | 990.47 | S:power, H:power, BUF:relax |
+| 8 | 998.95 | S:power, H:power, HOO:power, BUF:power, E:power |
+| 9 | 1000.55 | S:power, H:power, HOO:power, E:power |
+| 10 | 1000.87 | S:power, H:power, HOO:power, BUF:relax, E:power |
+
+Verdicts: `BUF: undecided`; `E: undecided`; `H: undecided`;
+`HOO: undecided`; `S: undecided`;
+`T: not identifiable on this table (fewer than 2 distinct values)`.
+Health flags over the tie: 23 of 70 tied models carry `at bound: K_B`;
+24 of 70 carry `at bound: K_H`.
+Within-run disagreements: none.
+
+`k_sink`, all: 27 curves / 18 runs; 108 models, 0 folds skipped, tie 104.
+
+| rank | CV score | model |
+|---|---|---|
+| 1 | 3992.47 | BUF:power |
+| 2 | 4056.90 | S:mm, BUF:power |
+| 3 | 4138.11 | HOO:power, BUF:power |
+| 4 | 4166.20 | S:mm, HOO:power, BUF:power |
+| 5 | 4284.84 | H:power, BUF:power |
+| 6 | 4289.07 | H:bind, BUF:power |
+| 7 | 4364.49 | S:mm, H:power, BUF:power |
+| 8 | 4374.34 | S:mm, H:bind, BUF:power |
+| 9 | 4559.44 | H:bind, HOO:power, BUF:power |
+| 10 | 4612.17 | H:power, HOO:power, BUF:power |
+
+Verdicts: `BUF: undecided`; `E: undecided`; `H: undecided`;
+`HOO: undecided`; `S: undecided`;
+`T: not identifiable on this table (fewer than 2 distinct values)`.
+Health flags over the tie: 34 of 104 tied models carry `at bound: K_B`;
+18 of 104 carry `at bound: K_H`; 34 of 104 carry `at bound: Km`.
+Within-run disagreements: `a_H` in 18 of 104 tied models; `a_HOO` in 26 of
+104.
+
+### Cuts: only the verdicts that change
+
+`4OMe-BnOH` `v_act` `S-gas`: 73 curves / 32 runs, 216 models, 0 folds
+skipped, tie 34. No verdict changes.
+`4OMe-BnOH` `v_act` `S-pyro`: 68 curves / 28 runs, 72 models, 0 folds
+skipped, tie 14.
+- `H: undecided` -> `H: not identifiable on this table (fewer than 2
+  distinct values)`
+- `HOO: power in every tied model` -> `HOO: undecided`
+`4OMe-BnOH` `k_act_lag` `S-gas`: 70 curves / 29 runs, 144 models, 0 folds
+skipped, tie 86. No verdict changes.
+`4OMe-BnOH` `k_act_lag` `S-pyro`: 66 curves / 26 runs, 48 models, 0 folds
+skipped, tie 25.
+- `H: undecided` -> `H: not identifiable on this table (SD after the offsets
+  are removed below the floor)`
+`4OMe-BnOH` `k_sink` `S-gas`: 44 curves / 21 runs, 72 models, 1 fold
+skipped, tie 66. No verdict changes.
+`4OMe-BnOH` `k_sink` `S-pyro`: 43 curves / 20 runs, 72 models, 0 folds
+skipped, tie 66. No verdict changes.
+`BnOH` `v_act` `S-gas`: 60 curves / 29 runs, 108 models, 0 folds skipped,
+tie 29.
+- `HOO: power in every tied model` -> `HOO: undecided`
+`BnOH` `v_act` `S-weak`: 47 curves / 23 runs, 108 models, 0 folds skipped,
+tie 78.
+- `HOO: power in every tied model` -> `HOO: undecided`
+`BnOH` `v_act` `S-pyro`: 16 curves / 10 runs, 108 models, 0 folds skipped,
+tie 105.
+- `HOO: power in every tied model` -> `HOO: undecided`
+`BnOH` `k_act_lag` `S-gas`: 24 curves / 17 runs, 24 models, 0 folds skipped,
+tie 23. No verdict changes.
+`BnOH` `k_act_lag` `S-weak`: 20 curves / 13 runs, 24 models, 0 folds
+skipped, tie 24. No verdict changes.
+`BnOH` `k_act_lag` `S-pyro`: 6 curves, below 15, not fitted.
+`BnOH` `k_act_burst` `S-gas`: 44 curves / 23 runs, 72 models, 0 folds
+skipped, tie 72. No verdict changes.
+`BnOH` `k_act_burst` `S-weak`: 34 curves / 19 runs, 72 models, 0 folds
+skipped, tie 68. No verdict changes.
+`BnOH` `k_act_burst` `S-pyro`: 15 curves / 9 runs, 72 models, 0 folds
+skipped, tie 72. No verdict changes.
+`BnOH` `k_sink` `S-gas`: 25 curves / 18 runs, 108 models, 0 folds skipped,
+tie 104. No verdict changes.
+`BnOH` `k_sink` `S-weak`: 19 curves / 13 runs, 108 models, 0 folds skipped,
+tie 100. No verdict changes.
+`BnOH` `k_sink` `S-pyro`: 7 curves, below 15, not fitted.
+
+Verdicts (from `term_verdicts`): 4OMe-BnOH `v_act`: `HOO: power in every
+tied model`, `T: arrhenius in every tied model`, BUF, E, H and S
+`undecided`; 4OMe-BnOH `k_act_lag`: all six `undecided`; 4OMe-BnOH
+`k_act_burst`: `too few curves`; 4OMe-BnOH `k_sink`: H `not identifiable on
+this table (fewer than 2 distinct values)`, the rest `undecided`; BnOH
+`v_act`: `HOO: power in every tied model`, T `not identifiable on this table
+(fewer than 2 distinct values)`, the rest `undecided`; BnOH `k_act_lag`: BUF
+and T `not identifiable`, the rest `undecided`; BnOH `k_act_burst` and
+`k_sink`: T `not identifiable`, the rest `undecided`.
+Health flags: `at bound: K_B`, `at bound: K_H` and `at bound: Km` on tied
+models of the tables listed above; no tied model carries "rank deficient",
+"collinear" or "carried by fewer than 3 runs".
+Not identified: every coefficient of every flagged model (rule 3); the
+per-model flags are in `data/fits/rate_laws/`.
+Could overturn this: pH, [enz] and temperature are between-run axes,
+confounded with day and batch; buffer identity is confounded with pH; the
+planted identifiability shows what this design can separate.
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-14 (sixth entry) — the rate-law fitter, its health checks and planted tests: machinery only
 
 `PLAN_CURVES_TO_MECHANISM.md` Task 3.

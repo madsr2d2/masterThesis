@@ -52,8 +52,10 @@ the search (Task 4), the links (Task 5) and the global fitter (Tasks 6-7) are
 added in their own commits.
 """
 import itertools
+import json
 import os
 import sys
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -63,6 +65,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import activation_sink
+import fit_dataset
 import scope
 
 # The four element tables, in the order the plan lists them.
@@ -128,6 +131,9 @@ _GAS_CONSTANT = 8.314462618       # J/(mol K), for Ea in kJ/mol
 # DESIGN can identify it: if no log10 K on this grid varies the regressor, no
 # K can. `_term_terms` takes log10 K, as `law_design` does.
 _LOG10_K_GRID = np.linspace(-4.0, 4.0, 33)
+
+# Where `search` saves. Never overwrites an existing save.
+RATE_LAW_DIR = os.path.join("data", "fits", "rate_laws")
 
 
 def _interval_low(intervals):
@@ -729,5 +735,228 @@ def within_run_check(table, model):
         b_demeaned = _run_demeaned(first["BUF"], runs)
         if np.std(s_demeaned) > 0 and np.std(b_demeaned) > 0:
             s_buf = float(np.corrcoef(s_demeaned, b_demeaned)[0, 1])
-    return {"table": pd.DataFrame(rows).set_index("coefficient"),
+    return {"table": pd.DataFrame(
+                rows, columns=["coefficient", "between_runs", "within_runs",
+                               "stderr_between", "stderr_within", "disagree"]
+            ).set_index("coefficient"),
             "dropped": tuple(dropped), "s_buf_within_run_r": s_buf}
+
+
+# --- the rate-law search ----------------------------------------------------
+
+
+def _model_id(model):
+    """A stable string for a model: the non-None families in `FAMILIES` order."""
+    return "|".join(f"{family}:{model[family]}" for family in FAMILIES
+                    if model.get(family))
+
+
+def enumerate_models(table, element):
+    """
+    Every model allowed by `TERM_OPTIONS` and `term_identifiable`.
+
+    At most one option per family, `None` included as a choice. Returns the
+    models and a `dropped` table of (family, option, reason) for every option
+    this table cannot identify.
+    """
+    choices, dropped = {}, []
+    for family in FAMILIES:
+        allowed = [None]
+        for option in TERM_OPTIONS[element][family]:
+            ok, reason = term_identifiable(table, family, option)
+            if ok:
+                allowed.append(option)
+            else:
+                dropped.append({"family": family, "option": option,
+                                "reason": reason})
+        choices[family] = allowed
+    models = [dict(zip(FAMILIES, combination))
+              for combination in itertools.product(
+                  *(choices[family] for family in FAMILIES))]
+    return models, pd.DataFrame(dropped)
+
+
+def _predict(table, model, fit):
+    """(y, prediction) for `table` under a fit made elsewhere."""
+    matrix, names, offset, _ = law_design(table, model, fit["nonlinear"])
+    beta = np.array([fit["coefficients"][name] for name in names])
+    return table.y.to_numpy(dtype=float), matrix @ beta + offset
+
+
+def cross_validate(table, model):
+    """
+    Leave-one-run-out: fit on the other runs, predict the held-out one.
+
+    Fold score is the held-out curves' weighted squared error
+    `sum weight * (y - y_hat)^2`. A fold whose held-out run carries a buffer
+    no other run in the table has is skipped and counted -- its intercept
+    would be unseen. Returns `scores` (a Series over runs), `sum`, `skipped`
+    and `trained` (the experiments each fold was trained on, for the test that
+    no curve is ever trained on the run it is scored against).
+    """
+    scores, trained = {}, {}
+    skipped, total = 0, 0.0
+    for run in sorted(table.experiment.unique()):
+        others = table[table.experiment != run]
+        held = table[table.experiment == run]
+        if not set(held.buffer) <= set(others.buffer):
+            skipped += 1
+            continue
+        fit = fit_model(others, model)
+        y, prediction = _predict(held, model, fit)
+        score = float(np.sum(held.weight.to_numpy(dtype=float)
+                             * (y - prediction) ** 2))
+        scores[int(run)] = score
+        trained[int(run)] = tuple(int(e) for e in others.experiment.unique())
+        total += score
+    return {"scores": pd.Series(scores, dtype=float).sort_index(),
+            "sum": float(total), "skipped": skipped, "trained": trained}
+
+
+def _cross_validate_task(payload):
+    """`cross_validate` for one (table, model), for the process pool."""
+    identifier, table, model = payload
+    return identifier, cross_validate(table, model)
+
+
+def tie_set(scores):
+    """
+    The models whose per-fold disadvantage against the best is within
+    `2 * sd(d) / sqrt(folds)` of zero, over the folds every model scored.
+
+    `scores` is a DataFrame, one row per model, one column per fold.
+    """
+    scores = scores.dropna(axis=1, how="any")
+    totals = scores.sum(axis=1)
+    best = totals.idxmin()
+    differences = scores.subtract(scores.loc[best], axis=1)
+    folds = scores.shape[1]
+    mean = differences.mean(axis=1)
+    deviation = differences.std(axis=1, ddof=1) if folds > 1 else mean * 0.0
+    threshold = 2.0 * deviation / np.sqrt(max(folds, 1))
+    return list(scores.index[mean <= threshold])
+
+
+def term_verdicts(tie, dropped, element):
+    """
+    The plan's verdict strings, per family, for a tie set of models.
+
+    `tie` is the tied models (dicts), `dropped` the (family, option, reason)
+    table from `enumerate_models`, `element` names which `TERM_OPTIONS` the
+    options come from. A family whose every configured option was dropped is
+    "not identifiable on this table (<reason>)".
+    """
+    verdicts = {}
+    for family in FAMILIES:
+        configured = set(TERM_OPTIONS[element][family])
+        dropped_options = set(dropped[dropped.family == family].option) \
+            if len(dropped) else set()
+        if configured <= dropped_options:
+            reasons = dropped[dropped.family == family].reason.tolist()
+            verdicts[family] = (f"{family}: not identifiable on this table "
+                                f"({reasons[0]})")
+            continue
+        options = [model.get(family) for model in tie]
+        used = sorted({option for option in options if option is not None})
+        if not used:
+            verdicts[family] = f"{family}: absent from every tied model"
+        elif len(used) == 1 and all(option == used[0] for option in options):
+            verdicts[family] = f"{family}: {used[0]} in every tied model"
+        elif all(option is not None for option in options):
+            verdicts[family] = (f"{family}: a dependence in every tied model, "
+                                f"option undecided ({', '.join(used)})")
+        else:
+            verdicts[family] = f"{family}: undecided"
+    return verdicts
+
+
+def _apply_cut(table, cut):
+    """The plan's sensitivity cuts, exactly."""
+    if cut in (None, "all"):
+        return table
+    if cut == "S-gas":
+        return table[table.bubble_load <= 1.0]
+    if cut == "S-pyro":
+        return table[table.buffer != "Pyrophosphate"]
+    if cut == "S-weak":
+        weak = set(fit_dataset.TWO_AXIS_BLOCK) - set(scope.strong_runs())
+        return table[~table.experiment.isin(weak)]
+    raise ValueError(f"unknown cut {cut!r}")
+
+
+def _search_table(table, element, workers=1):
+    """
+    The search's core: enumerate, cross-validate, tie, verdict, health.
+
+    No cuts and no saving; `search` wraps this with both. Split out so the
+    planted-identifiability test can run the same machinery on planted tables.
+    """
+    models, dropped = enumerate_models(table, element)
+    identifiers = [_model_id(model) for model in models]
+    if workers > 1:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            results = dict(pool.map(
+                _cross_validate_task,
+                ((identifier, table, model)
+                 for identifier, model in zip(identifiers, models))))
+    else:
+        results = {identifier: cross_validate(table, model)
+                   for identifier, model in zip(identifiers, models)}
+    scores = pd.DataFrame({identifier: result["scores"]
+                           for identifier, result in results.items()}).T
+    tied_identifiers = tie_set(scores)
+    by_identifier = dict(zip(identifiers, models))
+    tied_models = [by_identifier[identifier] for identifier in tied_identifiers]
+    health, disagreements = {}, {}
+    for identifier in tied_identifiers:
+        fit = fit_model(table, by_identifier[identifier])
+        health[identifier] = fit["health"]["flags"]
+        check = within_run_check(table, by_identifier[identifier])
+        disagreements[identifier] = {
+            name: bool(value) for name, value
+            in check["table"]["disagree"].to_dict().items()}
+    skipped = max((result["skipped"] for result in results.values()),
+                  default=0)
+    report = {
+        "curves": int(len(table)),
+        "runs": int(table.experiment.nunique()),
+        "folds_skipped": int(skipped),
+        "models": int(len(models)),
+        "scores": {identifier: float(result["sum"])
+                   for identifier, result in results.items()},
+        "tie": list(tied_identifiers),
+        "tie_scores": {
+            identifier: {str(run): float(score) for run, score
+                         in results[identifier]["scores"].items()}
+            for identifier in tied_identifiers},
+        "dropped": dropped.to_dict("records"),
+        "verdicts": term_verdicts(tied_models, dropped, element),
+        "health": health,
+        "within_run": disagreements,
+    }
+    return report
+
+
+def search(substrate, element, cut=None, workers=8):
+    """
+    Search every allowed model on one element table and save the report.
+
+    Saves `data/fits/rate_laws/<substrate>_<element>_<cut or all>.json`; a
+    save that already exists is read back and not recomputed. An element with
+    fewer than 15 curves after the cut is refused (the plan's floor).
+    """
+    os.makedirs(RATE_LAW_DIR, exist_ok=True)
+    path = os.path.join(RATE_LAW_DIR,
+                        f"{substrate}_{element}_{cut or 'all'}.json")
+    if os.path.exists(path):
+        with open(path) as handle:
+            return json.load(handle)
+    table = _apply_cut(curve_parameters(substrate)["elements"][element], cut)
+    if len(table) < 15:
+        raise ValueError(f"{substrate} {element} {cut}: too few curves "
+                         f"({len(table)})")
+    report = _search_table(table, element, workers=workers)
+    report.update({"substrate": substrate, "element": element, "cut": cut})
+    with open(path, "w") as handle:
+        json.dump(report, handle, default=float, indent=1, sort_keys=True)
+    return report
