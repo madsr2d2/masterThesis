@@ -157,7 +157,7 @@ def read_enzyme_volumes(sheet):
     return volumes, totals
 
 
-def reference_design(sheet):
+def reference_design(sheet, stop_at_sum=True):
     """
     Classifies an experiment by what its reference channel leaves out.
 
@@ -167,8 +167,19 @@ def reference_design(sheet):
     made without looking at any declared concentration, which is what makes it
     usable as a check ON the declared concentrations.
 
+    `stop_at_sum` stops collecting cuvette rows at the first row whose
+    first-column value, lower-cased and stripped, starts with "sum". The
+    two-axis sheets (exps 135-151) carry `Sum:` and `Sum*9:` rows that state a
+    real total volume, so without this they were counted as two more cuvettes
+    -- an even count, a clean split, and the whole block classified "other".
+    Their `Ref.` rows carry `Enz` 0.000 like every catalysed sheet, so the
+    block's reference omits only the enzyme. Pass False to read the rows the
+    old way.
+
     Args:
         sheet (pd.DataFrame): A raw, header-less sheet.
+        stop_at_sum (bool): Stop at the first row whose first column starts
+            with "sum".
 
     Returns:
         str or None: "enzyme", "h2o2", "substrate", "other", or None if the
@@ -202,6 +213,8 @@ def reference_design(sheet):
     # total volume is blank.
     rows = []
     for row in range(header_row + 1, min(header_row + 26, len(sheet))):
+        if stop_at_sum and str(sheet.iat[row, 0]).strip().lower().startswith("sum"):
+            break
         total = pd.to_numeric(pd.Series([sheet.iat[row, total_column]]),
                               errors="coerce").iloc[0]
         if pd.isna(total) or total <= 0:

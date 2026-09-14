@@ -8,6 +8,42 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-14 (fourth entry) — the two-axis sheets read as enzyme references: machinery only
+
+`PLAN_CURVES_TO_MECHANISM.md` Task 1. The reference-channel design classifier.
+
+What was asked: make `verify_enzyme.reference_design` stop at a sheet's row
+sums, so the two-axis block's reference design is read rather than counted as
+unclassifiable.
+What was built: `reference_design(sheet, stop_at_sum=True)`;
+`test_fit_ladder.test_the_two_axis_sheets_read_as_enzyme_references` and
+`test_fit_ladder.test_the_sum_rows_change_only_the_two_axis_designs`.
+Bugs found: `reference_design` took the `Sum:` and `Sum*9:` rows beneath the
+two-axis cuvette tables for cuvettes because they carry a real total volume
+(17 and 153 ml), so the table split evenly and exps 135-151 returned "other".
+Their `Ref.` rows carry `Enz` 0.000, the same as every catalysed sheet. The
+design counts, `.venv/bin/python data/verify_enzyme.py` before and after:
+
+| design | before | after |
+|---|---|---|
+| enzyme | 57 | 74 |
+| h2o2 | 16 | 16 |
+| other | 18 | 1 |
+
+The one remaining "other" is exp 6, already listed in
+`REFERENCE_OMITS_UNRULED`.
+
+Verdicts (from `reference_design`): exps 135, 140 and 151 classify as
+"enzyme"; no experiment outside `fit_dataset.TWO_AXIS_BLOCK` changes design
+between `stop_at_sum=False` and the default.
+Health flags: none.
+Not identified: none.
+Could overturn this: a sheet layout the parser still misreads.
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-14 (third entry) — the catalysed curves are increments, and the M0 refit says the misfit is not that
 
 Step 3 (`PLAN_STEP3_REVISED.md`, R0.0). The fitter has compared every curve with

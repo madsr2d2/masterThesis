@@ -19,15 +19,21 @@ import os
 import sys
 import tempfile
 
+import pandas as pd
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from fit_dataset import REFERENCE_OMITS_UNRULED, build_curves
+from fit_dataset import REFERENCE_OMITS_UNRULED, TWO_AXIS_BLOCK, build_curves
 from fit_kinetics import (MODEL_PARENTS, MODEL_STAGES, STAGE_ONE, STAGE_TWO,
                           _assert_observation_design, ladder_checks,
                           ladder_f_test)
+from verify_enzyme import reference_design
 
 FAILURES = []
+
+MANIFEST_PATH = "data/manifest.csv"
+SHEET_DIRECTORY = "data/data"
 
 
 def check(name, condition, detail=""):
@@ -205,6 +211,47 @@ def test_the_design_guard_rejects_a_mislabelled_curve():
           _assert_observation_design([catalysed, background]) is None)
 
 
+def _sheet(experiment, manifest):
+    return pd.read_excel(os.path.join(SHEET_DIRECTORY,
+                                      manifest.loc[experiment, "xls_file"]),
+                         sheet_name="Sheet1", header=None)
+
+
+def test_the_two_axis_sheets_read_as_enzyme_references():
+    """
+    The Sum rows under the two-axis cuvette tables are not cuvettes.
+
+    Exps 135-151 state each sum with a real total volume, so the old reader
+    took `Sum:` and `Sum*9:` for two more cuvettes, split the table evenly and
+    returned "other". Their `Ref.` rows carry `Enz` 0.000 like every catalysed
+    sheet, so stopping at the sum row leaves seven measured against seven
+    references and the reference omits only the enzyme.
+    """
+    print("\nthe two-axis sheets are enzyme references")
+    manifest = pd.read_csv(MANIFEST_PATH).set_index("experiment")
+    for number in (135, 140, 151):
+        design = reference_design(_sheet(number, manifest))
+        check(f"exp {number} classifies as enzyme", design == "enzyme",
+              str(design))
+
+
+def test_the_sum_rows_change_only_the_two_axis_designs():
+    """A2: no experiment outside the two-axis block changes design."""
+    print("\nthe Sum rows change only the two-axis designs")
+    manifest = pd.read_csv(MANIFEST_PATH).set_index("experiment")
+    changed = []
+    for number in sorted(manifest.index):
+        if number in TWO_AXIS_BLOCK:
+            continue
+        sheet = _sheet(number, manifest)
+        before = reference_design(sheet, stop_at_sum=False)
+        after = reference_design(sheet)
+        if before != after:
+            changed.append((int(number), before, after))
+    check("no experiment outside the two-axis block changes design",
+          not changed, str(changed))
+
+
 def test_the_saved_ladders():
     """The real saves, read the way the 2026-09-14 review read them."""
     print("\nthe saved M0-M4b ladders")
@@ -259,6 +306,8 @@ if __name__ == "__main__":
     test_the_bar_is_applied_only_to_comparable_rows()
     test_every_fitted_curve_has_the_design_its_observable_assumes()
     test_the_design_guard_rejects_a_mislabelled_curve()
+    test_the_two_axis_sheets_read_as_enzyme_references()
+    test_the_sum_rows_change_only_the_two_axis_designs()
     test_the_saved_ladders()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
