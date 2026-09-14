@@ -8,6 +8,49 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-14 (sixth entry) — the rate-law fitter, its health checks and planted tests: machinery only
+
+`PLAN_CURVES_TO_MECHANISM.md` Task 3.
+
+What was asked: a fitter for one model on one element table, with the health
+and identifiability checks earlier rounds skipped built in.
+What was built: `data/rate_laws.py` (`TERM_OPTIONS`, `law_design`, `fit_model`,
+`rate_law_health`, `term_identifiable`, `within_run_check`); the planted tests
+in `data/test_rate_laws.py`. `law_design` is the plan's `design`, renamed
+because `scope.design` holds that name and the duplicate guard covers the
+repository.
+Bugs found: none in the machinery under test; the first draft of
+`term_identifiable` evaluated a nonlinear option at one fixed K and rejected
+`BUF:bind` and `H:bind` on tables where [buf] and [H2O2] sit far from 1/mM,
+which is now a grid over log10 K.
+
+The A3 planted recovery, the real 4OMe-BnOH `v_act` table with
+`y = intercept[buffer] + 0.8 log[S] + 0.5 log[HOO-] + log(0.02 [buf] /
+(1 + 0.02 [buf]))` and Gaussian noise SD 0.01, seed 0, fitted from starts
+(-2, 0, 2):
+
+| coefficient | truth | recovered | stderr |
+|---|---|---|---|
+| `a_S` | 0.8 | 0.79888 | 0.00142 |
+| `a_HOO` | 0.5 | 0.50177 | 0.00076 |
+| `K_B` (1/mM) | 0.02 | 0.02044 | 0.00020 |
+
+cost 0.4890; health flags none. `test_health_flags` plants the five flags one
+at a time and each table produces exactly its flag; `test_identifiability_rules`
+reports "fewer than 2 distinct values" for `S:power` at constant [S];
+`test_within_run_check_catches_a_between_run_confound` recovers a non-zero
+between-run `a_S`, a near-zero within-run one and `disagree` true.
+
+Verdicts (from `fit_model`): A3 holds -- the strong planted model is
+recovered within the plan's tolerances, with no health flag.
+Health flags: none on the planted fit.
+Not identified: none tested.
+Could overturn this: none.
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-14 (fifth entry) — the curve-parameter tables: machinery only
 
 `PLAN_CURVES_TO_MECHANISM.md` Task 2. The four element tables Stage A fits.
