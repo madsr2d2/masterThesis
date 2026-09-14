@@ -22,9 +22,10 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from fit_dataset import build_curves
+from fit_dataset import REFERENCE_OMITS_UNRULED, build_curves
 from fit_kinetics import (MODEL_PARENTS, MODEL_STAGES, STAGE_ONE, STAGE_TWO,
-                          ladder_checks, ladder_f_test)
+                          _assert_observation_design, ladder_checks,
+                          ladder_f_test)
 
 FAILURES = []
 
@@ -134,6 +135,76 @@ def test_the_bar_is_applied_only_to_comparable_rows():
           unconverged.verdict == "not converged", unconverged.verdict)
 
 
+def test_every_fitted_curve_has_the_design_its_observable_assumes():
+    """
+    The observation switch is only right where the design agrees with [enz].
+
+    Over the two blocks the sequential fit supports, every catalysed curve's
+    reference omits the enzyme (so it is an increment) and every enzyme-free
+    curve's reference omits the H2O2 (so it is the raw background). The two
+    exceptions are exps 3 and 6, whose layouts `verify_enzyme.reference_design`
+    cannot classify; they stay None until R0.6 and fall back to the absolute
+    observable, which is what stage 1 always used.
+    """
+    print("\nthe observation matches each curve's reference design")
+    blocks = (("BnOH", 25.0, "Phosphate"), ("4OMe-BnOH", 40.0, "Phosphate"))
+    curves, _ = build_curves()
+    for block in blocks:
+        scoped = [c for c in curves if c.group == block]
+        catalysed = [c for c in scoped if c.conditions.e0 > 0]
+        background = [c for c in scoped if c.conditions.e0 == 0]
+        wrong = [(c.experiment, c.reference_omits) for c in catalysed
+                 if c.reference_omits != "enzyme"]
+        check(f"{block[0]}: every catalysed curve's reference omits the enzyme",
+              not wrong, str(wrong))
+        wrong = [(c.experiment, c.reference_omits) for c in background
+                 if c.reference_omits not in ("h2o2", None)]
+        check(f"{block[0]}: every enzyme-free curve is a raw background",
+              not wrong, str(wrong))
+        unruled = {c.experiment for c in scoped if c.reference_omits is None}
+        check(f"{block[0]}: the only unruled designs are exps 3 and 6",
+              unruled <= REFERENCE_OMITS_UNRULED, str(unruled))
+
+
+def test_the_design_guard_rejects_a_mislabelled_curve():
+    """
+    `sequential_fit` must not silently fit a curve whose design contradicts
+    its [enz]. The guard is tested directly so this stays fast -- it is the
+    one rule that keeps the observation switch honest.
+    """
+    print("\nthe observation guard")
+    curves, _ = build_curves()
+    catalysed = next(c for c in curves
+                     if c.conditions.e0 > 0 and c.reference_omits == "enzyme")
+    background = next(c for c in curves
+                      if c.conditions.e0 == 0 and c.reference_omits == "h2o2")
+
+    saved = catalysed.reference_omits
+    catalysed.reference_omits = None
+    try:
+        _assert_observation_design([catalysed])
+        raised = False
+    except ValueError:
+        raised = True
+    finally:
+        catalysed.reference_omits = saved
+    check("a catalysed curve with an unknown design is rejected", raised)
+
+    saved = background.reference_omits
+    background.reference_omits = "enzyme"
+    try:
+        _assert_observation_design([background])
+        raised = False
+    except ValueError:
+        raised = True
+    finally:
+        background.reference_omits = saved
+    check("an enzyme-free curve labelled catalysed is rejected", raised)
+
+    check("the matching designs pass",
+          _assert_observation_design([catalysed, background]) is None)
+
+
 def test_the_saved_ladders():
     """The real saves, read the way the 2026-09-14 review read them."""
     print("\nthe saved M0-M4b ladders")
@@ -186,6 +257,8 @@ if __name__ == "__main__":
     test_a_larger_model_that_fits_worse_is_an_optimiser_failure()
     test_stage_two_is_not_compared_across_backgrounds()
     test_the_bar_is_applied_only_to_comparable_rows()
+    test_every_fitted_curve_has_the_design_its_observable_assumes()
+    test_the_design_guard_rejects_a_mislabelled_curve()
     test_the_saved_ladders()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))

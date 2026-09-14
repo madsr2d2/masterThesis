@@ -8,6 +8,115 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-14 (third entry) — the catalysed curves are increments, and the M0 refit says the misfit is not that
+
+Step 3 (`PLAN_STEP3_REVISED.md`, R0.0). The fitter has compared every curve with
+the FULL signal since it was written, but every run in this dataset is a
+two-channel differential measurement and the catalysed curves are the catalytic
+INCREMENT: a catalysed curve's reference cuvette holds the same substrate,
+peroxide, buffer and pH and omits only the enzyme (DATA_VERIFICATION.md
+2026-08-29; `verify_enzyme.reference_design`). `fit_kinetics.residuals`
+compared them with `observable()`, which includes the background chemistry the
+instrument already subtracted. Stage 2 was therefore fitting "catalyst plus a
+background that is not in the data", and every stage-2 result in `data/fits/`,
+including FITTING.md F5 and F6, was measured on that observable.
+
+**What was built.** `kinetic_model.increment` (full signal minus the same
+mixture at `e0 = 0`; None if either integration fails). `fit_dataset.Curve`
+gains `reference_omits`, populated once per build from
+`verify_enzyme.reference_omits_by_experiment` and keyed by experiment
+(`REFERENCE_OMITS_UNRULED = {3, 6}` stays None until R0.6 rules their layouts).
+`fit_kinetics.observed_signal` chooses the increment where
+`reference_omits == "enzyme"` and the absolute signal otherwise;
+`residuals`, `_per_curve`, `fit_group` and `sequential_fit` carry
+`observation` ("design", the default, or "absolute", which reproduces the
+pre-R0.0 fitter exactly), `to_dict` records it, and `plot_fit.py` draws the
+same curve the fit was scored against. `_assert_observation_design` makes
+`sequential_fit` raise if a curve with `e0 > 0` has any other design or one
+with `e0 == 0` is labelled "enzyme". `increment_comparison` and the
+`ladder_checks(..., saves=...)` hook are the report below.
+
+**The M0 refit on the increment** (`--model M0`, saved as
+`data/fits/<block>_R_M0.json`), beside the old absolute M0. `increment_comparison`:
+
+| block | stage | observation | rms AU | x noise | cost |
+|---|---|---|---|---|---|
+| BnOH 25 C phosphate | 1 | absolute | 0.01437 | 59.9 | 64864 |
+| BnOH 25 C phosphate | 1 | increment | 0.01437 | 59.9 | 64864 |
+| BnOH 25 C phosphate | 2 | absolute | 0.01303 | 48.1 | 34171 |
+| BnOH 25 C phosphate | 2 | increment | 0.01285 | 47.7 | 33288 |
+| 4OMe 40 C phosphate | 1 | absolute | 0.05913 | 176.1 | 1.2888e6 |
+| 4OMe 40 C phosphate | 1 | increment | 0.05913 | 176.1 | 1.2888e6 |
+| 4OMe 40 C phosphate | 2 | absolute | 0.21598 | 649.3 | 6.4569e6 |
+| 4OMe 40 C phosphate | 2 | increment | 0.18929 | 614.5 | 6.0664e6 |
+
+**Stage 1 is byte-identical on both blocks** (cost, rms and every constant to
+the last bit), which is the check R0.0 asks for: the switch touches only curves
+whose reference omitted the enzyme, and every stage-1 curve is enzyme-free.
+Stage 2 moves: BnOH's cost falls 2.6% (34171 to 33288) and 4OMe's 6.0% (6.4569e6
+to 6.0664e6). The fitted stage-2 constants move with it:
+
+| block | k5 absolute -> increment | k6 absolute -> increment | correlation k5/k6 |
+|---|---|---|---|
+| BnOH | 2.24e-7 -> 3.92e-7 | 1e-8 (lower bound) -> 1e-8 (lower bound) | -0.748 |
+| 4OMe | 1.66e-8 -> 4.24e-7 | 7.684 -> 4.50e-6 | -0.426 |
+
+**Peak [PBA] at the increment constants** (F6's hidden intermediate, mM):
+BnOH exp 68 max 0.00183, exp 71 max 5.63e-5, exp 73 max 0.00143; 4OMe exp 16,
+32 and 34 all flat at about 4.9e-6.
+
+**`ladder_checks` on the refit** — the model's substrate order is still the
+M0 model's exact first order, against a data order well below it, and the model
+still produces no lag:
+
+| block | stage | curves | order data | order model | lag data / model |
+|---|---|---|---|---|---|
+| BnOH | 1 | 23 | +0.214 | +0.991 | 11 / 0 |
+| BnOH | 2 | 20 | +0.465 | +0.951 | 3 / 0 |
+| 4OMe | 1 | 37 | +0.270 | +0.862 | 7 / 0 |
+| 4OMe | 2 | 24 | +0.503 | +0.807 | 9 / 0 |
+
+On 4OMe all 9 enzyme-free substrate ladders move `[buf]` against `[S]` (median
+r = -0.974), and 1 of the 24 catalysed curves does (r = -0.964).
+
+**Verdict.** The observable now matches the design, and the correction is real
+but small: stage 2 improves by 2.6% (BnOH) and 6.0% (4OMe) in cost, and the
+model still misses the catalysed curves by 47.7x and 614.5x the noise. The
+increment is not what F5's 20-24x misfit was: on BnOH the model still produces
+no lag at all (0 of 20 modelled curves against 3 measured), `k6` stays pinned
+at its lower bound, and `[PBA]` stays at 1e-3 mM or below. On 4OMe the sink's
+"earned" k6 collapses from 7.68 to 4.5e-6 once the background is out of the
+observable. This changes the evidence base of FITTING.md F5 and F6; it does not
+rescue either.
+
+**Cautions.**
+
+- Exps 3 and 6 stay unclassified and are still fitted with the absolute
+  observable -- correct for the 15 enzyme-free runs whose reference omits the
+  H2O2 (the curve is the raw background either way), but exp 3's table does
+  not read as two halves and exp 6's reference matches its sample, and R0.6
+  rules them.
+- The two-axis pyrophosphate block (exps 135-151) reads "other" under
+  `reference_design`, so the guard would reject it. It is not fitted here; R1.3
+  asks whether the increment makes it fittable.
+- The fits still sit tens to hundreds of times the noise, so no individual
+  stage-2 constant here is trustworthy; `k6` at a bound is a bound (F4/F6).
+
+**Tests.** `data/test_kinetic_model.py`:
+`test_the_increment_vanishes_without_catalyst`,
+`test_the_increment_is_the_whole_signal_without_a_background`,
+`test_the_increment_keeps_the_coupling`. `data/test_fit_ladder.py`:
+`test_every_fitted_curve_has_the_design_its_observable_assumes` (both blocks),
+`test_the_design_guard_rejects_a_mislabelled_curve`. `data/test_fit_kinetics.py`:
+the synthetic catalysed plantings now plant the increment and set
+`reference_omits`, and `test_absolute_observation_reproduces_the_old_fit`
+checks the absolute switch on a noiseless planted group.
+
+Nothing is adopted. FITTING.md F5/F6 are the user's to revise before anything
+else is fitted.
+
+---
+
 ## 2026-09-14 (second entry) — the extended model's ladder, re-read: nothing is established, and on 4OMe the sink and the activation earn
 
 A review of the entry below (commit 8954989). The model extension it describes

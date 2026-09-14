@@ -20,11 +20,12 @@ import pandas as pd
 from fit_dataset import (BASELINE_POINTS, TWO_AXIS_BLOCK, TWO_AXIS_GROUP,
                          QUANTISATION_SIGMA, Curve, build_curves, curve_noise,
                          group_curves, in_block, select_fittable)
-from fit_kinetics import (BOUNDS, EXTENDED_INITIAL, FAILURE_RESIDUAL, INITIAL,
+from fit_kinetics import (BOUNDS, EXTENDED_INITIAL, FAILURE_RESIDUAL,
+                          FIT_ATOL, FIT_MAX_EVALUATIONS, FIT_RTOL, INITIAL,
                           STAGE_ONE, STAGE_ONE_EXTENDED, STAGE_TWO,
                           STAGE_TWO_EXTENDED, fit_group, residuals,
                           sequential_fit)
-from kinetic_model import Conditions, RateConstants, observable, simulate
+from kinetic_model import Conditions, RateConstants, increment, observable, simulate
 import scope
 from read_rre import RRE_SIGMA
 
@@ -167,12 +168,20 @@ def test_noise_estimator():
 
 
 def _synthetic(constants, conditions_list, sigma, seed=0, points=60, duration=3000.0):
-    """Curves generated from known constants, with instrument-level noise."""
+    """Curves generated from known constants, with instrument-level noise.
+
+    A catalysed curve is planted as the INCREMENT its reference cuvette leaves
+    (see kinetic_model.increment); an enzyme-free one as the raw background.
+    `reference_omits` is set to match, so the fitter's design switch and the
+    planting agree.
+    """
     generator = np.random.default_rng(seed)
     times = np.linspace(0.0, duration, points)
     curves = []
     for index, conditions in enumerate(conditions_list):
-        signal = observable(constants, conditions, times)
+        catalysed = conditions.e0 > 0
+        signal = (increment(constants, conditions, times) if catalysed
+                  else observable(constants, conditions, times))
         epsilon = 1.23
         measured = epsilon * signal + generator.normal(0.0, sigma, points)
         measured -= np.median(measured[:BASELINE_POINTS])
@@ -181,6 +190,7 @@ def _synthetic(constants, conditions_list, sigma, seed=0, points=60, duration=30
             pH=8.0, temperature=25.0, epsilon=epsilon, times=times,
             absorbance=measured, baseline=0.0, noise=max(sigma, QUANTISATION_SIGMA),
             conditions=conditions,
+            reference_omits="enzyme" if catalysed else "h2o2",
         ))
     return curves
 
@@ -327,6 +337,61 @@ def test_stage_two_recovery():
           f"x100 -> {above:.3g}")
 
 
+def test_absolute_observation_reproduces_the_old_fit():
+    """
+    `observation="absolute"` is the pre-R0.0 fitter exactly, kept so the old
+    M0-M4b saves can be reproduced and compared against the design fits (R0.0).
+    On a noiseless curve planted the old way -- the ABSOLUTE signal -- the
+    absolute residuals vanish at the truth and the design residuals do not,
+    because the design model is the increment and the increment is smaller by
+    the background the catalyst also acts on.
+
+    The planting uses the fitter's own integration tolerances
+    (`FIT_RTOL`/`FIT_ATOL`), so "vanishes" is exact rather than limited by the
+    tolerance difference between a planting at rtol=1e-8 and a fit at 1e-6.
+    """
+    print("\nthe absolute observation reproduces the old fit")
+    truth = EXTENDED_TRUTH.replace(k_sink=0.0, K4=0.0, km_s=float("inf"),
+                                   k_act_r=float("inf"), K_act=0.0,
+                                   km_s_background=float("inf"))
+    conditions = [Conditions(s0=s, h2o2=100.0, e0=e, hoo=2e-3)
+                  for s in (1.0, 4.0, 8.0) for e in (0.05, 0.15)]
+    times = np.linspace(0.0, 3000.0, 60)
+    integration = {"rtol": FIT_RTOL, "atol": FIT_ATOL,
+                   "max_evaluations": FIT_MAX_EVALUATIONS}
+    curves = []
+    for index, conditions_i in enumerate(conditions):
+        signal = observable(truth, conditions_i, times, **integration)
+        measured = 1.23 * signal
+        measured -= np.median(measured[:BASELINE_POINTS])
+        curves.append(Curve(
+            experiment=800 + index, sample=1, substrate="BnOH", buffer="Phosphate",
+            pH=8.0, temperature=25.0, epsilon=1.23, times=times,
+            absorbance=measured, baseline=0.0, noise=QUANTISATION_SIGMA,
+            conditions=conditions_i, reference_omits="enzyme"))
+    base = truth.replace(k5=0.0, k6=0.0)
+    vector = np.array([np.log10(truth.k5), np.log10(truth.k6)])
+    absolute = residuals(vector, STAGE_TWO, base, curves, observation="absolute")
+    design = residuals(vector, STAGE_TWO, base, curves, observation="design")
+    check("absolute residuals vanish at the planted parameters",
+          float(np.max(np.abs(absolute))) < 1e-6,
+          f"max {np.max(np.abs(absolute)):.2e}")
+    check("the design observation is the wrong model for an absolute curve",
+          float(np.max(np.abs(design))) > 1e-3,
+          f"max {np.max(np.abs(design)):.2e}")
+
+    old = fit_group(curves, STAGE_TWO, base=base, restarts=1, seed=1,
+                    observation="absolute", initial=EXTENDED_INITIAL)
+    new = fit_group(curves, STAGE_TWO, base=base, restarts=1, seed=1,
+                    observation="design", initial=EXTENDED_INITIAL)
+    check("the absolute fit reaches the planted basin",
+          abs(np.log10(old.constants.k6) - np.log10(truth.k6)) < 0.2,
+          f"k6 {old.constants.k6:.3g} vs {truth.k6:.3g}")
+    check("and the design fit cannot",
+          new.cost > 10.0 * max(old.cost, 1e-9),
+          f"design cost {new.cost:.3g} vs absolute {old.cost:.3g}")
+
+
 # The extended model's own validation gate. The truth is at the real 4OMe / 40 C
 # scale: k5 ~ 1e-6 (F5 fits k5' = 1.4e-7), k6 ~ 5e-3, K4 ~ 0.05 (Step 1),
 # km_s ~ 3 mM (saturation), k_act_r ~ 1e-3 (tau ~ 1000 s) and K_act ~ 0.05
@@ -350,14 +415,17 @@ def _planted_extended(conditions_list, sigma, seed=0, duration=3000.0):
     times = np.linspace(0.0, duration, EXTENDED_POINTS)
     curves = []
     for index, conditions in enumerate(conditions_list):
-        signal = observable(EXTENDED_TRUTH, conditions, times)
+        catalysed = conditions.e0 > 0
+        signal = (increment(EXTENDED_TRUTH, conditions, times) if catalysed
+                  else observable(EXTENDED_TRUTH, conditions, times))
         measured = 1.23 * signal + generator.normal(0.0, sigma, EXTENDED_POINTS)
         measured -= np.median(measured[:BASELINE_POINTS])
         curves.append(Curve(
             experiment=900 + index, sample=1, substrate="4OMe-BnOH",
             buffer="Phosphate", pH=7.0, temperature=40.0, epsilon=1.23,
             times=times, absorbance=measured, baseline=0.0,
-            noise=max(sigma, QUANTISATION_SIGMA), conditions=conditions))
+            noise=max(sigma, QUANTISATION_SIGMA), conditions=conditions,
+            reference_omits="enzyme" if catalysed else "h2o2"))
     return curves
 
 
@@ -562,6 +630,7 @@ if __name__ == "__main__":
     test_parameter_recovery()
     test_k3_is_a_lower_bound_only()
     test_stage_two_recovery()
+    test_absolute_observation_reproduces_the_old_fit()
     test_extended_parameter_recovery()
     test_residual_machinery()
     test_configuration()

@@ -38,7 +38,8 @@ from fit_dataset import (BASELINE_POINTS, TWO_AXIS_BLOCK,
                          TWO_AXIS_GROUP, build_curves, group_curves,
                          in_block)
 from kinetic_model import (LOG_PARAMETERS, PARAMETER_NAMES, Conditions,
-                           RateConstants, observable, pack, unpack)
+                           RateConstants, increment, observable, pack, simulate,
+                           unpack)
 from summary_kinetics import TWO_PHASE_F
 
 # Bounds in the optimiser's own coordinates: log10 for rate constants, linear
@@ -184,6 +185,7 @@ class FitResult:
     per_curve: list = field(default_factory=list)
     success: bool = True
     message: str = ""
+    observation: str = "design"
 
 
 def _weights(curve, weighting):
@@ -206,15 +208,36 @@ def _weights(curve, weighting):
     return curve.noise * np.sqrt(len(curve))
 
 
-def residuals(vector, free_names, base, curves, weighting="curve"):
+def observed_signal(curve, constants, observation="design", **kwargs):
+    """
+    The modelled signal the fit is compared against, for one curve.
+
+    `observation="design"` matches the observable to the run's own design:
+    a curve whose reference cuvette omitted the enzyme is a catalytic
+    INCREMENT (`kinetic_model.increment`), everything else is the absolute
+    signal. `observation="absolute"` reproduces the fitter's behaviour before
+    R0.0 exactly, which is kept so the old M0-M4b saves can be reproduced and
+    the two compared.
+
+    Public because `plot_fit.py` must draw the same curve the fit was scored
+    against -- a plot that used the other choice would show a disagreement the
+    fit was never asked to remove.
+    """
+    if observation == "design" and curve.reference_omits == "enzyme":
+        return increment(constants, curve.conditions, curve.times, **kwargs)
+    return observable(constants, curve.conditions, curve.times, **kwargs)
+
+
+def residuals(vector, free_names, base, curves, weighting="curve",
+              observation="design"):
     """Stacked weighted residuals, model minus measurement, in absorbance."""
     constants = unpack(vector, free_names, base)
     stacked = []
     for curve in curves:
         denominator = _weights(curve, weighting)
-        signal = observable(constants, curve.conditions, curve.times,
-                            rtol=FIT_RTOL, atol=FIT_ATOL,
-                            max_evaluations=FIT_MAX_EVALUATIONS)
+        signal = observed_signal(curve, constants, observation,
+                                 rtol=FIT_RTOL, atol=FIT_ATOL,
+                                 max_evaluations=FIT_MAX_EVALUATIONS)
         if signal is None or not np.all(np.isfinite(signal)):
             stacked.append(np.full(len(curve), FAILURE_RESIDUAL))
             continue
@@ -253,7 +276,7 @@ def _statistics(result, free_names, curves, weighting):
     return dict(zip(free_names, errors)), correlation, condition
 
 
-def _per_curve(constants, curves):
+def _per_curve(constants, curves, observation="design"):
     """
     One row per curve: how well it is fitted, and whether the model reproduces
     its SHAPE. `peak_data` and `peak_model` are where the steepest point sits as
@@ -263,7 +286,7 @@ def _per_curve(constants, curves):
     """
     rows = []
     for curve in curves:
-        signal = observable(constants, curve.conditions, curve.times)
+        signal = observed_signal(curve, constants, observation)
         if signal is None:
             rows.append({"experiment": curve.experiment, "sample": curve.sample,
                          "rms": np.nan, "sigma": np.nan,
@@ -339,7 +362,7 @@ def _hypercube(free_names, lower, upper, seed):
     return [lower + row * (upper - lower) for row in strata]
 
 
-def _screen(points, free_names, base, curves, weighting, keep):
+def _screen(points, free_names, base, curves, weighting, keep, observation="design"):
     """
     Ranks candidate starting points by cost and returns the best `keep`.
 
@@ -349,14 +372,14 @@ def _screen(points, free_names, base, curves, weighting, keep):
     """
     scored = []
     for point in points:
-        residual = residuals(point, free_names, base, curves, weighting)
+        residual = residuals(point, free_names, base, curves, weighting, observation)
         scored.append((float(0.5 * np.sum(residual ** 2)), point))
     scored.sort(key=lambda pair: pair[0])
     return [point for _, point in scored[:keep]]
 
 
 def fit_group(curves, free_names, base=None, weighting="curve", restarts=4,
-              seed=0, initial=None):
+              seed=0, initial=None, observation="design"):
     """
     Fits `free_names` to `curves`, holding everything else at `base`.
 
@@ -371,6 +394,9 @@ def fit_group(curves, free_names, base=None, weighting="curve", restarts=4,
     real seed scale (~1e-6): from there the catalysed fit cannot find the
     planted or the real basin, which is a starting problem and not a chemistry
     one.
+
+    `observation` is "design" (the default) or "absolute"; see
+    `observed_signal`. It is carried on the result and written by `to_dict`.
     """
     base = base or RateConstants(**{name: 10.0 ** INITIAL[name] if name in LOG_PARAMETERS
                                     else INITIAL[name] for name in BASE_PARAMETERS})
@@ -381,14 +407,14 @@ def fit_group(curves, free_names, base=None, weighting="curve", restarts=4,
 
     starts = _guaranteed_points(free_names, start, lower, upper)
     starts += _screen(_hypercube(free_names, lower, upper, seed),
-                      free_names, base, curves, weighting, restarts)
+                      free_names, base, curves, weighting, restarts, observation)
 
     best = None
     for guess in starts:
         try:
             trial = least_squares(
                 residuals, guess, bounds=(lower, upper), method="trf",
-                args=(free_names, base, curves, weighting),
+                args=(free_names, base, curves, weighting, observation),
                 x_scale="jac", max_nfev=300,
             )
         except Exception as error:  # a solver blow-up must not kill the run
@@ -399,7 +425,8 @@ def fit_group(curves, free_names, base=None, weighting="curve", restarts=4,
     if best is None:
         return FitResult(base, tuple(free_names), curves, np.inf, np.nan, np.nan,
                          {}, {}, np.zeros((0, 0)), np.inf,
-                         success=False, message="every restart failed")
+                         success=False, message="every restart failed",
+                         observation=observation)
 
     constants = unpack(best.x, free_names, base)
     at_bound = {}
@@ -412,7 +439,7 @@ def fit_group(curves, free_names, base=None, weighting="curve", restarts=4,
             at_bound[name] = "upper"
 
     errors, correlation, condition = _statistics(best, free_names, curves, weighting)
-    per_curve = _per_curve(constants, curves)
+    per_curve = _per_curve(constants, curves, observation)
     finite = [row["rms"] for row in per_curve if np.isfinite(row["rms"])]
     sigmas = [row["sigma"] for row in per_curve if np.isfinite(row.get("sigma", np.nan))]
 
@@ -430,11 +457,37 @@ def fit_group(curves, free_names, base=None, weighting="curve", restarts=4,
         per_curve=per_curve,
         success=bool(best.success),
         message=str(best.message),
+        observation=observation,
     )
 
 
+def _assert_observation_design(curves):
+    """
+    The observation switch is only meaningful where the design matches it.
+
+    A catalysed curve (e0 > 0) whose reference did NOT omit the enzyme is not a
+    catalytic increment, so `increment` would be the wrong observable for it --
+    and a curve with e0 = 0 whose reference DID omit the enzyme is a catalysed
+    curve mislabelled as a background. Neither is fitted as either: the design
+    is read off the cuvette table, independently of [enz], so a disagreement is
+    a defect to rule on, not a curve to guess at.
+    """
+    for curve in curves:
+        if curve.conditions.e0 > 0 and curve.reference_omits != "enzyme":
+            raise ValueError(
+                f"exp {curve.experiment} sample {curve.sample} has e0 = "
+                f"{curve.conditions.e0} but its reference omits "
+                f"{curve.reference_omits!r}, not the enzyme: it is not a "
+                f"catalytic increment and is not fitted as one")
+        if curve.conditions.e0 == 0 and curve.reference_omits == "enzyme":
+            raise ValueError(
+                f"exp {curve.experiment} sample {curve.sample} has e0 = 0 but "
+                f"its reference omits the enzyme: it is a catalysed curve "
+                f"mislabelled as a background")
+
+
 def sequential_fit(curves, weighting="curve", restarts=4, seed=0, on_stage=None,
-                   extended=False, stages=None):
+                   extended=False, stages=None, observation="design"):
     """
     Stage 1 on the enzyme-free curves, then stage 2 on the catalysed ones with
     stage 1 frozen. Returns (stage_one, stage_two); stage_two is None when the
@@ -448,7 +501,12 @@ def sequential_fit(curves, weighting="curve", restarts=4, seed=0, on_stage=None,
     `stages=(one, two)` pair names a specific rung of the M0-M4 ladder
     (`MODEL_STAGES`). The old path is untouched: stage 1 zeroes k5 and k6 as
     before and the base constants keep the extensions OFF.
+
+    `observation` is passed through to `fit_group` and defaults to "design"
+    (the increment for catalysed curves). The design guard runs first: a curve
+    whose reference design contradicts its [enz] is a defect and stops the fit.
     """
+    _assert_observation_design(curves)
     if stages is not None:
         stage_one, stage_two = stages
     else:
@@ -465,7 +523,8 @@ def sequential_fit(curves, weighting="curve", restarts=4, seed=0, on_stage=None,
     old_path = stages is None and not extended
     start_table = None if old_path or stages == MODEL_STAGES["M0"] else EXTENDED_INITIAL
     first = fit_group(enzyme_free, stage_one, weighting=weighting,
-                      restarts=restarts, seed=seed, initial=start_table)
+                      restarts=restarts, seed=seed, initial=start_table,
+                      observation=observation)
     # Enzyme-free curves carry no information about k5 or k6 -- both are
     # multiplied by E0 = 0 -- so stage 1 must not report whatever value they
     # happened to be seeded with. Zeroing them keeps the reported constants
@@ -478,7 +537,7 @@ def sequential_fit(curves, weighting="curve", restarts=4, seed=0, on_stage=None,
         return first, None
     second = fit_group(catalysed, stage_two, base=first.constants,
                        weighting=weighting, restarts=restarts, seed=seed,
-                       initial=start_table)
+                       initial=start_table, observation=observation)
     if on_stage:
         on_stage("stage_2", second)
     return first, second
@@ -598,6 +657,23 @@ def report(result, title):
                   f"(net: data {row['net_data']:+.4f}, model {row['net_model']:+.4f})")
 
 
+def constants_from_record(record):
+    """
+    A saved stage's constant table as a `RateConstants`.
+
+    `to_dict` writes every name in PARAMETER_NAMES and writes None for a
+    non-finite OFF value (km_s, k_act_r, km_s_background); an older save
+    carries the original six only. Both are filled from the dataclass defaults,
+    so any save this module has written stays readable.
+    """
+    defaults = RateConstants()
+    values = {}
+    for name in PARAMETER_NAMES:
+        value = record["constants"].get(name)
+        values[name] = getattr(defaults, name) if value is None else float(value)
+    return RateConstants(**values)
+
+
 def to_dict(result, title):
     """A JSON-safe record of one stage, for --save."""
     return {
@@ -620,6 +696,7 @@ def to_dict(result, title):
         "experiments": sorted({c.experiment for c in result.curves}),
         "per_curve": result.per_curve,
         "converged": result.success,
+        "observation": result.observation,
     }
 
 
@@ -766,7 +843,7 @@ def ladder_f_test(block, models=tuple(MODEL_STAGES), directory="data/fits",
 
 
 def ladder_checks(block, models=tuple(MODEL_STAGES), directory="data/fits",
-                  curves=None):
+                  curves=None, saves=None):
     """
     What the F test cannot see, per model and stage, off the `--model` saves.
 
@@ -787,7 +864,8 @@ def ladder_checks(block, models=tuple(MODEL_STAGES), directory="data/fits",
     import induction
     import scope
 
-    saves = _ladder_saves(block, models, directory)
+    if saves is None:
+        saves = _ladder_saves(block, models, directory)
     if curves is None:
         curves, _ = build_curves()
     conditions = pd.DataFrame([
@@ -836,6 +914,74 @@ def ladder_checks(block, models=tuple(MODEL_STAGES), directory="data/fits",
     return pd.DataFrame(rows)
 
 
+def increment_comparison(block, directory="data/fits", curves=None):
+    """
+    R0.0's report: the M0 refit on the catalytic INCREMENT beside the old
+    absolute M0 (`<block>_R_M0.json` against `<block>_M0.json`).
+
+    Per stage it prints the rms in AU and the cost for both saves, and for
+    stage 2 the fitted k5, k6 and their correlation. It also prints the peak
+    [PBA] the refit's constants reach on three catalysed curves -- F6's hidden
+    intermediate, the test of whether the autocatalytic loop does anything --
+    and `ladder_checks`' substrate order and lag counts for the refit.
+
+    Stage 1 must be unchanged by R0.0: the observation switch only touches
+    curves whose reference omitted the enzyme, and every stage-1 curve is
+    enzyme-free.
+    """
+    import os
+
+    substrate, temperature, buffer_name = block
+    stem = f"{substrate}_{temperature:.0f}C_{buffer_name}"
+    with open(os.path.join(directory, f"{stem}_M0.json")) as handle:
+        old = json.load(handle)
+    with open(os.path.join(directory, f"{stem}_R_M0.json")) as handle:
+        refit = json.load(handle)
+
+    print(f"\n{stem}: M0 on the increment (R_M0) beside M0 absolute (M0)")
+    for stage in ("stage_1", "stage_2"):
+        if stage not in old or stage not in refit:
+            continue
+        for label, save in (("absolute", old), ("increment", refit)):
+            entry = save[stage]
+            print(f"  {stage} {label}: rms {entry['rms_absorbance']:.5f} AU "
+                  f"({entry['rms_sigma']:.1f}x noise), cost {entry['cost']:.5g}")
+        if stage == "stage_2":
+            for name in ("k5", "k6"):
+                print(f"    {name}: absolute {old[stage]['constants'].get(name):.4g}"
+                      f"  ->  increment {refit[stage]['constants'].get(name):.4g}")
+            correlation = refit[stage].get("correlation")
+            names = refit[stage]["free_parameters"]
+            if correlation is not None and "k5" in names and "k6" in names:
+                i, j = names.index("k5"), names.index("k6")
+                print(f"    correlation k5/k6 (increment): "
+                      f"{correlation[i][j]:+.3f}")
+
+    if curves is None:
+        curves, _ = build_curves()
+    scoped = [c for c in curves if c.group == block and c.conditions.e0 > 0]
+    constants = constants_from_record(refit["stage_2"])
+    experiments = sorted({c.experiment for c in scoped})[:3]
+    print("  peak [PBA] (mM) at the increment constants (F6):")
+    for experiment in experiments:
+        samples = sorted([c for c in scoped if c.experiment == experiment],
+                         key=lambda c: c.sample)
+        peaks = []
+        for curve in samples:
+            trajectory = simulate(constants, curve.conditions, curve.times)
+            peaks.append(np.nan if trajectory is None
+                         else float(trajectory["PBA"].max()))
+        print(f"    exp {experiment}: " + ", ".join(f"{p:.3g}" for p in peaks))
+
+    checks = ladder_checks(block, models=("M0R",), curves=curves,
+                           saves={"M0R": refit})
+    columns = ["stage", "curves", "order_data", "order_model",
+               "lag_data", "lag_model", "s0_buf_runs", "s0_buf_median_r"]
+    print("  ladder_checks on the increment refit:")
+    print(checks[columns].to_string(index=False))
+    return checks
+
+
 def main():
     import argparse
 
@@ -845,6 +991,12 @@ def main():
     parser.add_argument("--buffer", default="Phosphate")
     parser.add_argument("--weighting", choices=("curve", "point"), default="curve")
     parser.add_argument("--restarts", type=int, default=4)
+    parser.add_argument("--observation", choices=("design", "absolute"),
+                        default="design",
+                        help="'design' (default) compares each catalysed curve "
+                             "with the catalytic increment its reference cuvette "
+                             "leaves; 'absolute' reproduces the pre-R0.0 fitter "
+                             "exactly and is kept only for comparison")
     parser.add_argument("--profile-r", action="store_true",
                         help="profile the cost over r instead of fitting it, "
                              "which is how a -0.999-correlated parameter should "
@@ -930,12 +1082,14 @@ def main():
     first, second = sequential_fit(block, weighting=arguments.weighting,
                                    restarts=arguments.restarts,
                                    extended=arguments.extended, stages=stages,
+                                   observation=arguments.observation,
                                    on_stage=lambda name, result: report(result, titles[name]))
     if second is None:
         print("\nSTAGE 2 skipped: no catalysed curves in this block")
 
     if arguments.save:
         payload = {"block": title, "weighting": arguments.weighting,
+                   "observation": arguments.observation,
                    "stage_1": to_dict(first, title)}
         if second is not None:
             payload["stage_2"] = to_dict(second, title)

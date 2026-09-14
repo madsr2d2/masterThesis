@@ -271,6 +271,39 @@ def observable(constants, conditions, times, **kwargs):
     return (trajectory["A"] - conditions.a0) + constants.r * trajectory["BA"]
 
 
+def increment(constants, conditions, times, **kwargs):
+    """
+    The CATALYTIC INCREMENT: the full signal minus the same mixture with no
+    catalyst.
+
+    Every run in this dataset is a two-channel differential measurement, and
+    what the reference cuvette omits is what the recorded curve is net of
+    (DATA_VERIFICATION.md 2026-08-29). For a catalysed run the reference holds
+    the same substrate, peroxide and buffer and omits only the enzyme, so the
+    recorded curve is
+
+        increment(t) = observable(constants, conditions)
+                       - observable(constants, conditions with e0 = 0)
+
+    This is not the catalysed chemistry alone. The catalyst also acts on the
+    aldehyde and peracid the background makes in the SAMPLE cuvette (steps 6-7
+    consume background-made peracid), which is why the difference of two
+    simulations is the right observable and why "k0 = k_can = k3 = 0" is not.
+    A background fitted on the enzyme-free curves stays consistent because the
+    same constants drive both halves.
+
+    Returns None if either integration fails, so callers handle failure the
+    same way they handle `observable`'s.
+    """
+    full = observable(constants, conditions, times, **kwargs)
+    if full is None:
+        return None
+    reference = observable(constants, replace(conditions, e0=0.0), times, **kwargs)
+    if reference is None:
+        return None
+    return full - reference
+
+
 def aryl_residual(trajectory, conditions):
     """
     Aryl conservation, which the reduction guarantees exactly: S + A + PBA + BA

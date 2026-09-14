@@ -18,7 +18,7 @@ from curve_metrics import ACCELERATION_SIGMA, acceleration
 from fit_dataset import QUANTISATION_SIGMA
 from kinetic_model import (
     LOG_PARAMETERS, PARAMETER_NAMES, Conditions, RateConstants,
-    aryl_residual, observable, pack, rates, rhs, simulate, unpack,
+    aryl_residual, increment, observable, pack, rates, rhs, simulate, unpack,
 )
 
 FAILURES = []
@@ -188,6 +188,44 @@ def test_observable():
     trajectory = simulate(NOMINAL, CUVETTE, TIMES)
     check("r = 0 recovers the pure-aldehyde reading",
           pure is not None and np.allclose(pure, trajectory["A"], rtol=1e-8))
+
+
+# --- the catalytic increment, the observable the fitter now uses ----------
+
+def test_the_increment_vanishes_without_catalyst():
+    print("\nthe increment is a catalytic difference")
+    zero = Conditions(s0=8.25, h2o2=82.5, e0=0.0, hoo=3e-3)
+    signal = increment(NOMINAL, zero, TIMES)
+    check("at e0 = 0 the increment is zero to 1e-12",
+          signal is not None and np.max(np.abs(signal)) < 1e-12,
+          f"max {np.max(np.abs(signal)):.2e}" if signal is not None else "no solution")
+
+
+def test_the_increment_is_the_whole_signal_without_a_background():
+    print("\nwithout a background the increment is the whole signal")
+    no_background = RateConstants(k_can=0.0, k3=0.0, k0=0.0, k5=1e-6, r=0.3)
+    catalysed = Conditions(s0=8.25, h2o2=82.5, e0=0.1, hoo=3e-3)
+    signal = increment(no_background, catalysed, TIMES)
+    absolute = observable(no_background, catalysed, TIMES)
+    check("with k0 = k_can = k3 = 0 increment = observable to 1e-10",
+          signal is not None and absolute is not None
+          and np.max(np.abs(signal - absolute)) < 1e-10,
+          f"max deviation {np.max(np.abs(signal - absolute)):.2e}"
+          if signal is not None and absolute is not None else "no solution")
+
+
+def test_the_increment_keeps_the_coupling():
+    print("\nthe increment still carries the catalyst acting on the background")
+    all_on = RateConstants(k_can=6.0, k3=1e-2, k0=1e-9, k5=1e-6, r=0.3)
+    catalysed = Conditions(s0=8.25, h2o2=82.5, e0=0.1, hoo=3e-3)
+    isolated = observable(all_on.replace(k_can=0.0, k3=0.0, k0=0.0),
+                          catalysed, TIMES)
+    coupled = increment(all_on, catalysed, TIMES)
+    check("the background the catalyst also acts on changes the increment",
+          coupled is not None and isolated is not None
+          and np.max(np.abs(coupled - isolated)) > 1e-6,
+          f"max difference {np.max(np.abs(coupled - isolated)):.2e}"
+          if coupled is not None and isolated is not None else "no solution")
 
 
 # --- robustness ------------------------------------------------------------
@@ -374,6 +412,9 @@ if __name__ == "__main__":
     test_acceleration_requires_r_above_one()
     test_seed_alone_is_linear()
     test_observable()
+    test_the_increment_vanishes_without_catalyst()
+    test_the_increment_is_the_whole_signal_without_a_background()
+    test_the_increment_keeps_the_coupling()
     test_solver_gives_up_cleanly()
     test_packing()
     test_defaults_are_the_old_model()

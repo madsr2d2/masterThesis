@@ -31,8 +31,8 @@ import pandas as pd
 
 from curve_metrics import initial_rate, peak_position
 from fit_dataset import DATASET_PATH, build_curves
-from fit_kinetics import baseline_like_data
-from kinetic_model import Conditions, RateConstants, observable, simulate
+from fit_kinetics import baseline_like_data, constants_from_record, observed_signal
+from kinetic_model import simulate
 
 _CMAP = plt.get_cmap("tab10")
 
@@ -45,14 +45,9 @@ def _colour(index):
     return _CMAP(index % 10)
 
 
-def _constants(record):
-    return RateConstants(**{name: record["constants"][name]
-                            for name in ("k_can", "k3", "k0", "k5", "k6", "r")})
-
-
-def _model(curve, constants):
+def _model(curve, constants, observation="design"):
     """The modelled absorbance for one curve, on the data's own footing."""
-    signal = observable(constants, curve.conditions, curve.times)
+    signal = observed_signal(curve, constants, observation)
     if signal is None:
         return None
     return baseline_like_data(curve.epsilon * signal)
@@ -65,7 +60,7 @@ def _label(curve):
     return " ".join(parts)
 
 
-def plot_stage(curves, constants, title, path):
+def plot_stage(curves, constants, title, path, observation="design"):
     """One panel per experiment; every cuvette in it, data as points, model as a line."""
     experiments = sorted({curve.experiment for curve in curves})
     columns = min(3, len(experiments))
@@ -80,7 +75,7 @@ def plot_stage(curves, constants, title, path):
             colour = _colour(index)
             axis.plot(curve.times / 60.0, curve.absorbance, ".", color=colour,
                       markersize=3, alpha=0.55, label=_label(curve))
-            model = _model(curve, constants)
+            model = _model(curve, constants, observation)
             if model is not None:
                 axis.plot(curve.times / 60.0, model, "-", color=colour, linewidth=1.6)
         first = block[0]
@@ -102,7 +97,7 @@ def plot_stage(curves, constants, title, path):
     return path
 
 
-def substrate_orders(curves, constants, buffer_by_sample):
+def substrate_orders(curves, constants, buffer_by_sample, observation="design"):
     """
     Effective reaction order in [S] per experiment, for data and for model.
 
@@ -123,7 +118,7 @@ def substrate_orders(curves, constants, buffer_by_sample):
         measured = np.array([initial_rate(c.times, c.absorbance)[0] for c in block])
         modelled = []
         for curve in block:
-            model = _model(curve, constants)
+            model = _model(curve, constants, observation)
             modelled.append(np.nan if model is None
                             else initial_rate(curve.times, model)[0])
         modelled = np.array(modelled)
@@ -141,7 +136,7 @@ def _log_slope(x, y):
                             np.log(np.asarray(y)[keep]), 1)[0])
 
 
-def plot_diagnostics(stages, title, path):
+def plot_diagnostics(stages, title, path, observation="design"):
     """
     Six panels that say how the fit fails rather than by how much:
 
@@ -159,7 +154,7 @@ def plot_diagnostics(stages, title, path):
         colour = _colour(stage_index)
         nets_measured, nets_modelled, positions = [], [], []
         for curve in curves:
-            model = _model(curve, constants)
+            model = _model(curve, constants, observation)
             if model is None:
                 continue
             nets_measured.append(curve.absorbance[-1])
@@ -224,7 +219,8 @@ def plot_diagnostics(stages, title, path):
     data_slopes, model_slopes, flagged = [], [], []
     for stage_index, (name, curves, constants) in enumerate(stages):
         colour = _colour(stage_index)
-        clean, confounded = substrate_orders(curves, constants, buffer_by_sample)
+        clean, confounded = substrate_orders(curves, constants, buffer_by_sample,
+                                             observation)
         for experiment, substrate, measured, modelled in clean:
             orders.loglog(substrate, np.maximum(measured, 1e-12), "o",
                           color=colour, markersize=5, alpha=0.8)
@@ -291,23 +287,28 @@ def main():
         return 1
 
     stages, written = [], []
+    # The save names its own observation; older saves predate the switch and
+    # were all made with the absolute signal, so that is the fallback.
+    observation = results.get("observation", "absolute")
     for stage, label, enzyme_free in (("stage_1", "STAGE 1 enzyme-free", True),
                                       ("stage_2", "STAGE 2 catalysed", False)):
         if stage not in results:
             continue
-        constants = _constants(results[stage])
+        constants = constants_from_record(results[stage])
         subset = [c for c in block if (c.conditions.e0 == 0) == enzyme_free]
         stages.append((label, subset, constants))
         written.append(plot_stage(
             subset, constants,
             f"{results['block']}   {label}   "
             f"({results[stage]['rms_sigma']:.0f}x the curves' own noise)",
-            os.path.join(arguments.outdir, f"{slug}_{stage}.png")))
+            os.path.join(arguments.outdir, f"{slug}_{stage}.png"),
+            observation))
 
     if stages:
         written.append(plot_diagnostics(
             stages, f"{results['block']} -- how the fit fails",
-            os.path.join(arguments.outdir, f"{slug}_diagnostics.png")))
+            os.path.join(arguments.outdir, f"{slug}_diagnostics.png"),
+            observation))
 
     for path in written:
         print(f"wrote {path}")

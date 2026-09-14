@@ -30,6 +30,7 @@ from kinetics_io import parse_experiment_data
 from read_rre import ARCHIVE_DIR as RRE_DIRECTORY, RRE_SIGMA
 from read_rre import read_all as read_all_rre
 from solution_chemistry import add_solution_columns
+from verify_enzyme import reference_omits_by_experiment
 
 DATASET_PATH = "data/experiment_data.csv"
 CURVE_DIRECTORY = "data/data"
@@ -163,6 +164,15 @@ BASELINE_POINTS = 5
 TWO_AXIS_BLOCK = frozenset(range(135, 152))
 TWO_AXIS_GROUP = ("BnOH", 25.0, "Pyrophosphate")
 
+# Exps 3 and 6 are the two runs `verify_enzyme.reference_design` cannot
+# classify: exp 3's cuvette table does not read as two halves and exp 6's
+# reference matches the sample. DATA_VERIFICATION.md 2026-08-31 lists both as
+# omitting the H2O2, but the layout has to be ruled on by eye first (R0.6), so
+# their `reference_omits` stays None and stage 1 falls back to the absolute
+# observable -- which is what it has always used. Listed by number, not by a
+# design string, because there is no design string to trust yet.
+REFERENCE_OMITS_UNRULED = frozenset({3, 6})
+
 
 def in_block(curves, block=TWO_AXIS_BLOCK):
     """The curves of `curves` whose experiment is in `block`."""
@@ -185,6 +195,15 @@ class Curve:
     noise: float            # absorbance units, 1 sigma
     conditions: Conditions
     source: str = "txt"     # "rre" where the instrument file was read
+    # What the paired reference cuvette omitted, read off the sheet's own
+    # cuvette table by `verify_enzyme.reference_design`: "enzyme" means the
+    # recorded curve is the catalytic INCREMENT, "h2o2"/"substrate" that it is
+    # the raw background, "other" that it matched the sample, None that the
+    # table could not be read as two halves. The fitter takes the increment for
+    # a catalysed curve and the absolute signal otherwise (R0.0), so this is
+    # the design the observable has to match. Exps 3 and 6 are left None here
+    # until R0.6 rules their layout.
+    reference_omits: "str | None" = None
     # mM. Not in Conditions: that dataclass is the kinetic model's contract and
     # the model has no buffer term. Buffer concentration is nonetheless a real
     # kinetic variable -- H2O2 addition to a carbonyl is general acid AND
@@ -303,6 +322,12 @@ def build_curves(dataset_path=DATASET_PATH, directory=CURVE_DIRECTORY,
     selected, report = select_fittable(data)
     selected = add_solution_columns(selected)
     exports = read_all_curves(directory)
+    # Read the reference design ONCE per build and key it by experiment. It is
+    # structural -- read off the cuvette table, not from any concentration --
+    # and it is what the observation switch keys on, so a curve whose design
+    # contradicts its [enz] is a defect the guard in sequential_fit catches.
+    designs = reference_omits_by_experiment(dataset_path=dataset_path,
+                                            directory=directory)
 
     curves, dropped = [], {"no_export": 0, "no_curve": 0, "too_short": 0,
                            "no_epsilon": 0, "first_reading": 0}
@@ -348,6 +373,8 @@ def build_curves(dataset_path=DATASET_PATH, directory=CURVE_DIRECTORY,
             # export's 0.001 AU quantisation would report 2.4x its real noise.
             noise=curve_noise(values, source_floor(source)),
             source=source,
+            reference_omits=(None if experiment in REFERENCE_OMITS_UNRULED
+                             else designs.get(experiment)),
             buf=float(row["[buf]"]),
             conditions=Conditions(
                 s0=float(row["[sub]"]),

@@ -222,6 +222,33 @@ def reference_design(sheet):
     return "other"
 
 
+def reference_omits_by_experiment(dataset_path=DATASET_PATH,
+                                  manifest_path=MANIFEST_PATH,
+                                  directory=SHEET_DIR):
+    """
+    {experiment: what its reference cuvette omits}, read once from the sheets.
+
+    The per-experiment form of `reference_design`, for `fit_dataset.build_curves`
+    to stamp onto every `Curve`. The value is a design string ("enzyme",
+    "h2o2", "substrate" or "other") or None where the cuvette table could not
+    be read as two halves. A NaN from the DataFrame is folded to None so the
+    caller sees one "unknown" value rather than two spellings of it.
+
+    Reading it once per build and keying by experiment is deliberate: a fit
+    group can hold a hundred curves, and re-reading a sheet per curve would be
+    both slow and needlessly repeated.
+    """
+    _, summary = analyse(dataset_path=dataset_path, manifest_path=manifest_path,
+                         directory=directory)
+    designs = {}
+    for row in summary.to_dict("records"):
+        value = row["design"]
+        designs[int(row["experiment"])] = (
+            None if value is None or (isinstance(value, float) and np.isnan(value))
+            else str(value))
+    return designs
+
+
 def filename_enzyme_tag(filename):
     """
     What the filename claims: True with enzyme, False without, None if silent.
