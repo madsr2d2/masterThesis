@@ -8,6 +8,49 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-15 — Stage C Task 1: machinery only
+
+`PLAN_MECHANISM_DISCRIMINATION.md` Task 1.
+
+What was asked: build the three summaries for every live catalysed curve and
+measure their scatter, before any candidate exists.
+What was built: `SUMMARY_WINDOWS`, `window_slopes`, `curve_summaries`,
+`summary_table` and `summary_scatter` in `data/mechanism_discrimination.py`,
+and the A1 anchors in `data/test_mechanism_discrimination.py`.
+Bugs found: none.
+
+The curves (`summary_table`), by substrate and buffer:
+
+| substrate | curves | runs | Boric (curves/runs) | Phosphate | Pyrophosphate |
+|---|---|---|---|---|---|
+| 4OMe-BnOH | 147 | 38 | 40/10 | 92/23 | 15/5 |
+| BnOH | 164 | 31 | 27/7 | 19/5 | 118/19 |
+
+`summary_scatter` (q10/q50/q90 to 0.001, SDs to 0.001, counts exact):
+
+| substrate | summary | admitted | q10 / q50 / q90 | median_se | within_run_sd (df) |
+|---|---|---|---|---|---|
+| 4OMe-BnOH | L | 147 | -13.227 / -10.576 / -8.727 | 0.008 | 0.739 (109) |
+| 4OMe-BnOH | E | 145 | -0.623 / -0.025 / 0.539 | 0.004 | 0.279 (107) |
+| 4OMe-BnOH | D | 146 | -0.308 / -0.024 / 0.204 | 0.011 | 0.129 (108) |
+| BnOH | L | 158 | -14.627 / -11.978 / -10.212 | 0.024 | 0.919 (127) |
+| BnOH | E | 158 | -0.867 / 0.224 / 0.781 | 0.012 | 0.810 (127) |
+| BnOH | D | 156 | -0.416 / -0.095 / 0.435 | 0.034 | 0.447 (125) |
+
+Replicate (4OMe-BnOH), `replicate_sd (df, n)`: L 0.236 (12, 16); E 0.705 (12,
+16); D 0.132 (12, 16). BnOH has no `REPLICATE_RUNS` rows, so its `replicate_*`
+are NaN, 0, 0.
+
+Verdicts (from `summary_scatter`): machinery only.
+Degeneracy: none.
+Could overturn this: the summaries read windows that are fixed fractions of
+each run, so a run's length changes what its windows see; the replicate spread
+rests on one composition, one buffer and one pH, with 12 degrees of freedom.
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-15 (sixth entry) — Task 7b: Stage B cannot be read; both best fits are "degenerate: clocks outside the run window on 86 of 101 curves; flat coefficients: v_act:intercept[Boric], k_act_lag:intercept[Pyrophosphate]" (4OMe-BnOH) and "degenerate: clocks outside the run window on 66 of 102 curves; flat coefficients: v_act:intercept[Pyrophosphate], k_act_lag:intercept[Boric], k_act_lag:intercept[Phosphate], k_act_lag:intercept[Pyrophosphate], k_act_lag:a_H" (BnOH); both planted truths and the 4OMe-BnOH planted estimate are "not degenerate", the BnOH planted estimate is "degenerate: flat coefficients: k_act_lag:intercept[Phosphate]"; the laws add "less than 10%" over the law-free baseline, (4.6%) and (1.9%)
 
 `PLAN_CURVES_TO_MECHANISM.md` section 13a (Amendment 3), Task 7b.
