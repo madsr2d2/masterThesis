@@ -3,9 +3,13 @@
 Handover plan, written 2026-09-14. It replaces `PLAN_STEP3_REVISED.md` (removed;
 see git history) and everything after stage 3.1 of `PLAN_MECHANISM_NEXT_STEPS.md`.
 
-> **AMENDMENT 3 (2026-09-15). Tasks 5b, 6 and 7 are done (commits b242e19,
-> c2a16ca, a80eb33; STOP 2 reached). Resume at section 13a (Task 7b), which
-> ends at STOP 3.** Amendment 3 records why Stage B's fits cannot be read
+> **CLOSED (2026-09-15). This plan ended at STOP 3 (commit 031bccf). Stage C
+> continues in `PLAN_MECHANISM_DISCRIMINATION.md`. Do not resume any task
+> here.**
+>
+> **AMENDMENT 3 (2026-09-15), done.** Tasks 5b, 6 and 7 are done (commits b242e19,
+> c2a16ca, a80eb33; STOP 2 reached), and section 13a (Task 7b) ended at STOP 3.
+> Amendment 3 records why Stage B's fits cannot be read
 > (clocks outside the run window, flat coefficients, a law-free baseline the
 > laws barely beat, the scatter around Stage A's laws) and withdraws the
 > Stage B claims that rested on them. It fits nothing new.
