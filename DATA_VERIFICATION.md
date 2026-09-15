@@ -8,6 +8,78 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-15 (third entry) — Task 5b: link power, the one-buffer rule and Stage B's candidates
+
+`PLAN_CURVES_TO_MECHANISM.md` section 11b, added 2026-09-15.
+
+What was asked: record the link power at realistic noise, add the one-buffer
+rule to `shared_binding_law`, define Stage B's candidates exactly, and add a
+realistic planted recovery to Stage B.
+What was built: `data/rate_laws.py` (`_carrying_buffers` and the one-buffer
+check in `shared_binding_law`, `link_power`, `_coefficient_count`,
+`stage_b_candidates`); the tests `test_one_buffer_links_are_not_identified`,
+`test_link_power_anchors`, `test_stage_b_candidates_anchors` and
+`test_planted_global_is_recorded` (skipped until Task 7) in
+`data/test_rate_laws.py`; `data/fits/rate_laws/v2/link_power.json`.
+Bugs found: none.
+
+**Why.** Stage A's link tests were planted at noise 0.01, while real rows carry
+`sqrt(se^2 + 0.10^2)`. A review ran `shared_binding_law` on 4OMe-BnOH BUF at
+that noise: K = 0.003 and 0.3 gives "separate K predicts better" in 3 of 3
+seeds; K = 0.03 in both gives "one K ties with separate K" in 3 of 3; the real
+separate estimates 0.0999 and 0.00439 are caught in 4 of 5 seeds, seed 2 tied.
+The 4OMe-BnOH H link rests on one buffer: only 4 pyrophosphate runs (exps 127,
+129, 130 and 131) move [H2O2] (its `v_act` and `k_act_lag` tables each have one
+carrying buffer, Pyrophosphate). Stage B had only a strong planted test, and
+"simplest tied model" was never defined precisely.
+
+### The links, with power
+
+| link | verdict | power at the observed separation |
+|---|---|---|
+| 4OMe-BnOH BUF | one K ties with separate K | caught 4 of 5 at (0.0999, 0.00439), the tie at seed 2 |
+| 4OMe-BnOH H | not identified (one buffer) | -- |
+| BnOH BUF | not identified (K at bound) | -- |
+| BnOH H | one K ties with separate K | -- |
+
+The planted pairs: (0.003, 0.3) caught 3 of 3 (raw t 1.58-1.74, log t
+3.09-4.68); (0.03, 0.03) caught 0 of 3; (0.0999, 0.00439) caught 4 of 5, the
+tie at seed 2.
+
+### Stage B's candidates
+
+| substrate | element | best | simplest |
+|---|---|---|---|
+| 4OMe-BnOH | `v_act` | `S:power\|HOO:power\|BUF:bind\|T:arrhenius` | `S:power\|HOO:power\|T:arrhenius` |
+| 4OMe-BnOH | `k_act_lag` | `S:power\|E:power\|T:arrhenius` | `E:power\|T:arrhenius` |
+| 4OMe-BnOH | `k_act_burst` | `lag law + burst_offset` | `lag law + burst_offset` |
+| 4OMe-BnOH | `k_sink` | `S:power` | `''` |
+| BnOH | `v_act` | `S:mm\|H:power\|HOO:power\|BUF:power` | `HOO:power` |
+| BnOH | `k_act_lag` | `H:relax\|E:power` | `H:power` |
+| BnOH | `k_act_burst` | `S:power\|H:power\|HOO:power` | `''` |
+| BnOH | `k_sink` | `BUF:power` | `''` |
+
+Verdicts (from `shared_binding_law`, `link_power`, `stage_b_candidates`):
+`one K ties with separate K` (4OMe-BnOH BUF, BnOH H);
+`not identified (one buffer)` (4OMe-BnOH H);
+`not identified (K at bound)` (BnOH BUF); the candidate table above.
+Health flags: the BnOH BUF link carries `shared at bound: K_B`,
+`separate at bound: K_B`, `separate at bound: K_B`; no other link has any.
+Not identified: 4OMe-BnOH H's K_H (one buffer); BnOH BUF's K_B (at bound);
+4OMe-BnOH's `k_act_burst` has no fitted table (11 curves), so its Stage B
+candidate is the lag law plus one burst offset.
+Could overturn this: link power was measured with only buffer terms planted,
+while the real link fits carry each element's other terms, so the real power
+may be lower; a "ties" verdict at 4 of 5 power still has about a 1 in 5 chance
+of hiding a real difference.
+
+The 2026-09-15 Task 5 entry's 4OMe-BnOH H verdict ("one K ties with separate
+K") is superseded by "not identified (one buffer)".
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-15 (second entry) — Task 5: the links between the parameters, under the v2 tie rule and run-clustered errors
 
 `PLAN_CURVES_TO_MECHANISM.md` Tasks 5 and 5a. Three tests that couple the

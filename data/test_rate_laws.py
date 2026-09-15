@@ -534,6 +534,89 @@ def test_shared_binding_at_bound_is_not_identified():
           found["verdict"])
 
 
+def test_one_buffer_links_are_not_identified():
+    print("\nthe one-buffer rule")
+    found = rate_laws.shared_binding_law("4OMe-BnOH", "H")
+    check("4OMe-BnOH H is not identified (one buffer)",
+          found["verdict"] == "not identified (one buffer)", found["verdict"])
+
+
+def _link_power_anchors():
+    """The three A10 link-power runs, built once and read back after."""
+    path = os.path.join(rate_laws.RATE_LAW_DIR, "link_power.json")
+    reports = {}
+    for k_rate, k_clock, seeds in ((0.003, 0.3, (0, 1, 2)),
+                                   (0.03, 0.03, (0, 1, 2)),
+                                   (0.0999, 0.00439, (0, 1, 2, 3, 4))):
+        reports[(k_rate, k_clock)] = rate_laws.link_power(
+            "4OMe-BnOH", "BUF", k_rate, k_clock, seeds)
+    return path, reports
+
+
+def test_link_power_anchors():
+    print("\nthe link power, planted at realistic noise")
+    path, reports = _link_power_anchors()
+    check("the link-power record is saved", os.path.exists(path), path)
+    caught = {pair: report["caught"] for pair, report in reports.items()}
+    check("(0.003, 0.3) is caught 3 of 3",
+          caught[(0.003, 0.3)] == 3, str(caught[(0.003, 0.3)]))
+    check("(0.03, 0.03) is caught 0 of 3",
+          caught[(0.03, 0.03)] == 0, str(caught[(0.03, 0.03)]))
+    check("(0.0999, 0.00439) is caught 4 of 5",
+          caught[(0.0999, 0.00439)] == 4, str(caught[(0.0999, 0.00439)]))
+    detail = reports[(0.0999, 0.00439)]["detail"]
+    check("the one tie at the observed separation is seed 2",
+          detail["2"]["verdict"] != "separate K predicts better",
+          detail["2"]["verdict"])
+
+
+def test_stage_b_candidates_anchors():
+    print("\nStage B's candidates (A10)")
+    expected = {
+        "4OMe-BnOH": {
+            "v_act": ("S:power|HOO:power|BUF:bind|T:arrhenius",
+                      "S:power|HOO:power|T:arrhenius"),
+            "k_act_lag": ("S:power|E:power|T:arrhenius",
+                          "E:power|T:arrhenius"),
+            "k_act_burst": ("lag law + burst_offset",
+                            "lag law + burst_offset"),
+            "k_sink": ("S:power", ""),
+        },
+        "BnOH": {
+            "v_act": ("S:mm|H:power|HOO:power|BUF:power", "HOO:power"),
+            "k_act_lag": ("H:relax|E:power", "H:power"),
+            "k_act_burst": ("S:power|H:power|HOO:power", ""),
+            "k_sink": ("BUF:power", ""),
+        },
+    }
+    for substrate, per_element in expected.items():
+        found = rate_laws.stage_b_candidates(substrate)
+        for element, (best, simplest) in per_element.items():
+            row = found["elements"][element]
+            check(f"{substrate} {element} best is {best}", row["best"] == best,
+                  row["best"])
+            check(f"{substrate} {element} simplest is {simplest}",
+                  row["simplest"] == simplest, row["simplest"])
+
+
+def test_planted_global_is_recorded():
+    print("\nthe planted global records")
+    paths = {substrate: os.path.join(rate_laws.RATE_LAW_DIR,
+                                     f"planted_global_{substrate}.json")
+             for substrate in _SUBSTRATES}
+    if not all(os.path.exists(path) for path in paths.values()):
+        print("  skipped until Task 7")
+        return
+    keys = ("truth", "estimate", "stderr_clustered", "within_2se", "health",
+            "tie", "tie_statistics", "best", "tied")
+    for substrate, path in paths.items():
+        with open(path) as handle:
+            report = json.load(handle)
+        missing = [key for key in keys if key not in report]
+        check(f"{substrate} planted global has every key", not missing,
+              str(missing))
+
+
 if __name__ == "__main__":
     test_the_archive_anchors()
     test_the_substrate_anchors()
@@ -556,6 +639,10 @@ if __name__ == "__main__":
     test_shared_binding_on_a_planted_pre_equilibrium()
     test_separate_binding_is_detected()
     test_shared_binding_at_bound_is_not_identified()
+    test_one_buffer_links_are_not_identified()
+    test_link_power_anchors()
+    test_stage_b_candidates_anchors()
+    test_planted_global_is_recorded()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)

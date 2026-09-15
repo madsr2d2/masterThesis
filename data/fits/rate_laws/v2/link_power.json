@@ -1,0 +1,167 @@
+{
+ "4OMe-BnOH|BUF|0.003|0.3|0,1,2": {
+  "caught": 3,
+  "detail": {
+   "0": {
+    "folds": 33,
+    "log_t": 3.0947463348753366,
+    "raw_t": 1.6148652463910795,
+    "separate_k": [
+     0.004005281549840548,
+     0.26318046237866927
+    ],
+    "shared_k": 0.026573539391822807,
+    "verdict": "separate K predicts better"
+   },
+   "1": {
+    "folds": 33,
+    "log_t": 4.266543964097611,
+    "raw_t": 1.5774731941409061,
+    "separate_k": [
+     0.0032512089737074513,
+     0.3179486848850745
+    ],
+    "shared_k": 0.024347690471864185,
+    "verdict": "separate K predicts better"
+   },
+   "2": {
+    "folds": 33,
+    "log_t": 4.676199052504813,
+    "raw_t": 1.7434556577079017,
+    "separate_k": [
+     0.0021952147310851686,
+     0.2265660497948291
+    ],
+    "shared_k": 0.0204471774087274,
+    "verdict": "separate K predicts better"
+   }
+  },
+  "family": "BUF",
+  "k_clock": 0.3,
+  "k_rate": 0.003,
+  "seeds": [
+   0,
+   1,
+   2
+  ],
+  "substrate": "4OMe-BnOH"
+ },
+ "4OMe-BnOH|BUF|0.03|0.03|0,1,2": {
+  "caught": 0,
+  "detail": {
+   "0": {
+    "folds": 33,
+    "log_t": 1.2030474768151107,
+    "raw_t": 0.4567394924430286,
+    "separate_k": [
+     0.03799891756091799,
+     0.02719802785135299
+    ],
+    "shared_k": 0.0329003918896268,
+    "verdict": "one K ties with separate K"
+   },
+   "1": {
+    "folds": 33,
+    "log_t": -1.308938644275588,
+    "raw_t": -0.9664192996338669,
+    "separate_k": [
+     0.031766262604897025,
+     0.02877419197149404
+    ],
+    "shared_k": 0.030489938301012515,
+    "verdict": "one K ties with separate K"
+   },
+   "2": {
+    "folds": 33,
+    "log_t": -1.1333676165742976,
+    "raw_t": -1.0402895445113487,
+    "separate_k": [
+     0.025978955898475743,
+     0.025966685258489972
+    ],
+    "shared_k": 0.025973517245971075,
+    "verdict": "one K ties with separate K"
+   }
+  },
+  "family": "BUF",
+  "k_clock": 0.03,
+  "k_rate": 0.03,
+  "seeds": [
+   0,
+   1,
+   2
+  ],
+  "substrate": "4OMe-BnOH"
+ },
+ "4OMe-BnOH|BUF|0.0999|0.00439|0,1,2,3,4": {
+  "caught": 4,
+  "detail": {
+   "0": {
+    "folds": 33,
+    "log_t": 2.870283713025363,
+    "raw_t": 1.6369667003208768,
+    "separate_k": [
+     0.1338329902183001,
+     0.003702900327510589
+    ],
+    "shared_k": 0.03247509915793331,
+    "verdict": "separate K predicts better"
+   },
+   "1": {
+    "folds": 33,
+    "log_t": 2.9932679789433934,
+    "raw_t": 1.7273014796030943,
+    "separate_k": [
+     0.10684022536193706,
+     0.0034827576302423977
+    ],
+    "shared_k": 0.030013926910839737,
+    "verdict": "separate K predicts better"
+   },
+   "2": {
+    "folds": 33,
+    "log_t": 0.906248993127089,
+    "raw_t": 1.5982807026687762,
+    "separate_k": [
+     0.08598255707081236,
+     0.003828725431305832
+    ],
+    "shared_k": 0.02543454426042314,
+    "verdict": "one K ties with separate K"
+   },
+   "3": {
+    "folds": 33,
+    "log_t": 2.669096663166171,
+    "raw_t": 1.6479283405065652,
+    "separate_k": [
+     0.10448166683010007,
+     0.0035436870609510747
+    ],
+    "shared_k": 0.0276044526932092,
+    "verdict": "separate K predicts better"
+   },
+   "4": {
+    "folds": 33,
+    "log_t": 2.5249637288191846,
+    "raw_t": 1.6270001302354224,
+    "separate_k": [
+     0.1271364691612501,
+     0.005827668622376558
+    ],
+    "shared_k": 0.03452435179905889,
+    "verdict": "separate K predicts better"
+   }
+  },
+  "family": "BUF",
+  "k_clock": 0.00439,
+  "k_rate": 0.0999,
+  "seeds": [
+   0,
+   1,
+   2,
+   3,
+   4
+  ],
+  "substrate": "4OMe-BnOH"
+ }
+}

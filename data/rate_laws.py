@@ -1214,6 +1214,155 @@ def _binding_cross_validate(tables, models, name, shared,
     return scores, skipped
 
 
+def _carrying_buffers(table, family):
+    """
+    The buffers whose own rows move the family's concentration.
+
+    A buffer carries `BUF` or `H` if it has at least 2 curves and the log of
+    the family's concentration ([buf] or [H2O2]), after removing that buffer's
+    own mean, has SD 0.05 or more. A constant identified inside one buffer's
+    runs cannot be separated from that buffer, so a link needs two carriers.
+    """
+    column = {"BUF": "buf", "H": "h2o2"}[family]
+    carrying = []
+    for buffer in sorted(set(table.buffer)):
+        rows = table[table.buffer == buffer]
+        values = np.log(rows[column].to_numpy(dtype=float))
+        if len(rows) >= 2 and float(np.std(values - values.mean())) >= 0.05:
+            carrying.append(buffer)
+    return carrying
+
+
+def link_power(substrate, family, k_rate, k_clock, seeds):
+    """
+    How often the link detects two different Ks at realistic noise.
+
+    For each seed, plants `v_act` as `log(k_rate x/(1 + k_rate x))` and
+    `k_act_lag` as `log(1 + k_clock x)` on the real element tables (x = [buf]
+    for BUF, [H2O2] for H), with the real rows' own `sqrt(se^2 + SE_FLOOR^2)`
+    as the noise SD, and runs `shared_binding_law` on the planted pair. Returns
+    per seed the verdict, the shared and separate Ks, and the raw and log paired
+    t of the shared-minus-separate fold scores, plus `caught`, the number of
+    seeds whose verdict is `"separate K predicts better"`.
+
+    Saves `data/fits/rate_laws/v2/link_power.json`, one entry per
+    (substrate, family, k_rate, k_clock, seeds), and reads it back if it
+    already holds that entry.
+    """
+    key = (f"{substrate}|{family}|{k_rate}|{k_clock}|"
+           + ",".join(str(seed) for seed in seeds))
+    path = os.path.join(RATE_LAW_DIR, "link_power.json")
+    saved = {}
+    if os.path.exists(path):
+        with open(path) as handle:
+            saved = json.load(handle)
+    if key in saved:
+        return saved[key]
+    parameters = curve_parameters(substrate)
+    rate_table = parameters["elements"]["v_act"]
+    clock_table = parameters["elements"]["k_act_lag"]
+    intercept = {"Boric": 0.0, "Phosphate": -0.5, "Pyrophosphate": 0.5}
+    column = {"BUF": "buf", "H": "h2o2"}[family]
+    detail = {}
+    for seed in seeds:
+        generator = np.random.default_rng(seed)
+        planted = {}
+        for element, table, constant in (("v_act", rate_table, k_rate),
+                                         ("k_act_lag", clock_table, k_clock)):
+            x = table[column].to_numpy(dtype=float)
+            spread = np.sqrt(table.se.to_numpy(dtype=float) ** 2
+                             + SE_FLOOR ** 2)
+            trend = (np.log(constant * x / (1.0 + constant * x))
+                     if element == "v_act" else np.log1p(constant * x))
+            copy = table.copy()
+            copy["y"] = (np.array([intercept[buffer] for buffer in copy.buffer])
+                         + trend + generator.normal(0.0, spread))
+            planted[element] = copy
+        found = shared_binding_law(substrate, family,
+                                   rate_table=planted["v_act"],
+                                   clock_table=planted["k_act_lag"])
+        row = {"verdict": found["verdict"], "shared_k": found["shared_k"],
+               "separate_k": found["separate_k"]}
+        if found["scores"] is not None:
+            scores = found["scores"]
+            difference = scores.loc["shared"] - scores.loc["separate"]
+            logged = (np.log(scores.clip(lower=TIE_LOG_FLOOR))
+                      .loc["shared"] - np.log(scores.clip(lower=TIE_LOG_FLOOR))
+                      .loc["separate"])
+            folds = len(difference)
+            row["raw_t"] = float(difference.mean()
+                                 / (difference.std(ddof=1) / np.sqrt(folds)))
+            row["log_t"] = float(logged.mean()
+                                 / (logged.std(ddof=1) / np.sqrt(folds)))
+            row["folds"] = int(folds)
+        detail[str(seed)] = row
+    report = {"substrate": substrate, "family": family, "k_rate": k_rate,
+              "k_clock": k_clock, "seeds": list(seeds), "detail": detail,
+              "caught": int(sum(1 for row in detail.values()
+                                if row["verdict"] == "separate K predicts better"))}
+    saved[key] = report
+    with open(path, "w") as handle:
+        json.dump(saved, handle, default=float, indent=1, sort_keys=True)
+    return report
+
+
+def _coefficient_count(model, buffers):
+    """
+    The coefficients a model's law carries: every family option one,
+    `power_by_buffer` one per buffer in the table, intercepts none.
+    """
+    count = 0
+    for option in model.values():
+        if option is None:
+            continue
+        count += len(buffers) if option == "power_by_buffer" else 1
+    return count
+
+
+def stage_b_candidates(substrate):
+    """
+    Stage B's candidate laws, from the `v2` `_all` saves, per element.
+
+    `best` is the lowest CV total among the tied models; `simplest` the fewest
+    coefficients (ties broken by the lower CV total; the empty model is
+    allowed). A substrate without a fitted `k_act_burst` table gets the
+    fallback `"lag law + burst_offset"` for both. `combinations` is every
+    choice of one candidate per element, with `k_sink` also None.
+    """
+    parameters = curve_parameters(substrate)
+    elements = {}
+    for element in ELEMENTS:
+        path = os.path.join(RATE_LAW_DIR, f"{substrate}_{element}_all.json")
+        if not os.path.exists(path):
+            if element != "k_act_burst":
+                raise FileNotFoundError(path)
+            elements[element] = {"best": "lag law + burst_offset",
+                                 "simplest": "lag law + burst_offset",
+                                 "candidates": ["lag law + burst_offset"]}
+            continue
+        report = search(substrate, element, workers=1)
+        tied = report["tie"]
+        buffers = sorted(set(parameters["elements"][element].buffer))
+        scores = report["scores"]
+        best = min(tied, key=lambda identifier: scores[identifier])
+        counts = {identifier: _coefficient_count(_parse_model_id(identifier),
+                                                 buffers)
+                  for identifier in tied}
+        simplest = min(tied, key=lambda identifier: (counts[identifier],
+                                                     scores[identifier]))
+        candidates = [best] if best == simplest else [best, simplest]
+        elements[element] = {"best": best, "simplest": simplest,
+                             "candidates": candidates}
+    combinations = []
+    sinks = list(elements["k_sink"]["candidates"]) + [None]
+    for rate, lag, burst, sink in itertools.product(
+            elements["v_act"]["candidates"], elements["k_act_lag"]["candidates"],
+            elements["k_act_burst"]["candidates"], sinks):
+        combinations.append({"v_act": rate, "k_act_lag": lag,
+                             "k_act_burst": burst, "k_sink": sink})
+    return {"elements": elements, "combinations": combinations}
+
+
 def shared_binding_law(substrate, family, rate_table=None, clock_table=None):
     """
     Do `v_act`'s bind and `k_act_lag`'s relax share ONE binding constant?
@@ -1223,10 +1372,12 @@ def shared_binding_law(substrate, family, rate_table=None, clock_table=None):
     both. Each element takes its own best tied model, its family option forced
     to `bind` (v_act) or `relax` (k_act_lag), and the joint fit is scored by
     leave-one-run-out over the runs present in either table, one K shared
-    against one K each. If the shared K or either separate K sits within 0.05
-    of a log10 bound the verdict is `"not identified (K at bound)"`, checked
-    before the tie rule; otherwise the verdict is the Task 4 tie rule on the
-    two variants.
+    against one K each. Three checks, in this order: if the shared K or either
+    separate K sits within 0.05 of a log10 bound the verdict is
+    `"not identified (K at bound)"`; if either table has fewer than two buffers
+    whose own rows move the family's concentration the verdict is
+    `"not identified (one buffer)"`; otherwise the verdict is the Task 4 tie
+    rule on the two variants.
 
     Named `shared_binding_law` because `saturation.shared_binding` already
     holds the plan's `shared_binding` name. `rate_table` and `clock_table`
@@ -1268,6 +1419,11 @@ def shared_binding_law(substrate, family, rate_table=None, clock_table=None):
     }
     if any(entry.endswith(f"at bound: {name}") for entry in health):
         report.update({"verdict": "not identified (K at bound)", "scores": None,
+                       "shared_skipped": None, "separate_skipped": None})
+        return report
+    if (len(_carrying_buffers(rate_table, family)) < 2
+            or len(_carrying_buffers(clock_table, family)) < 2):
+        report.update({"verdict": "not identified (one buffer)", "scores": None,
                        "shared_skipped": None, "separate_skipped": None})
         return report
     shared_scores, shared_skipped = _binding_cross_validate(
