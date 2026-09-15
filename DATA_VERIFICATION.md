@@ -8,6 +8,56 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-15 (fourth entry) — Task 6: the global analytic fitter, its strong planted recovery and the pilot
+
+`PLAN_CURVES_TO_MECHANISM.md` Task 6, with Amendment 1 change 8 and
+Amendment 2 change 6.
+
+What was asked: fit the activation-sink form to many curves at once, with
+`v_act`, `k_act` and `k` given by rate laws and `c` and `v0` free per curve; a
+strong planted recovery (A4); and a pilot for A5.
+What was built: `data/rate_laws.py` (`_global_curves`, `_global_subset`,
+`_global_layout`, `_global_x`, `_global_terms`, `_global_readings`,
+`_global_stack`, `_stage_a_starts`, `global_fit`, `global_fit_health`,
+`global_cross_validate`, `stage_shift`, `amplitude_verdict`, `_laws_id`,
+`_truth_coefficients`, `planted_global`); the tests
+`test_a_strong_planted_global_model_is_recovered` and
+`test_c_and_v0_are_per_curve` in `data/test_rate_laws.py`.
+Bugs found: `_global_stack` and the cross-validation prediction reconstructed
+the model without the `v_act·g` term, so the planted truth's cost read 1.6e8
+where it is 4e-24 and the A4 fit wandered to absurd coefficients; both now add
+the term. The log predictions are clipped at +/-100 as a numerical guard: the
+unconstrained optimiser reached an exponent overflow and aborted the run; the
+clip leaves every realistic rate (log AU/s -14 to -5) untouched.
+
+**A4.** The strong planted model of the plan on the 101 4OMe-BnOH curves
+(`v_act` `S:power` 0.8 / `BUF:power` 0.5, intercepts -13 / -12.5 / -12;
+`k_act_lag` intercepts -6.5 / `BUF:power` 0.3; `k_act_burst` intercepts -7.5;
+`k_sink` None), readings at 0.1x each curve's noise (seed 0), started at the
+truth + 0.5: every coefficient within 0.05 of the truth, no health flags.
+
+**`c` and `v0` per curve.** Two curves under one law recover their own `c` and
+`v0` to below 1e-8.
+
+**Pilot (A5).** The largest candidate: `global_fit` 50.3 s (4OMe-BnOH) and
+46.1 s (BnOH); one `global_cross_validate` fold 113.1 s (4OMe-BnOH) and 35.9 s
+(BnOH). Projection over 12 and 24 candidates and 32 and 31 folds, at 8
+workers: 1.5 h + 1.0 h for the real fits; `planted_global` at about twice the
+real fits adds about 5 h. Total about 7.5 h, under A5's 12-hour bar.
+
+Verdicts (from `global_fit_health`, `stage_b_candidates`): A4 recovered; the
+pilot inside A5's bar.
+Health flags: the largest candidates' full fits carry none.
+Not identified: none at this stage.
+Could overturn this: the planted recovery is one seed per substrate, with the
+best candidate as its truth; a coefficient recovered there may not be recovered
+under a different truth; the 94 curves the form cannot hold are not in the
+fit; Stage A's candidate set limits Stage B's.
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-15 (third entry) — Task 5b: link power, the one-buffer rule and Stage B's candidates
 
 `PLAN_CURVES_TO_MECHANISM.md` section 11b, added 2026-09-15.

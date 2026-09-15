@@ -617,6 +617,78 @@ def test_planted_global_is_recorded():
               str(missing))
 
 
+def test_a_strong_planted_global_model_is_recovered():
+    """A4: the global fitter must recover a strong planted model."""
+    print("\nthe strong planted global model (A4)")
+    data = rate_laws._global_curves("4OMe-BnOH")
+    laws = {"v_act": "S:power|BUF:power", "k_act_lag": "BUF:power",
+            "k_act_burst": "", "k_sink": None}
+    layout = rate_laws._global_layout(data["rows"], laws)
+    truth = {}
+    for law in ("v_act", "k_act_lag", "k_act_burst"):
+        for buffer in sorted(set(data["rows"].buffer)):
+            truth[f"{law}:intercept[{buffer}]"] = (
+                -13.0 if law == "v_act" else
+                -6.5 if law == "k_act_lag" else -7.5)
+    truth["v_act:a_S"] = 0.8
+    truth["v_act:a_B"] = 0.5
+    truth["k_act_lag:a_B"] = 0.3
+    x = rate_laws._global_x(layout, truth)
+    log_v_act, _, _ = rate_laws._global_terms(x, layout, data["rows"])
+    v_act = np.exp(log_v_act)
+    family = data["rows"].family.to_numpy()
+    v0 = np.where(family == "lag", 0.3 * v_act, 3.0 * v_act)
+    c = np.zeros(len(data["rows"]))
+    readings = rate_laws._global_readings(data, layout, x, c, v0)
+    generator = np.random.default_rng(0)
+    planted = dict(data)
+    planted["values"] = [model + generator.normal(0.0, 0.1 * noise)
+                         for model, noise in zip(readings, data["noise"])]
+    starts = {key: value + 0.5 for key, value in truth.items()}
+    result = rate_laws.global_fit("4OMe-BnOH", laws, curves=planted,
+                                  starts=starts, restarts=0)
+    wrong = {key: (value, result["coefficients"][key])
+             for key, value in truth.items()
+             if abs(result["coefficients"][key] - value) > 0.05}
+    check("every coefficient within 0.05 of the truth", not wrong, str(wrong))
+    check("no health flags", not result["health"]["flags"],
+          str(result["health"]["flags"]))
+
+
+def test_c_and_v0_are_per_curve():
+    print("\nc and v0 are per curve")
+    data = rate_laws._global_curves("4OMe-BnOH")
+    family = data["rows"].family.to_numpy()
+    lag = int(np.where(family == "lag")[0][0])
+    burst = int(np.where(family == "burst")[0][0])
+    two = {"rows": data["rows"].iloc[[lag, burst]].reset_index(drop=True),
+           "times": [data["times"][lag], data["times"][burst]],
+           "values": [data["values"][lag], data["values"][burst]],
+           "noise": [data["noise"][lag], data["noise"][burst]],
+           "dropped_nonpositive": 0}
+    laws = {"v_act": "S:power", "k_act_lag": "E:power",
+            "k_act_burst": "", "k_sink": None}
+    layout = rate_laws._global_layout(two["rows"], laws)
+    truth = {}
+    for law in ("v_act", "k_act_lag", "k_act_burst"):
+        for buffer in sorted(set(two["rows"].buffer)):
+            truth[f"{law}:intercept[{buffer}]"] = (
+                -11.0 if law == "v_act" else
+                -6.0 if law == "k_act_lag" else -7.0)
+    truth["v_act:a_S"] = 0.5
+    truth["k_act_lag:a_E"] = 1.0
+    x = rate_laws._global_x(layout, truth)
+    log_v_act, _, _ = rate_laws._global_terms(x, layout, two["rows"])
+    v_act = np.exp(log_v_act)
+    v0 = np.array([0.2 * v_act[0], 2.0 * v_act[1]])
+    c = np.array([0.01, -0.02])
+    two["values"] = rate_laws._global_readings(two, layout, x, c, v0)
+    residuals, models, _ = rate_laws._global_stack(x, layout, two)
+    worst = max(float(np.max(np.abs(residual))) for residual in residuals)
+    check("both curves' own c and v0 are fitted to 1e-8", worst < 1e-8,
+          str(worst))
+
+
 if __name__ == "__main__":
     test_the_archive_anchors()
     test_the_substrate_anchors()
@@ -642,6 +714,8 @@ if __name__ == "__main__":
     test_one_buffer_links_are_not_identified()
     test_link_power_anchors()
     test_stage_b_candidates_anchors()
+    test_a_strong_planted_global_model_is_recovered()
+    test_c_and_v0_are_per_curve()
     test_planted_global_is_recorded()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))

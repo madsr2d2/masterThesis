@@ -60,6 +60,7 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import pandas as pd
 from scipy.optimize import least_squares
+from scipy.stats import qmc
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -67,6 +68,7 @@ sys.path.insert(0, HERE)
 import activation_sink
 import fit_dataset
 import scope
+import summary_kinetics
 
 # The four element tables, in the order the plan lists them.
 ELEMENTS = ("v_act", "k_act_lag", "k_act_burst", "k_sink")
@@ -131,6 +133,13 @@ _GAS_CONSTANT = 8.314462618       # J/(mol K), for Ea in kJ/mol
 # logarithm. Fold scores are non-negative weighted sums and a fold can score
 # exactly zero, which has no logarithm.
 TIE_LOG_FLOOR = 1e-12
+
+# A numerical guard, not a constraint: the global fitter's optimiser may
+# wander to coefficients whose exponent overflows before it turns back, and a
+# NaN in the residual aborts the run. Clipping the LOG predictions at +/-100
+# leaves every realistic rate (log AU/s from -14 to -5) untouched and only
+# bounds what an overflow would otherwise do.
+_LOG_RATE_CLIP = 100.0
 # Where a nonlinear constant is sampled when the question is whether the
 # DESIGN can identify it: if no log10 K on this grid varies the regressor, no
 # K can. `_term_terms` takes log10 K, as `law_design` does.
@@ -1638,3 +1647,577 @@ def barriers(substrate="4OMe-BnOH"):
                else "barriers differ by more than 2 standard errors: "
                     + ", ".join(pairs))
     return {"verdict": verdict, "elements": rows, "pairs": pairs}
+
+
+# --- the global analytic fit (Tasks 6-7) ------------------------------------
+
+
+_GLOBAL_LAWS = ("v_act", "k_act_lag", "k_act_burst", "k_sink")
+
+
+def _global_curves(substrate):
+    """
+    The curves Stage B fits: section 3's rows with `v_act > 0`, each with its
+    own times, gas-corrected readings and noise.
+
+    Whether an element resolved on a curve does not matter here -- Stage B fits
+    the readings, and a curve with an unresolved element still constrains the
+    laws through its other elements and its own shape. Curves the sink form
+    cannot hold are already out; the exclusion here is counted in
+    `dropped_nonpositive`.
+    """
+    parameters = curve_parameters(substrate)
+    rows = parameters["rows"]
+    dropped = int((rows.v_act <= 0).sum())
+    rows = rows[rows.v_act > 0].reset_index(drop=True)
+    fits = scope.fits(scope.archive())
+    times, values, noise = [], [], []
+    for row in rows.itertuples():
+        fit = fits[(int(row.experiment), int(row.sample))]
+        times.append(np.asarray(fit.times, dtype=float))
+        values.append(np.asarray(fit.corrected, dtype=float))
+        noise.append(float(fit.noise))
+    return {"substrate": substrate, "rows": rows, "times": times,
+            "values": values, "noise": noise, "dropped_nonpositive": dropped}
+
+
+def _global_subset(curves, keep):
+    """The same curve set, restricted to a boolean mask over its rows."""
+    index = np.where(keep)[0]
+    return {"substrate": curves["substrate"],
+            "rows": curves["rows"].iloc[index].reset_index(drop=True),
+            "times": [curves["times"][i] for i in index],
+            "values": [curves["values"][i] for i in index],
+            "noise": [curves["noise"][i] for i in index],
+            "dropped_nonpositive": 0}
+
+
+def _global_layout(rows, laws):
+    """
+    Stage B's coefficient layout for one candidate on one curve set.
+
+    `laws` maps each element to a model id (`""` is the intercepts-only
+    model), `None` for `k_sink` only, or the string
+    `"lag law + burst_offset"` where a substrate's `k_act_burst` table was too
+    small. Returns the parsed models, the fallback flag, and `entries`: one
+    `(key, kind, law, name)` per global coefficient -- the nonlinear constants
+    first per law, the burst offset last. `key` is the coefficient's name
+    everywhere downstream.
+    """
+    fallback = laws.get("k_act_burst") == "lag law + burst_offset"
+    models, entries = {}, []
+    for law in _GLOBAL_LAWS:
+        if law == "k_act_burst" and fallback:
+            continue
+        identifier = laws.get(law)
+        model = None if identifier is None else _parse_model_id(identifier)
+        models[law] = model
+        if model is None:
+            continue
+        nonlinear = _nonlinear_names_for_model(model)
+        for name in nonlinear:
+            entries.append((f"{law}:log10({name})", "nonlinear", law, name))
+        _, names, _, _ = law_design(rows, model,
+                                    {name: 0.0 for name in nonlinear})
+        for name in names:
+            entries.append((f"{law}:{name}", "linear", law, name))
+    if fallback:
+        entries.append(("burst_offset", "offset", "k_act_burst",
+                        "burst_offset"))
+    return {"models": models, "fallback": fallback, "entries": entries}
+
+
+def _global_x(layout, values):
+    """The global vector for a {key: value} dict, missing keys at 0.0."""
+    return np.array([float(values.get(key, 0.0))
+                     for key, _, _, _ in layout["entries"]])
+
+
+def _global_terms(x, layout, rows):
+    """(log v_act, log k_act, log k) per row at a global vector."""
+    values = {key: float(value)
+              for (key, _, _, _), value in zip(layout["entries"], x)}
+    predictions = {}
+    for law, model in layout["models"].items():
+        if model is None:
+            continue
+        nonlinear = {name: values[f"{law}:log10({name})"]
+                     for name in _nonlinear_names_for_model(model)}
+        matrix, names, offset, _ = law_design(rows, model, nonlinear)
+        beta = np.array([values[f"{law}:{name}"] for name in names])
+        predictions[law] = matrix @ beta + offset
+    log_v_act = predictions["v_act"]
+    is_lag = (rows.family == "lag").to_numpy()
+    if layout["fallback"]:
+        log_k_act = predictions["k_act_lag"] + np.where(
+            is_lag, 0.0, values["burst_offset"])
+    else:
+        log_k_act = np.where(is_lag, predictions["k_act_lag"],
+                             predictions["k_act_burst"])
+    if layout["models"].get("k_sink") is None:
+        log_k = np.full(len(rows), -np.inf)
+    else:
+        log_k = np.clip(predictions["k_sink"], -_LOG_RATE_CLIP, _LOG_RATE_CLIP)
+    return (np.clip(log_v_act, -_LOG_RATE_CLIP, _LOG_RATE_CLIP),
+            np.clip(log_k_act, -_LOG_RATE_CLIP, _LOG_RATE_CLIP),
+            log_k)
+
+
+def _global_readings(curves, layout, x, c, v0):
+    """The model's readings for every curve at a global vector, each curve
+    with its own `c` and `v0`."""
+    rows, times = curves["rows"], curves["times"]
+    log_v_act, log_k_act, log_k = _global_terms(x, layout, rows)
+    readings = []
+    for index, curve_times in enumerate(times):
+        v_act = float(np.exp(log_v_act[index]))
+        tau = float(1.0 / np.exp(log_k_act[index]))
+        k = float(np.exp(log_k[index])) if np.isfinite(log_k[index]) else 0.0
+        h, g = summary_kinetics._activation_sink_columns(curve_times, tau, k)
+        readings.append(c[index] + v0[index] * h[0] + v_act * g[0])
+    return readings
+
+
+def _global_stack(x, layout, curves):
+    """(residuals, models, terms) at a global vector.
+
+    Per curve the `(c, v0)` pair is solved out: a lstsq of
+    `readings - v_act g` on `[1, h]`, so the stacked residual is orthogonal to
+    the curve's own offset and initial rate.
+    """
+    rows, times, values, noise = (curves["rows"], curves["times"],
+                                  curves["values"], curves["noise"])
+    log_v_act, log_k_act, log_k = _global_terms(x, layout, rows)
+    residuals, models = [], []
+    for index, curve_times in enumerate(times):
+        v_act = float(np.exp(log_v_act[index]))
+        tau = float(1.0 / np.exp(log_k_act[index]))
+        k = float(np.exp(log_k[index])) if np.isfinite(log_k[index]) else 0.0
+        h, g = summary_kinetics._activation_sink_columns(curve_times, tau, k)
+        target = values[index] - v_act * g[0]
+        design = np.column_stack([np.ones_like(curve_times), h[0]])
+        beta, *_ = np.linalg.lstsq(design, target, rcond=None)
+        model = design @ beta + v_act * g[0]
+        residuals.append((values[index] - model)
+                         / (noise[index] * np.sqrt(len(curve_times))))
+        models.append(model)
+    return residuals, models, (log_v_act, log_k_act, log_k)
+
+
+def _stage_a_starts(substrate, layout):
+    """Stage A's coefficient estimates for a layout, as a {key: value} dict."""
+    parameters = curve_parameters(substrate)
+    starts = {}
+    for law, model in layout["models"].items():
+        if model is None:
+            continue
+        table = parameters["elements"][law]
+        if len(table) < 15:
+            continue
+        fit = fit_model(table, model)
+        for name, value in fit["coefficients"].items():
+            starts[f"{law}:{name}"] = float(value)
+    if layout["fallback"]:
+        starts["burst_offset"] = 0.0
+    return starts
+
+
+def global_fit(substrate, laws, curves=None, starts=None, restarts=4):
+    """
+    The activation-sink form fitted to many curves at once, its parameters
+    replaced by Stage A's rate laws.
+
+    `laws` is one candidate: a model id per element, `None` for `k_sink`
+    (meaning k = 0 everywhere) or the fallback string for `k_act_burst`.
+    `curves` overrides the curve set (a `_global_curves` dict, readings
+    replaced where planted). Each curve's `c` and `v0` are free and solved by
+    lstsq inside every residual evaluation; the global coefficients -- every
+    law's intercepts, orders, `Ea/R` and log10 K -- are optimised by
+    `scipy.optimize.least_squares` on the stacked residuals. `starts` overrides
+    Stage A's estimates; `restarts` Latin-hypercube draws within +/-1 are added
+    (log10 K is bounded at (-4, 4), so a draw is clipped).
+
+    Returns the coefficients under their law-prefixed keys, the naive and
+    run-clustered standard errors, the cost, per-curve rms in units of noise,
+    per-curve `net_data` and `net_model`, `converged`, `health`, and the
+    underscore keys the later steps read.
+    """
+    data = _global_curves(substrate) if curves is None else curves
+    rows = data["rows"]
+    layout = _global_layout(rows, laws)
+    keys = [key for key, _, _, _ in layout["entries"]]
+    base = _stage_a_starts(substrate, layout) if starts is None else {
+        key: float(value) for key, value in starts.items()}
+    x0 = np.array([base.get(key, 0.0) for key in keys])
+    kinds = [kind for _, kind, _, _ in layout["entries"]]
+    lower = np.array([NONLINEAR_BOUNDS[0] if kind == "nonlinear" else -np.inf
+                      for kind in kinds])
+    upper = np.array([NONLINEAR_BOUNDS[1] if kind == "nonlinear" else np.inf
+                      for kind in kinds])
+    starts_list = [np.clip(x0, lower, upper)]
+    if restarts > 0:
+        sampler = qmc.LatinHypercube(d=len(keys), seed=0)
+        for draw in sampler.random(restarts):
+            starts_list.append(np.clip(x0 + (2.0 * draw - 1.0), lower, upper))
+
+    def objective(x):
+        residuals, _, _ = _global_stack(x, layout, data)
+        return np.concatenate(residuals)
+
+    best = None
+    for start in starts_list:
+        solution = least_squares(objective, start, bounds=(lower, upper),
+                                 x_scale="jac")
+        cost = float(2.0 * solution.cost)
+        if best is None or cost < best["cost"]:
+            best = {"x": solution.x, "cost": cost,
+                    "success": bool(solution.success), "jacobian": solution.jac}
+    x = best["x"]
+    residuals, models, _ = _global_stack(x, layout, data)
+    stacked = np.concatenate(residuals)
+    jacobian = best["jacobian"]
+    bread = np.linalg.pinv(jacobian.T @ jacobian)
+    degrees = max(1, len(stacked) - len(x))
+    variance = float(np.sum(stacked ** 2)) / degrees
+    errors = np.sqrt(np.maximum(np.diag(bread) * variance, 0.0))
+    safe = np.where(errors > 0, errors, np.inf)
+    correlation = bread * variance / np.outer(safe, safe)
+    spans, start = [], 0
+    for index, run in enumerate(rows.experiment.to_numpy()):
+        length = len(data["times"][index])
+        spans.append((int(run), slice(start, start + length)))
+        start += length
+    groups = sorted({run for run, _ in spans})
+    meat = np.zeros((len(x), len(x)))
+    for run in groups:
+        mask = np.zeros(len(stacked), dtype=bool)
+        for curve_run, span in spans:
+            if curve_run == run:
+                mask[span] = True
+        score = jacobian[mask].T @ stacked[mask]
+        meat += np.outer(score, score)
+    if len(groups) < 2:
+        clustered = np.full(len(x), np.nan)
+    else:
+        covariance = len(groups) / (len(groups) - 1.0) * bread @ meat @ bread
+        clustered = np.sqrt(np.maximum(np.diag(covariance), 0.0))
+    rms, net_data, net_model = [], [], []
+    for index in range(len(rows)):
+        difference = data["values"][index] - models[index]
+        rms.append(float(np.sqrt(np.mean(
+            (difference / data["noise"][index]) ** 2))))
+        net_data.append(float(data["values"][index][-1]
+                              - data["values"][index][0]))
+        net_model.append(float(models[index][-1] - models[index][0]))
+    coefficients = {key: float(value) for key, value in zip(keys, x)}
+    result = {
+        "substrate": substrate, "laws": dict(laws),
+        "coefficients": coefficients,
+        "stderr": {key: float(value) for key, value in zip(keys, errors)},
+        "stderr_clustered": {key: float(value)
+                             for key, value in zip(keys, clustered)},
+        "cost": best["cost"], "converged": best["success"],
+        "curves": rows, "rms": np.array(rms),
+        "net_data": np.array(net_data), "net_model": np.array(net_model),
+        "curves_used": int(len(rows)),
+        "nonlinear_at_bound": [
+            key for (key, kind, _, _), value in zip(layout["entries"], x)
+            if kind == "nonlinear"
+            and (abs(value - NONLINEAR_BOUNDS[0]) <= 0.05
+                 or abs(value - NONLINEAR_BOUNDS[1]) <= 0.05)],
+        "correlation": pd.DataFrame(correlation, index=keys, columns=keys),
+        "_x": x, "_layout": layout, "_jacobian": jacobian,
+        "_residuals": stacked,
+    }
+    result["health"] = global_fit_health(result)
+    return result
+
+
+def global_fit_health(result):
+    """
+    The flags a global fit is read with: `"not converged"`, `"at bound: <K>"`,
+    and `"collinear: <a>/<b> r=+/-0.xx"` for a coefficient pair (intercepts
+    excluded) above |r| 0.99. Returns `{"flags", "ok"}`.
+    """
+    flags = []
+    if not result["converged"]:
+        flags.append("not converged")
+    for key in result["nonlinear_at_bound"]:
+        flags.append(f"at bound: {key}")
+    correlation = result["correlation"]
+    columns = list(correlation.columns)
+    for i, first in enumerate(columns):
+        if ":intercept[" in first:
+            continue
+        for second in columns[i + 1:]:
+            if ":intercept[" in second:
+                continue
+            r = float(correlation.loc[first, second])
+            if np.isfinite(r) and abs(r) > 0.99:
+                flags.append(f"collinear: {first}/{second} r={r:+.2f}")
+    return {"flags": flags, "ok": not flags}
+
+
+def global_cross_validate(substrate, laws, full=None, curves=None):
+    """
+    Leave-one-run-out for one Stage B candidate.
+
+    Each fold fits on the other runs, started from the full fit's coefficients,
+    predicts the held-out run from the laws, and refits each held-out curve's
+    own `(c, v0)` by lstsq before scoring
+    `sum ((readings - model)/(noise sqrt(n)))^2`. A fold whose held-out run
+    carries a buffer no other run has is skipped and counted.
+    """
+    data = _global_curves(substrate) if curves is None else curves
+    if full is None:
+        full = global_fit(substrate, laws, curves=data)
+    rows = data["rows"]
+    experiments = rows.experiment.to_numpy()
+    scores, skipped = {}, 0
+    for run in sorted(set(experiments)):
+        keep = experiments != run
+        train = _global_subset(data, keep)
+        held = np.where(~keep)[0]
+        if not set(rows.buffer.iloc[held]) <= set(train["rows"].buffer):
+            skipped += 1
+            continue
+        fit = global_fit(substrate, laws, curves=train,
+                         starts=full["coefficients"], restarts=1)
+        held_rows = rows.iloc[held].reset_index(drop=True)
+        log_v_act, log_k_act, log_k = _global_terms(fit["_x"],
+                                                    fit["_layout"], held_rows)
+        score = 0.0
+        for position, index in enumerate(held):
+            curve_times = data["times"][index]
+            values = data["values"][index]
+            noise = data["noise"][index]
+            v_act = float(np.exp(log_v_act[position]))
+            tau = float(1.0 / np.exp(log_k_act[position]))
+            k = (float(np.exp(log_k[position]))
+                 if np.isfinite(log_k[position]) else 0.0)
+            h, g = summary_kinetics._activation_sink_columns(curve_times, tau, k)
+            target = values - v_act * g[0]
+            design = np.column_stack([np.ones_like(curve_times), h[0]])
+            beta, *_ = np.linalg.lstsq(design, target, rcond=None)
+            model = design @ beta + v_act * g[0]
+            score += float(np.sum(
+                ((values - model) / (noise * np.sqrt(len(curve_times)))) ** 2))
+        scores[int(run)] = score
+    return {"scores": pd.Series(scores, dtype=float).sort_index(),
+            "sum": float(sum(scores.values())), "skipped": skipped,
+            "full": full}
+
+
+def stage_shift(stage_a, stage_b):
+    """
+    Every coefficient present in both stages, shifted in units of the combined
+    run-clustered errors, and the count beyond 2.
+
+    `stage_a` is {element: `fit_model` result}; `stage_b` is a `global_fit`
+    result. Keys line up as `f"{element}:{name}"` on both sides.
+    """
+    rows = []
+    for element, fit in stage_a.items():
+        for name, value in fit["coefficients"].items():
+            key = f"{element}:{name}"
+            if key not in stage_b["coefficients"]:
+                continue
+            se_a = fit["stderr_clustered"].get(name)
+            se_b = stage_b["stderr_clustered"].get(key)
+            if not np.isfinite([se_a, se_b]).all():
+                continue
+            shift = float((stage_b["coefficients"][key] - value)
+                          / np.sqrt(se_a ** 2 + se_b ** 2))
+            rows.append({"coefficient": key, "stage_a": float(value),
+                         "stage_b": float(stage_b["coefficients"][key]),
+                         "stderr_a": float(se_a), "stderr_b": float(se_b),
+                         "shift": shift, "beyond_2": abs(shift) > 2.0})
+    frame = pd.DataFrame(rows).set_index("coefficient") if rows else pd.DataFrame(
+        columns=["stage_a", "stage_b", "stderr_a", "stderr_b", "shift",
+                 "beyond_2"]).set_index(pd.Index([], name="coefficient"))
+    return {"table": frame,
+            "beyond": int(frame["beyond_2"].sum()) if len(frame) else 0,
+            "count": int(len(frame))}
+
+
+def amplitude_verdict(result, rows=None):
+    """
+    Whether the amplitude `net_data/net_model` tracks the conditions.
+
+    Per curve the ratio of the readings' net rise to the model's; per run the
+    median. A between-run axis is flagged at |t| > 3 with at least 4 runs, from
+    an OLS of log median ratio on log[HOO-], log[buf], log[S], log[enz] and
+    1/T; a within-run axis at |t| > 3 from `scope.orders` on log buf and
+    log[S]. `hoo` is never put in the within-run regression. Non-positive
+    ratios are dropped and counted. Verdict: `"tracks conditions: <flags>"` or
+    `"no amplitude trend detected"`.
+    """
+    frame = (result["curves"] if rows is None else rows).copy()
+    frame["ratio"] = result["net_data"] / result["net_model"]
+    dropped = int(np.sum(~(frame["ratio"] > 0)))
+    frame = frame[frame["ratio"] > 0].copy()
+    grouped = frame.groupby("experiment")
+    runs = grouped["ratio"].median()
+    axes = (("hoo", "hoo", False), ("buf", "buf", False),
+            ("s0", "s0", False), ("e0", "e0", False),
+            ("temperature", "kelvin", True))
+    flags, between = [], {}
+    for name, column, inverse in axes:
+        if len(runs) < 4:
+            continue
+        x = grouped[column].median().to_numpy(dtype=float)
+        if inverse:
+            x = 1.0 / x
+        else:
+            x = np.log(x)
+        y = np.log(runs.to_numpy(dtype=float))
+        design = np.column_stack([np.ones(len(runs)), x])
+        beta, *_ = np.linalg.lstsq(design, y, rcond=None)
+        residual = y - design @ beta
+        covariance = np.linalg.pinv(design.T @ design) * float(
+            residual @ residual) / max(1, len(runs) - 2)
+        t = float(beta[1] / np.sqrt(covariance[1, 1]))
+        between[name] = t
+        if abs(t) > 3.0:
+            flags.append(f"{name}: t={t:+.2f}")
+    within = scope.orders("ratio", frame=frame, terms=("buf", "s0"),
+                          within=True, live_only=False)
+    for name in ("buf", "s0"):
+        order, error = within.get(f"order_{name}"), within.get(f"stderr_{name}")
+        if order is not None and np.isfinite([order, error]).all() and error > 0:
+            t = float(order / error)
+            if abs(t) > 3.0:
+                flags.append(f"{name} within runs: t={t:+.2f}")
+    verdict = ("tracks conditions: " + "; ".join(flags) if flags
+               else "no amplitude trend detected")
+    return {"verdict": verdict, "dropped": dropped, "between": between,
+            "within": within, "flags": flags}
+
+
+def _laws_id(laws):
+    """A file-name-safe id for one candidate's four laws."""
+    return ";".join(f"{law}={laws.get(law) if laws.get(law) is not None
+                             else 'None'}"
+                    for law in _GLOBAL_LAWS)
+
+
+def _truth_coefficients(substrate, layout):
+    """The planted truth's coefficients for a layout: each element's own
+    `fit_model` on its full table, and the burst offset as the median of the
+    burst table's residual to the lag law."""
+    parameters = curve_parameters(substrate)
+    truth = {}
+    for law, model in layout["models"].items():
+        if model is None:
+            continue
+        fit = fit_model(parameters["elements"][law], model)
+        for name, value in fit["coefficients"].items():
+            truth[f"{law}:{name}"] = float(value)
+    if layout["fallback"]:
+        lag_model = layout["models"]["k_act_lag"]
+        nonlinear = {name: truth[f"k_act_lag:log10({name})"]
+                     for name in _nonlinear_names_for_model(lag_model)}
+        table = parameters["elements"]["k_act_burst"]
+        matrix, names, offset, _ = law_design(table, lag_model, nonlinear)
+        beta = np.array([truth.get(f"k_act_lag:{name}", 0.0)
+                         for name in names])
+        residual = table.y.to_numpy(dtype=float) - (matrix @ beta + offset)
+        truth["burst_offset"] = float(np.median(residual))
+    return truth
+
+
+def planted_global(substrate, seed=0):
+    """
+    Stage B's realistic planted recovery, recorded and not asserted.
+
+    The truth is each element's `best` candidate with the coefficients
+    `fit_model` gives on its full table (the burst offset as the median of the
+    burst table's residual to the lag law). Readings are that model at each
+    curve's own times, with its own `c` and `v0`, plus Gaussian noise at that
+    curve's own `noise`, drawn curve by curve in the order `global_fit`
+    iterates. Every candidate from `stage_b_candidates` is fitted and
+    cross-validated on the planted readings, each started from the truth + 0.5
+    (never at it), and the record is saved to
+    `data/fits/rate_laws/v2/planted_global_<substrate>.json`.
+    """
+    path = os.path.join(RATE_LAW_DIR, f"planted_global_{substrate}.json")
+    if os.path.exists(path):
+        with open(path) as handle:
+            return json.load(handle)
+    candidates = stage_b_candidates(substrate)
+    truth_laws = {element: candidates["elements"][element]["best"]
+                  for element in ELEMENTS}
+    data = _global_curves(substrate)
+    layout = _global_layout(data["rows"], truth_laws)
+    truth = _truth_coefficients(substrate, layout)
+    x_truth = _global_x(layout, truth)
+    fits = scope.fits(scope.archive())
+    c = np.array([fits[(int(row.experiment), int(row.sample))]
+                  .activation_sink.c for row in data["rows"].itertuples()])
+    v0 = np.array([fits[(int(row.experiment), int(row.sample))]
+                   .activation_sink.v0 for row in data["rows"].itertuples()])
+    generator = np.random.default_rng(seed)
+    planted_values = [model + generator.normal(0.0, data["noise"][index])
+                      for index, model in enumerate(
+                          _global_readings(data, layout, x_truth, c, v0))]
+    planted = {"substrate": substrate, "rows": data["rows"],
+               "times": data["times"], "values": planted_values,
+               "noise": data["noise"],
+               "dropped_nonpositive": data["dropped_nonpositive"]}
+    starts = {key: (truth[key] + 0.5 if key in truth else 0.0)
+              for key, _, _, _ in layout["entries"]}
+    results, crosses = {}, {}
+    for laws in candidates["combinations"]:
+        identifier = _laws_id(laws)
+        results[identifier] = global_fit(substrate, laws, curves=planted,
+                                         starts=starts, restarts=4)
+        crosses[identifier] = global_cross_validate(
+            substrate, laws, full=results[identifier], curves=planted)
+    scores = {identifier: cross["sum"]
+              for identifier, cross in crosses.items()}
+    scores_frame = pd.DataFrame(
+        {identifier: cross["scores"]
+         for identifier, cross in crosses.items()}).T
+    statistics = tie_statistics(scores_frame)
+    tied = [identifier for identifier in scores_frame.index
+            if bool(statistics.loc[identifier, "tied"])]
+    best = min(scores, key=scores.get)
+    truth_id = _laws_id(truth_laws)
+    true_fit = results[truth_id]
+    truth_record, estimate, clustered, within = {}, {}, {}, {}
+    for key, kind, law, name in true_fit["_layout"]["entries"]:
+        if key not in truth:
+            continue
+        truth_record[key] = truth[key]
+        estimate[key] = true_fit["coefficients"][key]
+        error = true_fit["stderr_clustered"].get(key)
+        clustered[key] = error
+        within[key] = bool(error is not None and np.isfinite(error)
+                           and abs(estimate[key] - truth[key]) <= 2.0 * error)
+    report = {
+        "substrate": substrate, "seed": seed, "truth_laws": truth_laws,
+        "truth": truth_record, "estimate": estimate,
+        "stderr_clustered": clustered, "within_2se": within,
+        "health": true_fit["health"], "tie": tied,
+        "tie_statistics": [
+            {"model": identifier,
+             "raw_mean": float(statistics.loc[identifier, "raw_mean"]),
+             "raw_bar": float(statistics.loc[identifier, "raw_bar"]),
+             "raw_kept": bool(statistics.loc[identifier, "raw_kept"]),
+             "log_mean": float(statistics.loc[identifier, "log_mean"]),
+             "log_bar": float(statistics.loc[identifier, "log_bar"]),
+             "log_kept": bool(statistics.loc[identifier, "log_kept"]),
+             "worst_fold_log_ratio": float(
+                 statistics.loc[identifier, "worst_fold_log_ratio"]),
+             "tied": bool(statistics.loc[identifier, "tied"])}
+            for identifier in scores_frame.index],
+        "best": bool(best == truth_id), "tied": bool(truth_id in tied),
+        "scores": {identifier: float(value)
+                   for identifier, value in scores.items()},
+        "skipped": {identifier: int(cross["skipped"])
+                    for identifier, cross in crosses.items()},
+    }
+    os.makedirs(RATE_LAW_DIR, exist_ok=True)
+    with open(path, "w") as handle:
+        json.dump(report, handle, default=float, indent=1, sort_keys=True)
+    return report
