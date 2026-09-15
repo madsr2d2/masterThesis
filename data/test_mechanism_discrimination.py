@@ -13,6 +13,7 @@ import os
 import sys
 
 import numpy as np
+import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -143,10 +144,145 @@ def test_summary_anchors():
               f"{int(got.replicate_n)})")
 
 
+def test_candidate_curves_match_the_ode():
+    print("\nthe candidate curve matches the ODE")
+    from scipy.integrate import solve_ivp
+    t = np.linspace(0.0, 6000.0, 101)
+    rows = pd.DataFrame([{
+        "buffer": "Phosphate", "temperature": 25.0, "pH": 4.0, "s0": 1.0,
+        "h2o2": 1.0, "hoo": 1.0, "buf": 0.1, "e0": 1.0}])
+
+    def parameters(candidate, V, tau, theta0, theta_ss, k, X):
+        """Parameters that make the rate expressions return these targets."""
+        q = theta_ss / tau
+        k_r = (1.0 - theta_ss) / tau
+        base = 1.0 / (1.0 + 10.0 ** (4.0 - 14.0))
+        Y = 1.0 / (1.0 + 1e-8)
+        lk_cat = np.log10(V / (1.0 / 1.01 * Y))
+        out = {"lk_cat[Phosphate]": lk_cat, "lK_S": -2.0, "lK_O": -8.0,
+               "lk_f": np.log10(q / (X * base)), "lk_r": np.log10(k_r),
+               "pKa": 14.0, "theta0": theta0}
+        out["lk_d" if candidate == "C4" else "lk_s"] = np.log10(k)
+        return out
+
+    cases = (
+        ("C0", 2e-5, 1500.0, 0.1, 0.6, 2e-4, 1.0),
+        ("C0", 2e-5, 900.0, 0.9, 0.2, 1e-9, 1.0),
+        ("C4", 2e-5, 1500.0, 0.8, 0.3, 2e-4, 0.1),
+    )
+    for candidate, V, tau, theta0, theta_ss, k, X in cases:
+        curves = md.candidate_curves(
+            candidate, parameters(candidate, V, tau, theta0, theta_ss, k, X),
+            rows, [t])
+        for label, got, want in (
+                ("V", curves["V"][0], V), ("tau", curves["tau"][0], tau),
+                ("theta_ss", curves["theta_ss"][0], theta_ss),
+                ("k", curves["k"][0], k)):
+            check(f"{candidate} {label} is {want:g}",
+                  abs(got - want) <= 1e-9 * want, f"{got!r}")
+        if candidate == "C4":
+            def rhs(time, state):
+                theta, _ = state
+                return [(theta_ss - theta) / tau, V * theta * np.exp(-k * time)]
+        else:
+            def rhs(time, state):
+                theta, A = state
+                return [(theta_ss - theta) / tau, V * theta - k * A]
+        solution = solve_ivp(rhs, (t[0], t[-1]), [theta0, 0.0], t_eval=t,
+                             rtol=1e-11, atol=1e-16)
+        got = curves["A"][0][1:]
+        want = solution.y[1][1:]
+        worst = float(np.max(np.abs(got - want)
+                             / np.maximum(np.abs(want), 1e-30)))
+        check(f"{candidate} A(t) matches the ODE to 1e-8", worst <= 1e-8,
+              f"{worst:.2e}")
+
+
+def test_run_likelihood_matches_the_dense_normal():
+    print("\nthe run likelihood matches the dense normal")
+    from scipy.stats import multivariate_normal
+    rng = np.random.default_rng(0)
+    e = rng.normal(size=5)
+    se = rng.uniform(0.1, 0.3, 5)
+    runs = np.array([1, 1, 1, 2, 2])
+    covariance = (np.diag(se ** 2 + 0.4 ** 2)
+                  + 0.7 ** 2 * (runs[:, None] == runs[None, :]))
+    dense = -multivariate_normal(
+        mean=np.zeros(5), cov=covariance).logpdf(e)
+    series = float(md.run_likelihood(e, se, 0.4, 0.7, runs).sum())
+    check("the Series' sum equals the dense normal's negative logpdf",
+          abs(series - dense) <= 1e-10, f"{series!r} vs {dense!r}")
+    check("and both are 3.9404970364222",
+          abs(series - 3.9404970364222) <= 1e-10, f"{series!r}")
+
+
+def test_midpoint_likelihood_anchors():
+    print("\nthe midpoint likelihood anchors")
+    anchors = {
+        "4OMe-BnOH": {"C0": 4873.435372, "C1": 4730.711800,
+                      "C2": 6297.876950, "C3": 3082.772937,
+                      "C4": 4730.544204},
+        "BnOH": {"C0": 15622.845649, "C1": 15005.891228,
+                 "C2": 15975.468150, "C3": 14998.498241,
+                 "C4": 15005.932644},
+    }
+    tables = _summary_tables()
+    for substrate, per_candidate in anchors.items():
+        table = tables[substrate]
+        buffers = sorted(set(table["rows"].buffer))
+        for candidate, want in per_candidate.items():
+            lower, upper = md.candidate_bounds(candidate, substrate, buffers)
+            got = md.candidate_nll(candidate, 0.5 * (lower + upper), table)
+            check(f"{substrate} {candidate} midpoint NLL is {want}",
+                  abs(got - want) <= 1e-6, f"{got:.6f}")
+
+
+def test_candidate_tie_rule():
+    print("\nthe candidate tie rule")
+    folds = list(range(10))
+    A = np.arange(1.0, 11.0)
+    B = A + 1.0
+    C = A + np.tile([0.6, -0.5], 5)
+    scores = pd.DataFrame([A, B, C], index=("A", "B", "C"), columns=folds)
+    result = md.candidate_tie(scores)
+    check("A is best", result.loc["A", "status"] == "best",
+          result.loc["A", "status"])
+    check("B is excluded", result.loc["B", "status"] == "excluded",
+          result.loc["B", "status"])
+    check("C is tied", result.loc["C", "status"] == "tied",
+          result.loc["C", "status"])
+
+
+def test_degeneracy_flags():
+    print("\nthe degeneracy flags")
+    table = _summary_tables()["4OMe-BnOH"]
+    buffers = sorted(set(table["rows"].buffer))
+    names = md.candidate_names("C1", "4OMe-BnOH", buffers)
+    lower, upper = md.candidate_bounds("C1", "4OMe-BnOH", buffers)
+    x = 0.5 * (lower + upper)
+    x[names.index("Ea_act")] = 199.0
+    verdict, _ = md.candidate_degeneracy(
+        "C1", {"success": True, "x": x}, table, "4OMe-BnOH")
+    check("an off-midpoint parameter is at bound", "at bound: Ea_act" in verdict,
+          verdict)
+    x[names.index("lk_f")] = -12.0
+    x[names.index("lk_r")] = -10.0
+    verdict, _ = md.candidate_degeneracy(
+        "C1", {"success": True, "x": x}, table, "4OMe-BnOH")
+    check("the clocks are outside the window on every curve",
+          "clocks outside the run window on 147 of 147 curves" in verdict,
+          verdict)
+
+
 if __name__ == "__main__":
     test_window_slopes_on_a_line()
     test_summaries_are_nan_when_not_admitted()
     test_summary_anchors()
+    test_candidate_curves_match_the_ode()
+    test_run_likelihood_matches_the_dense_normal()
+    test_midpoint_likelihood_anchors()
+    test_candidate_tie_rule()
+    test_degeneracy_flags()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)

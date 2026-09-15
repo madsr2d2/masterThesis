@@ -8,6 +8,56 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-15 — Stage C Task 2: machinery only
+
+`PLAN_MECHANISM_DISCRIMINATION.md` Task 2.
+
+What was asked: implement section 4 exactly, the fitter, the cross-validation,
+the tie rule and the degeneracy flags, prove them on fixed anchors, and measure
+the cost.
+What was built: `CANDIDATES`, `candidate_names`, `candidate_bounds`,
+`candidate_curves`, `candidate_predict`, `run_likelihood`, `candidate_nll`,
+`fit_candidate`, `candidate_degeneracy`, `cross_validate_candidate` and
+`candidate_tie` in `data/mechanism_discrimination.py`, and the A2, ODE, dense
+normal, tie and degeneracy anchors in `data/test_mechanism_discrimination.py`.
+Bugs found: `k` was a scalar on BnOH (the loss `exp(...)` factor is absent), so
+`candidate_curves` raised `IndexError: invalid index to scalar variable`
+instead of returning the midpoint NLL; broadcasting it to one value per curve
+makes every BnOH midpoint anchor reproduce within 5e-7.
+
+A2, the midpoint `candidate_nll` (absolute 1e-6):
+
+| candidate | 4OMe-BnOH | BnOH |
+|---|---|---|
+| C0 | 4873.435372 | 15622.845649 |
+| C1 | 4730.711800 | 15005.891228 |
+| C2 | 6297.876950 | 15975.468150 |
+| C3 | 3082.772937 | 14998.498241 |
+| C4 | 4730.544204 | 15005.932644 |
+
+The closed form matches direct ODE integration to 1e-8 for the two sink cases
+and the decay case; `run_likelihood` matches the dense normal's negative
+logpdf at 3.9404970364222.
+
+Pilot (`fit_candidate("C1", ...)`, 16 Latin-hypercube starts, the plan's
+`starts=16`): 4OMe-BnOH 920.8 s, NLL 102.823, success True, refit True; BnOH
+388.5 s, NLL 503.754, success True. One held-out fold at the full fit's `x`:
+4OMe-BnOH 19.6 s (38 folds), BnOH 4.9 s (31 folds). Projection on 16 workers:
+1.36 h by the plan's literal formula
+`(10 + 10 + 50 + 50) x mean / 16`, 1.15 h with each cross-validation charged
+its own fold count. A3's 12 h is not reached.
+
+Verdicts (from `candidate_tie`, `candidate_degeneracy`): machinery only;
+planted `candidate_tie` returns `best`, `excluded` and `tied` as written, and
+`candidate_degeneracy` returns `at bound: Ea_act` and
+`clocks outside the run window on 147 of 147 curves` on the planted fits.
+Degeneracy: none.
+Could overturn this: none.
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-15 — Stage C Task 1: machinery only
 
 `PLAN_MECHANISM_DISCRIMINATION.md` Task 1.
