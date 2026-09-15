@@ -2126,7 +2126,92 @@ def _truth_coefficients(substrate, layout):
     return truth
 
 
-def planted_global(substrate, seed=0):
+def _global_save_task(payload):
+    """One Stage B candidate's fit and cross-validation, for the pool."""
+    substrate, laws, curves, path, cut = payload
+    fit = global_fit(substrate, laws, curves=curves)
+    cross = global_cross_validate(substrate, laws, full=fit, curves=curves)
+    report = {
+        "substrate": substrate, "identifier": _laws_id(laws),
+        "laws": dict(laws), "cut": cut,
+        "coefficients": fit["coefficients"], "stderr": fit["stderr"],
+        "stderr_clustered": fit["stderr_clustered"],
+        "cost": float(fit["cost"]), "converged": bool(fit["converged"]),
+        "curves_used": int(fit["curves_used"]),
+        "runs_used": int(fit["curves"].experiment.nunique()),
+        "rms_median": float(np.median(fit["rms"])),
+        "rms_p90": float(np.percentile(fit["rms"], 90)),
+        "net_data": [float(value) for value in fit["net_data"]],
+        "net_model": [float(value) for value in fit["net_model"]],
+        "health": fit["health"],
+        "nonlinear_at_bound": fit["nonlinear_at_bound"],
+        "scores": {str(int(run)): float(value)
+                   for run, value in cross["scores"].items()},
+        "sum": float(cross["sum"]), "skipped": int(cross["skipped"]),
+    }
+    return report, path
+
+
+def _global_cut(curves, cut):
+    """One cut's curve set, from the rows' own cut."""
+    rows = curves["rows"]
+    kept = set(_apply_cut(rows, cut).index)
+    return _global_subset(curves,
+                          np.array([index in kept for index in rows.index]))
+
+
+def global_search(substrate, cut=None, workers=8):
+    """
+    Every Stage B candidate for one substrate, fitted and cross-validated.
+
+    Saves `data/fits/rate_laws/global_<substrate>_<id>[_<cut>].json`, one per
+    candidate; a save that already exists is read back, the rest are fitted in
+    a process pool and written as they finish.
+    """
+    os.makedirs(RATE_LAW_DIR, exist_ok=True)
+    combinations = stage_b_candidates(substrate)["combinations"]
+    data = _global_curves(substrate)
+    if cut is not None:
+        data = _global_cut(data, cut)
+    reports, tasks = {}, []
+    for laws in combinations:
+        identifier = _laws_id(laws)
+        suffix = f"_{cut}" if cut else ""
+        path = os.path.join(
+            RATE_LAW_DIR, f"global_{substrate}_{identifier}{suffix}.json")
+        if os.path.exists(path):
+            with open(path) as handle:
+                reports[identifier] = json.load(handle)
+        else:
+            tasks.append((substrate, laws, data, path, cut))
+    if tasks:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            for report, path in pool.map(_global_save_task, tasks):
+                with open(path, "w") as handle:
+                    json.dump(report, handle, default=float, indent=1,
+                              sort_keys=True)
+                reports[report["identifier"]] = report
+    return reports
+
+
+def _planted_save_task(payload):
+    """One candidate's planted fit and cross-validation, for the pool."""
+    substrate, laws, planted, starts, path = payload
+    fit = global_fit(substrate, laws, curves=planted, starts=starts)
+    cross = global_cross_validate(substrate, laws, full=fit, curves=planted)
+    report = {
+        "identifier": _laws_id(laws),
+        "coefficients": fit["coefficients"],
+        "stderr_clustered": fit["stderr_clustered"],
+        "health": fit["health"],
+        "scores": {str(int(run)): float(value)
+                   for run, value in cross["scores"].items()},
+        "sum": float(cross["sum"]), "skipped": int(cross["skipped"]),
+    }
+    return report, path
+
+
+def planted_global(substrate, seed=0, workers=8):
     """
     Stage B's realistic planted recovery, recorded and not asserted.
 
@@ -2137,15 +2222,18 @@ def planted_global(substrate, seed=0):
     curve's own `noise`, drawn curve by curve in the order `global_fit`
     iterates. Every candidate from `stage_b_candidates` is fitted and
     cross-validated on the planted readings, each started from the truth + 0.5
-    (never at it), and the record is saved to
+    (never at it). Each candidate is saved as
+    `data/fits/rate_laws/v2/planted_global_<substrate>_<id>.json` as it
+    finishes, and the assembled record to
     `data/fits/rate_laws/v2/planted_global_<substrate>.json`.
     """
-    path = os.path.join(RATE_LAW_DIR, f"planted_global_{substrate}.json")
-    if os.path.exists(path):
-        with open(path) as handle:
+    final = os.path.join(RATE_LAW_DIR, f"planted_global_{substrate}.json")
+    if os.path.exists(final):
+        with open(final) as handle:
             return json.load(handle)
-    candidates = stage_b_candidates(substrate)
-    truth_laws = {element: candidates["elements"][element]["best"]
+    chosen = stage_b_candidates(substrate)
+    combinations = chosen["combinations"]
+    truth_laws = {element: chosen["elements"][element]["best"]
                   for element in ELEMENTS}
     data = _global_curves(substrate)
     layout = _global_layout(data["rows"], truth_laws)
@@ -2157,35 +2245,48 @@ def planted_global(substrate, seed=0):
     v0 = np.array([fits[(int(row.experiment), int(row.sample))]
                    .activation_sink.v0 for row in data["rows"].itertuples()])
     generator = np.random.default_rng(seed)
-    planted_values = [model + generator.normal(0.0, data["noise"][index])
-                      for index, model in enumerate(
-                          _global_readings(data, layout, x_truth, c, v0))]
+    planted_values = [model + generator.normal(
+        0.0, data["noise"][index], len(data["times"][index]))
+        for index, model in enumerate(
+            _global_readings(data, layout, x_truth, c, v0))]
     planted = {"substrate": substrate, "rows": data["rows"],
                "times": data["times"], "values": planted_values,
                "noise": data["noise"],
                "dropped_nonpositive": data["dropped_nonpositive"]}
     starts = {key: (truth[key] + 0.5 if key in truth else 0.0)
               for key, _, _, _ in layout["entries"]}
-    results, crosses = {}, {}
-    for laws in candidates["combinations"]:
+    reports, tasks = {}, []
+    for laws in combinations:
         identifier = _laws_id(laws)
-        results[identifier] = global_fit(substrate, laws, curves=planted,
-                                         starts=starts, restarts=4)
-        crosses[identifier] = global_cross_validate(
-            substrate, laws, full=results[identifier], curves=planted)
-    scores = {identifier: cross["sum"]
-              for identifier, cross in crosses.items()}
+        path = os.path.join(
+            RATE_LAW_DIR,
+            f"planted_global_{substrate}_{identifier}.json")
+        if os.path.exists(path):
+            with open(path) as handle:
+                reports[identifier] = json.load(handle)
+        else:
+            tasks.append((substrate, laws, planted, starts, path))
+    if tasks:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            for report, path in pool.map(_planted_save_task, tasks):
+                with open(path, "w") as handle:
+                    json.dump(report, handle, default=float, indent=1,
+                              sort_keys=True)
+                reports[report["identifier"]] = report
+    scores = {identifier: report["sum"]
+              for identifier, report in reports.items()}
     scores_frame = pd.DataFrame(
-        {identifier: cross["scores"]
-         for identifier, cross in crosses.items()}).T
+        {identifier: pd.Series({int(run): value for run, value
+                                in report["scores"].items()})
+         for identifier, report in reports.items()}).T
     statistics = tie_statistics(scores_frame)
     tied = [identifier for identifier in scores_frame.index
             if bool(statistics.loc[identifier, "tied"])]
     best = min(scores, key=scores.get)
     truth_id = _laws_id(truth_laws)
-    true_fit = results[truth_id]
+    true_fit = reports[truth_id]
     truth_record, estimate, clustered, within = {}, {}, {}, {}
-    for key, kind, law, name in true_fit["_layout"]["entries"]:
+    for key, kind, law, name in layout["entries"]:
         if key not in truth:
             continue
         truth_record[key] = truth[key]
@@ -2214,10 +2315,9 @@ def planted_global(substrate, seed=0):
         "best": bool(best == truth_id), "tied": bool(truth_id in tied),
         "scores": {identifier: float(value)
                    for identifier, value in scores.items()},
-        "skipped": {identifier: int(cross["skipped"])
-                    for identifier, cross in crosses.items()},
+        "skipped": {identifier: int(report["skipped"])
+                    for identifier, report in reports.items()},
     }
-    os.makedirs(RATE_LAW_DIR, exist_ok=True)
-    with open(path, "w") as handle:
+    with open(final, "w") as handle:
         json.dump(report, handle, default=float, indent=1, sort_keys=True)
     return report

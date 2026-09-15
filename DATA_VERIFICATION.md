@@ -8,6 +8,157 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-15 (fifth entry) — Task 7: Stage B's global fits, and A7 fires on BnOH
+
+`PLAN_CURVES_TO_MECHANISM.md` Task 7, with Amendment 2's changes 4-5. The
+Stage B results stand at STOP 2 with the A7 trigger live.
+
+What was asked: run `planted_global` before the real fits, fit and
+cross-validate every candidate on both substrates, compare the best tied
+candidate with Stage A, and report the cuts.
+What was built: `data/rate_laws.py` (`global_search`, `_global_save_task`,
+`_global_cut`, `_planted_save_task`, the resumable `planted_global`); the
+saves `data/fits/rate_laws/v2/global_<substrate>_<id>[_<cut>].json` and
+`planted_global_<substrate>.json`; `test_planted_global_is_recorded` now
+runs.
+Bugs found: `planted_global` drew one Gaussian per curve instead of one per
+point, which the curve's own `c` absorbs exactly (the planted CV scores were
+1.6e-23); corrected to a per-point draw before any record was made.
+
+### The planted records
+
+| substrate | best | tied | tie | health | within 2 clustered se |
+|---|---|---|---|---|---|
+| 4OMe-BnOH | True | True | 1 | none | 17 of 18 (`k_act_lag:a_S` fails) |
+| BnOH | True | True | 1 | none | 18 of 22 (`k_act_burst:a_S`, `k_act_burst:intercept[Pyrophosphate]`, `k_act_lag:intercept[Boric]`, `k_act_lag:intercept[Phosphate]` fail) |
+
+### 4OMe-BnOH
+
+Curves used 101 of the 105 table rows (4 dropped for `v_act <= 0`), 34 runs;
+19 of the 101 are in no Stage A table. Best tied candidate (tie 3):
+
+`v_act=S:power|HOO:power|T:arrhenius; k_act_lag=S:power|E:power|T:arrhenius; k_act_burst=lag law + burst_offset; k_sink=` (CV 56225; flags `collinear: k_act_lag:a_S/burst_offset r=+0.99`).
+
+The tie set: the best above; `v_act=S:power|HOO:power|BUF:bind|T:arrhenius;
+k_act_lag=E:power|T:arrhenius; ...; k_sink=None` (CV 271721, no flags);
+`v_act=S:power|HOO:power|T:arrhenius; k_act_lag=S:power|E:power|T:arrhenius;
+...; k_sink=S:power` (CV 283338, flags `collinear: k_act_lag:a_E/k_act_lag:Ea_R
+r=+0.99`). RMS in units of noise: median 4.539, p90 16.405.
+
+Coefficients of the best, unflagged only, with the planted twin's
+`within_2se` (all within unless marked):
+
+| coefficient | value | clustered se | planted twin |
+|---|---|---|---|
+| `k_act_lag:Ea_R` | 38067.9581 | 0.0013 | within 2se |
+| `k_act_lag:a_E` | 6.3488 | 6.7515 | within 2se |
+| `k_act_lag:intercept[Boric]` | -3.6230 | 7.6796 | within 2se |
+| `k_act_lag:intercept[Phosphate]` | -8.0109 | 7.6068 | within 2se |
+| `k_act_lag:intercept[Pyrophosphate]` | -8.4201 | 0.0000 | within 2se |
+| `k_sink:intercept[Boric]` | -10.8247 | 1.5772 | within 2se |
+| `k_sink:intercept[Phosphate]` | -10.3054 | 0.0895 | within 2se |
+| `k_sink:intercept[Pyrophosphate]` | -25.9530 | 0.7288 | within 2se |
+| `v_act:Ea_R` | 3396.9366 | 1310.6342 | within 2se |
+| `v_act:a_HOO` | 0.1515 | 0.1057 | within 2se |
+| `v_act:a_S` | 0.4108 | 0.1156 | within 2se |
+| `v_act:intercept[Boric]` | -21.0876 | 139683.1293 | within 2se |
+| `v_act:intercept[Phosphate]` | -11.0726 | 0.7130 | within 2se |
+| `v_act:intercept[Pyrophosphate]` | 3.8627 | 1.1570 | within 2se |
+
+`stage_shift` against Stage A: 7 of 15 shared coefficients beyond 2 clustered
+errors (`v_act:intercept[Pyrophosphate]` +11.78, `v_act:a_HOO` -2.45,
+`v_act:Ea_R` -4.03, `k_act_lag:intercept[Pyrophosphate]` -2.60,
+`k_act_lag:Ea_R` +23.65, `k_sink:intercept[Phosphate]` -3.01,
+`k_sink:intercept[Pyrophosphate]` -24.99).
+
+`amplitude_verdict`: `no amplitude trend detected` (0 non-positive ratios;
+between-run t: hoo 0.45, buf 0.58, s0 0.80, e0 0.98, temperature -0.46;
+within runs buf 0.003 +/- 0.017, s0 0.019 +/- 0.008).
+
+Cuts: S-gas tie 3 -> 10, best changes to
+`v_act=...BUF:bind...; k_act_lag=E:power|T:arrhenius; ...; k_sink=`
+(flagged `at bound: v_act:log10(K_B)`), 9 tied-status changes; S-pyro tie
+3 -> 12, best changes to
+`v_act=...BUF:bind...; k_act_lag=S:power|E:power|T:arrhenius; ...; k_sink=None`
+(no flags), 9 tied-status changes.
+
+### BnOH
+
+Curves used 102 of the 112 table rows (10 dropped for `v_act <= 0`), 31 runs;
+25 of the 102 are in no Stage A table. Best tied candidate (tie 6):
+`v_act=S:mm|H:power|HOO:power|BUF:power; k_act_lag=H:power;
+k_act_burst=S:power|H:power|HOO:power; k_sink=BUF:power` (CV 6080, no flags).
+RMS: median 2.022, p90 10.564.
+
+Coefficients of the best (no health flags), with the planted twin's
+`within_2se`:
+
+| coefficient | value | clustered se | planted twin |
+|---|---|---|---|
+| `k_act_burst:a_H` | 1.3153 | 0.6330 | within 2se |
+| `k_act_burst:a_HOO` | -0.3822 | 0.1587 | within 2se |
+| `k_act_burst:a_S` | -0.0255 | 0.0668 | NOT IDENTIFIED (planted recovery failed) |
+| `k_act_burst:intercept[Boric]` | -15.1797 | 3.2738 | within 2se |
+| `k_act_burst:intercept[Phosphate]` | -15.2637 | 3.4386 | within 2se |
+| `k_act_burst:intercept[Pyrophosphate]` | -17.2229 | 3.0793 | NOT IDENTIFIED (planted recovery failed) |
+| `k_act_lag:a_H` | -2.3681 | 0.0000 | no planted twin |
+| `k_act_lag:intercept[Boric]` | -10.4266 | 0.0000 | NOT IDENTIFIED (planted recovery failed) |
+| `k_act_lag:intercept[Phosphate]` | -7.4285 | 0.0000 | NOT IDENTIFIED (planted recovery failed) |
+| `k_act_lag:intercept[Pyrophosphate]` | -13.7417 | 0.0000 | within 2se |
+| `k_sink:a_B` | -3.7285 | 0.6707 | within 2se |
+| `k_sink:intercept[Boric]` | 7.2947 | 2.8953 | within 2se |
+| `k_sink:intercept[Phosphate]` | 6.6467 | 2.9043 | within 2se |
+| `k_sink:intercept[Pyrophosphate]` | 4.3518 | 2.1640 | within 2se |
+| `v_act:a_B` | -1.8564 | 1.9806 | within 2se |
+| `v_act:a_H` | -2.8956 | 0.8122 | within 2se |
+| `v_act:a_HOO` | -0.1914 | 0.0282 | within 2se |
+| `v_act:intercept[Boric]` | 13.4624 | 8.4553 | within 2se |
+| `v_act:intercept[Phosphate]` | 11.1901 | 9.0521 | within 2se |
+| `v_act:intercept[Pyrophosphate]` | -15.3729 | 0.0000 | within 2se |
+| `v_act:log10(Km)` | 1.6742 | 2.0718 | within 2se |
+
+`stage_shift` against Stage A: **12 of 20 shared coefficients beyond 2
+clustered errors** -- `v_act:intercept[Boric]` +2.19,
+`v_act:intercept[Pyrophosphate]` -4.75, `v_act:a_H` -4.01, `v_act:a_HOO`
+-8.30, `k_act_lag:intercept[Pyrophosphate]` -8.18, `k_act_lag:a_H` -15.78,
+`k_act_burst:intercept[Boric]` -3.55, `k_act_burst:intercept[Phosphate]`
+-3.25, `k_act_burst:intercept[Pyrophosphate]` -4.12, `k_act_burst:a_S` +2.08,
+`k_act_burst:a_H` +2.74, `k_act_burst:a_HOO` -3.28.
+
+`amplitude_verdict`: `no amplitude trend detected` (0 non-positive ratios;
+between-run t: hoo -1.21, buf 0.34, s0 0.85, e0 -0.60, temperature 0.73;
+within runs buf -0.099 +/- 0.191, s0 -0.008 +/- 0.009).
+
+Cuts: S-gas tie 6 -> 13, best changes to `v_act=HOO:power; k_act_lag=H:power;
+k_act_burst=; k_sink=BUF:power` (no flags), 7 tied-status changes; S-pyro tie
+6 -> 13, best changes to `v_act=HOO:power; k_act_lag=H:power;
+k_act_burst=S:power|H:power|HOO:power; k_sink=None` (no flags), 13
+tied-status changes. BnOH's S-pyro run keeps only 32 curves over 12 runs and
+2 of its 24 candidates did not converge; neither is tied.
+
+Verdicts (from `tie_statistics`, `global_fit_health`, `stage_shift`,
+`amplitude_verdict`): the tie sets and coefficient tables above;
+`no amplitude trend detected` on both substrates; **A7 fires on BnOH** (12 of
+20 beyond 2; 4OMe is 7 of 15, below half).
+Health flags: 4OMe's best carries `collinear: k_act_lag:a_S/burst_offset
+r=+0.99`; the third tied candidate `collinear: k_act_lag:a_E/k_act_lag:Ea_R
+r=+0.99`; its S-gas best `at bound: v_act:log10(K_B)`. BnOH's best and
+4OMe's S-pyro best carry none; BnOH's S-gas and S-pyro tied sets carry
+at-bound and collinear flags (logged in the saves). No tied candidate on any
+run carries `not converged`.
+Not identified: every coefficient above whose planted twin failed; the
+zero-se coefficients (`k_act_lag:Ea_R`, `k_act_lag:intercept[Pyrophosphate]`
+on 4OMe; the `k_act_lag` intercepts and `a_H` on BnOH).
+Could overturn this: the planted recovery is one seed per substrate, with the
+best candidate as its truth; a coefficient recovered there may not be
+recovered under a different truth; the 94 curves the form cannot hold are not
+in the fit; Stage A's candidate set limits Stage B's; and on this evidence
+Stage B's coefficients do not stand on Stage A's.
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-15 (fourth entry) — Task 6: the global analytic fitter, its strong planted recovery and the pilot
 
 `PLAN_CURVES_TO_MECHANISM.md` Task 6, with Amendment 1 change 8 and

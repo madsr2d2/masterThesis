@@ -642,8 +642,9 @@ def test_a_strong_planted_global_model_is_recovered():
     readings = rate_laws._global_readings(data, layout, x, c, v0)
     generator = np.random.default_rng(0)
     planted = dict(data)
-    planted["values"] = [model + generator.normal(0.0, 0.1 * noise)
-                         for model, noise in zip(readings, data["noise"])]
+    planted["values"] = [model + generator.normal(
+        0.0, 0.1 * noise, len(model))
+        for model, noise in zip(readings, data["noise"])]
     starts = {key: value + 0.5 for key, value in truth.items()}
     result = rate_laws.global_fit("4OMe-BnOH", laws, curves=planted,
                                   starts=starts, restarts=0)
