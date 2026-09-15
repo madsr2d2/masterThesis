@@ -127,13 +127,20 @@ _T_REGRESSOR_BELOW = 1e-5         # in 1/K, for the identifiability rule
 _LOG_REGRESSOR_BELOW = 0.05       # in log units, for every other family
 _CORRELATION_BAR = 0.95
 _GAS_CONSTANT = 8.314462618       # J/(mol K), for Ea in kJ/mol
+# The floor the tie rule's log test puts under a fold score before taking its
+# logarithm. Fold scores are non-negative weighted sums and a fold can score
+# exactly zero, which has no logarithm.
+TIE_LOG_FLOOR = 1e-12
 # Where a nonlinear constant is sampled when the question is whether the
 # DESIGN can identify it: if no log10 K on this grid varies the regressor, no
 # K can. `_term_terms` takes log10 K, as `law_design` does.
 _LOG10_K_GRID = np.linspace(-4.0, 4.0, 33)
 
-# Where `search` saves. Never overwrites an existing save.
-RATE_LAW_DIR = os.path.join("data", "fits", "rate_laws")
+# Where `search` saves. Never overwrites an existing save. `v2` is Amendment
+# 1's rerun under the two-test tie rule, the run-clustered errors, the
+# four-temperature floor and the between-run families; the 2026-09-14 saves
+# sit beside it in `rate_laws/` and are not touched.
+RATE_LAW_DIR = os.path.join("data", "fits", "rate_laws", "v2")
 
 
 def _interval_low(intervals):
@@ -316,6 +323,12 @@ def _nonlinear_names(family, option):
     return [name] if name else []
 
 
+def _nonlinear_names_for_model(model):
+    """Every nonlinear constant a model carries, sorted."""
+    return sorted({name for family, option in model.items()
+                   for name in _nonlinear_names(family, option)})
+
+
 def _term_terms(table, family, option, nonlinear):
     """
     [(name, values, linear, family)] for one family's option.
@@ -465,6 +478,12 @@ def term_identifiable(table, family, option):
     is a property of the columns, and K is a free direction, so a fixed
     K = 1/mM would reject a table whose [buf] is far from it. The reason
     reported is the one from the last grid point tried.
+
+    `T:arrhenius` carries one rule on top of the variation tests: the table
+    must move at least 4 distinct temperatures. It is checked only after those
+    tests pass, so a table that never moved temperature keeps its
+    "fewer than 2 distinct values" reason and the temperature count is the
+    reason only where the axis exists but is too short.
     """
     buffers = table.buffer.to_numpy()
     if option == "power_by_buffer":
@@ -491,6 +510,8 @@ def term_identifiable(table, family, option):
             if not ok:
                 break
         if ok:
+            if family == "T" and table.kelvin.nunique() < 4:
+                return False, "fewer than 4 temperatures"
             return True, ""
     return False, reason
 
@@ -510,6 +531,29 @@ def _law_solve(table, model, nonlinear, y, weight):
         np.sum(weight * residual ** 2))
 
 
+def _clustered_errors(matrix, weight, error, runs):
+    """
+    Run-clustered standard errors of the linear coefficients.
+
+    `B = pinv(X' diag(w) X)`, `M = sum over runs of s_g s_g'` with
+    `s_g = X_g' (w_g o e_g)`, `V = G/(G - 1) B M B`, and the errors are the
+    square roots of V's diagonal. The curves of one run share a day, a stock
+    and a cuvette offset, so treating them as independent understates the
+    error; `fit_model` keeps both and everything quoted uses this one.
+    """
+    bread = np.linalg.pinv(matrix.T @ (matrix * weight[:, None]))
+    meat = np.zeros_like(bread)
+    groups = sorted(set(runs))
+    for run in groups:
+        mask = runs == run
+        score = matrix[mask].T @ (weight[mask] * error[mask])
+        meat += np.outer(score, score)
+    if len(groups) < 2:
+        return np.full(matrix.shape[1], np.nan)
+    covariance = len(groups) / (len(groups) - 1.0) * bread @ meat @ bread
+    return np.sqrt(np.maximum(np.diag(covariance), 0.0))
+
+
 def fit_model(table, model, starts=(-2.0, 0.0, 2.0)):
     """
     Weighted least squares for one model on one element table.
@@ -521,8 +565,10 @@ def fit_model(table, model, starts=(-2.0, 0.0, 2.0)):
 
     Returns `model`, `coefficients` (name -> value, with nonlinear constants
     under both `log10(K)` and `K`, and `Ea` in kJ/mol beside `Ea_R` in K),
-    `stderr`, `cost` (weighted sum of squared residuals), `curves`, `runs`,
-    `nonlinear` (log10 values), `nonlinear_at_bound`, `correlation` (a
+    `stderr` (the naive errors) and `stderr_clustered` (run-clustered, the one
+    every comparison and quoted +/- uses; NaN on the nonlinear constants and
+    on `Ea` absent), `cost` (weighted sum of squared residuals), `curves`,
+    `runs`, `nonlinear` (log10 values), `nonlinear_at_bound`, `correlation` (a
     DataFrame over the linear coefficients) and `health` = {"flags", "ok"}.
     The underscore keys carry the design and the regressors the health checks
     read; they are not part of the result's contract.
@@ -601,6 +647,18 @@ def fit_model(table, model, starts=(-2.0, 0.0, 2.0)):
         "_names": names,
         "_terms": best["terms"],
     }
+    _, prediction = _predict(table, model, result)
+    clustered = _clustered_errors(matrix, weight, y - prediction,
+                                  table.experiment.to_numpy(dtype=int))
+    stderr_clustered = {name: float(value)
+                        for name, value in zip(names, clustered)}
+    if "Ea_R" in coefficients:
+        stderr_clustered["Ea"] = (stderr_clustered["Ea_R"]
+                                  * _GAS_CONSTANT / 1000.0)
+    for name in best["nonlinear"]:
+        stderr_clustered[f"log10({name})"] = np.nan
+        stderr_clustered[name] = np.nan
+    result["stderr_clustered"] = stderr_clustered
     flags, ok = rate_law_health(result, table)
     result["health"] = {"flags": flags, "ok": ok}
     return result
@@ -615,7 +673,9 @@ def rate_law_health(result, table):
     pair (intercepts excluded) above |r| 0.95; "rank deficient"; "carried by
     fewer than 3 runs: <term>" where a term's regressor, after removing each
     buffer's mean, is non-zero in fewer than three runs; "too few curves" for
-    fewer than 15. Returns (flags, ok).
+    fewer than 15; and "fewer than 10 runs: clustered errors unreliable" where
+    the run-clustered errors have too few clusters to trust. Returns
+    (flags, ok).
     """
     flags = []
     for name, value in result["nonlinear"].items():
@@ -645,6 +705,8 @@ def rate_law_health(result, table):
             flags.append(f"carried by fewer than 3 runs: {name}")
     if result["curves"] < 15:
         flags.append("too few curves")
+    if result["runs"] < 10:
+        flags.append("fewer than 10 runs: clustered errors unreliable")
     return flags, not flags
 
 
@@ -678,23 +740,34 @@ def within_run_check(table, model):
 
     A regressor constant inside every run -- pH, [enz], temperature, and every
     buffer identity as a family -- is collinear with a run intercept, so those
-    terms are dropped after a test on the run-demeaned regressor. The shared
-    coefficients are then read twice: once with the buffer intercepts and once
-    with the run intercepts. `disagree` is
+    terms are dropped after a test on the run-demeaned regressor. HOO, E and T
+    are ALWAYS dropped, whatever their within-run variation: [HOO-] moves
+    inside a run only through ionic strength, which follows [buf], so a
+    within-run [HOO-] coefficient is a buffer coefficient, and [enz] and
+    temperature are one value per run by design. The shared coefficients are
+    then read twice: once with the buffer intercepts and once with the run
+    intercepts, and both errors are run-clustered. `disagree` is
     |a - b| > 2 sqrt(se_a^2 + se_b^2), the plan's bar.
 
     Returns `table` (one row per shared coefficient: both estimates, both
-    standard errors, `disagree`), `dropped` (terms the run design could not
-    carry) and `s_buf_within_run_r`, the within-run correlation of the S and
-    BUF regressors where both families are in the model.
+    standard errors, `disagree`), `dropped` (each term the run design could not
+    carry, with its reason, `"between-run family"` for HOO, E and T) and
+    `s_buf_within_run_r`, the within-run correlation of the S and BUF
+    regressors where both families are in the model.
     """
     base = fit_model(table, model)
     _, _, _, terms = law_design(table, model, base["nonlinear"])
     runs = table.experiment.to_numpy()
     kept, dropped = [], []
     for name, values, _, family in terms:
-        ok, _ = _variation_ok(_run_demeaned(values, runs), family)
-        (kept if ok else dropped).append(name)
+        if family in ("HOO", "E", "T"):
+            dropped.append((name, "between-run family"))
+            continue
+        ok, reason = _variation_ok(_run_demeaned(values, runs), family)
+        if ok:
+            kept.append(name)
+        else:
+            dropped.append((name, reason))
 
     matrix, names, offset = _run_design(table, model, base["nonlinear"], kept)
     y = table.y.to_numpy(dtype=float)
@@ -704,11 +777,7 @@ def within_run_check(table, model):
     beta, *_ = np.linalg.lstsq(matrix * root[:, None], target * root,
                                rcond=None)
     residual = target - matrix @ beta
-    cost = float(np.sum(weight * residual ** 2))
-    degrees = max(1, len(table) - matrix.shape[1])
-    covariance = np.linalg.pinv(
-        matrix.T @ (matrix * weight[:, None])) * (cost / degrees)
-    errors = dict(zip(names, np.sqrt(np.maximum(np.diag(covariance), 0.0))))
+    errors = dict(zip(names, _clustered_errors(matrix, weight, residual, runs)))
     values = dict(zip(names, beta))
 
     # Nonlinear terms carry no coefficient of their own -- their constant is
@@ -718,7 +787,8 @@ def within_run_check(table, model):
     rows = []
     for name in shared:
         a, b = base["coefficients"].get(name), values.get(name)
-        se_a, se_b = base["stderr"].get(name), errors.get(name)
+        se_a = base["stderr_clustered"].get(name)
+        se_b = errors.get(name)
         if None in (a, b) or not all(np.isfinite([a, b, se_a, se_b])):
             disagree = True
         else:
@@ -778,6 +848,8 @@ def enumerate_models(table, element):
 
 def _predict(table, model, fit):
     """(y, prediction) for `table` under a fit made elsewhere."""
+    if len(table) == 0:
+        return np.zeros(0), np.zeros(0)
     matrix, names, offset, _ = law_design(table, model, fit["nonlinear"])
     beta = np.array([fit["coefficients"][name] for name in names])
     return table.y.to_numpy(dtype=float), matrix @ beta + offset
@@ -819,22 +891,59 @@ def _cross_validate_task(payload):
     return identifier, cross_validate(table, model)
 
 
-def tie_set(scores):
+def tie_statistics(scores):
     """
-    The models whose per-fold disadvantage against the best is within
-    `2 * sd(d) / sqrt(folds)` of zero, over the folds every model scored.
+    Both tie tests, per model, over the folds every model scored.
 
-    `scores` is a DataFrame, one row per model, one column per fold.
+    `scores` is a DataFrame, one row per model, one column per fold. The folds
+    are the columns with no NaN in any model; the best is the lowest total.
+    The raw test is `d = score - score[best]`, kept if
+    `mean(d) <= 2 sd(d) / sqrt(folds)`. The log test is the same inequality on
+    `d = log(max(score, TIE_LOG_FLOOR)) - log(max(score[best], TIE_LOG_FLOOR))`.
+    A model is tied only if BOTH keep it; the best is always tied. Returns one
+    row per model in `scores.index` order, with `raw_mean`, `raw_bar`,
+    `raw_kept`, `log_mean`, `log_bar`, `log_kept`, `tied` and
+    `worst_fold_log_ratio` -- the largest `log(score/score[best])` over the
+    folds, a reported diagnostic that changes no tie set.
+
+    The two tests agree to within their shared bar, and both use the same
+    spread as the differences they judge: a model that fails on `k` of `n`
+    folds has paired `t = sqrt(k(n-1)/(n-k))` whatever the SIZE of the failure,
+    so the rule cannot exclude one that fails on `k <= 4n/(n+3)` folds (3 of
+    30, or 2 of 18) however badly. `worst_fold_log_ratio` is how a report
+    shows where that bites.
     """
     scores = scores.dropna(axis=1, how="any")
     totals = scores.sum(axis=1)
     best = totals.idxmin()
-    differences = scores.subtract(scores.loc[best], axis=1)
     folds = scores.shape[1]
-    mean = differences.mean(axis=1)
-    deviation = differences.std(axis=1, ddof=1) if folds > 1 else mean * 0.0
-    threshold = 2.0 * deviation / np.sqrt(max(folds, 1))
-    return list(scores.index[mean <= threshold])
+    raw = scores.subtract(scores.loc[best], axis=1)
+    raw_mean = raw.mean(axis=1)
+    raw_sd = raw.std(axis=1, ddof=1) if folds > 1 else raw_mean * 0.0
+    raw_bar = 2.0 * raw_sd / np.sqrt(max(folds, 1))
+    logged = np.log(scores.clip(lower=TIE_LOG_FLOOR))
+    log = logged.subtract(logged.loc[best], axis=1)
+    log_mean = log.mean(axis=1)
+    log_sd = log.std(axis=1, ddof=1) if folds > 1 else log_mean * 0.0
+    log_bar = 2.0 * log_sd / np.sqrt(max(folds, 1))
+    statistics = pd.DataFrame(
+        {"raw_mean": raw_mean, "raw_bar": raw_bar,
+         "raw_kept": raw_mean <= raw_bar,
+         "log_mean": log_mean, "log_bar": log_bar,
+         "log_kept": log_mean <= log_bar,
+         "worst_fold_log_ratio": log.max(axis=1)},
+        index=scores.index)
+    statistics["tied"] = statistics.raw_kept & statistics.log_kept
+    statistics.loc[best, "tied"] = True
+    return statistics
+
+
+def tie_set(scores):
+    """
+    The models kept by BOTH tie tests, in `scores.index` order.
+    """
+    statistics = tie_statistics(scores)
+    return list(statistics.index[statistics.tied])
 
 
 def term_verdicts(tie, dropped, element):
@@ -904,7 +1013,9 @@ def _search_table(table, element, workers=1):
                    for identifier, model in zip(identifiers, models)}
     scores = pd.DataFrame({identifier: result["scores"]
                            for identifier, result in results.items()}).T
-    tied_identifiers = tie_set(scores)
+    statistics = tie_statistics(scores)
+    tied_identifiers = [identifier for identifier in identifiers
+                        if bool(statistics.loc[identifier, "tied"])]
     by_identifier = dict(zip(identifiers, models))
     tied_models = [by_identifier[identifier] for identifier in tied_identifiers]
     health, disagreements = {}, {}
@@ -925,10 +1036,22 @@ def _search_table(table, element, workers=1):
         "scores": {identifier: float(result["sum"])
                    for identifier, result in results.items()},
         "tie": list(tied_identifiers),
-        "tie_scores": {
+        "fold_scores": {
             identifier: {str(run): float(score) for run, score
                          in results[identifier]["scores"].items()}
-            for identifier in tied_identifiers},
+            for identifier in identifiers},
+        "tie_statistics": [
+            {"model": identifier,
+             "raw_mean": float(statistics.loc[identifier, "raw_mean"]),
+             "raw_bar": float(statistics.loc[identifier, "raw_bar"]),
+             "raw_kept": bool(statistics.loc[identifier, "raw_kept"]),
+             "log_mean": float(statistics.loc[identifier, "log_mean"]),
+             "log_bar": float(statistics.loc[identifier, "log_bar"]),
+             "log_kept": bool(statistics.loc[identifier, "log_kept"]),
+             "worst_fold_log_ratio": float(
+                 statistics.loc[identifier, "worst_fold_log_ratio"]),
+             "tied": bool(statistics.loc[identifier, "tied"])}
+            for identifier in identifiers],
         "dropped": dropped.to_dict("records"),
         "verdicts": term_verdicts(tied_models, dropped, element),
         "health": health,
@@ -941,9 +1064,10 @@ def search(substrate, element, cut=None, workers=8):
     """
     Search every allowed model on one element table and save the report.
 
-    Saves `data/fits/rate_laws/<substrate>_<element>_<cut or all>.json`; a
-    save that already exists is read back and not recomputed. An element with
-    fewer than 15 curves after the cut is refused (the plan's floor).
+    Saves `data/fits/rate_laws/v2/<substrate>_<element>_<cut or all>.json`,
+    with every model's fold scores and both tie tests; a save that already
+    exists is read back and not recomputed. An element with fewer than 15
+    curves after the cut is refused (the plan's floor).
     """
     os.makedirs(RATE_LAW_DIR, exist_ok=True)
     path = os.path.join(RATE_LAW_DIR,
@@ -960,3 +1084,401 @@ def search(substrate, element, cut=None, workers=8):
     with open(path, "w") as handle:
         json.dump(report, handle, default=float, indent=1, sort_keys=True)
     return report
+
+
+# --- links between the elements (Task 5) ------------------------------------
+
+
+def _parse_model_id(identifier):
+    """The model a saved tie identifier names."""
+    model = {family: None for family in FAMILIES}
+    if identifier:
+        for part in identifier.split("|"):
+            family, option = part.split(":", 1)
+            model[family] = option
+    return model
+
+
+def _best_tied_model(substrate, element, family=None, option=None):
+    """The lowest-CV model in a table's saved tie set, optionally with one
+    family's option forced (for a link that adds the term to the law)."""
+    report = search(substrate, element, workers=1)
+    if not report["tie"]:
+        return None
+    best = min(report["tie"], key=lambda identifier: report["scores"][identifier])
+    model = _parse_model_id(best)
+    if family is not None:
+        model[family] = option
+    return model
+
+
+def _other_nonlinear(table_model, name):
+    """The nonlinear constants a model carries besides `name`."""
+    return sorted({constant for family, option in table_model.items()
+                   for constant in _nonlinear_names(family, option)
+                   if constant != name})
+
+
+def _binding_layout(models, name, shared):
+    """[(element, local constant, global index)] for a joint binding fit."""
+    layout, index = [], 0
+    if shared:
+        for element in range(len(models)):
+            layout.append((element, name, 0))
+        index = 1
+    else:
+        for element in range(len(models)):
+            layout.append((element, name, index))
+            index += 1
+    for element, model in enumerate(models):
+        for nuisance in _other_nonlinear(model, name):
+            layout.append((element, nuisance, index))
+            index += 1
+    return layout
+
+
+def _binding_nonlinear(layout, x, element):
+    """The local nonlinear dict for one element at a global vector x."""
+    return {local: float(x[global_index])
+            for index, local, global_index in layout if index == element}
+
+
+def _binding_residuals(x, tables, models, layout):
+    """Stacked weighted residuals at a global nonlinear vector x."""
+    blocks = []
+    for element, (table, model) in enumerate(zip(tables, models)):
+        nonlinear = _binding_nonlinear(layout, x, element)
+        matrix, _, offset, _ = law_design(table, model, nonlinear)
+        y = table.y.to_numpy(dtype=float)
+        weight = table.weight.to_numpy(dtype=float)
+        root = np.sqrt(weight)
+        target = y - offset
+        beta, *_ = np.linalg.lstsq(matrix * root[:, None], target * root,
+                                   rcond=None)
+        blocks.append((target - matrix @ beta) * root)
+    return np.concatenate(blocks)
+
+
+def _binding_fit(tables, models, name, shared, starts=(-2.0, 0.0, 2.0)):
+    """Fit two element tables jointly with one binding constant or one each.
+
+    Returns `fits` (one `_predict`-compatible dict per element), the global
+    vector `x` (log10) and the summed weighted cost.
+    """
+    layout = _binding_layout(models, name, shared)
+    best_x, best_cost = None, np.inf
+    for start in itertools.product(starts, repeat=len(layout)):
+        solution = least_squares(
+            _binding_residuals, np.asarray(start, dtype=float),
+            bounds=NONLINEAR_BOUNDS,
+            args=(tables, models, layout))
+        cost = float(2.0 * solution.cost)
+        if cost < best_cost:
+            best_x, best_cost = solution.x, cost
+    fits = []
+    for element, (table, model) in enumerate(zip(tables, models)):
+        nonlinear = _binding_nonlinear(layout, best_x, element)
+        matrix, names, offset, _ = law_design(table, model, nonlinear)
+        y = table.y.to_numpy(dtype=float)
+        weight = table.weight.to_numpy(dtype=float)
+        root = np.sqrt(weight)
+        target = y - offset
+        beta, *_ = np.linalg.lstsq(matrix * root[:, None], target * root,
+                                   rcond=None)
+        fits.append({"model": model, "nonlinear": nonlinear,
+                     "coefficients": {name_i: float(value)
+                                      for name_i, value in zip(names, beta)}})
+    return {"fits": fits, "x": np.asarray(best_x, dtype=float),
+            "cost": best_cost, "layout": layout}
+
+
+def _binding_cross_validate(tables, models, name, shared,
+                            starts=(-2.0, 0.0, 2.0)):
+    """Leave-one-run-out over the runs present in either element table."""
+    runs = sorted(set().union(*(set(table.experiment) for table in tables)))
+    scores, skipped = {}, 0
+    for run in runs:
+        train = [table[table.experiment != run] for table in tables]
+        held = [table[table.experiment == run] for table in tables]
+        if any(not set(h.buffer) <= set(t.buffer)
+               for h, t in zip(held, train)):
+            skipped += 1
+            continue
+        fit = _binding_fit(train, models, name, shared, starts)
+        score = 0.0
+        for element, (h, model) in enumerate(zip(held, models)):
+            y, prediction = _predict(h, model, fit["fits"][element])
+            score += float(np.sum(h.weight.to_numpy(dtype=float)
+                                  * (y - prediction) ** 2))
+        scores[int(run)] = score
+    return scores, skipped
+
+
+def shared_binding_law(substrate, family, rate_table=None, clock_table=None):
+    """
+    Do `v_act`'s bind and `k_act_lag`'s relax share ONE binding constant?
+
+    A pre-equilibrium that activates the catalyst predicts `v_act` saturating
+    as K x / (1 + K x) and the clock rising as (1 + K x), with the same K in
+    both. Each element takes its own best tied model, its family option forced
+    to `bind` (v_act) or `relax` (k_act_lag), and the joint fit is scored by
+    leave-one-run-out over the runs present in either table, one K shared
+    against one K each. If the shared K or either separate K sits within 0.05
+    of a log10 bound the verdict is `"not identified (K at bound)"`, checked
+    before the tie rule; otherwise the verdict is the Task 4 tie rule on the
+    two variants.
+
+    Named `shared_binding_law` because `saturation.shared_binding` already
+    holds the plan's `shared_binding` name. `rate_table` and `clock_table`
+    override the real tables, for the planted tests.
+    """
+    name = {"BUF": "K_B", "H": "K_H"}[family]
+    model_rate = _best_tied_model(substrate, "v_act", family, "bind")
+    model_clock = _best_tied_model(substrate, "k_act_lag", family, "relax")
+    if rate_table is None or clock_table is None:
+        parameters = curve_parameters(substrate)
+        if rate_table is None:
+            rate_table = parameters["elements"]["v_act"]
+        if clock_table is None:
+            clock_table = parameters["elements"]["k_act_lag"]
+    tables = [rate_table, clock_table]
+    models = [model_rate, model_clock]
+    shared_fit = _binding_fit(tables, models, name, True)
+    separate_fit = _binding_fit(tables, models, name, False)
+    shared_index = next(global_index for element, local, global_index
+                        in shared_fit["layout"] if local == name)
+    separate_indices = [global_index for element, local, global_index
+                        in separate_fit["layout"] if local == name]
+    health = []
+    for label, fit, indices in (("shared", shared_fit, [shared_index]),
+                               ("separate", separate_fit,
+                                separate_indices)):
+        for index in indices:
+            value = float(fit["x"][index])
+            if (abs(value - NONLINEAR_BOUNDS[0]) <= 0.05
+                    or abs(value - NONLINEAR_BOUNDS[1]) <= 0.05):
+                health.append(f"{label} at bound: {name}")
+    report = {
+        "shared_k": float(10.0 ** shared_fit["x"][shared_index]),
+        "separate_k": [float(10.0 ** separate_fit["x"][index])
+                       for index in separate_indices],
+        "shared_model": model_rate,
+        "clock_model": model_clock,
+        "health": health,
+    }
+    if any(entry.endswith(f"at bound: {name}") for entry in health):
+        report.update({"verdict": "not identified (K at bound)", "scores": None,
+                       "shared_skipped": None, "separate_skipped": None})
+        return report
+    shared_scores, shared_skipped = _binding_cross_validate(
+        tables, models, name, True)
+    separate_scores, separate_skipped = _binding_cross_validate(
+        tables, models, name, False)
+    scores = pd.DataFrame(
+        [pd.Series(shared_scores), pd.Series(separate_scores)],
+        index=["shared", "separate"]).sort_index(axis=1)
+    tied = tie_set(scores)
+    verdict = ("one K ties with separate K" if "shared" in tied
+               else "separate K predicts better")
+    report.update({"verdict": verdict, "scores": scores,
+                   "shared_skipped": shared_skipped,
+                   "separate_skipped": separate_skipped})
+    return report
+
+
+def _clock_stacked(tables, model, nonlinear, indices=None):
+    """The stacked design for a shared clock law: term coefficients shared,
+    one intercept per (family, buffer). `indices` names the intercept blocks
+    when a single table is being predicted on its own."""
+    indices = indices or list(range(len(tables)))
+    sizes = [len(table) for table in tables]
+    total = sum(sizes)
+    starts = np.concatenate([[0], np.cumsum(sizes)[:-1]])
+    offset = np.zeros(total)
+    columns, names = [], []
+    for position, (index, table) in enumerate(zip(indices, tables)):
+        for buffer in sorted(set(table.buffer)):
+            column = np.zeros(total)
+            column[starts[position]:starts[position] + len(table)] = np.where(
+                (table.buffer == buffer).to_numpy(), 1.0, 0.0)
+            columns.append(column)
+            names.append(f"intercept[{index}][{buffer}]")
+    for family in FAMILIES:
+        option = model.get(family)
+        if option is None:
+            continue
+        per_table = [_term_terms(table, family, option, nonlinear)
+                     for table in tables]
+        expected = [name for name, _, _, _ in per_table[0]]
+        for position, name in enumerate(expected):
+            if any([n for n, _, _, _ in terms][position] != name
+                   for terms in per_table):
+                raise ValueError(
+                    "a shared clock law needs the same term names in "
+                    "every table")
+            stacked = np.concatenate([terms[position][1]
+                                      for terms in per_table])
+            if per_table[0][position][2]:
+                columns.append(stacked)
+                names.append(name)
+            else:
+                offset = offset + stacked
+    return np.column_stack(columns), names, offset
+
+
+def _clock_shared_fit(tables, model, starts=(-2.0, 0.0, 2.0)):
+    """Fit one clock law to both clock families at once, terms shared."""
+    y = np.concatenate([table.y.to_numpy(dtype=float) for table in tables])
+    weight = np.concatenate([table.weight.to_numpy(dtype=float)
+                             for table in tables])
+    names_nonlinear = _nonlinear_names_for_model(model)
+
+    def residuals(x):
+        nonlinear = dict(zip(names_nonlinear, np.atleast_1d(x)))
+        matrix, _, offset = _clock_stacked(tables, model, nonlinear)
+        root = np.sqrt(weight)
+        target = y - offset
+        beta, *_ = np.linalg.lstsq(matrix * root[:, None], target * root,
+                                   rcond=None)
+        return (target - matrix @ beta) * root
+
+    best_x, best_cost = None, np.inf
+    for start in itertools.product(starts, repeat=len(names_nonlinear)):
+        solution = least_squares(residuals, np.asarray(start, dtype=float),
+                                 bounds=NONLINEAR_BOUNDS)
+        if float(2.0 * solution.cost) < best_cost:
+            best_x, best_cost = solution.x, float(2.0 * solution.cost)
+    nonlinear = dict(zip(names_nonlinear, np.atleast_1d(best_x)))
+    matrix, names, offset = _clock_stacked(tables, model, nonlinear)
+    root = np.sqrt(weight)
+    target = y - offset
+    beta, *_ = np.linalg.lstsq(matrix * root[:, None], target * root,
+                               rcond=None)
+    return {"coefficients": {name: float(value)
+                             for name, value in zip(names, beta)},
+            "nonlinear": nonlinear, "cost": best_cost}
+
+
+def _clock_predict(table, index, model, fit, shared=False):
+    """Predict one table from a shared clock fit (or a plain fit)."""
+    if len(table) == 0:
+        return np.zeros(0), np.zeros(0)
+    if not shared:
+        return _predict(table, model, fit)
+    matrix, names, offset = _clock_stacked([table], model, fit["nonlinear"],
+                                           indices=[index])
+    beta = np.array([fit["coefficients"][name] for name in names])
+    return table.y.to_numpy(dtype=float), matrix @ beta + offset
+
+
+def shared_clock_law(substrate, starts=(-2.0, 0.0, 2.0)):
+    """
+    Can the burst clock follow the lag clock's law, with its own intercept?
+
+    The `k_act_lag` best tied model is fitted to both clock tables at once --
+    every term coefficient shared, one intercept per (family, buffer) -- and
+    scored against the two tables' own best tied models, each fitted alone.
+    Leave-one-run-out over the runs present in either table; verdict by the
+    Task 4 tie rule. The plan's burst-clock fallback: a substrate whose
+    `k_act_burst` table is under 15 curves is reported, not fitted.
+    """
+    parameters = curve_parameters(substrate)
+    lag_table = parameters["elements"]["k_act_lag"]
+    burst_table = parameters["elements"]["k_act_burst"]
+    if len(burst_table) < 15:
+        return {"verdict": "too few curves"}
+    lag_model = _best_tied_model(substrate, "k_act_lag")
+    burst_model = _best_tied_model(substrate, "k_act_burst")
+    tables = [lag_table, burst_table]
+    runs = sorted(set(lag_table.experiment) | set(burst_table.experiment))
+    shared_scores, separate_scores, skipped = {}, {}, 0
+    for run in runs:
+        train = [table[table.experiment != run] for table in tables]
+        held = [table[table.experiment == run] for table in tables]
+        if any(not set(h.buffer) <= set(t.buffer)
+               for h, t in zip(held, train)):
+            skipped += 1
+            continue
+        shared_fit = _clock_shared_fit(train, lag_model, starts)
+        separate_fits = [fit_model(train[0], lag_model, starts=starts),
+                         fit_model(train[1], burst_model, starts=starts)]
+        shared_score, separate_score = 0.0, 0.0
+        for index, (h, table_model) in enumerate(zip(held, [lag_model,
+                                                            burst_model])):
+            y, prediction = _clock_predict(h, index, lag_model, shared_fit,
+                                           shared=True)
+            shared_score += float(np.sum(h.weight.to_numpy(dtype=float)
+                                         * (y - prediction) ** 2))
+            y, prediction = _clock_predict(h, index, table_model,
+                                           separate_fits[index])
+            separate_score += float(np.sum(h.weight.to_numpy(dtype=float)
+                                           * (y - prediction) ** 2))
+        shared_scores[int(run)] = shared_score
+        separate_scores[int(run)] = separate_score
+    scores = pd.DataFrame([pd.Series(shared_scores), pd.Series(separate_scores)],
+                          index=["shared", "separate"]).sort_index(axis=1)
+    tied = tie_set(scores)
+    verdict = ("one clock law ties with separate laws" if "shared" in tied
+               else "separate clock laws predict better")
+    return {"verdict": verdict, "scores": scores, "skipped": skipped,
+            "lag_model": lag_model, "burst_model": burst_model}
+
+
+def barriers(substrate="4OMe-BnOH"):
+    """
+    The activation energies of the elements, and whether they agree.
+
+    Each element's best tied model containing `T:arrhenius` is fitted on its
+    full table; `Ea` and its run-clustered standard error come off that fit, in
+    kJ/mol. An element whose table moves fewer than 4 temperatures is left out
+    and listed as `"not identified (fewer than 4 temperatures)"`; an element
+    whose `Ea` is otherwise flagged (a collinear pair naming `Ea_R`, a rank
+    deficiency) is left out of the comparison too. Verdict over the rest:
+    "barriers equal within 2 standard errors", or
+    "barriers differ by more than 2 standard errors: <pairs>", or
+    "fewer than 2 elements with a barrier".
+    """
+    rows = {}
+    tables = curve_parameters(substrate)["elements"]
+    for element in ELEMENTS:
+        if len(tables[element]) < 15:
+            continue
+        if tables[element].kelvin.nunique() < 4:
+            rows[element] = {
+                "model": None, "Ea": None, "stderr": None, "flags": [],
+                "flagged": True,
+                "status": "not identified (fewer than 4 temperatures)"}
+            continue
+        report = search(substrate, element, workers=1)
+        candidates = [identifier for identifier in report["tie"]
+                      if "T:arrhenius" in identifier.split("|")]
+        if not candidates:
+            continue
+        best = min(candidates,
+                   key=lambda identifier: report["scores"][identifier])
+        fit = fit_model(tables[element], _parse_model_id(best))
+        flags = fit["health"]["flags"]
+        flagged = [flag for flag in flags
+                   if "Ea_R" in flag or flag == "rank deficient"]
+        rows[element] = {"model": best, "Ea": fit["coefficients"]["Ea"],
+                         "stderr": fit["stderr_clustered"]["Ea"],
+                         "flags": flags, "flagged": bool(flagged),
+                         "status": None}
+    usable = {element: row for element, row in rows.items()
+              if not row["flagged"]}
+    if len(usable) < 2:
+        return {"verdict": "fewer than 2 elements with a barrier",
+                "elements": rows, "pairs": []}
+    pairs = []
+    names = sorted(usable)
+    for i, first in enumerate(names):
+        for second in names[i + 1:]:
+            difference = usable[first]["Ea"] - usable[second]["Ea"]
+            error = np.sqrt(usable[first]["stderr"] ** 2
+                            + usable[second]["stderr"] ** 2)
+            if abs(difference) > 2.0 * error:
+                pairs.append(f"{first}/{second}")
+    verdict = ("barriers equal within 2 standard errors" if not pairs
+               else "barriers differ by more than 2 standard errors: "
+                    + ", ".join(pairs))
+    return {"verdict": verdict, "elements": rows, "pairs": pairs}

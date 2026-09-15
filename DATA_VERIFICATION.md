@@ -8,6 +8,182 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-15 (second entry) — Task 5: the links between the parameters, under the v2 tie rule and run-clustered errors
+
+`PLAN_CURVES_TO_MECHANISM.md` Tasks 5 and 5a. Three tests that couple the
+elements: one binding constant for the rate and the clock, one clock law for
+the two families, and the barriers.
+
+What was asked: whether `v_act`'s `bind` and `k_act_lag`'s `relax` share one
+binding constant (BUF and H); whether the burst clock follows the lag clock's
+law with its own intercept; and whether the elements' Arrhenius barriers agree.
+What was built: `data/rate_laws.py` (`shared_binding_law`, `_binding_fit`,
+`_binding_cross_validate`, `_clock_stacked`, `_clock_shared_fit`,
+`shared_clock_law`, `barriers`); `test_shared_binding_on_a_planted_pre_equilibrium`,
+`test_separate_binding_is_detected` and
+`test_shared_binding_at_bound_is_not_identified` in `data/test_rate_laws.py`.
+Bugs found: `test_separate_binding_is_detected` failed under Task 4's raw tie
+rule -- with K = 0.003 and 0.3 recovered separately as 0.0031 and 0.296, the
+rule called one K tied (mean 31.20, sd 110.95, 33 folds, bar 38.63) -- and
+passes under Amendment 1's two-test rule. No machinery bug.
+
+### The links
+
+Each link forces `bind` on the rate element and `relax` on the clock on top of
+that element's best tied model. 4OMe-BnOH BUF: `v_act`
+`S:power|HOO:power|BUF:bind|T:arrhenius`, `k_act_lag`
+`S:power|E:power|BUF:relax|T:arrhenius`. 4OMe-BnOH H: the same with `H:bind` /
+`H:relax`. BnOH BUF: `S:mm|H:power|HOO:power|BUF:bind`, `k_act_lag`
+`E:power|BUF:relax|H:relax`. BnOH H: `S:mm|BUF:power|HOO:power|H:bind`,
+`k_act_lag` `E:power|H:relax`.
+
+| link | verdict | one K | separate K | paired t | folds | worst_fold_log_ratio shared / separate |
+|---|---|---|---|---|---|---|
+| 4OMe-BnOH BUF | one K ties with separate K | 0.0262 | 0.0999, 0.00439 | +1.22 | 33 | 5.3 / 0.0 |
+| 4OMe-BnOH H | one K ties with separate K | 0.0993 | 0.3427, 0.0103 | -1.63 | 33 | 0.0 / 2.0 |
+| BnOH BUF | not identified (K at bound) | 9999.7 | 10000.0, 9999.0 | -- | -- | -- |
+| BnOH H | one K ties with separate K | 0.0824 | 0.1001, 0.0388 | -1.15 | 29 | 0.0 / 0.5 |
+| BnOH clocks | one clock law ties with separate laws | -- | -- | +1.81 | 30 | 6.0 / 0.0 |
+| 4OMe-BnOH clocks | too few curves | -- | -- | -- | -- | -- |
+
+The clock link's two laws: lag `H:relax|E:power`, burst
+`S:power|H:power|HOO:power`.
+
+### The barriers (4OMe-BnOH)
+
+| element | Ea (kJ/mol) | clustered se | model | status |
+|---|---|---|---|---|
+| `v_act` | 90.4 | 7.9 | S:power, HOO:power, BUF:bind, T:arrhenius | fitted |
+| `k_act_lag` | 84.9 | 9.8 | S:power, E:power, T:arrhenius | fitted |
+| `k_sink` | -- | -- | -- | not identified (fewer than 4 temperatures) |
+
+Verdicts (from `shared_binding_law`, `shared_clock_law`, `barriers`):
+`one K ties with separate K` (4OMe-BnOH BUF and H, BnOH H);
+`not identified (K at bound)` (BnOH BUF); `one clock law ties with separate
+laws` (BnOH); `too few curves` (4OMe-BnOH clocks);
+`barriers equal within 2 standard errors`.
+Health flags: none on the two fitted barriers. BnOH BUF's variants carry
+`shared at bound: K_B`, `separate at bound: K_B`, `separate at bound: K_B`; no
+other link has any.
+Not identified: BnOH BUF's K_B (at bound); 4OMe-BnOH `k_sink`'s barrier (fewer
+than 4 temperatures); 4OMe-BnOH's burst clock (its table has 11 curves).
+Could overturn this: the links use only curves resolved in both elements.
+
+Nothing is adopted.
+
+## 2026-09-15 — Amendment 1: the two-test tie rule, run-clustered errors, the temperature floor and the within-run families
+
+`PLAN_CURVES_TO_MECHANISM.md` section 11a, added 2026-09-15. The fix for the
+flaws Task 5a's stop found, and the rerun of Tasks 4-5 into
+`data/fits/rate_laws/v2`.
+
+What was asked: fix four flaws -- the tie rule that could not detect separate
+binding constants, standard errors that treat the curves of one run as
+independent, a temperature term fitted on 3 temperatures, and a
+`within_run_check` that kept [HOO-] -- and rerun Tasks 4 and 5 under the fixes.
+What was built: `data/rate_laws.py` (`tie_statistics`, the two-test `tie_set`,
+`_clustered_errors`, `stderr_clustered` in `fit_model` and in the within-run
+design, the 4-temperature floor in `term_identifiable`, the between-run
+families in `within_run_check`, the at-bound verdict in `shared_binding_law`,
+the clustered and temperature-filtered `barriers`, `RATE_LAW_DIR` =
+`data/fits/rate_laws/v2`); the tests
+`test_the_tie_rule_needs_both_tests`,
+`test_the_tie_rule_cannot_see_three_fold_failures`,
+`test_run_clustered_errors_cover_a_between_run_null`,
+`test_temperature_needs_four_temperatures` and
+`test_within_run_check_never_keeps_between_run_families` in
+`data/test_rate_laws.py`.
+Bugs found: the amendment's own `"concentrated"` case put the outlier on 2 of
+30 folds, which no paired test can exclude -- a model differing on k of n folds
+has `t = sqrt(k(n-1)/(n-k))`, 1.44 here, whatever the magnitude. Commit
+dbbe835 corrects it to folds 0-5 (raw t 2.69, log t 2.66) and adds
+`test_the_tie_rule_cannot_see_three_fold_failures`: 3 of 30 folds stays tied
+with `worst_fold_log_ratio` above 10. No machinery bug.
+
+**Why.** The planted K = 0.003 and 0.3 were recovered separately as 0.0031 and
+0.296, yet the raw tie rule called one shared K tied (mean difference 31.20, sd
+110.95, 33 folds, bar 38.63), because a few runs at extreme conditions dominate
+the spread. Clustered by run, the 4OMe-BnOH `k_sink` activation energy is
+54.7 +/- 20.7 kJ/mol, not +/- 11.8 (refitting the old save's best tied model
+with T, `HOO:power|T:arrhenius`, gives 20.73 against 11.83). That table has 3
+temperatures (25, 35, 40 C). `within_run_check` kept [HOO-], which moves inside
+a run only through ionic strength, so a within-run [HOO-] coefficient is a
+buffer coefficient.
+
+**The changes.** (1) `tie_set` keeps a model only if both the raw test
+(`d = score - score[best]`, `mean(d) <= 2 sd(d)/sqrt(folds)`) and the log test
+(the same inequality on `log(max(score, 1e-12)) - log(max(score[best], 1e-12))`)
+keep it; `tie_statistics` reports both, and `worst_fold_log_ratio`. (2)
+`fit_model` adds `stderr_clustered` (`V = G/(G-1) B M B`, `s_g = X_g' (w_g o
+e_g)`); every comparison and quoted +/- uses it, and `rate_law_health` flags
+`fewer than 10 runs: clustered errors unreliable`. (3) `T:arrhenius` needs at
+least 4 distinct temperatures, reason `fewer than 4 temperatures`, checked only
+after the variation rules. (4) HOO, E and T are always dropped from the
+within-run design as `between-run family`, and `disagree` uses clustered errors
+on both sides. (5) `shared_binding_law` returns `not identified (K at bound)`
+before the tie rule. (6) `barriers` uses clustered errors and leaves out a
+table with fewer than 4 temperatures. (7) The saves move to `v2`, carry every
+model's fold scores and the tie statistics.
+
+**The rerun.** The 23 searches into `v2`; the A8 tie counts reproduce exactly,
+with only these verdict changes:
+
+| save | tied old -> v2 | verdict changes (A8) | max worst_fold_log_ratio |
+|---|---|---|---|
+| `4OMe-BnOH_v_act_all` / `_S-gas` / `_S-pyro` | 34/34/14 -> 32/32/13 | S: undecided -> `S: a dependence in every tied model, option undecided (mm, power)` | 3.6 |
+| `4OMe-BnOH_k_act_lag_all` / `_S-gas` / `_S-pyro` | 86/86/25 -> 24/24/10 | T: undecided -> `T: arrhenius in every tied model` | 4.8 / 4.8 / 5.1 |
+| `BnOH_k_act_lag_all` | 19 -> 4 | H: undecided -> `H: a dependence in every tied model, option undecided (power, relax)` | 6.0 |
+| `BnOH_k_act_lag_S-gas` / `_S-weak` | 23/24 -> 10/24 | none | 11.3 / 8.5 |
+| `BnOH_v_act_all` / `_S-gas` / `_S-weak` / `_S-pyro` | 36/29/78/105 -> 33/27/78/89 | none | 4.0 / 6.1 / 12.6 / 7.2 |
+| `BnOH_k_act_burst_all` / `_S-gas` / `_S-weak` / `_S-pyro` | 70/72/68/72 -> unchanged | none | 6.0 / 5.5 / 5.4 / 7.8 |
+| `BnOH_k_sink_all` / `_S-gas` / `_S-weak` | 104/104/100 -> unchanged | none | 6.8 / 6.9 / 7.5 |
+| `4OMe-BnOH_k_sink_all` / `_S-gas` / `_S-pyro` | 66 -> 34 each | T: undecided -> `T: not identifiable on this table (fewer than 4 temperatures)` | 4.2 |
+
+The `k_sink` T change is the one the amendment exempts (change 3 removes the
+temperature term); no other verdict changes in these tables. The realistic
+planted identifiability under the new rule, ties 43, 33 and 35 of 216 at seeds
+0, 1 and 2: `HOO: power in every tied model` at all three seeds; seed 1 and 2
+also `S: a dependence in every tied model, option undecided (mm, power)`; seed
+2 also `BUF: a dependence in every tied model, option undecided (bind,
+power)`; every other family undecided.
+
+**The anchors.** A8, above: all tie counts and the three named verdict
+transitions reproduce; no other change except the exempted `k_sink` T. A9:
+`barriers("4OMe-BnOH")` gives `v_act` Ea 90.4 with clustered se 7.9,
+`k_act_lag` Ea 84.9 with clustered se 9.8, `k_sink` `not identified (fewer than
+4 temperatures)`, verdict `barriers equal within 2 standard errors`.
+
+**Health flags (v2, among tied models).** 4OMe-BnOH `k_sink` x3 `at bound:
+K_B` (12 models each). BnOH `k_act_burst` `at bound: K_B` (23-24), `at bound:
+K_H` (20-24), and its `_S-pyro` save also `fewer than 10 runs: clustered errors
+unreliable` (all 72). BnOH `k_sink` `at bound: K_B` and `at bound: Km` (32-34
+each), `at bound: K_H` (18-20). BnOH `v_act` `_all`/`_S-gas`/`_S-weak` `at
+bound: K_B` (10-27) and `_S-weak` `at bound: K_H` (16), `_S-pyro` `at bound:
+K_B` (32), `at bound: K_H` (29), `collinear: a_H/a_E r=+0.99` (7),
+`collinear: a_H/a_E r=+0.98` (6). No other save flags a tied model.
+`within_run_check` disagreements: 4OMe-BnOH `v_act` `a_S` on 12 tied models
+(`_all` and `_S-gas`) and 5 (`_S-pyro`); BnOH `v_act` `a_H` on 4 (`_all`) and 2
+(`_S-gas`); BnOH `k_sink` `_S-gas` `a_H` on 16; BnOH `k_act_lag` `_S-gas`
+`a_H` on 1.
+
+Verdicts (from `search`): the table above, verbatim.
+Health flags: as listed above.
+Not identified: 4OMe-BnOH `k_sink`'s T (`fewer than 4 temperatures`); 4OMe
+`k_act_burst` (11 curves, not fitted).
+Could overturn this: the two-test tie rule excludes a truly equal model
+somewhat more often than one test would; clustered errors are unreliable below
+10 runs (flagged); the A8 anchors were re-scored from the old saves, whose fold
+scores covered only tied models; the tie rule cannot exclude a model that fails
+on 3 or fewer of 30 held-out runs, however badly -- `worst_fold_log_ratio`
+shows where that happens.
+
+The tie sizes and verdicts of the 2026-09-14 "rate-law search" entry are
+superseded by this one.
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-14 (seventh entry) — the rate-law search: HOO:power in every tied 4OMe v_act model and every BnOH v_act model, undecided under the cuts
 
 `PLAN_CURVES_TO_MECHANISM.md` Task 4. Every model allowed by

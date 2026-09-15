@@ -192,6 +192,32 @@ def test_a_strong_planted_model_is_recovered():
     check("no rank-deficient flag", "rank deficient" not in flags, str(flags))
 
 
+def test_run_clustered_errors_cover_a_between_run_null():
+    """200 planted nulls: the naive error over-rejects, the clustered does not."""
+    print("\nthe run-clustered errors, 200 planted nulls")
+    naive, clustered = 0, 0
+    for seed in range(200):
+        generator = np.random.default_rng(seed)
+        hoo_run = np.exp(generator.normal(0.0, 1.0, 12))
+        offset = generator.normal(0.0, 0.3, 12)
+        experiments = np.repeat(np.arange(1, 13), 4)
+        noise = generator.normal(0.0, 0.02, 48)
+        table = _synthetic_table(48, experiment=experiments)
+        table["hoo"] = hoo_run[experiments - 1]
+        table["y"] = offset[experiments - 1] + noise
+        table["weight"] = 1.0
+        result = rate_laws.fit_model(table, {"HOO": "power"})
+        coefficient = result["coefficients"]["a_HOO"]
+        if abs(coefficient / result["stderr"]["a_HOO"]) > 2.0:
+            naive += 1
+        if abs(coefficient / result["stderr_clustered"]["a_HOO"]) > 2.0:
+            clustered += 1
+    check("the naive errors reject more than 22% of the nulls",
+          naive / 200 > 0.22, f"{naive}/200")
+    check("the clustered errors reject fewer than 17% of the nulls",
+          clustered / 200 < 0.17, f"{clustered}/200")
+
+
 def test_health_flags():
     """One hand-built table per flag, each producing exactly that flag."""
     print("\nthe health flags, planted one at a time")
@@ -249,6 +275,16 @@ def test_identifiability_rules():
           reason == "fewer than 2 distinct values", reason)
 
 
+def test_temperature_needs_four_temperatures():
+    print("\nthe temperature floor")
+    table = _synthetic_table(20)
+    table["kelvin"] = 273.15 + np.array([25.0, 30.0, 35.0] * 6 + [25.0, 30.0])
+    ok, reason = rate_laws.term_identifiable(table, "T", "arrhenius")
+    check("three temperatures leave T unidentifiable", not ok)
+    check("the reason names the temperature count",
+          reason == "fewer than 4 temperatures", reason)
+
+
 def test_within_run_check_catches_a_between_run_confound():
     print("\nthe within-run check, planted")
     experiments, s0, y = [], [], []
@@ -267,6 +303,20 @@ def test_within_run_check_catches_a_between_run_confound():
     check("the within-run a_S is near zero", abs(row.within_runs) < 0.1,
           f"{row.within_runs:.4f}")
     check("the two disagree", bool(row.disagree))
+
+
+def test_within_run_check_never_keeps_between_run_families():
+    print("\nthe within-run families")
+    experiments = list(np.repeat(np.arange(1, 7), 4))
+    hoo = np.tile(np.array([1.0, 1.07, 1.13, 1.20]), 6)
+    table = _synthetic_table(24, experiment=experiments, hoo=hoo)
+    table["y"] = np.log(table.hoo.to_numpy(dtype=float))
+    result = rate_laws.within_run_check(table, {"HOO": "power"})
+    check("the within-run design has no HOO coefficient",
+          "a_HOO" not in result["table"].index, str(result["table"].index))
+    check("HOO is dropped as a between-run family",
+          dict(result["dropped"]).get("a_HOO") == "between-run family",
+          str(result["dropped"]))
 
 
 def test_every_run_is_held_out_once_and_never_trained_on():
@@ -305,6 +355,44 @@ def test_the_tie_rule():
           set(tied) == {"best", "tied"}, str(tied))
     check("the model outside the error is not tied", "not" not in tied,
           str(tied))
+
+
+def test_the_tie_rule_needs_both_tests():
+    print("\nthe tie rule needs both tests")
+    folds = np.arange(30)
+    base = 10.0 ** (folds / 5.0)
+    scores = pd.DataFrame(
+        [base, 1.10 * base,
+         base + np.where(folds < 6, 40.0 * base.max(), 0.0),
+         base * (1.0 + 0.02 * (-1.0) ** folds)],
+        index=["best", "consistent", "concentrated", "equal"],
+        columns=folds)
+    statistics = rate_laws.tie_statistics(scores)
+    tied = rate_laws.tie_set(scores)
+    check("a constant proportional excess is not tied",
+          "consistent" not in tied, str(tied))
+    check("a six-fold absolute excess is not tied",
+          "concentrated" not in tied, str(tied))
+    check("the raw test is the one that catches it",
+          not bool(statistics.loc["concentrated", "raw_kept"]),
+          str(statistics.loc["concentrated"].to_dict()))
+    check("a within-error wobble is tied", "equal" in tied, str(tied))
+    check("the best model is tied", "best" in tied, str(tied))
+
+
+def test_the_tie_rule_cannot_see_three_fold_failures():
+    print("\nthe tie rule's blind spot")
+    folds = np.arange(30)
+    base = 10.0 ** (folds / 5.0)
+    scores = pd.DataFrame(
+        [base, base + np.where(folds < 3, 40.0 * base.max(), 0.0)],
+        index=["best", "hidden"], columns=folds)
+    statistics = rate_laws.tie_statistics(scores)
+    tied = rate_laws.tie_set(scores)
+    check("a three-fold absolute excess is tied", "hidden" in tied, str(tied))
+    check("its worst fold is more than 10 log units out",
+          float(statistics.loc["hidden", "worst_fold_log_ratio"]) > 10.0,
+          str(statistics.loc["hidden", "worst_fold_log_ratio"]))
 
 
 def test_term_verdicts():
@@ -386,6 +474,66 @@ def test_the_search_finds_a_realistic_planted_model():
         print(f"    {summary}")
 
 
+def _planted_pre_equilibrium(k_rate, k_clock, seed=0):
+    """The real 4OMe-BnOH v_act and k_act_lag tables with the pre-equilibrium
+    planted: v_act ~ K buf/(1 + K buf), k_act ~ (1 + K buf)."""
+    tables = _tables()
+    rate = tables["4OMe-BnOH"]["elements"]["v_act"].copy()
+    clock = tables["4OMe-BnOH"]["elements"]["k_act_lag"].copy()
+    intercept = {"Boric": 0.0, "Phosphate": -0.5, "Pyrophosphate": 0.5}
+    generator = np.random.default_rng(seed)
+    for table, constant, relax in ((rate, k_rate, False),
+                                   (clock, k_clock, True)):
+        buf = table.buf.to_numpy(dtype=float)
+        base = np.array([intercept[b] for b in table.buffer])
+        base = base + (np.log1p(constant * buf) if relax
+                       else np.log(constant * buf / (1.0 + constant * buf)))
+        table["y"] = base + generator.normal(0.0, 0.01, len(table))
+    return rate, clock
+
+
+def test_shared_binding_on_a_planted_pre_equilibrium():
+    print("\nthe shared binding constant, planted")
+    rate, clock = _planted_pre_equilibrium(0.03, 0.03)
+    found = rate_laws.shared_binding_law("4OMe-BnOH", "BUF",
+                                         rate_table=rate, clock_table=clock)
+    check("one K ties with separate K",
+          found["verdict"] == "one K ties with separate K",
+          found["verdict"])
+    check("the shared K is within 0.1 decade of 0.03",
+          abs(np.log10(found["shared_k"]) - np.log10(0.03)) <= 0.1,
+          f"{found['shared_k']:.4f}")
+
+
+def test_separate_binding_is_detected():
+    print("\nseparate binding constants, planted")
+    rate, clock = _planted_pre_equilibrium(0.003, 0.3)
+    found = rate_laws.shared_binding_law("4OMe-BnOH", "BUF",
+                                         rate_table=rate, clock_table=clock)
+    check("separate K predicts better",
+          found["verdict"] == "separate K predicts better",
+          found["verdict"])
+
+
+def test_shared_binding_at_bound_is_not_identified():
+    print("\nthe shared binding constant at a bound")
+    tables = _tables()
+    rate = tables["4OMe-BnOH"]["elements"]["v_act"].copy()
+    clock = tables["4OMe-BnOH"]["elements"]["k_act_lag"].copy()
+    intercept = {"Boric": 0.0, "Phosphate": -0.5, "Pyrophosphate": 0.5}
+    generator = np.random.default_rng(0)
+    rate["y"] = (np.array([intercept[b] for b in rate.buffer])
+                 + generator.normal(0.0, 0.01, len(rate)))
+    buf = clock.buf.to_numpy(dtype=float)
+    clock["y"] = (np.array([intercept[b] for b in clock.buffer])
+                  + np.log(buf) + generator.normal(0.0, 0.01, len(clock)))
+    found = rate_laws.shared_binding_law("4OMe-BnOH", "BUF",
+                                         rate_table=rate, clock_table=clock)
+    check("not identified (K at bound)",
+          found["verdict"] == "not identified (K at bound)",
+          found["verdict"])
+
+
 if __name__ == "__main__":
     test_the_archive_anchors()
     test_the_substrate_anchors()
@@ -393,13 +541,21 @@ if __name__ == "__main__":
     test_lag_and_burst_share_runs()
     test_se_is_the_interval_width()
     test_a_strong_planted_model_is_recovered()
+    test_run_clustered_errors_cover_a_between_run_null()
     test_health_flags()
     test_identifiability_rules()
+    test_temperature_needs_four_temperatures()
     test_within_run_check_catches_a_between_run_confound()
+    test_within_run_check_never_keeps_between_run_families()
     test_every_run_is_held_out_once_and_never_trained_on()
     test_the_tie_rule()
+    test_the_tie_rule_needs_both_tests()
+    test_the_tie_rule_cannot_see_three_fold_failures()
     test_term_verdicts()
     test_the_search_finds_a_realistic_planted_model()
+    test_shared_binding_on_a_planted_pre_equilibrium()
+    test_separate_binding_is_detected()
+    test_shared_binding_at_bound_is_not_identified()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)
