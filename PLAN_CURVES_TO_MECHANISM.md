@@ -3,6 +3,11 @@
 Handover plan, written 2026-09-14. It replaces `PLAN_STEP3_REVISED.md` (removed;
 see git history) and everything after stage 3.1 of `PLAN_MECHANISM_NEXT_STEPS.md`.
 
+> **AMENDMENT 1 (2026-09-15). Resume at section 11a (Task 5a), not at Task 6.**
+> It changes the tie rule, the standard errors, the temperature floor and
+> `within_run_check`, reruns Tasks 4 and 5 into `data/fits/rate_laws/v2`, and
+> overrides the items of Tasks 3-6 it names.
+
 ## The goal, in one paragraph
 
 Find the set of equations that best PREDICTS the progress curves, where "best"
@@ -53,7 +58,8 @@ So in this plan:
 8. Task 2 — the curve-parameter tables
 9. Task 3 — the rate-law fitter, its health checks and planted tests
 10. Task 4 — the rate-law search
-11. Task 5 — links between the parameters — STOP 1
+11. Task 5 — links between the parameters (halted; see 11a)
+11a. Amendment 1 — Task 5a: the tie rule, clustered errors, the rerun — STOP 1
 12. Task 6 — the global analytic fitter and its pilot
 13. Task 7 — the global fits — STOP 2
 14. Report templates
@@ -268,6 +274,8 @@ result:
 | A5 | each stage is affordable | Task 4's or Task 6's pilot projects more than 12 hours of wall time |
 | A6 | Stage B's best model fits | its health check still flags "not converged" after one refit with doubled starts |
 | A7 | Stage A's coefficients are not an artefact of keeping only resolved curves | more than half of the coefficients shared by Stage A and Stage B shift by more than 2 standard errors |
+| A8 | Amendment 1's rerun reproduces the re-scored tie sets | any tie size or verdict change in 11a's A8 table differs |
+| A9 | Amendment 1's clustered barrier errors reproduce | any value in 11a's A9 list differs by more than 0.2, or a listed verdict differs |
 
 An element with fewer than 15 curves after exclusions is not fitted in Tasks
 4-5. Report it as "too few curves"; that is not a stop. Today this applies to
@@ -287,7 +295,8 @@ curves".
 | 2 | `data/rate_laws.py`: the curve-parameter tables, anchors | commit |
 | 3 | rate-law fitter, health, identifiability, planted tests | commit |
 | 4 | rate-law search per element and substrate, cuts | commit |
-| 5 | links: shared binding constant, lag/burst clocks, barriers | **STOP 1** |
+| 5 | links: shared binding constant, lag/burst clocks, barriers | halted on its own test; continued by 5a |
+| 5a | Amendment 1: two-test tie rule, run-clustered errors, temperature floor, within-run families; rerun Tasks 4-5 into `v2` | **STOP 1** |
 | 6 | global analytic fitter, planted test, pilot | commit (STOP if A4 or A5) |
 | 7 | global fits, comparison with Stage A, amplitude check | **STOP 2** |
 
@@ -386,7 +395,10 @@ their curve counts, and the `excluded` table.
 **Goal.** A fitter for one model on one element table, with the checks that
 were skipped in earlier rounds built in.
 
-**Changes** (`data/rate_laws.py`):
+**Changes** (`data/rate_laws.py`). **Amendment 1 (section 11a) overrides
+items 3, 5 and 6 below**: `fit_model` also returns run-clustered errors,
+`T:arrhenius` needs 4 temperatures, and `within_run_check` always drops HOO, E
+and T.
 
 1. `TERM_OPTIONS`: a dict per element of the options each family may take:
    - `v_act` and `k_sink`: S {power, mm}; H {power, bind}; HOO {power};
@@ -472,7 +484,9 @@ were skipped in earlier rounds built in.
 **Goal.** For each substrate and element, every model allowed by
 `TERM_OPTIONS` and `term_identifiable`, scored by leave-one-run-out.
 
-**Changes** (`data/rate_laws.py`):
+**Changes** (`data/rate_laws.py`). **Amendment 1 (section 11a) overrides
+items 3 and 5 below**: `tie_set` needs both the raw and the log test, and
+`search` saves every model's fold scores into `data/fits/rate_laws/v2`.
 
 1. `enumerate_models(table, element)`: every combination of at most one
    option per family, including none, keeping only options
@@ -538,6 +552,11 @@ table, the cuts `S-gas`, `S-weak` (BnOH only; the weak runs are all BnOH) and
 **Goal.** Three tests that couple elements. Mechanisms predict couplings that
 single-element rate laws cannot see.
 
+**Amendment 1 (section 11a) overrides items 1 and 3 below, and this task's
+Report and STOP**: `shared_binding_law` returns "not identified (K at bound)"
+when a K sits at a bound, `barriers` uses clustered errors and needs 4
+temperatures, and STOP 1 happens at the end of Task 5a, not here.
+
 **Changes** (`data/rate_laws.py`). Each test fits two elements jointly: the
 summed weighted cost, one coefficient set per element, with the stated
 coefficients shared. Each is scored by leave-one-run-out over the runs present
@@ -580,6 +599,199 @@ in either table.
 **Question at STOP 1:** "Stage A's rate laws and links are above. Proceed to
 Stage B (Tasks 6-7), using as candidates each element's best tied model and its
 simplest tied model?"
+
+## 11a. Amendment 1 — Task 5a: the tie rule, clustered errors, the rerun — STOP 1
+
+Added 2026-09-15. **This section overrides** Task 3 items 3, 5 and 6, Task 4
+items 3 and 5, Task 5 items 1 and 3, and Task 6's standard errors. Where their
+text differs from this section, this section wins.
+
+### Why
+
+- **The tie rule failed the plan's own test.** Task 5 halted on
+  `test_separate_binding_is_detected`. The planted constants, K = 0.003 and
+  0.3, were recovered separately as 0.0031 and 0.296. Yet the tie rule called
+  one shared K tied: mean difference 31.20, sd 110.95, 33 folds, bar 38.63.
+  The rule compares RAW fold scores, and a few runs at extreme conditions
+  dominate their spread, so a model that is worse on nearly every run can
+  still tie.
+- **The standard errors treat the curves of one run as independent.** They
+  share a day, a stock and a cuvette offset. Clustered by run, the 4OMe-BnOH
+  `k_sink` activation energy is 54.7 ± 20.7 kJ/mol, not ± 11.8.
+- **A temperature term was fitted on 3 temperatures.** That is the 4OMe-BnOH
+  `k_sink` table.
+- **`within_run_check` keeps [HOO-].** Task 3 item 6 described dropping it
+  instead of requiring it. [HOO-] moves inside a run only through ionic
+  strength, which follows [buf], so a within-run [HOO-] coefficient is a
+  buffer coefficient.
+
+**Keep Task 5's uncommitted code in the working tree and adapt it. Do not
+revert it.** Do not delete or edit anything in `data/fits/rate_laws/`.
+
+### Goal
+
+Fix the four flaws, rerun Tasks 4 and 5 under the fixes into a new directory,
+and stop at STOP 1 again.
+
+### Changes (`data/rate_laws.py`; check every new name is unused first)
+
+1. **`tie_set(scores)` keeps a model only if BOTH tests keep it.**
+   - Folds: the columns with no NaN in any model, as now. Best: the lowest
+     total, as now.
+   - Raw test, as now: `d = score − score[best]`; kept if
+     `mean(d) <= 2·sd(d)/sqrt(folds)`.
+   - Log test: `d = log(max(score, TIE_LOG_FLOOR)) −
+     log(max(score[best], TIE_LOG_FLOOR))`, with module constant
+     `TIE_LOG_FLOOR = 1e-12`. Kept by the same inequality.
+   - Tied = kept by both. The best is always tied. Return the models in
+     `scores.index` order.
+   - Add `tie_statistics(scores)`: one row per model, with `raw_mean`,
+     `raw_bar`, `raw_kept`, `log_mean`, `log_bar`, `log_kept`, `tied`.
+2. **`fit_model` adds run-clustered standard errors,**
+   `result["stderr_clustered"]`:
+   - `e = y − prediction` at the optimum (from `_predict`). `X` is the
+     result's `_matrix`; `w` is the table's weights; `G` is the number of runs.
+   - `B = pinv(Xᵀ·diag(w)·X)`. `M = Σ over runs g of s_g·s_gᵀ`, with
+     `s_g = X_gᵀ·(w_g ∘ e_g)`. `V = G/(G − 1)·B·M·B`.
+   - `stderr_clustered[name] = sqrt(V[i, i])` for every linear coefficient.
+     `stderr_clustered["Ea"] = stderr_clustered["Ea_R"] × 8.314462618/1000`.
+     Nonlinear constants get NaN.
+   - `stderr` (the naive errors) stays exactly as it is.
+   - **From now on, every verdict, comparison and quoted ± in this plan uses
+     `stderr_clustered`.**
+   - `rate_law_health` adds the flag
+     `"fewer than 10 runs: clustered errors unreliable"` when `G < 10`.
+3. **`term_identifiable`:** `T:arrhenius` also needs at least 4 distinct
+   temperatures in the table. Reason string: `"fewer than 4 temperatures"`.
+4. **`within_run_check`:**
+   - Families HOO, E and T are ALWAYS dropped from the run design, whatever
+     their within-run variation. List each in `dropped` with the reason
+     `"between-run family"`.
+   - `disagree` uses `stderr_clustered` for the between-run estimate. For the
+     within-run estimate, use the same clustered formula applied to the run
+     design.
+5. **`shared_binding_law`:** if the shared K or either separate K is within
+   0.05 of a log10 bound, the verdict is exactly
+   `"not identified (K at bound)"`. Check this BEFORE the tie rule.
+6. **`barriers`:**
+   - Use `stderr_clustered`.
+   - An element whose table has fewer than 4 distinct temperatures is left out
+     and listed as `"not identified (fewer than 4 temperatures)"`.
+   - The verdict compares only the remaining elements. If fewer than 2 remain,
+     the verdict is `"fewer than 2 elements with a barrier"`.
+7. **Saves:**
+   - `RATE_LAW_DIR` becomes `data/fits/rate_laws/v2`.
+   - `search` saves `fold_scores` for EVERY model, not only tied ones, and
+     `tie_statistics`.
+   - `_best_tied_model` reads `v2`.
+8. **For Task 6, when you get there:** `global_fit` also reports
+   `stderr_clustered`, computed the same way on the stacked problem:
+   - `J` is `least_squares`'s Jacobian of the weighted residuals with respect
+     to the global coefficients, and `r` the weighted residuals, both at the
+     optimum.
+   - `B = pinv(JᵀJ)`, `M = Σ over runs g of (J_gᵀ·r_g)(J_gᵀ·r_g)ᵀ`,
+     `V = G/(G − 1)·B·M·B`.
+   - Treat each curve's `c` and `v0` as fixed.
+   - `stage_shift` uses `stderr_clustered` on both sides.
+
+### Tests (`data/test_rate_laws.py`)
+
+Every existing test stays unchanged. These three must pass under the new
+rule: `test_the_tie_rule`,
+`test_shared_binding_on_a_planted_pre_equilibrium` and
+`test_separate_binding_is_detected`. Add:
+
+- **`test_the_tie_rule_needs_both_tests`.** Hand-built, 30 folds, base fold
+  scores `b_f = 10**(f/5)` for f = 0..29, so the folds span six decades.
+  Models:
+  - `"best"`: `b_f`.
+  - `"consistent"`: `1.10·b_f`. Assert NOT tied (the log test catches it).
+  - `"concentrated"`: `b_f`, plus `40·max(b)` added to folds 0 and 1 only.
+    Assert NOT tied (the raw test catches it).
+  - `"equal"`: `b_f·(1 + 0.02·(−1)**f)`. Assert tied; assert `"best"` is also
+    tied.
+- **`test_run_clustered_errors_cover_a_between_run_null`.** 200 planted tables,
+  seeds 0..199. Each has 12 runs × 4 curves and one buffer. Per run, draw
+  `x_run ~ N(0, 1)`; set `hoo = exp(x_run)` on every curve of that run; set
+  every other condition column to 1.
+  - `y = run_offset + noise`, with `run_offset ~ N(0, 0.3)` per run and
+    `noise ~ N(0, 0.02)` per curve. `weight = 1`. The true HOO order is 0.
+  - Fit the model `{"HOO": "power"}`.
+  - Assert: the share of seeds with `|a_HOO / stderr| > 2` is above 0.22, and
+    the share with `|a_HOO / stderr_clustered| > 2` is below 0.17.
+- **`test_temperature_needs_four_temperatures`.** A table whose temperatures
+  are 25, 30 and 35 °C makes `T:arrhenius` unidentifiable, with the reason
+  `"fewer than 4 temperatures"`.
+- **`test_within_run_check_never_keeps_between_run_families`.** A planted table
+  where `hoo` varies by 20% inside every run. The within-run design has no HOO
+  coefficient, and `dropped` lists it with `"between-run family"`.
+- **`test_shared_binding_at_bound_is_not_identified`.**
+  - Rows: the real 4OMe-BnOH `v_act` and `k_act_lag` tables.
+  - Plant `v_act` with no buffer dependence (its intercepts plus noise SD
+    0.01, seed 0), and `k_act` proportional to [buf] (noise SD 0.01).
+  - Assert the verdict `"not identified (K at bound)"`.
+
+### Run, in order
+
+1. `.venv/bin/python data/test_rate_laws.py`. Every test passes.
+2. `search` for every substrate × element × cut that Task 4 ran (the same 25),
+   into `v2`. Then the realistic planted identifiability search, into `v2`.
+3. **Anchors A8** — the number of tied models in the `v2` saves must be
+   exactly:
+
+   | save | tied |
+   |---|---|
+   | 4OMe-BnOH `v_act`: all / S-gas / S-pyro | 32 / 32 / 13 |
+   | 4OMe-BnOH `k_act_lag`: all / S-gas / S-pyro | 24 / 24 / 10 |
+   | BnOH `v_act`: all / S-gas / S-weak / S-pyro | 33 / 27 / 78 / 89 |
+   | BnOH `k_act_lag`: all / S-gas / S-weak | 4 / 10 / 24 |
+   | BnOH `k_act_burst`: all / S-gas / S-weak / S-pyro | 70 / 72 / 68 / 72 |
+   | BnOH `k_sink`: all / S-gas / S-weak | 104 / 104 / 100 |
+
+   and these verdicts must change from the old saves exactly as follows, with
+   no other change in these tables:
+   - 4OMe-BnOH `k_act_lag` (all, S-gas, S-pyro): T becomes
+     `"T: arrhenius in every tied model"`.
+   - 4OMe-BnOH `v_act` (all, S-gas, S-pyro): S becomes
+     `"S: a dependence in every tied model, option undecided (mm, power)"`.
+   - BnOH `k_act_lag` (all): H becomes
+     `"H: a dependence in every tied model, option undecided (power, relax)"`.
+
+   4OMe-BnOH `k_sink` is not anchored: change 3 removes its temperature term.
+4. Task 5's three links, under `v2`.
+5. **Anchors A9** — `barriers("4OMe-BnOH")` must give:
+   - `v_act`: Ea 90.4, clustered se 7.9;
+   - `k_act_lag`: Ea 84.9, clustered se 9.8 (each value ±0.2);
+   - `k_sink`: `"not identified (fewer than 4 temperatures)"`;
+   - verdict: `"barriers equal within 2 standard errors"`.
+
+### Report
+
+Two `DATA_VERIFICATION.md` entries, template E:
+
+1. **"Amendment 1: the tie rule, clustered errors, the temperature floor and
+   the within-run families."** Contents:
+   - the Why above, with its numbers;
+   - the changes;
+   - one table per save: tied models in the old save → in `v2`, and every
+     verdict that changed;
+   - the A8 and A9 anchors, reproduced;
+   - a sentence stating that the tie sizes and verdicts of the 2026-09-14
+     "rate-law search" entry are superseded by this one.
+2. **"Task 5: links between the parameters"**, with the `v2` results and
+   clustered errors.
+
+### Gate
+
+A8 or A9 → STOP and report. Otherwise:
+1. `run_gates.py` prints `0 failed`.
+2. Commit: Task 5's code, the amendment's code, the tests, the `v2` saves and
+   both entries.
+3. **STOP 1**, template S.
+
+**Question at STOP 1** (replaces Task 5's question): "Stage A under Amendment 1
+is above. Proceed to Stage B (Tasks 6-7), with each element's best tied model
+and simplest tied model from the `v2` saves as candidates?"
 
 ## 12. Task 6 — the global analytic fitter and its pilot
 
@@ -719,6 +931,10 @@ Nothing is adopted.
   and batch; buffer identity is confounded with pH; the planted identifiability
   shows what this design can separate.
 - Task 5: the links use only curves resolved in both elements.
+- Task 5a: the two-test tie rule excludes a truly equal model somewhat more
+  often than one test would; clustered errors are unreliable below 10 runs
+  (flagged); the A8 anchors were re-scored from the old saves, whose fold
+  scores covered only tied models.
 - Tasks 6-7: the 94 curves the form cannot hold are not in the fit; Stage A's
   candidate set limits Stage B's.
 
