@@ -3,10 +3,16 @@
 Handover plan, written 2026-09-14. It replaces `PLAN_STEP3_REVISED.md` (removed;
 see git history) and everything after stage 3.1 of `PLAN_MECHANISM_NEXT_STEPS.md`.
 
-> **AMENDMENT 1 (2026-09-15). Resume at section 11a (Task 5a), not at Task 6.**
-> It changes the tie rule, the standard errors, the temperature floor and
-> `within_run_check`, reruns Tasks 4 and 5 into `data/fits/rate_laws/v2`, and
-> overrides the items of Tasks 3-6 it names.
+> **AMENDMENT 2 (2026-09-15). Task 5a is done (commit 5b3d0ac). Resume at
+> section 11b (Task 5b), then continue to Task 6.** Amendment 2 adds link
+> power, a one-buffer rule for the links, an exact definition of Stage B's
+> candidates and a realistic planted recovery for Stage B. It overrides the
+> items of Tasks 5-7 it names.
+>
+> **AMENDMENT 1 (2026-09-15), done.** Section 11a changed the tie rule, the
+> standard errors, the temperature floor and `within_run_check`, reran Tasks 4
+> and 5 into `data/fits/rate_laws/v2`, and overrides the items of Tasks 3-6 it
+> names. Those overrides still apply.
 
 ## The goal, in one paragraph
 
@@ -59,7 +65,8 @@ So in this plan:
 9. Task 3 — the rate-law fitter, its health checks and planted tests
 10. Task 4 — the rate-law search
 11. Task 5 — links between the parameters (halted; see 11a)
-11a. Amendment 1 — Task 5a: the tie rule, clustered errors, the rerun — STOP 1
+11a. Amendment 1 — Task 5a: the tie rule, clustered errors, the rerun — STOP 1 (done)
+11b. Amendment 2 — Task 5b: link power, the one-buffer rule, Stage B's candidates and its realistic planting
 12. Task 6 — the global analytic fitter and its pilot
 13. Task 7 — the global fits — STOP 2
 14. Report templates
@@ -276,6 +283,7 @@ result:
 | A7 | Stage A's coefficients are not an artefact of keeping only resolved curves | more than half of the coefficients shared by Stage A and Stage B shift by more than 2 standard errors |
 | A8 | Amendment 1's rerun reproduces the re-scored tie sets | any tie size or verdict change in 11a's A8 table differs |
 | A9 | Amendment 1's clustered barrier errors reproduce | any value in 11a's A9 list differs by more than 0.2, or a listed verdict differs |
+| A10 | Amendment 2's link verdicts, link power and Stage B candidates reproduce | any item in 11b's A10 list differs |
 
 An element with fewer than 15 curves after exclusions is not fitted in Tasks
 4-5. Report it as "too few curves"; that is not a stop. Today this applies to
@@ -296,7 +304,8 @@ curves".
 | 3 | rate-law fitter, health, identifiability, planted tests | commit |
 | 4 | rate-law search per element and substrate, cuts | commit |
 | 5 | links: shared binding constant, lag/burst clocks, barriers | halted on its own test; continued by 5a |
-| 5a | Amendment 1: two-test tie rule, run-clustered errors, temperature floor, within-run families; rerun Tasks 4-5 into `v2` | **STOP 1** |
+| 5a | Amendment 1: two-test tie rule, run-clustered errors, temperature floor, within-run families; rerun Tasks 4-5 into `v2` | **STOP 1** (done, 5b3d0ac) |
+| 5b | Amendment 2: one-buffer rule and link power; Stage B candidates defined; realistic planted recovery for Stage B | commit, then straight on to Task 6 |
 | 6 | global analytic fitter, planted test, pilot | commit (STOP if A4 or A5) |
 | 7 | global fits, comparison with Stage A, amplitude check | **STOP 2** |
 
@@ -811,7 +820,202 @@ A8 or A9 → STOP and report. Otherwise:
 is above. Proceed to Stage B (Tasks 6-7), with each element's best tied model
 and simplest tied model from the `v2` saves as candidates?"
 
+## 11b. Amendment 2 — Task 5b: link power, the one-buffer rule, Stage B's candidates and its realistic planting
+
+Added 2026-09-15, after STOP 1. The user approved Stage B with these additions.
+
+**This section overrides** the parts of the tasks named below, wherever their
+text differs:
+- Task 5 item 1: the order of the verdicts.
+- Task 6: the candidate set, the tests and the pilot.
+- Task 7: the Run and the Report.
+
+### Why
+
+- **Stage A's link tests were planted at noise 0.01.** Real rows carry
+  sqrt(se² + 0.10²). A review re-ran `shared_binding_law` on 4OMe-BnOH BUF at
+  realistic noise:
+  - K = 0.003 (v_act) and 0.3 (k_act_lag): "separate K predicts better" in 3
+    of 3 seeds. The raw t was about 1.6; the log t was 3.1 to 4.7.
+  - K = 0.03 in both: "one K ties with separate K" in 3 of 3 seeds.
+  - K = 0.0999 and 0.00439, the real separate estimates: caught in 4 of 5
+    seeds; seed 2 tied.
+
+  So the real "one K ties" on 4OMe-BnOH BUF is informative, with about a 1 in
+  5 chance of a tie even if the two Ks really were that far apart. That result
+  exists only in a scratch script; it must become a recorded function.
+- **The 4OMe-BnOH H link rests on one buffer.** Only 4 pyrophosphate runs (exps
+  127, 129, 130 and 131) have a [H2O2] other than 82.5 mM. A constant
+  identified inside one buffer's runs cannot be separated from that buffer.
+- **Stage B has only a strong planted test** (noise 0.1 × each curve's noise).
+  Stage A's realistic planting showed what a strong planting hides. At real
+  noise it recovered:
+  - the HOO order in 3 of 3 seeds;
+  - an S dependence in 2 of 3;
+  - a buffer dependence in 1 of 3;
+  - the option (mm or power, bind or power) in none.
+- **"Simplest tied model" was never defined precisely.**
+
+### Goal
+
+Record the link power, add the one-buffer rule, define Stage B's candidates
+exactly, and add a realistic planted recovery to Stage B. Then continue to
+Task 6 without stopping.
+
+### Changes (`data/rate_laws.py`; check every new name is unused first)
+
+1. **`shared_binding_law` checks three things, in this order:**
+   1. K at a bound → `"not identified (K at bound)"` (as Amendment 1).
+   2. **One buffer** → `"not identified (one buffer)"`. In each of the two
+      tables, a buffer "carries" the family if its own rows have at least 2
+      curves and the log of the family's concentration ([buf] for BUF,
+      [H2O2] for H) has SD ≥ 0.05 after removing that buffer's mean. If either
+      table has fewer than 2 carrying buffers, return this verdict.
+   3. The tie rule.
+2. **`link_power(substrate, family, k_rate, k_clock, seeds)`:**
+   - **Rows:** the substrate's real `v_act` and `k_act_lag` element tables.
+   - **For each seed:**
+     - Make one generator, `numpy.random.default_rng(seed)`.
+     - Build the `v_act` table first, then the `k_act_lag` table, in that
+       order. For each: `y = intercept[buffer] + term +
+       generator.normal(0.0, spread)`, where `spread` is the vector
+       `sqrt(se² + SE_FLOOR²)` over the table's rows, drawn in one call.
+     - Intercepts: Boric 0.0, Phosphate −0.5, Pyrophosphate 0.5.
+     - Terms: `log(k_rate·x/(1 + k_rate·x))` for `v_act` and
+       `log(1 + k_clock·x)` for `k_act_lag`, with x = [buf] for BUF and
+       [H2O2] for H.
+     - Call `shared_binding_law(substrate, family, rate_table=...,
+       clock_table=...)`.
+   - **Returns**, per seed: the verdict, the shared K, the separate Ks, and the
+     raw t and log t of the shared-minus-separate fold scores, each
+     `t = mean/(sd/sqrt(folds))`. Also `caught`, the number of seeds whose
+     verdict is "separate K predicts better".
+   - **Saves** `data/fits/rate_laws/v2/link_power.json`. Reads that file back if
+     it exists.
+3. **`stage_b_candidates(substrate)`**, from the `v2` `_all` saves, per element:
+   - `best`: the lowest CV total among the tied models.
+   - `simplest`: the fewest coefficients among the tied models.
+     - Each family option counts 1; `power_by_buffer` counts the number of
+       buffers in that element's table; intercepts do not count.
+     - Ties are broken by the lower CV total.
+     - The empty model (intercepts only) is allowed.
+   - If `best` and `simplest` are the same model, the element has one
+     candidate.
+   - For a substrate without a fitted `k_act_burst` table, the burst candidate
+     is `"lag law + burst_offset"`.
+   - The combinations are every choice of one candidate per element, each also
+     with `k_sink` None. These are exactly Task 6's candidates.
+4. **`planted_global(substrate, seed=0)`**, recorded and not asserted:
+   - **Truth:** each element's `best` candidate, with the coefficients
+     `fit_model` gives on that element's full table.
+     - Where the burst fallback applies, the truth `burst_offset` is the median
+       over that substrate's `k_act_burst` element rows of
+       `y − (lag-law prediction at their conditions)`.
+   - **Curves:** exactly the curves `global_fit` uses for that substrate.
+     - Each curve keeps its own family label.
+     - Each curve's `c` and `v0` are its own `ActivationSinkFit.c` and `.v0`.
+   - **Readings:** the model at each curve's times, plus `normal(0,
+     curve.noise)` from `default_rng(seed)`, drawn curve by curve in the order
+     `global_fit` iterates.
+   - **Starts:** never the truth. Use the truth + 0.5 on every linear
+     coefficient and +0.5 decade on every log10 K, plus Task 6's restarts.
+   - **Run:** `global_fit` and `global_cross_validate` for EVERY combination
+     from `stage_b_candidates`, the same set Task 7 fits.
+   - **Record**, in `data/fits/rate_laws/v2/planted_global_<substrate>.json`:
+     - for the true combination: per coefficient, the truth, the estimate,
+       `stderr_clustered`, and `within_2se`;
+     - its health flags;
+     - the candidates' two-test tie set, with `tie_statistics` including
+       `worst_fold_log_ratio`;
+     - whether the true combination is the best, and whether it is tied.
+5. **Task 7's Report.**
+   - Beside every Stage B coefficient, give its planted twin's `within_2se`.
+   - A Stage B coefficient whose planted twin has `within_2se` False is quoted
+     as `"not identified (planted recovery failed)"`.
+   - Beside the Stage B tie set, give whether the planted truth was tied.
+6. **Task 6's pilot** projects the real fits AND `planted_global` together, at
+   about twice the real fits. A5's 12-hour bar applies to that total.
+
+### Tests (`data/test_rate_laws.py`)
+
+Every existing test stays unchanged. Add:
+- **`test_one_buffer_links_are_not_identified`:** `shared_binding_law(
+  "4OMe-BnOH", "H")` on the real tables returns
+  `"not identified (one buffer)"`.
+- **`test_link_power_anchors`:** reads `link_power.json` (produced by Run
+  step 3) and asserts the A10 link-power anchors below.
+- **`test_stage_b_candidates_anchors`:** asserts the A10 candidate table below.
+- **`test_planted_global_is_recorded`:** after Task 7, both
+  `planted_global_<substrate>.json` files exist and contain every key listed in
+  change 4. No value is asserted.
+
+### Run, in order
+
+1. `.venv/bin/python data/test_rate_laws.py`. Every test except
+   `test_planted_global_is_recorded` passes; that one passes after Task 7.
+2. Rerun `shared_binding_law` for both substrates, for BUF and for H.
+3. `link_power("4OMe-BnOH", "BUF", ...)` three times:
+   - `(0.003, 0.3, seeds=(0, 1, 2))`;
+   - `(0.03, 0.03, seeds=(0, 1, 2))`;
+   - `(0.0999, 0.00439, seeds=(0, 1, 2, 3, 4))`.
+4. Continue to Task 6 with change 6, then Task 7 with changes 4 and 5. Run
+   `planted_global` before the real global fits.
+
+### Anchors A10
+
+- **`shared_binding_law` verdicts:**
+
+  | substrate, family | verdict |
+  |---|---|
+  | 4OMe-BnOH, BUF | "one K ties with separate K" |
+  | 4OMe-BnOH, H | "not identified (one buffer)" |
+  | BnOH, BUF | "not identified (K at bound)" |
+  | BnOH, H | "one K ties with separate K" |
+
+- **`link_power`:**
+  - (0.003, 0.3): caught 3 of 3.
+  - (0.03, 0.03): caught 0 of 3.
+  - (0.0999, 0.00439): caught 4 of 5, the one tie at seed 2.
+- **`stage_b_candidates`** (model ids as in the saves; `''` is the empty model):
+
+  | substrate | element | best | simplest |
+  |---|---|---|---|
+  | 4OMe-BnOH | v_act | `S:power\|HOO:power\|BUF:bind\|T:arrhenius` | `S:power\|HOO:power\|T:arrhenius` |
+  | 4OMe-BnOH | k_act_lag | `S:power\|E:power\|T:arrhenius` | `E:power\|T:arrhenius` |
+  | 4OMe-BnOH | k_act_burst | `lag law + burst_offset` | same |
+  | 4OMe-BnOH | k_sink | `S:power` | `''` |
+  | BnOH | v_act | `S:mm\|H:power\|HOO:power\|BUF:power` | `HOO:power` |
+  | BnOH | k_act_lag | `H:relax\|E:power` | `H:power` |
+  | BnOH | k_act_burst | `S:power\|H:power\|HOO:power` | `''` |
+  | BnOH | k_sink | `BUF:power` | `''` |
+
+### Report
+
+One `DATA_VERIFICATION.md` entry, template E, for Task 5b:
+- the Why, with its numbers;
+- the changes;
+- the A10 anchors, reproduced;
+- a link table giving each verdict beside its power, e.g. 4OMe-BnOH BUF: "one
+  K ties with separate K" with "caught 4 of 5 at the observed separation";
+- a sentence stating that the 2026-09-15 Task 5 entry's 4OMe-BnOH H verdict is
+  superseded.
+
+### Gate
+
+A10 → STOP and report. Otherwise:
+1. `run_gates.py` prints `0 failed`. `test_planted_global_is_recorded` is
+   skipped until Task 7: make it print `"skipped until Task 7"` and return
+   when the files are absent.
+2. Commit.
+3. Continue to Task 6. **There is no stop here.**
+
 ## 12. Task 6 — the global analytic fitter and its pilot
+
+**Amendment 2 (section 11b) overrides this task's candidate set, tests and
+pilot**: the candidates are exactly `stage_b_candidates(substrate)`, and the
+pilot projects the real fits and `planted_global` together. Amendment 1
+change 8 (`stderr_clustered` in `global_fit`, used by `stage_shift`) also
+applies.
 
 **Goal.** Fit the activation-sink form to the readings of many curves at once,
 with v_act, τ and k given by rate laws, and with c and v0 free per curve.
@@ -890,6 +1094,14 @@ model (fewest coefficients), in all combinations; plus each combination with
 
 ## 13. Task 7 — the global fits — STOP 2
 
+**Amendment 2 (section 11b) overrides this task's Run and Report where they
+differ**:
+- run `planted_global(substrate)` before the real fits, over the same
+  candidates;
+- beside every Stage B coefficient, report its planted twin's `within_2se`;
+- quote a coefficient whose planted twin was not recovered as
+  "not identified (planted recovery failed)".
+
 **Run.** For each substrate, `global_fit` and `global_cross_validate` on every
 candidate, saving `data/fits/rate_laws/global_<substrate>_<id>.json`. Then:
 1. `tie_set` over the candidates;
@@ -955,6 +1167,13 @@ Nothing is adopted.
   scores covered only tied models; the tie rule cannot exclude a model that
   fails on 3 or fewer of 30 held-out runs, however badly —
   `worst_fold_log_ratio` shows where that happens.
+- Task 5b: link power was measured with only buffer terms planted, while the
+  real link fits carry each element's other terms, so the real power may be
+  lower; a "ties" verdict at 4 of 5 power still has about a 1 in 5 chance of
+  hiding a real difference.
+- Tasks 6-7: the planted recovery is one seed per substrate, with the best
+  candidate as its truth; a coefficient recovered there may not be recovered
+  under a different truth.
 - Tasks 6-7: the 94 curves the form cannot hold are not in the fit; Stage A's
   candidate set limits Stage B's.
 
