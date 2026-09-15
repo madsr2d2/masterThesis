@@ -646,7 +646,11 @@ and stop at STOP 1 again.
    - Tied = kept by both. The best is always tied. Return the models in
      `scores.index` order.
    - Add `tie_statistics(scores)`: one row per model, with `raw_mean`,
-     `raw_bar`, `raw_kept`, `log_mean`, `log_bar`, `log_kept`, `tied`.
+     `raw_bar`, `raw_kept`, `log_mean`, `log_bar`, `log_kept`, `tied`, and
+     `worst_fold_log_ratio` = the largest `log(score/score[best])` over the
+     folds (added 2026-09-15). `worst_fold_log_ratio` is a DIAGNOSTIC: it
+     changes no tie set, verdict or anchor. Report it for every tied model.
+     It exists because of the limit stated under Tests.
 2. **`fit_model` adds run-clustered standard errors,**
    `result["stderr_clustered"]`:
    - `e = y − prediction` at the optimum (from `_predict`). `X` is the
@@ -706,10 +710,24 @@ rule: `test_the_tie_rule`,
   Models:
   - `"best"`: `b_f`.
   - `"consistent"`: `1.10·b_f`. Assert NOT tied (the log test catches it).
-  - `"concentrated"`: `b_f`, plus `40·max(b)` added to folds 0 and 1 only.
-    Assert NOT tied (the raw test catches it).
+  - `"concentrated"`: `b_f`, plus `40·max(b)` added to folds 0 through 5
+    (6 of 30). Assert NOT tied, and assert `raw_kept` is False for it (the raw
+    test catches it: raw t = 2.69, log t = 2.66). **Corrected 2026-09-15 at the
+    executor's stop:** the first version added the outlier to folds 0 and 1
+    only, which no paired test can catch (see the next test).
   - `"equal"`: `b_f·(1 + 0.02·(−1)**f)`. Assert tied; assert `"best"` is also
     tied.
+- **`test_the_tie_rule_cannot_see_three_fold_failures`** (added 2026-09-15).
+  The same `b_f` over 30 folds, with a model `"hidden"` = `b_f` plus
+  `40·max(b)` on folds 0, 1 and 2 only. Assert `"hidden"` IS tied, and assert
+  its `worst_fold_log_ratio` is above 10.
+  - **Why this test exists.** A model that differs from the best on k of n
+    folds has paired t = sqrt(k·(n − 1)/(n − k)), whatever the size of the
+    difference, because the difference inflates the spread by the same factor.
+  - So the rule cannot exclude a model that fails on k <= 4n/(n + 3) folds,
+    however badly: 3 of 30, or 2 of 18.
+  - The test pins that limit, and `worst_fold_log_ratio` is how a report shows
+    where it bites.
 - **`test_run_clustered_errors_cover_a_between_run_null`.** 200 planted tables,
   seeds 0..199. Each has 12 runs × 4 curves and one buffer. Per run, draw
   `x_run ~ N(0, 1)`; set `hoo = exp(x_run)` on every curve of that run; set
@@ -934,7 +952,9 @@ Nothing is adopted.
 - Task 5a: the two-test tie rule excludes a truly equal model somewhat more
   often than one test would; clustered errors are unreliable below 10 runs
   (flagged); the A8 anchors were re-scored from the old saves, whose fold
-  scores covered only tied models.
+  scores covered only tied models; the tie rule cannot exclude a model that
+  fails on 3 or fewer of 30 held-out runs, however badly —
+  `worst_fold_log_ratio` shows where that happens.
 - Tasks 6-7: the 94 curves the form cannot hold are not in the fit; Stage A's
   candidate set limits Stage B's.
 
