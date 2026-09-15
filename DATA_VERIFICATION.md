@@ -8,6 +8,107 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-15 (sixth entry) — Task 7b: Stage B cannot be read; both best fits are "degenerate: clocks outside the run window on 86 of 101 curves; flat coefficients: v_act:intercept[Boric], k_act_lag:intercept[Pyrophosphate]" (4OMe-BnOH) and "degenerate: clocks outside the run window on 66 of 102 curves; flat coefficients: v_act:intercept[Pyrophosphate], k_act_lag:intercept[Boric], k_act_lag:intercept[Phosphate], k_act_lag:intercept[Pyrophosphate], k_act_lag:a_H" (BnOH); both planted truths and the 4OMe-BnOH planted estimate are "not degenerate", the BnOH planted estimate is "degenerate: flat coefficients: k_act_lag:intercept[Phosphate]"; the laws add "less than 10%" over the law-free baseline, (4.6%) and (1.9%)
+
+`PLAN_CURVES_TO_MECHANISM.md` section 13a (Amendment 3), Task 7b.
+
+What was asked: record why Stage B's fits cannot be read, and withdraw the
+claims that rested on them.
+What was built: `_planted_curves`, `stage_b_degeneracy`, `law_free_baselines`,
+`law_scatter` and `replicate_parameter_scatter` in `data/rate_laws.py`, and
+the A11 anchors in `data/test_rate_laws.py`.
+Bugs found: none.
+
+### `stage_b_degeneracy`
+
+| substrate | fit | outside (lag, burst) | verdict |
+|---|---|---|---|
+| 4OMe-BnOH | best report | 71/84, 15/17 | `degenerate: clocks outside the run window on 86 of 101 curves; flat coefficients: v_act:intercept[Boric], k_act_lag:intercept[Pyrophosphate]` |
+| 4OMe-BnOH | planted truth | 0/84, 0/17 | `not degenerate` |
+| 4OMe-BnOH | planted estimate | 0/84, 0/17 | `not degenerate` |
+| BnOH | best report | 44/44, 22/58 | `degenerate: clocks outside the run window on 66 of 102 curves; flat coefficients: v_act:intercept[Pyrophosphate], k_act_lag:intercept[Boric], k_act_lag:intercept[Phosphate], k_act_lag:intercept[Pyrophosphate], k_act_lag:a_H` |
+| BnOH | planted truth | 0/44, 0/58 | `not degenerate` |
+| BnOH | planted estimate | 5/44, 0/58 | `degenerate: flat coefficients: k_act_lag:intercept[Phosphate]` |
+
+### `law_free_baselines`
+
+| row | 4OMe-BnOH | BnOH |
+|---|---|---|
+| own activation-sink fit | 3708.9 | 763.3 |
+| own quadratic | 13116.7 | 1387.5 |
+| own line | 111782.3 | 8119.0 |
+| own v0 tied to v_act | 26696.7 | 2921.4 |
+| own line and one global sink | 58958.9 (k 6.310e-05, index 28) | 6194.7 (k 2.512e-05, index 24) |
+| Stage B best, fit | 25923.2 | 5258.3 |
+| Stage B best, cross-validation | 56225.0 | 6079.9 |
+| Stage A laws unchanged | 2499343.7 | 48070.5 |
+
+- rho (lag, burst): 4OMe-BnOH 0.463, 1.801; BnOH 0.021, 2.739.
+- gain and verdict:
+  - 4OMe-BnOH 0.046, `"laws add less than 10% over the law-free baseline
+    (4.6%)"`;
+  - BnOH 0.019, `"laws add less than 10% over the law-free baseline (1.9%)"`.
+
+### `law_scatter`
+
+| quantity | 4OMe-BnOH | BnOH |
+|---|---|---|
+| v_act | 0.596 / 0.371 (41) / 0.681 (32) | 0.784 / 0.743 (36) / 0.620 (29) |
+| k_act_lag | 0.976 / 0.638 (41) / 0.972 (29) | 0.931 / 0.892 (10) / 0.821 (18) |
+| k_act_burst | too few curves | 0.781 / 0.912 (22) / 0.484 (24) |
+| k_sink | 0.891 / 0.815 (23) / 0.775 (21) | 1.200 / 0.978 (9) / 1.092 (18) |
+| ln(v0/v_act) lag | 0.803 / 0.420 (41) / 0.949 (27); nonpositive 16 | 0.948 / 1.074 (9) / 0.699 (14); nonpositive 21 |
+| ln(v0/v_act) burst | 0.944 / 0.699 (7) / 0.832 (10); nonpositive 0 | 0.826 / 0.615 (33) / 0.856 (25); nonpositive 0 |
+
+Median `se`: 4OMe-BnOH 0.014, 0.126, --, 0.133; BnOH 0.038, 0.212, 0.178,
+0.043.
+
+### `replicate_parameter_scatter`
+
+| table | y | ln lag_half_s | ln vmax_corrected | median se |
+|---|---|---|---|---|
+| v_act | 0.642 (6, 10) | 0.250 (6, 10) | 0.279 (6, 10) | 0.043 |
+| k_act_lag | 0.665 (7, 11) | 0.374 (7, 11) | 0.279 (7, 11) | 0.111 |
+
+Verdicts (from `stage_b_degeneracy`, `law_free_baselines`): the six degeneracy
+verdicts above; `"laws add less than 10% over the law-free baseline (4.6%)"`
+and `"laws add less than 10% over the law-free baseline (1.9%)"`.
+Health flags: none (`law_scatter` records 4OMe-BnOH's `k_act_burst` as `too
+few curves`).
+Not identified: both best fits' flat coefficients -- 4OMe-BnOH
+`v_act:intercept[Boric]`, `k_act_lag:intercept[Pyrophosphate]`; BnOH
+`v_act:intercept[Pyrophosphate]`, the three `k_act_lag` intercepts,
+`k_act_lag:a_H`; and on the BnOH planted estimate
+`k_act_lag:intercept[Phosphate]`.
+
+Withdrawn:
+
+1. "The 2026-09-15 fifth entry's coefficient tables for both substrates are
+   withdrawn: `stage_b_degeneracy` returns a degenerate verdict for both
+   best fits."
+2. "Its `within 2se` and `NOT IDENTIFIED (planted recovery failed)` labels
+   are withdrawn as statements about the Stage B coefficients."
+3. "Its reading of zero clustered errors as 'not identified from the
+   readings' is replaced by `stage_b_degeneracy`'s flat coefficients."
+4. "Its `stage_shift` counts and 'A7 fires on BnOH' are replaced by: A7 not
+   evaluable (Stage B degenerate)."
+5. "Its `no amplitude trend detected` is withdrawn: `global_fit` and
+   `global_cross_validate` refit each curve's `v0`, so no amplitude was
+   predicted."
+6. "Its tie sets and cross-validation scores stand as numbers;
+   `law_free_baselines` gives their comparison with a law-free baseline."
+
+Could overturn this: the window (run length / 300 to 10 x run length) and the
+flatness bar (0.1) are fixed choices; the law-free baselines are scored
+in-sample while Stage B's 56,225 and 6,080 are cross-validated, which favours
+the baselines by at most their one or two global parameters; the replicate
+scatter rests on one composition, one buffer and one pH, with 6-7 degrees of
+freedom, and its three columns are read off the same curves.
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-15 (fifth entry) — Task 7: Stage B's global fits, and A7 fires on BnOH
 
 `PLAN_CURVES_TO_MECHANISM.md` Task 7, with Amendment 2's changes 4-5. The

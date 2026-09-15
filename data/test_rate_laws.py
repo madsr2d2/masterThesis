@@ -44,6 +44,28 @@ def _tables():
     return _TABLES
 
 
+_PLANTED = {}
+
+
+def _stage_b_planted(substrate, seed=0):
+    """`_planted_curves` per substrate, built once per process."""
+    if (substrate, seed) not in _PLANTED:
+        _PLANTED[(substrate, seed)] = rate_laws._planted_curves(
+            substrate, seed=seed)
+    return _PLANTED[(substrate, seed)]
+
+
+def _planted_estimate(substrate):
+    """The truth candidate's own planted fit, read back from its save."""
+    record = _stage_b_planted(substrate)
+    path = os.path.join(
+        rate_laws.RATE_LAW_DIR,
+        f"planted_global_{substrate}_{rate_laws._laws_id(record['truth_laws'])}"
+        ".json")
+    with open(path) as handle:
+        return json.load(handle)["coefficients"]
+
+
 def test_the_archive_anchors():
     print("\nthe archive anchors")
     frame = scope.frame(scope.archive())
@@ -599,6 +621,220 @@ def test_stage_b_candidates_anchors():
                   row["simplest"] == simplest, row["simplest"])
 
 
+def test_planted_curves_are_unchanged():
+    print("\nthe planted readings are unchanged")
+    anchors = {
+        "4OMe-BnOH": (-0.0001485225344, -0.0001855344204, 0.0001076628497),
+        "BnOH": (-0.002122762497, -0.0002572445161, 0.001845565991),
+    }
+    for substrate, want in anchors.items():
+        got = _stage_b_planted(substrate)["curves"]["values"][0][:3]
+        check(f"{substrate} planted readings unchanged",
+              np.allclose(got, want, rtol=1e-8), str(got))
+
+
+def test_degeneracy_passes_the_planted_truth():
+    print("\nthe degeneracy test passes the planted truth")
+    for substrate in _SUBSTRATES:
+        record = _stage_b_planted(substrate)
+        result = rate_laws.stage_b_degeneracy(
+            substrate, record["truth_laws"], record["truth"],
+            curves=record["curves"])
+        total = result["outside"]["total"]
+        check(f"{substrate} planted truth is not degenerate",
+              result["verdict"] == "not degenerate", result["verdict"])
+        check(f"{substrate} planted truth has 0 curves outside", total[0] == 0,
+              str(total))
+
+
+def test_degeneracy_sees_clocks_moved_out_of_the_window():
+    print("\na clock moved out of the run window is seen")
+    record = _stage_b_planted("4OMe-BnOH")
+    truth = {key: (value - 12.0 if key.startswith("k_act_lag:intercept[")
+                   else value)
+             for key, value in record["truth"].items()}
+    result = rate_laws.stage_b_degeneracy(
+        "4OMe-BnOH", record["truth_laws"], truth, curves=record["curves"])
+    want = ("degenerate: clocks outside the run window on 101 of 101 curves; "
+            "flat coefficients: k_act_lag:intercept[Boric], "
+            "k_act_lag:intercept[Phosphate], "
+            "k_act_lag:intercept[Pyrophosphate], k_act_lag:a_S, "
+            "k_act_lag:a_E, k_act_lag:Ea_R, burst_offset")
+    check("shifted clocks give the A11 verdict", result["verdict"] == want,
+          result["verdict"])
+
+
+def test_stage_b_degeneracy_anchors():
+    print("\nthe degeneracy anchors (A11)")
+    expected = {
+        "4OMe-BnOH": {
+            "best": ((71, 84), (15, 17),
+                     "degenerate: clocks outside the run window on 86 of 101 "
+                     "curves; flat coefficients: v_act:intercept[Boric], "
+                     "k_act_lag:intercept[Pyrophosphate]"),
+            "truth": ((0, 84), (0, 17), "not degenerate"),
+            "estimate": ((0, 84), (0, 17), "not degenerate"),
+        },
+        "BnOH": {
+            "best": ((44, 44), (22, 58),
+                     "degenerate: clocks outside the run window on 66 of 102 "
+                     "curves; flat coefficients: "
+                     "v_act:intercept[Pyrophosphate], "
+                     "k_act_lag:intercept[Boric], "
+                     "k_act_lag:intercept[Phosphate], "
+                     "k_act_lag:intercept[Pyrophosphate], k_act_lag:a_H"),
+            "truth": ((0, 44), (0, 58), "not degenerate"),
+            "estimate": ((5, 44), (0, 58),
+                         "degenerate: flat coefficients: "
+                         "k_act_lag:intercept[Phosphate]"),
+        },
+    }
+    for substrate, want in expected.items():
+        record = _stage_b_planted(substrate)
+        report = rate_laws._best_global_report(substrate)
+        fits = {
+            "best": (report["laws"], report["coefficients"]),
+            "truth": (record["truth_laws"], record["truth"]),
+            "estimate": (record["truth_laws"], _planted_estimate(substrate)),
+        }
+        for label, (laws, coefficients) in fits.items():
+            result = rate_laws.stage_b_degeneracy(
+                substrate, laws, coefficients,
+                curves=None if label == "best" else record["curves"])
+            lag, burst, verdict = want[label]
+            outside = result["outside"]
+            check(f"{substrate} {label} lag outside {lag}",
+                  tuple(outside["lag"]) == lag, str(outside["lag"]))
+            check(f"{substrate} {label} burst outside {burst}",
+                  tuple(outside["burst"]) == burst, str(outside["burst"]))
+            check(f"{substrate} {label} verdict",
+                  result["verdict"] == verdict, result["verdict"])
+
+
+def test_law_free_baselines_anchors():
+    print("\nthe law-free baselines (A11)")
+    expected = {
+        "4OMe-BnOH": {
+            "costs": {"own activation-sink fit": 3708.9,
+                      "own quadratic": 13116.7, "own line": 111782.3,
+                      "own v0 tied to v_act": 26696.7,
+                      "own line and one global sink": 58958.9,
+                      "Stage B best, fit": 25923.2,
+                      "Stage B best, cross-validation": 56225.0,
+                      "Stage A laws unchanged": 2499343.7},
+            "k_global": 6.310e-05, "k_index": 28,
+            "rho": (0.463, 1.801), "gain": 0.046,
+            "verdict": "laws add less than 10% over the law-free baseline "
+                       "(4.6%)"},
+        "BnOH": {
+            "costs": {"own activation-sink fit": 763.3,
+                      "own quadratic": 1387.5, "own line": 8119.0,
+                      "own v0 tied to v_act": 2921.4,
+                      "own line and one global sink": 6194.7,
+                      "Stage B best, fit": 5258.3,
+                      "Stage B best, cross-validation": 6079.9,
+                      "Stage A laws unchanged": 48070.5},
+            "k_global": 2.512e-05, "k_index": 24,
+            "rho": (0.021, 2.739), "gain": 0.019,
+            "verdict": "laws add less than 10% over the law-free baseline "
+                       "(1.9%)"},
+    }
+    for substrate, want in expected.items():
+        result = rate_laws.law_free_baselines(substrate)
+        rows = result["rows"].set_index("name")
+        for name, cost in want["costs"].items():
+            got = float(rows.loc[name, "cost"])
+            check(f"{substrate} {name} cost",
+                  abs(got - cost) <= 0.001 * abs(cost), str(got))
+        check(f"{substrate} k_global is {want['k_global']}",
+              abs(result["k_global"] - want["k_global"])
+              <= 0.001 * want["k_global"], str(result["k_global"]))
+        check(f"{substrate} k_index is {want['k_index']}",
+              result["k_index"] == want["k_index"], str(result["k_index"]))
+        check(f"{substrate} rho is {want['rho']}",
+              np.allclose([result["rho"]["lag"], result["rho"]["burst"]],
+                          want["rho"], atol=0.005), str(result["rho"]))
+        check(f"{substrate} gain is {want['gain']}",
+              abs(result["gain"] - want["gain"]) <= 0.001,
+              str(result["gain"]))
+        check(f"{substrate} baseline verdict",
+              result["verdict"] == want["verdict"], result["verdict"])
+
+
+def test_law_scatter_anchors():
+    print("\nthe law scatter (A11)")
+    expected = {
+        "4OMe-BnOH": {
+            "v_act": ((0.596, 0.371, 41, 0.681, 32), 0.014),
+            "k_act_lag": ((0.976, 0.638, 41, 0.972, 29), 0.126),
+            "k_sink": ((0.891, 0.815, 23, 0.775, 21), 0.133),
+            "ln(v0/v_act) lag": ((0.803, 0.420, 41, 0.949, 27, 16), None),
+            "ln(v0/v_act) burst": ((0.944, 0.699, 7, 0.832, 10, 0), None),
+        },
+        "BnOH": {
+            "v_act": ((0.784, 0.743, 36, 0.620, 29), 0.038),
+            "k_act_lag": ((0.931, 0.892, 10, 0.821, 18), 0.212),
+            "k_act_burst": ((0.781, 0.912, 22, 0.484, 24), 0.178),
+            "k_sink": ((1.200, 0.978, 9, 1.092, 18), 0.043),
+            "ln(v0/v_act) lag": ((0.948, 1.074, 9, 0.699, 14, 21), None),
+            "ln(v0/v_act) burst": ((0.826, 0.615, 33, 0.856, 25, 0), None),
+        },
+    }
+    for substrate, wanted in expected.items():
+        result = rate_laws.law_scatter(substrate)
+        for name, (values, median_se) in wanted.items():
+            total, within, df, means, runs = values[:5]
+            row = result.loc[name]
+            check(f"{substrate} {name} total sd",
+                  abs(row["total_sd"] - total) <= 0.005, str(row["total_sd"]))
+            check(f"{substrate} {name} within-run sd",
+                  abs(row["within_run_sd"] - within) <= 0.005,
+                  str(row["within_run_sd"]))
+            check(f"{substrate} {name} within-run df",
+                  int(row["within_run_df"]) == df, str(row["within_run_df"]))
+            check(f"{substrate} {name} run means sd",
+                  abs(row["run_means_sd"] - means) <= 0.005,
+                  str(row["run_means_sd"]))
+            check(f"{substrate} {name} runs",
+                  int(row["runs"]) == runs, str(row["runs"]))
+            if len(values) > 5:
+                check(f"{substrate} {name} nonpositive",
+                      int(row["nonpositive"]) == values[5],
+                      str(row["nonpositive"]))
+            if median_se is not None:
+                check(f"{substrate} {name} median se",
+                      abs(row["median_se"] - median_se) <= 0.005,
+                      str(row["median_se"]))
+        if substrate == "4OMe-BnOH":
+            check("4OMe-BnOH k_act_burst is too few curves",
+                  result.loc["k_act_burst", "note"] == "too few curves",
+                  str(result.loc["k_act_burst", "note"]))
+
+
+def test_replicate_parameter_scatter_anchors():
+    print("\nthe replicate parameter scatter")
+    result = rate_laws.replicate_parameter_scatter()
+    expected = {
+        "v_act": {"y": (0.642, 6, 10), "lag_half_s": (0.250, 6, 10),
+                  "vmax_corrected": (0.279, 6, 10), "median_se": 0.043},
+        "k_act_lag": {"y": (0.665, 7, 11), "lag_half_s": (0.374, 7, 11),
+                      "vmax_corrected": (0.279, 7, 11), "median_se": 0.111},
+    }
+    for table, want in expected.items():
+        row = result.loc[table]
+        for name in ("y", "lag_half_s", "vmax_corrected"):
+            sd, df, n = want[name]
+            check(f"{table} {name} sd",
+                  abs(row[f"{name}_sd"] - sd) <= 0.005, str(row[f"{name}_sd"]))
+            check(f"{table} {name} df", int(row[f"{name}_df"]) == df,
+                  str(row[f"{name}_df"]))
+            check(f"{table} {name} n", int(row[f"{name}_n"]) == n,
+                  str(row[f"{name}_n"]))
+        check(f"{table} median se",
+              abs(row["median_se"] - want["median_se"]) <= 0.005,
+              str(row["median_se"]))
+
+
 def test_planted_global_is_recorded():
     print("\nthe planted global records")
     paths = {substrate: os.path.join(rate_laws.RATE_LAW_DIR,
@@ -717,6 +953,13 @@ if __name__ == "__main__":
     test_stage_b_candidates_anchors()
     test_a_strong_planted_global_model_is_recovered()
     test_c_and_v0_are_per_curve()
+    test_planted_curves_are_unchanged()
+    test_degeneracy_passes_the_planted_truth()
+    test_degeneracy_sees_clocks_moved_out_of_the_window()
+    test_stage_b_degeneracy_anchors()
+    test_law_free_baselines_anchors()
+    test_law_scatter_anchors()
+    test_replicate_parameter_scatter_anchors()
     test_planted_global_is_recorded()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))

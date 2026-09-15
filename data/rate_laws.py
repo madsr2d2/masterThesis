@@ -2211,28 +2211,20 @@ def _planted_save_task(payload):
     return report, path
 
 
-def planted_global(substrate, seed=0, workers=8):
+def _planted_curves(substrate, seed=0):
     """
-    Stage B's realistic planted recovery, recorded and not asserted.
+    Stage B's realistic planted readings, constructed once for
+    `planted_global` and for the degeneracy tests.
 
     The truth is each element's `best` candidate with the coefficients
     `fit_model` gives on its full table (the burst offset as the median of the
     burst table's residual to the lag law). Readings are that model at each
     curve's own times, with its own `c` and `v0`, plus Gaussian noise at that
     curve's own `noise`, drawn curve by curve in the order `global_fit`
-    iterates. Every candidate from `stage_b_candidates` is fitted and
-    cross-validated on the planted readings, each started from the truth + 0.5
-    (never at it). Each candidate is saved as
-    `data/fits/rate_laws/v2/planted_global_<substrate>_<id>.json` as it
-    finishes, and the assembled record to
-    `data/fits/rate_laws/v2/planted_global_<substrate>.json`.
+    iterates. Returns the curves, the truth coefficients, the truth laws and
+    the layout.
     """
-    final = os.path.join(RATE_LAW_DIR, f"planted_global_{substrate}.json")
-    if os.path.exists(final):
-        with open(final) as handle:
-            return json.load(handle)
     chosen = stage_b_candidates(substrate)
-    combinations = chosen["combinations"]
     truth_laws = {element: chosen["elements"][element]["best"]
                   for element in ELEMENTS}
     data = _global_curves(substrate)
@@ -2253,6 +2245,30 @@ def planted_global(substrate, seed=0, workers=8):
                "times": data["times"], "values": planted_values,
                "noise": data["noise"],
                "dropped_nonpositive": data["dropped_nonpositive"]}
+    return {"curves": planted, "truth": truth, "truth_laws": truth_laws,
+            "layout": layout}
+
+
+def planted_global(substrate, seed=0, workers=8):
+    """
+    Stage B's realistic planted recovery, recorded and not asserted.
+
+    The readings come from `_planted_curves`. Every candidate from
+    `stage_b_candidates` is fitted and cross-validated on them, each started
+    from the truth + 0.5 (never at it). Each candidate is saved as
+    `data/fits/rate_laws/v2/planted_global_<substrate>_<id>.json` as it
+    finishes, and the assembled record to
+    `data/fits/rate_laws/v2/planted_global_<substrate>.json`.
+    """
+    final = os.path.join(RATE_LAW_DIR, f"planted_global_{substrate}.json")
+    if os.path.exists(final):
+        with open(final) as handle:
+            return json.load(handle)
+    combinations = stage_b_candidates(substrate)["combinations"]
+    planted_record = _planted_curves(substrate, seed=seed)
+    planted = planted_record["curves"]
+    truth = planted_record["truth"]
+    layout = planted_record["layout"]
     starts = {key: (truth[key] + 0.5 if key in truth else 0.0)
               for key, _, _, _ in layout["entries"]}
     reports, tasks = {}, []
@@ -2321,3 +2337,305 @@ def planted_global(substrate, seed=0, workers=8):
     with open(final, "w") as handle:
         json.dump(report, handle, default=float, indent=1, sort_keys=True)
     return report
+
+
+# --- Task 7b: why Stage B cannot be read ------------------------------------
+
+
+def _pooled_sd_by(values, groups):
+    """
+    The SD pooled within groups: sqrt(sum over groups of two or more values of
+    the sum of squared deviations from the group mean, over the groups' total
+    df). Returns the SD, the df and the number of values.
+    """
+    values, groups = np.asarray(values, dtype=float), np.asarray(groups)
+    df, total = 0, 0.0
+    for group in sorted(set(groups.tolist())):
+        inside = values[groups == group]
+        if len(inside) < 2:
+            continue
+        df += len(inside) - 1
+        total += float(np.sum((inside - np.mean(inside)) ** 2))
+    sd = float(np.sqrt(total / df)) if df else np.nan
+    return sd, int(df), int(len(values))
+
+
+def _scatter(residual, runs):
+    """The scatter of one residual vector: n, total SD, the SD pooled within
+    runs and its df, the SD of the run means, and the run count."""
+    residual = np.asarray(residual, dtype=float)
+    runs = np.asarray(runs)
+    within_sd, within_df, _ = _pooled_sd_by(residual, runs)
+    means = pd.Series(residual).groupby(runs).mean().to_numpy(dtype=float)
+    return {"n": int(len(residual)),
+            "total_sd": float(np.std(residual, ddof=1)),
+            "within_run_sd": within_sd, "within_run_df": within_df,
+            "run_means_sd": float(np.std(means, ddof=1)),
+            "runs": int(len(means))}
+
+
+def stage_b_degeneracy(substrate, laws, coefficients, curves=None):
+    """
+    Whether a Stage B fit's activation clocks lie where the readings cannot
+    see them, and which of its coefficients are flat.
+
+    `curves` defaults to `_global_curves(substrate)`. A curve's clock is
+    outside the run window when `tau > 10 span` or `tau < span / 300`. A
+    coefficient is flat when the stacked residual vector moves by less than
+    0.1 over its own scale step (`30` for an `Ea_R`, else `0.1`), measured by
+    a central difference. Verdict: `"degenerate: ..."` with the outside count
+    (only when more than half the curves are outside) and the flat keys, in
+    layout order; otherwise `"not degenerate"`.
+    """
+    data = _global_curves(substrate) if curves is None else curves
+    rows = data["rows"]
+    layout = _global_layout(rows, laws)
+    x = _global_x(layout, coefficients)
+    _, log_k_act, _ = _global_terms(x, layout, rows)
+    tau = np.exp(-log_k_act)
+    family = rows.family.to_numpy()
+    outside = {"lag": [0, 0], "burst": [0, 0]}
+    for index in range(len(rows)):
+        span = float(data["times"][index][-1] - data["times"][index][0])
+        key = rows.family.iloc[index]
+        outside[key][1] += 1
+        if tau[index] > 10.0 * span or tau[index] < span / 300.0:
+            outside[key][0] += 1
+    outside["total"] = [outside["lag"][0] + outside["burst"][0],
+                        outside["lag"][1] + outside["burst"][1]]
+    sensitivity, flat = {}, []
+    for position, (key, _, _, _) in enumerate(layout["entries"]):
+        delta = 30.0 if key.endswith(":Ea_R") else 0.1
+        step = 0.01 * delta
+        plus, minus = x.copy(), x.copy()
+        plus[position] += step
+        minus[position] -= step
+        r_plus = np.concatenate(_global_stack(plus, layout, data)[0])
+        r_minus = np.concatenate(_global_stack(minus, layout, data)[0])
+        value = float(np.linalg.norm((r_plus - r_minus) / (2.0 * step)) * delta)
+        sensitivity[key] = value
+        if value < 0.1:
+            flat.append(key)
+    parts = []
+    if (outside["total"][1]
+            and outside["total"][0] / outside["total"][1] > 0.5):
+        parts.append(f"clocks outside the run window on "
+                     f"{outside['total'][0]} of {outside['total'][1]} curves")
+    if flat:
+        parts.append("flat coefficients: " + ", ".join(flat))
+    verdict = "degenerate: " + "; ".join(parts) if parts else "not degenerate"
+    return {"verdict": verdict, "outside": outside,
+            "sensitivity": sensitivity, "flat": flat}
+
+
+def _best_global_report(substrate):
+    """The saved full-curve-set Stage B report with the lowest
+    cross-validation total (every save whose `cut` is null)."""
+    best = None
+    prefix = f"global_{substrate}_"
+    for name in sorted(os.listdir(RATE_LAW_DIR)):
+        if not (name.startswith(prefix) and name.endswith(".json")):
+            continue
+        with open(os.path.join(RATE_LAW_DIR, name)) as handle:
+            report = json.load(handle)
+        if report["cut"] is not None:
+            continue
+        if best is None or report["sum"] < best["sum"]:
+            best = report
+    if best is None:
+        raise FileNotFoundError(
+            f"no full-curve-set Stage B save for {substrate}")
+    return best
+
+
+def law_free_baselines(substrate):
+    """
+    What Stage B's laws add over summaries with no rate law at all.
+
+    Every model keeps each curve's own offset and (except the one-global-sink
+    row) its own initial rate, solved by lstsq; a row's cost is the sum over
+    curves of `sum ((readings - model)/(noise sqrt(n)))^2`, as in
+    `global_cross_validate`. Rows, in order: the curve's own activation-sink
+    fit; its own quadratic; its own line; its own line with `v0` tied to
+    `v_act` by the family's median ratio; its own line bent by one global sink
+    constant on a 51-point log grid; the best saved Stage B report's fit and
+    its cross-validation; and Stage A's own laws at the same layout, with no
+    global coefficient fitted. `gain` is the cross-validated row's improvement
+    over the one-global-sink row. Returns the rows, the grid's best constant
+    and index, the two family ratios, the gain, the verdict and the best
+    report's identifier.
+    """
+    data = _global_curves(substrate)
+    rows, times, values, noise = (data["rows"], data["times"],
+                                  data["values"], data["noise"])
+    fits = scope.fits(scope.archive())
+
+    def curve_score(index, model):
+        difference = values[index] - model
+        return float(np.sum(
+            (difference / (noise[index] * np.sqrt(len(times[index])))) ** 2))
+
+    output = []
+    total = 0.0
+    sink_fits = []
+    for index, row in enumerate(rows.itertuples()):
+        fit = fits[(int(row.experiment), int(row.sample))].activation_sink
+        sink_fits.append(fit)
+        h, g = summary_kinetics._activation_sink_columns(times[index], fit.tau,
+                                                         fit.k)
+        total += curve_score(index, fit.c + fit.v0 * h[0] + fit.v_act * g[0])
+    output.append(("own activation-sink fit", total, "5 per curve"))
+    for name, columns, parameters in (
+            ("own quadratic", 3, "3 per curve"),
+            ("own line", 2, "2 per curve")):
+        total = 0.0
+        for index, curve_times in enumerate(times):
+            design = np.column_stack(
+                [curve_times ** power for power in range(columns)])
+            beta, *_ = np.linalg.lstsq(design, values[index], rcond=None)
+            total += curve_score(index, design @ beta)
+        output.append((name, total, parameters))
+    rho = {}
+    for family in ("lag", "burst"):
+        keep = np.where((rows.family == family).to_numpy())[0]
+        ratio = np.array([sink_fits[index].v0 / sink_fits[index].v_act
+                          for index in keep])
+        rho[family] = float(np.median(ratio))
+    total = 0.0
+    for index, row in enumerate(rows.itertuples()):
+        fit = sink_fits[index]
+        h, g = summary_kinetics._activation_sink_columns(times[index], fit.tau,
+                                                         fit.k)
+        design = np.column_stack([np.ones_like(times[index]),
+                                  rho[row.family] * h[0] + g[0]])
+        beta, *_ = np.linalg.lstsq(design, values[index], rcond=None)
+        total += curve_score(index, design @ beta)
+    output.append(("own v0 tied to v_act", total, "2 per curve + 2"))
+    best = None
+    for position, k in enumerate(np.logspace(-7.0, -2.0, 51)):
+        total = 0.0
+        for index, curve_times in enumerate(times):
+            design = np.column_stack(
+                [np.ones_like(curve_times),
+                 (1.0 - np.exp(-k * curve_times)) / k])
+            beta, *_ = np.linalg.lstsq(design, values[index], rcond=None)
+            total += curve_score(index, design @ beta)
+        if best is None or total < best[0]:
+            best = (total, float(k), int(position))
+    output.append(("own line and one global sink", best[0], "2 per curve + 1"))
+    report = _best_global_report(substrate)
+    layout = _global_layout(rows, report["laws"])
+    count = len(layout["entries"])
+    output.append(("Stage B best, fit", float(report["cost"]),
+                   f"2 per curve + {count}"))
+    output.append(("Stage B best, cross-validation", float(report["sum"]),
+                   f"2 per curve + {count}"))
+    starts = _global_x(layout, _stage_a_starts(substrate, layout))
+    residual = np.concatenate(_global_stack(starts, layout, data)[0])
+    output.append(("Stage A laws unchanged", float(np.sum(residual ** 2)),
+                   "2 per curve + 0 fitted"))
+    frame = pd.DataFrame(output, columns=["name", "cost", "parameters"])
+    baseline = float(frame.loc[
+        frame.name == "own line and one global sink", "cost"].iloc[0])
+    cross = float(frame.loc[
+        frame.name == "Stage B best, cross-validation", "cost"].iloc[0])
+    gain = 1.0 - cross / baseline
+    if gain < 0.10:
+        verdict = (f"laws add less than 10% over the law-free baseline "
+                   f"({100.0 * gain:.1f}%)")
+    else:
+        verdict = f"laws add {100.0 * gain:.1f}% over the law-free baseline"
+    return {"rows": frame, "k_global": best[1], "k_index": best[2],
+            "rho": rho, "gain": float(gain), "verdict": verdict,
+            "best_identifier": report["identifier"]}
+
+
+def law_scatter(substrate):
+    """
+    How far the curves scatter around Stage A's own laws, element by element.
+
+    For every element whose best candidate was fitted -- `"lag law + burst
+    offset"` and tables under fifteen rows are recorded as `"too few curves"`
+    -- the residual of the element table to `fit_model` under that candidate:
+    the total SD, the SD pooled within runs and its df, the SD of the run
+    means, the run count, the curve count and the median `se`. Then the same
+    statistics for `ln(v0/v_act)` on each family of `_global_curves`, with
+    non-positive ratios dropped and counted. Returns a DataFrame indexed by
+    quantity.
+    """
+    parameters = curve_parameters(substrate)
+    chosen = stage_b_candidates(substrate)
+    records = {}
+    for element in ELEMENTS:
+        best = chosen["elements"][element]["best"]
+        table = parameters["elements"][element]
+        if best == "lag law + burst offset" or len(table) < 15:
+            records[element] = {"n": np.nan, "median_se": np.nan,
+                                "total_sd": np.nan, "within_run_sd": np.nan,
+                                "within_run_df": np.nan,
+                                "run_means_sd": np.nan, "runs": np.nan,
+                                "nonpositive": np.nan, "note": "too few curves"}
+            continue
+        model = _parse_model_id(best)
+        fit = fit_model(table, model)
+        y, prediction = _predict(table, model, fit)
+        stats = _scatter(y - prediction, table.experiment.to_numpy())
+        stats["median_se"] = float(np.median(table.se))
+        stats["nonpositive"] = np.nan
+        stats["note"] = ""
+        records[element] = stats
+    data = _global_curves(substrate)
+    fits = scope.fits(scope.archive())
+    rows = data["rows"]
+    for family in ("lag", "burst"):
+        subset = rows[rows.family == family]
+        ratio = np.array([
+            fits[(int(row.experiment), int(row.sample))]
+            .activation_sink.v0 / fits[(int(row.experiment), int(row.sample))]
+            .activation_sink.v_act for row in subset.itertuples()])
+        positive = ratio > 0
+        stats = _scatter(np.log(ratio[positive]),
+                         subset.experiment.to_numpy()[positive])
+        stats["median_se"] = np.nan
+        stats["nonpositive"] = int(np.sum(~positive))
+        stats["note"] = ""
+        records[f"ln(v0/v_act) {family}"] = stats
+    return pd.DataFrame.from_dict(records, orient="index")
+
+
+def replicate_parameter_scatter():
+    """
+    The scatter of the curve parameters across `scope.REPLICATE_RUNS` -- one
+    composition repeated four times -- against window-free summaries of the
+    same curves.
+
+    For the `v_act` and `k_act_lag` element tables, the rows of the replicate
+    runs, merged with `scope.frame(frozenset(scope.REPLICATE_RUNS))`: the SD
+    pooled by rung (each sample) for the table's `y`, for `ln lag_half_s` and
+    for `ln vmax_corrected` (non-positive values dropped per quantity), each
+    with its df and n, plus the table's median `se`. No verdict.
+    """
+    frame = scope.frame(frozenset(scope.REPLICATE_RUNS))
+    columns = ["experiment", "sample", "lag_half_s", "vmax_corrected"]
+    parameters = curve_parameters("4OMe-BnOH")
+    records = {}
+    for element in ("v_act", "k_act_lag"):
+        table = parameters["elements"][element]
+        merged = table[table.experiment.isin(scope.REPLICATE_RUNS)].merge(
+            frame[columns], on=["experiment", "sample"], how="inner")
+        record = {"median_se": float(np.median(merged.se))}
+        for name, column, logged in (("y", "y", False),
+                                     ("lag_half_s", "lag_half_s", True),
+                                     ("vmax_corrected", "vmax_corrected", True)):
+            values = merged[column].to_numpy(dtype=float)
+            samples = merged["sample"].to_numpy()
+            if logged:
+                positive = values > 0
+                values, samples = values[positive], samples[positive]
+                values = np.log(values)
+            sd, df, n = _pooled_sd_by(values, samples)
+            record[f"{name}_sd"] = sd
+            record[f"{name}_df"] = df
+            record[f"{name}_n"] = n
+        records[element] = record
+    return pd.DataFrame.from_dict(records, orient="index")
