@@ -3,8 +3,14 @@
 Handover plan, written 2026-09-14. It replaces `PLAN_STEP3_REVISED.md` (removed;
 see git history) and everything after stage 3.1 of `PLAN_MECHANISM_NEXT_STEPS.md`.
 
-> **AMENDMENT 2 (2026-09-15). Task 5a is done (commit 5b3d0ac). Resume at
-> section 11b (Task 5b), then continue to Task 6.** Amendment 2 adds link
+> **AMENDMENT 3 (2026-09-15). Tasks 5b, 6 and 7 are done (commits b242e19,
+> c2a16ca, a80eb33; STOP 2 reached). Resume at section 13a (Task 7b), which
+> ends at STOP 3.** Amendment 3 records why Stage B's fits cannot be read
+> (clocks outside the run window, flat coefficients, a law-free baseline the
+> laws barely beat, the scatter around Stage A's laws) and withdraws the
+> Stage B claims that rested on them. It fits nothing new.
+>
+> **AMENDMENT 2 (2026-09-15), done.** Amendment 2 adds link
 > power, a one-buffer rule for the links, an exact definition of Stage B's
 > candidates and a realistic planted recovery for Stage B. It overrides the
 > items of Tasks 5-7 it names.
@@ -68,7 +74,8 @@ So in this plan:
 11a. Amendment 1 — Task 5a: the tie rule, clustered errors, the rerun — STOP 1 (done)
 11b. Amendment 2 — Task 5b: link power, the one-buffer rule, Stage B's candidates and its realistic planting
 12. Task 6 — the global analytic fitter and its pilot
-13. Task 7 — the global fits — STOP 2
+13. Task 7 — the global fits — STOP 2 (done)
+13a. Amendment 3 — Task 7b: why Stage B cannot be read — STOP 3
 14. Report templates
 
 ---
@@ -284,6 +291,7 @@ result:
 | A8 | Amendment 1's rerun reproduces the re-scored tie sets | any tie size or verdict change in 11a's A8 table differs |
 | A9 | Amendment 1's clustered barrier errors reproduce | any value in 11a's A9 list differs by more than 0.2, or a listed verdict differs |
 | A10 | Amendment 2's link verdicts, link power and Stage B candidates reproduce | any item in 11b's A10 list differs |
+| A11 | Amendment 3's degeneracy verdicts, baselines and scatter reproduce | any item in 13a's A11 list differs |
 
 An element with fewer than 15 curves after exclusions is not fitted in Tasks
 4-5. Report it as "too few curves"; that is not a stop. Today this applies to
@@ -307,7 +315,8 @@ curves".
 | 5a | Amendment 1: two-test tie rule, run-clustered errors, temperature floor, within-run families; rerun Tasks 4-5 into `v2` | **STOP 1** (done, 5b3d0ac) |
 | 5b | Amendment 2: one-buffer rule and link power; Stage B candidates defined; realistic planted recovery for Stage B | commit, then straight on to Task 6 |
 | 6 | global analytic fitter, planted test, pilot | commit (STOP if A4 or A5) |
-| 7 | global fits, comparison with Stage A, amplitude check | **STOP 2** |
+| 7 | global fits, comparison with Stage A, amplitude check | **STOP 2** (done, a80eb33) |
+| 7b | Amendment 3: degeneracy, law-free baselines, law and replicate scatter; withdraw the unreadable Stage B claims | **STOP 3** |
 
 ---
 
@@ -1128,6 +1137,302 @@ the analytic form cannot represent (the 94 curves it misses, substrate
 depletion, the peracid loop, the background) — needs its own plan written from
 this result. Write it next?"
 
+**STOP 2 was reached (commit a80eb33). Amendment 3 (section 13a) withdraws
+this task's coefficient tables, `stage_shift` counts and amplitude verdict.
+Do not quote them.**
+
+## 13a. Amendment 3 — Task 7b: why Stage B cannot be read — STOP 3
+
+Added 2026-09-15, after STOP 2. The user approved it.
+
+**This section overrides:**
+- Task 7's Report, where the 2026-09-15 fifth `DATA_VERIFICATION.md` entry
+  quotes coefficients, `within_2se`, zero clustered errors, `stage_shift`
+  counts or `amplitude_verdict`. Withdraw them in a NEW entry (change 6).
+  Never edit the fifth entry.
+- A7. On a degenerate fit A7 is `"not evaluable (Stage B degenerate)"`.
+- The question at STOP 2. It is replaced by STOP 3's.
+
+### Why
+
+A review of STOP 2 checked the saved Stage B fits. It used scratch scripts,
+so every number below must come back from this task's functions as an anchor.
+- **The best fits turned activation off.** Their activation clocks lie
+  outside the run window (τ > 10 × run length or τ < run length / 300) on 86
+  of 101 4OMe-BnOH curves and 66 of 102 BnOH curves, including all 44 BnOH lag
+  curves.
+  - Clocks that far out make coefficients flat: moving them does not change
+    the readings.
+  - The zero clustered errors in the fifth entry are those flat coefficients.
+    They are not "not identified from the readings".
+- **The laws add almost nothing.** Each curve's own straight line, bent by ONE
+  global sink constant, with no rate law at all, scores 58,959 (4OMe-BnOH) and
+  6,195 (BnOH). Stage B's best cross-validation scores are 56,225 and 6,080,
+  which is 4.6% and 1.9% better.
+- **The cause is Task 6's specification, not its execution.**
+  - Both `global_fit` and `global_cross_validate` refit each curve's own `c`
+    and `v0`, so a curve's magnitude is never predicted by the laws.
+  - The optimiser can then park the clocks outside the window.
+  - The planted truth has no clock outside the window, so the planted
+    recovery could not see this.
+- **Tying `v0` to `v_act` does not repair it.** Keep each curve's own τ, k and
+  `v_act`, and set `v0` = (family median of v0/v_act) × `v_act`. The cost rises
+  from 3,709 to 26,697 (4OMe-BnOH) and from 763 to 2,921 (BnOH).
+- **The curves scatter around Stage A's laws far more than their own errors.**
+  - The law residuals' SD in ln units is 0.60 to 1.20. The curves' median
+    errors are 0.01 to 0.21.
+  - The scatter within runs alone is 0.37 to 0.98.
+- **On the replicate runs (exps 2, 4, 5, 7: one composition repeated four
+  times), the form's parameters scatter more than window-free summaries of the
+  same curves.** Pooled SD by rung:
+
+  | curves | ln parameter | ln `lag_half_s` | ln `vmax_corrected` |
+  |---|---|---|---|
+  | `v_act` table | 0.64 | 0.25 | 0.28 |
+  | `k_act_lag` table | 0.67 | 0.37 | 0.28 |
+
+This task records these facts in functions and withdraws what cannot be read.
+It decides nothing. Stage C is planned from its record.
+
+### Goal
+
+Add four recorded functions: `stage_b_degeneracy`, `law_free_baselines`,
+`law_scatter` and `replicate_parameter_scatter`. Write one entry that withdraws the
+unreadable Stage B claims. Then STOP 3.
+
+**Not in this task:**
+- no new fit of Stage A or Stage B;
+- no cut, no new candidate, no bound on any law, no change to `SE_FLOOR`;
+- no edit to any existing save.
+
+### Changes (`data/rate_laws.py`; check every new name is unused first)
+
+1. **`_planted_curves(substrate, seed=0)`.**
+   - Move the construction of the planted readings out of `planted_global`
+     unchanged: truth laws, layout, truth coefficients, `c`, `v0`, the
+     generator and the per-curve draws.
+   - Return `{"curves": planted, "truth": truth, "truth_laws": truth_laws,
+     "layout": layout}`.
+   - `planted_global` calls it. Nothing else in `planted_global` changes, and
+     its saves are read back, not rerun.
+2. **`stage_b_degeneracy(substrate, laws, coefficients, curves=None)`.**
+   - `curves` defaults to `_global_curves(substrate)`. `layout =
+     _global_layout(curves["rows"], laws)`, `x = _global_x(layout,
+     coefficients)`.
+   - **Clocks.** `(_, log_k_act, _) = _global_terms(x, layout, rows)`,
+     `tau = exp(-log_k_act)`, and per curve `span = times[-1] - times[0]`.
+     A curve is outside the window if `tau > 10.0 * span` or
+     `tau < span / 300.0`. Count per family (`"lag"`, `"burst"`) and in total.
+   - **Sensitivity.** For each key of `layout["entries"]`, in layout order:
+     - `delta = 30.0` if the key ends in `":Ea_R"`, else `0.1`;
+     - `r(v)` is `numpy.concatenate(_global_stack(v, layout, curves)[0])`;
+     - `J = (r(x + 0.01*delta*e) - r(x - 0.01*delta*e)) / (0.02*delta)`, with
+       `e` the unit vector of that key;
+     - `sensitivity = numpy.linalg.norm(J) * delta`. The key is flat if
+       `sensitivity < 0.1`.
+   - **Verdict**, built exactly like this:
+     - `parts = []`;
+     - if outside/total > 0.5, append `"clocks outside the run window on
+       <outside> of <total> curves"`;
+     - if any key is flat, append `"flat coefficients: "` + the flat keys in
+       layout order, joined by `", "`;
+     - the verdict is `"degenerate: " + "; ".join(parts)` if `parts` is
+       non-empty, else `"not degenerate"`.
+   - Returns `{"verdict", "outside": {"lag": [n_out, n], "burst": [n_out, n],
+     "total": [n_out, n]}, "sensitivity": {key: value}, "flat": [keys]}`.
+3. **`law_free_baselines(substrate)`.**
+   - **Curves.** `_global_curves(substrate)`. A curve's score is
+     `sum(((readings - model) / (noise * sqrt(n)))**2)`, as in
+     `global_cross_validate`. A row's cost is the sum over curves.
+   - **Rows, in this order, with exactly these names:**
+
+     | name | model, per curve | parameters |
+     |---|---|---|
+     | `own activation-sink fit` | `c + v0*h + v_act*g` from the curve's own `scope.fits(scope.archive())[(experiment, sample)].activation_sink` (`c, v0, v_act, tau, k`), with `(h, g) = summary_kinetics._activation_sink_columns(times, tau, k)`, row 0 of each | `5 per curve` |
+     | `own quadratic` | lstsq of readings on `[1, t, t**2]`, with t the stored times | `3 per curve` |
+     | `own line` | lstsq on `[1, t]` | `2 per curve` |
+     | `own v0 tied to v_act` | the curve's own `tau, k`; lstsq on `[1, rho*h + g]`, where `rho` is the median of `v0/v_act` over every curve of that family (non-positive ratios included) | `2 per curve + 2` |
+     | `own line and one global sink` | for each k in `numpy.logspace(-7, -2, 51)`, lstsq on `[1, (1 - exp(-k*t))/k]`; the cost is the minimum over the grid | `2 per curve + 1` |
+     | `Stage B best, fit` | the saved `cost` of the best report | `2 per curve + <number of global coefficients>` |
+     | `Stage B best, cross-validation` | the saved `sum` of the best report | same |
+     | `Stage A laws unchanged` | `_global_stack` at `_stage_a_starts(substrate, layout)` for the best report's laws; the cost is the sum of squares of the concatenated residuals | `2 per curve + 0 fitted` |
+
+   - **The best report.** Among `RATE_LAW_DIR/global_<substrate>_*.json` whose
+     `"cut"` is null, the one with the lowest `"sum"`.
+   - **Gain.** `gain = 1 - cost(Stage B best, cross-validation) / cost(own line
+     and one global sink)`. The verdict is `"laws add less than 10% over the
+     law-free baseline (<100*gain:.1f>%)"` if gain < 0.10, else `"laws add
+     <100*gain:.1f>% over the law-free baseline"`.
+   - Returns `{"rows": DataFrame(name, cost, parameters), "k_global",
+     "k_index", "rho": {"lag", "burst"}, "gain", "verdict",
+     "best_identifier"}`.
+4. **`law_scatter(substrate)`.**
+   - **Elements.** For each element of `ELEMENTS`:
+     - `best = stage_b_candidates(substrate)["elements"][element]["best"]`.
+       If `best == "lag law + burst_offset"` or the element table has fewer
+       than 15 rows, record `"too few curves"` and continue.
+     - `fit = fit_model(table, _parse_model_id(best))`; `(y, prediction) =
+       _predict(table, model, fit)`; `residual = y - prediction`. Note that
+       `_predict` returns a pair.
+     - Report `n`, the median of `table.se`, `total_sd` (ddof 1),
+       `within_run_sd`, `within_run_df`, `run_means_sd` (ddof 1 over every
+       run's mean residual) and `runs`.
+     - `within_run_sd` is `sqrt(sum over runs with ≥ 2 rows of sum((residual -
+       run mean)**2) / within_run_df)`, where `within_run_df = sum(n_run - 1)`
+       over those runs.
+   - **Ratios.** Also two rows, `ln(v0/v_act) lag` and
+     `ln(v0/v_act) burst`, over the `_global_curves` rows of that family:
+     - the ratio uses the curve's own `activation_sink.v0 /
+       activation_sink.v_act`;
+     - drop non-positive ratios and report their count as `nonpositive`;
+     - the same statistics, with ln(ratio) in place of the residual.
+   - Returns a DataFrame indexed by quantity.
+5. **`replicate_parameter_scatter()`** (4OMe-BnOH only; `scope.REPLICATE_RUNS` holds no
+   BnOH curve).
+   - **Rows.** For each of the `v_act` and `k_act_lag` element tables:
+     - take the rows whose experiment is in `scope.REPLICATE_RUNS`;
+     - merge them on `(experiment, sample)` with
+       `scope.frame(frozenset(scope.REPLICATE_RUNS))`.
+   - **Scatter.** Pool the SD by `sample` (the rung), with the same formula as
+     `within_run_sd` but grouped by sample, for:
+     - `y`;
+     - ln `lag_half_s`, dropping values ≤ 0;
+     - ln `vmax_corrected`, dropping values ≤ 0.
+   - Report each SD, its df and its n, plus the median `se` of `y`.
+   - **No verdict string.**
+6. **The entry** (Report below) withdraws the listed claims.
+
+### Tests (`data/test_rate_laws.py`)
+
+Every existing test stays unchanged. Add each new test to the `__main__` list,
+before `test_planted_global_is_recorded`:
+- **`test_planted_curves_are_unchanged`:** `_planted_curves(substrate)
+  ["curves"]["values"][0][:3]` equals, to a relative 1e-8:
+  - 4OMe-BnOH: `-0.0001485225344, -0.0001855344204, 0.0001076628497`;
+  - BnOH: `-0.002122762497, -0.0002572445161, 0.001845565991`.
+- **`test_degeneracy_passes_the_planted_truth`:** for both substrates,
+  `stage_b_degeneracy(substrate, truth_laws, truth, curves=planted)` returns
+  `"not degenerate"` with 0 curves outside.
+- **`test_degeneracy_sees_clocks_moved_out_of_the_window`:** on 4OMe-BnOH,
+  subtract 12.0 from every `k_act_lag:intercept[...]` of the planted truth, and
+  nothing else. The verdict must be exactly:
+  `"degenerate: clocks outside the run window on 101 of 101 curves; flat
+  coefficients: k_act_lag:intercept[Boric], k_act_lag:intercept[Phosphate],
+  k_act_lag:intercept[Pyrophosphate], k_act_lag:a_S, k_act_lag:a_E,
+  k_act_lag:Ea_R, burst_offset"`.
+- **`test_stage_b_degeneracy_anchors`**, **`test_law_free_baselines_anchors`**,
+  **`test_law_scatter_anchors`** and **`test_replicate_parameter_scatter_anchors`:**
+  assert A11 below, within these tolerances:
+  - costs to a relative 0.001;
+  - `gain` to 0.001;
+  - SDs to 0.005;
+  - counts, df and verdict strings exactly.
+
+### Run, in order
+
+1. `.venv/bin/python data/test_rate_laws.py`. Every test passes.
+2. For both substrates:
+   - `stage_b_degeneracy` on the best report's laws and coefficients;
+   - `stage_b_degeneracy` on the planted truth, and on the planted
+     true-combination estimate, read from `RATE_LAW_DIR/planted_global_
+     <substrate>_<_laws_id(truth_laws)>.json`, both over `_planted_curves`;
+   - `law_free_baselines`;
+   - `law_scatter`.
+3. `replicate_parameter_scatter()`.
+
+### Anchors A11
+
+- **`stage_b_degeneracy`, verdicts verbatim:**
+
+  | substrate | fit | outside (lag, burst) | verdict |
+  |---|---|---|---|
+  | 4OMe-BnOH | best report | 71/84, 15/17 | `degenerate: clocks outside the run window on 86 of 101 curves; flat coefficients: v_act:intercept[Boric], k_act_lag:intercept[Pyrophosphate]` |
+  | 4OMe-BnOH | planted truth | 0/84, 0/17 | `not degenerate` |
+  | 4OMe-BnOH | planted estimate | 0/84, 0/17 | `not degenerate` |
+  | BnOH | best report | 44/44, 22/58 | `degenerate: clocks outside the run window on 66 of 102 curves; flat coefficients: v_act:intercept[Pyrophosphate], k_act_lag:intercept[Boric], k_act_lag:intercept[Phosphate], k_act_lag:intercept[Pyrophosphate], k_act_lag:a_H` |
+  | BnOH | planted truth | 0/44, 0/58 | `not degenerate` |
+  | BnOH | planted estimate | 5/44, 0/58 | `degenerate: flat coefficients: k_act_lag:intercept[Phosphate]` |
+
+- **`law_free_baselines`** (costs):
+
+  | row | 4OMe-BnOH | BnOH |
+  |---|---|---|
+  | own activation-sink fit | 3708.9 | 763.3 |
+  | own quadratic | 13116.7 | 1387.5 |
+  | own line | 111782.3 | 8119.0 |
+  | own v0 tied to v_act | 26696.7 | 2921.4 |
+  | own line and one global sink | 58958.9 (k 6.310e-05, index 28) | 6194.7 (k 2.512e-05, index 24) |
+  | Stage B best, fit | 25923.2 | 5258.3 |
+  | Stage B best, cross-validation | 56225.0 | 6079.9 |
+  | Stage A laws unchanged | 2499343.7 | 48070.5 |
+
+  - rho (lag, burst): 4OMe-BnOH 0.463, 1.801; BnOH 0.021, 2.739.
+  - gain and verdict:
+    - 4OMe-BnOH 0.046, `"laws add less than 10% over the law-free baseline (4.6%)"`;
+    - BnOH 0.019, `"laws add less than 10% over the law-free baseline (1.9%)"`.
+
+- **`law_scatter`** (total / within-run (df) / run means (runs)):
+
+  | quantity | 4OMe-BnOH | BnOH |
+  |---|---|---|
+  | v_act | 0.596 / 0.371 (41) / 0.681 (32) | 0.784 / 0.743 (36) / 0.620 (29) |
+  | k_act_lag | 0.976 / 0.638 (41) / 0.972 (29) | 0.931 / 0.892 (10) / 0.821 (18) |
+  | k_act_burst | too few curves | 0.781 / 0.912 (22) / 0.484 (24) |
+  | k_sink | 0.891 / 0.815 (23) / 0.775 (21) | 1.200 / 0.978 (9) / 1.092 (18) |
+  | ln(v0/v_act) lag | 0.803 / 0.420 (41) / 0.949 (27); nonpositive 16 | 0.948 / 1.074 (9) / 0.699 (14); nonpositive 21 |
+  | ln(v0/v_act) burst | 0.944 / 0.699 (7) / 0.832 (10); nonpositive 0 | 0.826 / 0.615 (33) / 0.856 (25); nonpositive 0 |
+
+  Median `se`: 4OMe-BnOH 0.014, 0.126, —, 0.133; BnOH 0.038, 0.212, 0.178,
+  0.043.
+
+- **`replicate_parameter_scatter`** (SD (df, n)):
+
+  | table | y | ln lag_half_s | ln vmax_corrected | median se |
+  |---|---|---|---|---|
+  | v_act | 0.642 (6, 10) | 0.250 (6, 10) | 0.279 (6, 10) | 0.043 |
+  | k_act_lag | 0.665 (7, 11) | 0.374 (7, 11) | 0.279 (7, 11) | 0.111 |
+
+### Words for this task
+
+Forbidden, in the entry and in the stop message:
+- that a law, term or dependence is wrong, absent or present;
+- that the scatter "is" noise, irreproducibility, chemistry or the form's
+  trade-off. Quote the tables;
+- that Stage C should be scored in any particular way.
+
+### Report
+
+One `DATA_VERIFICATION.md` entry, template E, for Task 7b, at the top of the
+file:
+- the title carries the six `stage_b_degeneracy` verdicts and the two
+  `law_free_baselines` verdicts;
+- the four tables of A11, as the functions return them;
+- a **Withdrawn** list, word for word:
+  1. "The 2026-09-15 fifth entry's coefficient tables for both substrates are
+     withdrawn: `stage_b_degeneracy` returns a degenerate verdict for both
+     best fits."
+  2. "Its `within 2se` and `NOT IDENTIFIED (planted recovery failed)` labels
+     are withdrawn as statements about the Stage B coefficients."
+  3. "Its reading of zero clustered errors as 'not identified from the
+     readings' is replaced by `stage_b_degeneracy`'s flat coefficients."
+  4. "Its `stage_shift` counts and 'A7 fires on BnOH' are replaced by: A7 not
+     evaluable (Stage B degenerate)."
+  5. "Its `no amplitude trend detected` is withdrawn: `global_fit` and
+     `global_cross_validate` refit each curve's `v0`, so no amplitude was
+     predicted."
+  6. "Its tie sets and cross-validation scores stand as numbers;
+     `law_free_baselines` gives their comparison with a law-free baseline."
+
+### Gate
+
+A11 → STOP and report the values that differ. Otherwise:
+1. `run_gates.py` prints `0 failed`.
+2. Commit.
+3. **STOP 3** (template S). Its tables are A11's.
+
+**Question at STOP 3:** "Amendment 3's record is above. Stage C's plan is to be
+written from it. Write it next?"
+
 ## 14. Report templates
 
 Fill the brackets. Tables come from named functions. Add no sentences beyond
@@ -1176,6 +1481,12 @@ Nothing is adopted.
   under a different truth.
 - Tasks 6-7: the 94 curves the form cannot hold are not in the fit; Stage A's
   candidate set limits Stage B's.
+- Task 7b: the window (run length / 300 to 10 × run length) and the flatness
+  bar (0.1) are fixed choices; the law-free baselines are scored in-sample
+  while Stage B's 56,225 and 6,080 are cross-validated, which favours the
+  baselines by at most their one or two global parameters; the replicate
+  scatter rests on one composition, one buffer and one pH, with 6-7 degrees of
+  freedom, and its three columns are read off the same curves.
 
 ### Template S — the stop message (in chat; nothing else)
 
