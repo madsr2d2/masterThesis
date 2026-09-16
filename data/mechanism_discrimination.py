@@ -16,12 +16,14 @@ summary is admitted only where the slopes it takes the log of clear twice
 their own error -- otherwise it is NaN and is never scored. A candidate's
 predicted summaries use the same windows and the same slope formula.
 
-The candidates (plan section 4). C0-C4 are five hand-written mechanisms for
-one catalysed curve, sharing an activation clock, one turnover constant per
-buffer, saturation in [S], a rate proportional to [enz] and one initial active
-fraction per substrate. They differ in what draws the catalyst active (`X`:
-nothing but base, the buffer, or HOO-), in what the rate saturates in (`z`),
-and in whether the product is lost (C0-C3) or the catalyst is (C4). Fitting
+The candidates (plan section 4, extended by Amendment 2). C0-C5 are
+hand-written mechanisms for one catalysed curve, sharing an activation clock,
+one turnover constant per buffer, saturation in [S], a rate proportional to
+[enz] and one initial active fraction per substrate. They differ in what draws
+the catalyst active (`X`: nothing but base, the buffer, or HOO-), in what the
+rate saturates in (`z`), and in what removes the late decline: the product
+(C0-C3), the catalyst (C4), or, in C5, the oxidant draining from the start of
+the run. Fitting
 scores the SUMMARIES through a normal random effect per run (plan section
 4.6), never a fitted curve parameter -- those scatter twice as much between
 repeat runs as the summaries do.
@@ -212,17 +214,19 @@ def summary_scatter(substrate):
     return pd.DataFrame(out, index=pd.Index(("L", "E", "D"), name="summary"))
 
 
-CANDIDATES = ("C0", "C1", "C2", "C3", "C4")
+CANDIDATES = ("C0", "C1", "C2", "C3", "C4", "C5")
 
-# (X, z, loss) per candidate (plan section 4.3). `X` names what draws the
-# catalyst active, `z` what the turnover rate saturates in, `loss` whether the
-# product (C0-C3) or the catalyst (C4) is lost.
+# (X, z, loss) per candidate (plan section 4.3, C5 from section 13). `X` names
+# what draws the catalyst active, `z` what the turnover rate saturates in,
+# `loss` whether the product (C0-C3), the catalyst (C4) or nothing (C5) is
+# lost. C5 replaces the product sink with the oxidant decay.
 _LAW_PARTS = {
     "C0": ("one", "hoo", "product"),
     "C1": ("buf", "hoo", "product"),
     "C2": ("buf", "buf_hoo", "product"),
     "C3": ("hoo", "hoo", "product"),
     "C4": ("buf", "hoo", "catalyst"),
+    "C5": ("buf", "hoo", "product"),
 }
 
 _GAS_CONSTANT = 8.314462618e-3      # kJ / (mol K)
@@ -239,10 +243,12 @@ def candidate_names(candidate, substrate, buffers):
     """
     names = [f"lk_cat[{buffer}]" for buffer in sorted(buffers)]
     names += ["lK_S", "lK_O", "lk_f", "lk_r", "pKa", "theta0"]
-    names.append("lk_d" if candidate == "C4" else "lk_s")
+    names.append("lk_d" if candidate == "C4"
+                 else ("lk_ox" if candidate == "C5" else "lk_s"))
     if substrate == "4OMe-BnOH":
         names += ["Ea_cat", "Ea_act",
-                  "Ea_d" if candidate == "C4" else "Ea_s"]
+                  "Ea_d" if candidate == "C4"
+                  else ("Ea_ox" if candidate == "C5" else "Ea_s")]
     names += ["ls_w_L", "ls_w_E", "ls_w_D", "ls_b_L", "ls_b_E", "ls_b_D"]
     return names
 
@@ -298,9 +304,12 @@ def candidate_curves(candidate, parameters, rows, times):
         if "Ea_act" in parameters:
             activation = np.exp(-parameters["Ea_act"] * invT / _GAS_CONSTANT)
             catalyst = np.exp(-parameters["Ea_cat"] * invT / _GAS_CONSTANT)
-            loss = np.exp(
-                -(parameters["Ea_d"] if candidate == "C4"
-                  else parameters["Ea_s"]) * invT / _GAS_CONSTANT)
+            if candidate == "C5":
+                loss = 1.0
+            else:
+                loss = np.exp(
+                    -(parameters["Ea_d"] if candidate == "C4"
+                      else parameters["Ea_s"]) * invT / _GAS_CONSTANT)
         else:
             activation = 1.0
             catalyst = 1.0
@@ -313,6 +322,30 @@ def candidate_curves(candidate, parameters, rows, times):
         k_r = 10.0 ** parameters["lk_r"] * activation
         tau = 1.0 / (q + k_r)
         theta_ss = q / (q + k_r)
+        if candidate == "C5":
+            k_ox = 10.0 ** parameters["lk_ox"]
+            if "Ea_ox" in parameters:
+                k_ox = k_ox * np.exp(
+                    -parameters["Ea_ox"] * invT / _GAS_CONSTANT)
+            k_ox = np.broadcast_to(np.asarray(k_ox, dtype=float),
+                                   (len(rows),))
+            lk_cat = np.array([parameters[f"lk_cat[{b}]"] for b in buffer])
+            V_base = (10.0 ** lk_cat * e0 * s0
+                      / (10.0 ** parameters["lK_S"] + s0) * catalyst)
+            curves = []
+            for index in range(len(rows)):
+                t = np.asarray(times[index], dtype=float)
+                decayed = hoo[index] * np.exp(-k_ox[index] * t)
+                Y = decayed / (10.0 ** parameters["lK_O"] + decayed)
+                theta = (theta_ss[index]
+                         + (parameters["theta0"] - theta_ss[index])
+                         * np.exp(-t / tau[index]))
+                rate = V_base[index] * Y * theta
+                curves.append(np.concatenate(
+                    [[0.0], np.cumsum(np.diff(t)
+                                      * (rate[1:] + rate[:-1]) / 2.0)]))
+            return {"A": curves, "tau": tau, "theta_ss": theta_ss,
+                    "V": V_base, "k": k_ox}
         Y = z / (10.0 ** parameters["lK_O"] + z)
         lk_cat = np.array([parameters[f"lk_cat[{b}]"] for b in buffer])
         V = (10.0 ** lk_cat * e0 * s0 / (10.0 ** parameters["lK_S"] + s0)
@@ -756,21 +789,25 @@ def planted_fits(substrate, truth, workers=16):
     return records
 
 
-def discrimination_table(substrate):
+def discrimination_table(substrate, candidates=None):
     """
     Which candidates the planted design can tell apart (Task 3).
 
-    From the planted saves, `candidate_tie` per truth. Returns `status` (truth
-    rows x candidate columns), `recovered` per truth, `pairs` per unordered
-    pair, and `flags` (truth x candidate degeneracy verdicts).
+    From the planted saves, `candidate_tie` per truth. `candidates` is the
+    tuple to use, defaulting to `CANDIDATES`. Returns `status` (truth rows x
+    candidate columns), `recovered` per truth, `pairs` per unordered pair, and
+    `flags` (truth x candidate degeneracy verdicts).
     """
+    if candidates is None:
+        candidates = CANDIDATES
+    candidates = tuple(candidates)
     status = {}
     recovered = {}
     flags = {}
-    for truth in CANDIDATES:
+    for truth in candidates:
         columns = {}
         verdicts = {}
-        for candidate in CANDIDATES:
+        for candidate in candidates:
             path = os.path.join(
                 DISCRIMINATION_DIR,
                 f"planted_{substrate}_{truth}_{candidate}.json")
@@ -787,7 +824,7 @@ def discrimination_table(substrate):
     status = pd.DataFrame(status).T
     flags = pd.DataFrame(flags).T
     pairs = {}
-    for first, second in itertools.combinations(CANDIDATES, 2):
+    for first, second in itertools.combinations(candidates, 2):
         first_excludes = status.loc[first, second] == "excluded"
         second_excludes = status.loc[second, first] == "excluded"
         if first_excludes and second_excludes:
@@ -856,11 +893,14 @@ def real_cross_validation(substrate, workers=16):
     return records
 
 
-def _real_scores(substrate):
+def _real_scores(substrate, candidates=None):
     """The real folds as a candidates x folds table, with the skipped count."""
+    if candidates is None:
+        candidates = CANDIDATES
+    candidates = tuple(candidates)
     columns = {}
     skipped = None
-    for candidate in CANDIDATES:
+    for candidate in candidates:
         path = os.path.join(
             DISCRIMINATION_DIR, f"real_{substrate}_{candidate}_folds.json")
         record = _load_fit(path)
@@ -870,29 +910,33 @@ def _real_scores(substrate):
     return scores, skipped
 
 
-def candidate_verdicts(substrate):
+def candidate_verdicts(substrate, candidates=None):
     """
     The real tie rule read against the planted design (Task 4, Amendment 1).
 
     A substrate whose planted design cannot recover a truth is refused before
     anything else; otherwise returns `verdicts` per candidate and the `tie`
-    table, plus `skipped` folds.
+    table, plus `skipped` folds. `candidates` defaults to `CANDIDATES`; every
+    BnOH call passes the five original candidates.
     """
-    design = discrimination_table(substrate)
+    if candidates is None:
+        candidates = CANDIDATES
+    candidates = tuple(candidates)
+    design = discrimination_table(substrate, candidates)
     recovered = design["recovered"]
-    failed = [truth for truth in CANDIDATES
+    failed = [truth for truth in candidates
               if recovered.loc[truth] == "truth not recovered"]
     if failed:
         text = f"not readable (planted truth {failed[0]} not recovered)"
         return {"verdicts": pd.Series({candidate: text
-                                       for candidate in CANDIDATES}),
+                                       for candidate in candidates}),
                 "tie": None, "skipped": None}
-    scores, skipped = _real_scores(substrate)
+    scores, skipped = _real_scores(substrate, candidates)
     tie = candidate_tie(scores)
     best = tie.index[tie["status"] == "best"][0]
     status = design["status"]
     verdicts = {}
-    for candidate in CANDIDATES:
+    for candidate in candidates:
         planted = status.loc[best, candidate]
         if candidate == best:
             verdict = "best"

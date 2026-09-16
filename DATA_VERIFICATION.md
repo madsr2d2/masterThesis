@@ -8,6 +8,111 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-16 (Amendment 2) — Stage C C5: C1 "best"; C5 "tied with C1; the design cannot separate them"; the C1-vs-C5 pair is "one-way (C5 as truth excludes C1)"
+
+`PLAN_MECHANISM_DISCRIMINATION.md` section 13, Amendment 2.
+
+What was asked: add C5, C1 with the product sink replaced by the oxidant
+draining from the start of the run, and report whether it survives and whether
+C1 against C5 separates the late decline, since the same within-run
+`log h2o2` dependence on `D` is missing under every candidate.
+What was built: the C5 branch of `candidate_curves` (running integral of
+`V_base*Y(t)*theta(t)`), `lk_ox`/`Ea_ox` in `candidate_names` and
+`candidate_bounds`, the `candidates=` argument on `discrimination_table`,
+`_real_scores` and `candidate_verdicts`, and the `test_c5_matches_the_ode` and
+`test_a6_discrimination_anchors` tests with the C5 A7 rows. New saves:
+`real_4OMe-BnOH_C5_full.json`, `real_4OMe-BnOH_C5_folds.json`, the five
+`planted_4OMe-BnOH_<truth>_C5.json` for truths C0-C4 and the six
+`planted_4OMe-BnOH_C5_<candidate>.json`. A7 (4829.060949 and 15031.666318) and
+A6 (the five-candidate tables on both substrates) reproduce; C5's fit succeeds
+(A5 clear); the planted fits projected under A3's 12 h (about 2.8 h measured).
+Bugs found: none.
+
+Six-candidate tie table (`candidate_verdicts`, `skipped` = 0):
+
+| candidate | total | mean_difference | bar | status | worst_fold_difference |
+|---|---|---|---|---|---|
+| C0 | 211.535436 | 0.068129 | 0.846361 | tied | 5.672141 |
+| C1 | 208.946516 | 0.000000 | 0.000000 | best | 0.000000 |
+| C2 | 340.486018 | 3.461566 | 3.677534 | tied | 49.769877 |
+| C3 | 308.738337 | 2.626101 | 2.218271 | excluded | 38.839632 |
+| C4 | 237.268300 | 0.745310 | 1.045090 | tied | 7.131219 |
+| C5 | 237.752243 | 0.758045 | 1.057981 | tied | 7.311948 |
+
+Verdict per candidate (from `candidate_verdicts`):
+
+| candidate | verdict |
+|---|---|
+| C0 | tied with C1; the design can separate them (degenerate: at bound: pKa; at bound: theta0; clocks outside the run window on 147 of 147 curves) |
+| C1 | best (degenerate: at bound: theta0; clocks outside the run window on 147 of 147 curves) |
+| C2 | tied with C1; the design can separate them (degenerate: at bound: pKa; clocks outside the run window on 91 of 147 curves) |
+| C3 | excluded against C1; the planted design reproduces this separation (degenerate: at bound: lk_r; at bound: pKa; at bound: theta0; clocks outside the run window on 85 of 147 curves) |
+| C4 | tied with C1; the design can separate them (degenerate: at bound: lk_r; at bound: theta0; clocks outside the run window on 119 of 147 curves) |
+| C5 | tied with C1; the design cannot separate them (degenerate: at bound: lk_r; at bound: theta0; at bound: Ea_ox; clocks outside the run window on 123 of 147 curves) |
+
+C5's own verdict, verbatim: `"tied with C1; the design cannot separate them
+(degenerate: at bound: lk_r; at bound: theta0; at bound: Ea_ox; clocks outside
+the run window on 123 of 147 curves)"`.
+
+The C1-against-C5 pair, verbatim: `"one-way (C5 as truth excludes C1)"` --
+under C1 as truth C5 is `"best"`, and under C5 as truth C1 is `"excluded"`.
+Every new pair verdict involving C5:
+
+| pair | verdict |
+|---|---|
+| C0 vs C5 | one-way (C0 as truth excludes C5) |
+| C1 vs C5 | one-way (C5 as truth excludes C1) |
+| C2 vs C5 | not distinguishable |
+| C3 vs C5 | one-way (C5 as truth excludes C3) |
+| C4 vs C5 | one-way (C4 as truth excludes C5) |
+
+`residual_trends` on the best and every tied candidate (C0, C1, C2, C4, C5):
+
+| candidate | verdict |
+|---|---|
+| C0 | unmodelled dependence: L between runs: invT t=+4.04; D within runs: log h2o2 t=+3.22 |
+| C1 | unmodelled dependence: D within runs: log h2o2 t=+3.22 |
+| C2 | unmodelled dependence: L within runs: log h2o2 t=+4.59; D within runs: log h2o2 t=+3.21 |
+| C4 | unmodelled dependence: L within runs: log h2o2 t=-3.69; E between runs: log hoo t=+3.19; E between runs: pH t=+3.16; D within runs: log h2o2 t=+3.22 |
+| C5 | unmodelled dependence: L within runs: log h2o2 t=-3.75; E between runs: log hoo t=+3.21; E between runs: pH t=+3.18; D within runs: log h2o2 t=+3.21 |
+
+The new best is still C1, so `D within runs: log h2o2` survives at t=+3.22;
+C5's own residuals carry it too, at t=+3.21.
+
+C5's degeneracy verdict: `"degenerate: at bound: lk_r; at bound: theta0; at
+bound: Ea_ox; clocks outside the run window on 123 of 147 curves"`. The new
+planted fits' verdicts where not `"not degenerate"`: C5 under truth C0
+`"degenerate: at bound: theta0; at bound: Ea_ox; clocks outside the run window
+on 147 of 147 curves"`; under C1 `"degenerate: at bound: pKa; at bound: theta0;
+at bound: Ea_ox"`; under C2 `"degenerate: at bound: Ea_ox"`; under C3
+`"degenerate: at bound: lk_r; at bound: theta0; clocks outside the run window
+on 147 of 147 curves"`; under C4 `"degenerate: at bound: theta0; at bound:
+Ea_ox"`; and with truth C5, the six candidates are `"degenerate: at bound:
+theta0; at bound: Ea_s"` (C0), `"degenerate: at bound: theta0; at bound:
+Ea_s"` (C1), `"degenerate: at bound: lk_r; at bound: Ea_s; clocks outside the
+run window on 127 of 147 curves"` (C2), `"degenerate: at bound: theta0; clocks
+outside the run window on 147 of 147 curves"` (C3), `"degenerate: not
+converged; at bound: theta0; at bound: Ea_act; at bound: Ea_d"` (C4) and
+`"degenerate: at bound: theta0; at bound: Ea_ox"` (C5).
+
+Verdicts (from `candidate_verdicts`, `discrimination_table`,
+`residual_trends`): the tables above, verbatim; C1 is `"best"` and C5 is
+`"tied with C1; the design cannot separate them"`; BnOH stays
+`"not readable (planted truth C0 not recovered)"`; the peroxide dependence on
+`D` within runs survives under the new best.
+Degeneracy: every real full fit is degenerate (above); the new planted fits
+are all degenerate (above).
+Could overturn this: C5 keeps every shared assumption of section 4.3, and adds
+one -- the oxidant falls as a first-order decay from t = 0, at a rate that does
+not depend on the catalyst loading or on the substrate; the archive never
+measured the peroxide concentration during a run and never measured the gas, so
+the decay is inferred from the curve shape alone; one planted seed per truth,
+as before.
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-16 — Stage C Task 4: C1 "best"; C3 "excluded against C1; the planted design reproduces this separation"; C0 "tied with C1; the design cannot separate them"; C2 and C4 "tied with C1; the design can separate them"; BnOH "not readable (planted truth C0 not recovered)"
 
 `PLAN_MECHANISM_DISCRIMINATION.md` Task 4, with Amendment 1.

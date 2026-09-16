@@ -198,6 +198,41 @@ def test_candidate_curves_match_the_ode():
               f"{worst:.2e}")
 
 
+def test_c5_matches_the_ode():
+    print("\nthe C5 curve matches the ODE")
+    from scipy.integrate import solve_ivp
+    t = np.linspace(0.0, 6000.0, 601)
+    V_base, tau, theta0, theta_ss = 2e-5, 1500.0, 0.1, 0.6
+    k_ox, lK_O, hoo = 2e-4, -3.0, 1e-2
+    rows = pd.DataFrame([{
+        "buffer": "Phosphate", "temperature": 25.0, "pH": 4.0, "s0": 1.0,
+        "h2o2": 1.0, "hoo": hoo, "buf": 0.1, "e0": 1.0}])
+    q = theta_ss / tau
+    k_r = (1.0 - theta_ss) / tau
+    base = 1.0 / (1.0 + 10.0 ** (4.0 - 14.0))
+    parameters = {
+        "lk_cat[Phosphate]": np.log10(V_base / (1.0 / 1.01)),
+        "lK_S": -2.0, "lK_O": lK_O, "lk_f": np.log10(q / (0.1 * base)),
+        "lk_r": np.log10(k_r), "pKa": 14.0, "theta0": theta0,
+        "lk_ox": np.log10(k_ox), "Ea_cat": 0.0, "Ea_act": 0.0, "Ea_ox": 0.0,
+    }
+    curves = md.candidate_curves("C5", parameters, rows, [t])
+
+    def rhs(time, state):
+        decayed = hoo * np.exp(-k_ox * time)
+        Y = decayed / (10.0 ** lK_O + decayed)
+        theta = theta_ss + (theta0 - theta_ss) * np.exp(-time / tau)
+        return [V_base * Y * theta]
+
+    solution = solve_ivp(rhs, (t[0], t[-1]), [0.0], t_eval=t,
+                         rtol=1e-11, atol=1e-16)
+    got = curves["A"][0][1:]
+    want = solution.y[0][1:]
+    worst = float(np.max(np.abs(got - want)
+                         / np.maximum(np.abs(want), 1e-30)))
+    check("C5 A(t) matches the ODE to 1e-4", worst <= 1e-4, f"{worst:.2e}")
+
+
 def test_run_likelihood_matches_the_dense_normal():
     print("\nthe run likelihood matches the dense normal")
     from scipy.stats import multivariate_normal
@@ -221,10 +256,10 @@ def test_midpoint_likelihood_anchors():
     anchors = {
         "4OMe-BnOH": {"C0": 4873.435372, "C1": 4730.711800,
                       "C2": 6297.876950, "C3": 3082.772937,
-                      "C4": 4730.544204},
+                      "C4": 4730.544204, "C5": 4829.060949},
         "BnOH": {"C0": 15622.845649, "C1": 15005.891228,
                  "C2": 15975.468150, "C3": 14998.498241,
-                 "C4": 15005.932644},
+                 "C4": 15005.932644, "C5": 15031.666318},
     }
     tables = _summary_tables()
     for substrate, per_candidate in anchors.items():
@@ -235,6 +270,62 @@ def test_midpoint_likelihood_anchors():
             got = md.candidate_nll(candidate, 0.5 * (lower + upper), table)
             check(f"{substrate} {candidate} midpoint NLL is {want}",
                   abs(got - want) <= 1e-6, f"{got:.6f}")
+
+
+def test_a6_discrimination_anchors():
+    print("\nthe A6 discrimination anchors, five original candidates")
+    five = ("C0", "C1", "C2", "C3", "C4")
+    status = {
+        "4OMe-BnOH": {
+            "C0": ("best", "tied", "excluded", "excluded", "excluded"),
+            "C1": ("tied", "best", "excluded", "excluded", "excluded"),
+            "C2": ("tied", "tied", "best", "tied", "tied"),
+            "C3": ("tied", "tied", "tied", "best", "tied"),
+            "C4": ("tied", "excluded", "tied", "excluded", "best"),
+        },
+        "BnOH": {
+            "C0": ("excluded", "tied", "tied", "tied", "best"),
+            "C1": ("tied", "tied", "best", "tied", "tied"),
+            "C2": ("tied", "tied", "best", "tied", "tied"),
+            "C3": ("tied", "tied", "best", "tied", "tied"),
+            "C4": ("tied", "tied", "best", "tied", "tied"),
+        },
+    }
+    recovered = {
+        "4OMe-BnOH": {candidate: "truth recovered" for candidate in five},
+        "BnOH": {"C0": "truth not recovered",
+                 "C1": "truth recovered", "C2": "truth recovered",
+                 "C3": "truth recovered", "C4": "truth recovered"},
+    }
+    four_ome_pairs = {
+        "C0 vs C1": "not distinguishable",
+        "C0 vs C2": "one-way (C0 as truth excludes C2)",
+        "C0 vs C3": "one-way (C0 as truth excludes C3)",
+        "C0 vs C4": "one-way (C0 as truth excludes C4)",
+        "C1 vs C2": "one-way (C1 as truth excludes C2)",
+        "C1 vs C3": "one-way (C1 as truth excludes C3)",
+        "C1 vs C4": "distinguishable",
+        "C2 vs C3": "not distinguishable",
+        "C2 vs C4": "not distinguishable",
+        "C3 vs C4": "one-way (C4 as truth excludes C3)",
+    }
+    bnoh_pairs = {f"{first} vs {second}": "not distinguishable"
+                  for index, first in enumerate(five)
+                  for second in five[index + 1:]}
+    for substrate in _SUBSTRATES:
+        table = md.discrimination_table(substrate, candidates=five)
+        check(f"{substrate} status table matches A6",
+              all(table["status"].loc[truth, candidate]
+                  == status[substrate][truth][index]
+                  for truth in five for index, candidate in enumerate(five)),
+              "\n" + table["status"].to_string())
+        check(f"{substrate} recovered matches A6",
+              all(table["recovered"].loc[truth] == recovered[substrate][truth]
+                  for truth in five),
+              table["recovered"].to_string())
+        want = four_ome_pairs if substrate == "4OMe-BnOH" else bnoh_pairs
+        check(f"{substrate} pair table matches A6",
+              table["pairs"].to_dict() == want, str(table["pairs"].to_dict()))
 
 
 def test_candidate_tie_rule():
@@ -279,8 +370,10 @@ if __name__ == "__main__":
     test_summaries_are_nan_when_not_admitted()
     test_summary_anchors()
     test_candidate_curves_match_the_ode()
+    test_c5_matches_the_ode()
     test_run_likelihood_matches_the_dense_normal()
     test_midpoint_likelihood_anchors()
+    test_a6_discrimination_anchors()
     test_candidate_tie_rule()
     test_degeneracy_flags()
     print(f"\n{len(FAILURES)} failure(s)"
