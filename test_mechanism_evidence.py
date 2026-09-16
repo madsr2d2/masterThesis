@@ -30,6 +30,8 @@ import rate_laws
 from doc_check import Checker
 
 DOCUMENT = os.path.join(REPOSITORY, "MECHANISM_EVIDENCE.md")
+_FITTING = os.path.join(REPOSITORY, "FITTING.md")
+_MECHANISM = os.path.join(REPOSITORY, "MECHANISM.md")
 
 _SUBSTRATES = ("4OMe-BnOH", "BnOH")
 _FIVE = ("C0", "C1", "C2", "C3", "C4")
@@ -166,6 +168,56 @@ def main():
               f"{crossing['steps_peroxide']} step")
     doc.claim("and none crosses",
               f"**{crossing['steps_both']} step both**")
+
+    doc.section("the same numbers where FITTING.md and MECHANISM.md quote them")
+    # F8-F10 and MECHANISM.md's open questions restate these, and a register
+    # whose copies drift is worse than no register.
+    for name in ("own activation-sink fit", "Stage B best, cross-validation",
+                 "own line and one global sink", "Stage A laws unchanged"):
+        doc.claim(f"F8: {name}", "| " + " | ".join(
+            f"{costs[s][name]:,.0f}" for s in _SUBSTRATES) + " |",
+            document=_FITTING)
+    doc.claim("F8: tying v0 costs a factor of seven",
+              f"{costs['4OMe-BnOH']['own activation-sink fit']:,.0f} to "
+              f"{costs['4OMe-BnOH']['own v0 tied to v_act']:,.0f}",
+              document=_FITTING)
+    for substrate in _SUBSTRATES:
+        doc.claim(f"F8: {substrate}'s verdict",
+                  f'"{baselines[substrate]["verdict"]}"', document=_FITTING)
+        best = _stage_b_best(substrate)
+        verdict = rate_laws.stage_b_degeneracy(
+            substrate, best["laws"], best["coefficients"])["verdict"]
+        doc.claim(f"F8: {substrate}'s degeneracy",
+                  f'"{verdict.split(";")[0]}"', document=_FITTING)
+    doc.claim("F9: v_act's replicate SD",
+              f"**{replicate.loc['v_act', 'y_sd']:.3f}**", document=_FITTING)
+    doc.claim("F9: k_act_lag's replicate SD",
+              f"**{replicate.loc['k_act_lag', 'y_sd']:.3f}**",
+              document=_FITTING)
+    doc.claim("F9: the lag clock's replicate SD",
+              f"{replicate.loc['v_act', 'lag_half_s_sd']:.3f} / "
+              f"{replicate.loc['k_act_lag', 'lag_half_s_sd']:.3f}",
+              document=_FITTING)
+    low, high = _element_range("total_sd")
+    doc.claim("F9: the law residuals",
+              f"residuals of {low:.3f} to {high:.3f}", document=_FITTING)
+    for candidate in tie.index:
+        status = tie.loc[candidate, "status"]
+        rendered = f"| {tie.loc[candidate, 'total']:.1f} | "
+        rendered += "**excluded**" if status == "excluded" else status
+        doc.claim(f"F10: {candidate}'s row", rendered + " |",
+                  document=_FITTING)
+    doc.claim("F10: C3's verdict", f'"{excluded}"', document=_FITTING)
+    doc.claim("F10: BnOH's refusal", f'"{refused}"', document=_FITTING)
+    doc.claim("the open question quotes C3's verdict", f'"{excluded}"',
+              document=_MECHANISM)
+    doc.claim("the open question quotes the crossing",
+              f"Of {crossing['runs']} runs, {crossing['steps_buffer']} step",
+              document=_MECHANISM)
+    doc.claim("the open question quotes none crossing",
+              f"**{crossing['steps_both']} step both**", document=_MECHANISM)
+    doc.claim("the open question quotes the late-shape trend",
+              f"t = {trend.split('t=')[1]}", document=_MECHANISM)
 
     return doc.summary()
 

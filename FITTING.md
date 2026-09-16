@@ -313,6 +313,9 @@ python data/plot_fit.py data/fits/BnOH_25C_Phosphate.json   # -> figures/
 | [F5](#f5--the-reduced-model-misfits-by-20-24x-the-noise) | 20–24× the curves' own noise on the fitted block | **STRONG** | the reduction, not necessarily the chemistry |
 | [F6](#f6--at-its-own-best-fit-the-mechanisms-machinery-is-inert) | `[PBA] ≈ 10⁻⁹ mM` at the best fit | **PROVISIONAL** | the fitted model is just a linear seed |
 | [F7](#f7--only-two-of-eleven-blocks-support-the-sequential-fit) | 2 of 11 blocks can be fitted sequentially | **CERTAIN** | names the missing experiment |
+| [F8](#f8--the-rate-laws-add-under-5-over-a-model-with-no-conditions-in-it) | rate laws on the curve parameters buy 4.6% and 1.9% | **CERTAIN** | Stage B may not be read as rate laws |
+| [F9](#f9--the-fitted-forms-parameters-are-twice-as-irreproducible-as-the-curves) | repeat runs scatter 0.642 in the form, 0.250 in a summary | **STRONG** | read window-free summaries, not fitted parameters |
+| [F10](#f10--one-candidate-mechanism-is-excluded-and-the-rest-tie) | 1 of 6 candidate mechanisms excluded, 5 tie | **STRONG** | the archive cannot identify the mechanism |
 
 ---
 
@@ -550,6 +553,85 @@ a different buffer, which is exactly what the buffer section forbids.
 **The missing experiment is an enzyme-free control in pyrophosphate**, and it is
 cheap.
 
+## F8 — the rate laws add under 5% over a model with no conditions in it
+
+Stage A of `PLAN_CURVES_TO_MECHANISM.md` wrote each curve parameter as a
+function of the conditions; Stage B put those laws back into the readings of
+every curve at once. Cost is the summed squared residual in units of each
+curve's own noise, about 1 per curve at the floor
+(`rate_laws.law_free_baselines`):
+
+| model | 4OMe-BnOH | BnOH |
+|---|---|---|
+| each curve's own activation-sink fit | 3,709 | 763 |
+| the rate laws, cross-validated | 56,225 | 6,080 |
+| each curve's own line and ONE global sink constant | 58,959 | 6,195 |
+| Stage A's laws plugged in unchanged | 2,499,344 | 48,071 |
+
+The verdicts are **"laws add less than 10% over the law-free baseline
+(4.6%)"** and **"laws add less than 10% over the law-free baseline (1.9%)"**.
+
+**And neither fit may be read as a rate law.** `rate_laws.stage_b_degeneracy`
+returns "degenerate: clocks outside the run window on 86 of 101 curves" and
+"degenerate: clocks outside the run window on 66 of 102 curves". The optimiser
+switched activation off rather than place a clock on each curve, and it could
+do that because Stage B left every curve its own free initial rate — in the fit
+AND in the cross-validation, so a curve's SIZE was never predicted. That was a
+fault in the plan, not in the chemistry. Removing the freedom does not rescue
+the laws either: tying `v0` to `v_act` costs a factor of seven, 3,709 to
+26,697.
+
+## F9 — the fitted form's parameters are twice as irreproducible as the curves
+
+`scope.REPLICATE_RUNS` (exps 2, 4, 5, 7) is the archive's only four-fold repeat
+of one composition. Pooled by cuvette, in natural logs
+(`rate_laws.replicate_parameter_scatter`, 6–7 degrees of freedom):
+
+| quantity | SD |
+|---|---|
+| the activation-sink form's `v_act` | **0.642** |
+| the activation-sink form's `k_act_lag` | **0.665** |
+| `lag_half_s` on the same curves | 0.250 / 0.374 |
+| `vmax_corrected` on the same curves | 0.279 |
+
+So part of what looks like chemistry in a fitted parameter is the form trading
+its parameters against each other. **Prefer a window-free summary to a fitted
+parameter wherever a question allows it**, and never read a parameter
+difference smaller than the form's own repeatability.
+
+The same gap shows against the conditions: rate laws fitted to the curve
+parameters leave residuals of 0.596 to 1.200 in log units
+(`rate_laws.law_scatter`) where those parameters' own errors are 0.014 to
+0.212, and much of that residual is WITHIN runs (0.371 to 0.978).
+
+## F10 — one candidate mechanism is excluded and the rest tie
+
+`PLAN_MECHANISM_DISCRIMINATION.md` scored six small mechanisms on three
+window-free summaries, with a per-run random offset, cross-validated by leaving
+out whole runs. On 4OMe-BnOH, 38 folds, none skipped
+(`mechanism_discrimination.candidate_verdicts`):
+
+| candidate | what it says | fold total | status |
+|---|---|---|---|
+| C1 | the buffer draws the catalyst active | 208.9 | best |
+| C0 | activation is unimolecular, held back by base | 211.5 | tied |
+| C4 | as C1, the catalyst lost on a clock | 237.3 | tied |
+| C5 | as C1, the oxidant draining during the run | 237.8 | tied |
+| C3 | HOO- draws the catalyst active | 308.7 | **excluded** |
+| C2 | as C1, oxidant via a buffer perhydrate | 340.5 | tied |
+
+C3's verdict is **"excluded against C1; the planted design reproduces this
+separation"**, which is the one mechanistic exclusion the curves earned, and
+`induction/` reaches it independently from the clock's pH sign. BnOH's verdict
+is **"not readable (planted truth C0 not recovered)"**: on data generated by C0
+itself, C0 was excluded.
+
+**A tie here is not support.** Planting each candidate in turn and scoring all
+six shows most pairs are "not distinguishable" on this design, and the planted
+truth is only ever tied on its own data, never best. **No parameter value is
+quoted from any of these fits**: every one carries a degeneracy flag.
+`MECHANISM_EVIDENCE.md` is the register, and re-derives every number here.
+
 ## Why the fitter is believable
 
 A fitter that has never recovered a known answer is evidence about the
@@ -626,7 +708,26 @@ is at least as likely to be an artefact of the reduction as a fault in the
 mechanism. One block has been fitted. The 4OMe block, the `r` profile, and a
 saturable variant should all be done before the chemistry is blamed.
 
+**And since 2026-09-16 there is a fourth layer: the identity of the mechanism
+itself, which this archive cannot decide.** F8-F10 measure that limit rather
+than assert it -- what the conditions determine, how far a curve repeats, and
+which candidate mechanisms the design can tell apart. Read them before
+proposing that a further fit will settle a mechanistic question;
+`MECHANISM_EVIDENCE.md` §6 lists what would.
+
 ## Log
+
+### 2026-09-16 — three stages, and what they decided
+
+Rate laws for the curve parameters (Stage A), those laws fitted to the readings
+(Stage B), and six candidate mechanisms scored on window-free summaries
+(Stage C). Findings F8-F10 above; `MECHANISM_EVIDENCE.md` is the register and
+`test_mechanism_evidence.py` its gate. Two corrections belong in this log
+because they were made against earlier readings of this document's own kind:
+Stage B's coefficient tables were withdrawn when `stage_b_degeneracy` showed
+both best fits degenerate, and the BnOH arm of Stage C was refused when its
+planted design failed to recover a known truth.
+
 
 ### 2026-08-31 — the fitter, and the first fits
 

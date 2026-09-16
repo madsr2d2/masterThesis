@@ -2172,6 +2172,36 @@ from a rate constant's buffer-dependence, not a spectroscopic identification.
 
 ## Open questions
 
+*(Four entries added 2026-09-16, from the curve-level work registered in
+`MECHANISM_EVIDENCE.md`.)*
+
+- **Step 4 is not the productive entry into activation, by two independent
+  routes.** The induction clock's pH sign said so first. The curve-level
+  discrimination now excludes the candidate in which HOO- draws the catalyst
+  into its active form: **"excluded against C1; the planted design reproduces
+  this separation"**. The STEP is not excluded — KP still forms — only its role
+  as the way the catalyst wakes up. `MECHANISM_EVIDENCE.md` §4, `FITTING.md`
+  F10.
+- **Whether the buffer draws the catalyst into its active form cannot be
+  settled by this archive.** A buffer-driven activation and a unimolecular one
+  held back by base predict held-out runs equally well, and the planted design
+  cannot separate them, so the "+1" rule on the buffer axis remains the
+  strongest statement available and it is not decisive on its own. Two routes
+  out: a substrate ladder at two catalyst loadings in one run, or
+  `COMPUTATIONAL.md` C7, which has a measured barrier of 77 +/- 12 kJ/mol and a
+  measured pH sign to reproduce.
+- **General base against buffer perhydrate is a design limit, not a statistics
+  problem.** Of 88 runs, 53 step `[buf]`, 20 step `[H2O2]` and **0 step both**,
+  so no fit of these curves can separate a term in `[buf]` from one in
+  `[buf][H2O2]`. The candidate carrying the perhydrate ties rather than wins.
+  `COMPUTATIONAL.md` C9, or one buffer x peroxide grid at one pH.
+- **The late decline carries a within-run peroxide dependence that no candidate
+  reproduces.** Under every mechanism scored, including the best, the residual
+  of the late shape tracks `log[H2O2]` inside runs at t = +3.22, with more
+  peroxide giving less decline. Product loss, catalyst decay and first-order
+  oxidant depletion all fail to account for it — the last was built for it and
+  ties rather than wins. S4 and `COMPUTATIONAL.md` C10 are where to look.
+
 - **Does the catalyst loading move the induction clock?** A unimolecular
   activation says it must not, and that is the only prediction of step 0 a
   concentration can falsify. The archive's two `[enz]` pairs cannot answer:
