@@ -5,6 +5,12 @@ whose Stages A and B closed at STOP 3 (commit 031bccf). This is its Stage C.
 Read this file from the top. You do not need the earlier plan, except where a
 section names a function from it.
 
+> **AMENDMENT 1 (2026-09-16). Tasks 1 and 2 are done (commits 8211a58,
+> 6f87773). Task 3's fits are all on disk and its table is fixed; read section
+> 12 BEFORE finishing Task 3.** Amendment 1 records a bug a review fixed in
+> your working tree, adds the discrimination anchors, and stops a substrate
+> whose planted truth is not recovered from being read in Task 4.
+
 ## The goal, in one paragraph
 
 Take five hand-written candidate mechanisms for the catalysed curves, score
@@ -57,6 +63,7 @@ The previous plan failed in ways this one is built to avoid.
 9. Task 3 — real full fits and the planted discrimination — STOP 1
 10. Task 4 — real cross-validation and the verdicts — STOP 2
 11. Report templates
+12. Amendment 1 — the fixed table, its anchors, and what BnOH may not be read for
 
 ---
 
@@ -757,3 +764,97 @@ Could overturn this: <the task's list>
 
 Question: <the stop's question>
 ```
+
+---
+
+## 12. Amendment 1 — the fixed table, its anchors, and what BnOH may not be read for
+
+Added 2026-09-16, after a review of Task 3's saves. **This section overrides
+Task 3's Report and Task 4 wherever they differ.**
+
+### What happened
+
+Task 3's background run finished every fit -- the 10 real full fits and all 50
+planted fits are saved -- and then crashed in `discrimination_table` with
+`KeyError: 'C0'`. `pd.DataFrame(columns)` builds folds x candidates, while
+`candidate_tie` takes candidates x folds, so the tie rule chose a run number
+as the best candidate.
+
+**The review fixed it in your working tree** (`data/mechanism_discrimination.py`,
+in `discrimination_table`):
+
+    scores = pd.DataFrame(columns).T.sort_index(axis=1)
+
+Do not revert it and do not refit anything. Record it in Task 3's entry under
+"Bugs found", with the wording: "`discrimination_table` passed
+`candidate_tie` the transpose of its scores table; every fit was already
+saved, so only the table was rebuilt."
+
+### Changes
+
+1. **`candidate_verdicts` refuses a substrate whose planted truth was not
+   recovered.** Before anything else, read `discrimination_table(substrate)`.
+   If any truth's `recovered` is `"truth not recovered"`, return for EVERY
+   candidate of that substrate the single string
+   `"not readable (planted truth <X> not recovered)"`, naming the first such
+   truth, and return no tie table. A scoring that rejects a mechanism on that
+   mechanism's own data cannot be read on real data.
+2. **Task 4 runs only on a substrate that passes that check.** Skip
+   `real_cross_validation` for a substrate that fails it; its folds are not
+   worth the compute. On today's saves that means **Task 4 runs on 4OMe-BnOH
+   only**.
+3. **No parameters are reported.** All ten real full fits carry a degeneracy
+   flag, so section 10's "the best candidate's parameters" line is struck.
+   Report `"not read (<its degeneracy verdict>)"` in its place.
+4. **Task 4's report adds one line per candidate**: its verdict beside the
+   pair verdict from `discrimination_table` for that candidate against the
+   best.
+5. **This plan ends at STOP 2.** The write-up is a new plan, written after
+   it. Do not begin one.
+
+### Anchors A6 — the discrimination tables
+
+Rows are the planted truth, columns the fitted candidate. These were
+reproduced from the saves with the repository's own `candidate_tie` on
+2026-09-16. Any difference → STOP.
+
+**4OMe-BnOH** (every truth recovered):
+
+| truth | C0 | C1 | C2 | C3 | C4 |
+|---|---|---|---|---|---|
+| C0 | best | tied | excluded | excluded | excluded |
+| C1 | tied | best | excluded | excluded | excluded |
+| C2 | tied | tied | best | tied | tied |
+| C3 | tied | tied | tied | best | tied |
+| C4 | tied | excluded | tied | excluded | best |
+
+Pairs: C1 vs C4 `"distinguishable"`; C0 vs C2, C0 vs C3, C0 vs C4, C1 vs C2,
+C1 vs C3 one-way with the first as truth; C3 vs C4 one-way with C4 as truth;
+C0 vs C1, C2 vs C3, C2 vs C4 `"not distinguishable"`.
+
+**BnOH** (C0 is `"truth not recovered"`; C1-C4 recovered):
+
+| truth | C0 | C1 | C2 | C3 | C4 |
+|---|---|---|---|---|---|
+| C0 | excluded | tied | tied | tied | best |
+| C1 | tied | tied | best | tied | tied |
+| C2 | tied | tied | best | tied | tied |
+| C3 | tied | tied | best | tied | tied |
+| C4 | tied | tied | best | tied | tied |
+
+All ten BnOH pairs are `"not distinguishable"`.
+
+### Run, in order
+
+1. Rerun `discrimination_table` for both substrates and check A6.
+2. Write Task 3's entry (template E), including the bug above and the
+   `recovered` line for BnOH.
+3. `run_gates.py` prints `0 failed`; commit; post **STOP 1**.
+4. On the user's go-ahead, Task 4 with changes 1-4.
+
+### Could overturn this
+
+- The tie rule cannot exclude a candidate that fails on a few folds only, so
+  `"not distinguishable"` is a statement about this rule at this fold count.
+- One planted seed per truth, and each truth is a candidate's own degenerate
+  fit, so a different seed or a non-degenerate truth could separate more.
