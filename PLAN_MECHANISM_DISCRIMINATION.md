@@ -5,6 +5,12 @@ whose Stages A and B closed at STOP 3 (commit 031bccf). This is its Stage C.
 Read this file from the top. You do not need the earlier plan, except where a
 section names a function from it.
 
+> **AMENDMENT 2 (2026-09-16). Stage C is done through STOP 2 (commits 0577792,
+> 5fa9641). Read section 13 and run it; it is the last task in this plan.**
+> Amendment 2 adds ONE candidate, C5, because `residual_trends` found a
+> within-run peroxide dependence in the late shape that every candidate misses.
+> The write-up is NOT yours: do not start one.
+
 > **AMENDMENT 1 (2026-09-16). Tasks 1 and 2 are done (commits 8211a58,
 > 6f87773). Task 3's fits are all on disk and its table is fixed; read section
 > 12 BEFORE finishing Task 3.** Amendment 1 records a bug a review fixed in
@@ -64,6 +70,7 @@ The previous plan failed in ways this one is built to avoid.
 10. Task 4 — real cross-validation and the verdicts — STOP 2
 11. Report templates
 12. Amendment 1 — the fixed table, its anchors, and what BnOH may not be read for
+13. Amendment 2 — C5, the oxidant-depletion candidate — STOP 3
 
 ---
 
@@ -858,3 +865,140 @@ All ten BnOH pairs are `"not distinguishable"`.
   `"not distinguishable"` is a statement about this rule at this fold count.
 - One planted seed per truth, and each truth is a candidate's own degenerate
   fit, so a different seed or a non-degenerate truth could separate more.
+
+---
+
+## 13. Amendment 2 — C5, the oxidant-depletion candidate — STOP 3
+
+Added 2026-09-16, after STOP 2. **This section overrides sections 4, 9 and 10
+where they differ.** It is the last task in this plan.
+
+### Why
+
+- `residual_trends` reports the SAME missing dependence under every candidate,
+  the best included: the late shape `D` tracks `log h2o2` WITHIN runs at
+  t = +3.2. Within a run is not day-to-day scatter; it is structure. Its sign
+  says more peroxide, less late decline.
+- Every candidate so far explains the late decline by product loss (C0-C3) or
+  catalyst loss (C4). Neither depends on peroxide.
+- **The design can separate late-decline mechanisms:** C1 against C4 came back
+  `"distinguishable"` in Task 3. So this test has power, which is why it is
+  worth one more round.
+- **C5 is the minimum test.** It is C1 with the product sink replaced by the
+  oxidant draining, so C1 against C5 isolates the late decline and nothing
+  else. The catalyst decomposing peroxide is `BUBBLES.md`'s gas reaction.
+
+### The candidate
+
+C5 keeps C1's activation exactly (`X = buf`, the base trap, the per-buffer
+turnover constant, the [S] saturation, one `theta0`). It has NO product sink.
+Instead the oxidant falls from the start of the run:
+
+    z(t)  = hoo * exp(-k_ox * t)
+    Y(t)  = z(t)/(10^lK_O + z(t))
+    k_ox  = 10^lk_ox * exp(-Ea_ox*invT/R)
+    V_base = 10^lk_cat[b] * e0 * s0/(10^lK_S + s0) * exp(-Ea_cat*invT/R)
+    theta(t) = theta_ss + (theta0 - theta_ss)*exp(-t/tau)
+    dA/dt = V_base * Y(t) * theta(t),      A(0) = 0
+
+`tau` and `theta_ss` are C1's, unchanged. Note `V_base` EXCLUDES `Y`, which is
+now inside the integral.
+
+**The curve** is the running integral on the curve's own times, exactly:
+
+    rate = V_base * Y(t) * theta(t)
+    A = numpy.concatenate([[0.0],
+        numpy.cumsum(numpy.diff(t) * (rate[1:] + rate[:-1]) / 2.0)])
+
+### Changes (`data/mechanism_discrimination.py`)
+
+1. **`CANDIDATES`** becomes `("C0", "C1", "C2", "C3", "C4", "C5")`.
+2. **`candidate_names`** for C5: the C1 list with `lk_s` replaced by `lk_ox`,
+   and on 4OMe-BnOH `Ea_s` replaced by `Ea_ox`. **`candidate_bounds`:**
+   `lk_ox` is (-9, -2) and `Ea_ox` is (0, 200), as the constants they replace.
+3. **`candidate_curves`** gains the C5 branch above. Its returned `k` is
+   `k_ox`, and `tau`, `theta_ss` and `V` are as C1 (`V` being `V_base`).
+4. **`discrimination_table(substrate, candidates=None)`** and
+   **`candidate_verdicts(substrate, candidates=None)`** take the candidate
+   tuple to use, defaulting to `CANDIDATES`.
+5. **`_real_scores` takes the same candidate tuple**, so a call restricted to
+   the five never looks for a BnOH C5 folds save.
+6. **C5 is fitted on 4OMe-BnOH ONLY.** Every BnOH call passes
+   `("C0", "C1", "C2", "C3", "C4")`. BnOH's refusal from Amendment 1 stands
+   unchanged.
+7. Nothing else changes: the same tie rule, the same degeneracy flags, the
+   same refusal to report parameters from a degenerate fit.
+
+### Tests (`data/test_mechanism_discrimination.py`)
+
+- **`test_c5_matches_the_ode`:** `t = numpy.linspace(0, 6000, 601)`,
+  `V_base = 2e-5`, `tau = 1500.0`, `theta0 = 0.1`, `theta_ss = 0.6`,
+  `k_ox = 2e-4`, `lK_O = -3.0`, `hoo = 1e-2`. Integrate `dA/dt` above with
+  `scipy.integrate.solve_ivp` (`rtol=1e-11`, `atol=1e-16`) and compare with
+  the running integral at t > 0, to a relative **1e-4**. (A review measured
+  1.9e-5 on this grid on 2026-09-16; the trapezoid is the model, so do not
+  tighten this.)
+- **`test_midpoint_likelihood_anchors`** gains C5 (A7 below).
+
+### Anchors A7
+
+`candidate_nll` at the midpoint of every bound, all rows kept, to 1e-6:
+
+| candidate | 4OMe-BnOH | BnOH |
+|---|---|---|
+| C5 | 4829.060949 | 15031.666318 |
+
+**A6 still applies**, checked with the five original candidates:
+`discrimination_table(substrate, candidates=("C0", "C1", "C2", "C3", "C4"))`
+must reproduce section 12's tables on BOTH substrates. The six-candidate table
+is new output and has no anchor.
+
+### Run, in order
+
+1. `.venv/bin/python data/test_mechanism_discrimination.py`: every test passes,
+   A7 and A6 included.
+2. `real_full_fits("4OMe-BnOH")`. The five existing saves are read back; only
+   C5 is fitted. If C5's fit has `success` False after its one refit → STOP
+   (A5).
+3. `planted_fits("4OMe-BnOH", truth)` for truths `C0`-`C4`: each adds the
+   single C5 fit and reads the rest back. Then `planted_fits("4OMe-BnOH",
+   "C5")`, which needs step 2's save as its truth and fits all six. Eleven new
+   fits in all. Background, resumable. Project the wall time first; A3's
+   12-hour bar applies.
+4. `discrimination_table("4OMe-BnOH")` with all six, and the A6 re-check with
+   the five.
+5. `real_cross_validation("4OMe-BnOH")`: only C5's folds are new.
+6. `candidate_verdicts("4OMe-BnOH")` with all six, then `residual_trends` on
+   the new best and on every tied candidate.
+
+### Report
+
+Template E, plus these, which the entry must state explicitly:
+- the six-candidate tie table and the verdict per candidate;
+- C5's own verdict, verbatim;
+- the pair verdict for **C1 against C5**, verbatim, since that pair is the
+  question this amendment asks;
+- every new pair verdict involving C5;
+- `residual_trends` for the new best: whether `D within runs: log h2o2`
+  survives;
+- C5's degeneracy verdict.
+
+### Gate
+
+A3, A5, A6 or A7 → STOP and report. Otherwise `run_gates.py` prints
+`0 failed`, commit, then **STOP 3** (template S).
+
+**Question at STOP 3:** "C5's result is above. This plan is finished."
+
+**After STOP 3 the plan is closed.** Do not write an analysis folder, an
+`ANALYSIS.md`, a figure or any summary document: the write-up is handled
+elsewhere. Stop and wait.
+
+### Could overturn this
+
+- C5 keeps every shared assumption of section 4.3, and adds one: the oxidant
+  falls as a first-order decay from t = 0, at a rate that does not depend on
+  the catalyst loading or on the substrate.
+- The archive never measured the peroxide concentration during a run, and
+  never measured the gas, so the decay is inferred from the curve shape alone.
+- One planted seed per truth, as before.
