@@ -28,6 +28,11 @@ repeat runs as the summaries do.
 
 A number that reaches a document is returned by a function here.
 """
+import itertools
+import json
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
@@ -571,3 +576,226 @@ def candidate_tie(scores):
                     "worst_fold_difference":
                         float(difference.loc[candidate].max())})
     return pd.DataFrame(out, index=scores.index)
+
+
+DISCRIMINATION_DIR = os.path.join("data", "fits", "mechanism_discrimination")
+
+
+def _save_fit(path, record):
+    """Write one fit record as JSON, arrays and folds as plain lists."""
+    payload = {key: value for key, value in record.items()
+               if key != "flag_list"}
+    payload["x"] = [float(value) for value in record["x"]]
+    payload["starts"] = [[float(nll), bool(ok)]
+                         for nll, ok in record["starts"]]
+    if "folds" in record:
+        payload["folds"] = {str(int(run)): float(score)
+                            for run, score in record["folds"].items()}
+        payload["fold_success"] = {str(int(run)): bool(ok)
+                                   for run, ok in record["fold_success"].items()}
+    with open(path, "w") as handle:
+        json.dump(payload, handle)
+
+
+def _load_fit(path):
+    """Read one fit record back, restoring arrays and integer fold keys."""
+    with open(path) as handle:
+        record = json.load(handle)
+    record["x"] = np.array(record["x"], dtype=float)
+    if "folds" in record:
+        record["folds"] = {int(run): float(score)
+                           for run, score in record["folds"].items()}
+        record["fold_success"] = {int(run): bool(ok)
+                                  for run, ok in record["fold_success"].items()}
+    return record
+
+
+def _fit_full_task(payload):
+    """One real full fit, for a worker process."""
+    candidate, substrate, table = payload
+    return candidate, fit_candidate(candidate, table, substrate)
+
+
+def _fit_planted_task(payload):
+    """One planted full fit and its cross-validation, for a worker process."""
+    candidate, substrate, truth, table = payload
+    fit = fit_candidate(candidate, table, substrate)
+    record = dict(fit)
+    record.update(cross_validate_candidate(candidate, table, substrate, fit))
+    return candidate, record
+
+
+def real_full_fits(substrate, workers=16):
+    """
+    `fit_candidate` for every candidate on the real summaries (Task 3).
+
+    Saves `real_<substrate>_<candidate>_full.json` as each finishes and reads
+    an existing save back instead of refitting.
+    """
+    os.makedirs(DISCRIMINATION_DIR, exist_ok=True)
+    records = {}
+    pending = []
+
+    def path_for(candidate):
+        return os.path.join(
+            DISCRIMINATION_DIR, f"real_{substrate}_{candidate}_full.json")
+
+    for candidate in CANDIDATES:
+        if os.path.exists(path_for(candidate)):
+            records[candidate] = _load_fit(path_for(candidate))
+        else:
+            pending.append(candidate)
+    if not pending:
+        return records
+    table = summary_table(substrate)
+    if workers > 1 and len(pending) > 1:
+        with ProcessPoolExecutor(max_workers=min(workers, len(pending))) as pool:
+            futures = {pool.submit(_fit_full_task,
+                                   (candidate, substrate, table)): candidate
+                       for candidate in pending}
+            for future in as_completed(futures):
+                candidate, record = future.result()
+                _save_fit(path_for(candidate), record)
+                records[candidate] = record
+    else:
+        for candidate in pending:
+            record = fit_candidate(candidate, table, substrate)
+            _save_fit(path_for(candidate), record)
+            records[candidate] = record
+    return records
+
+
+def planted_table(substrate, truth, seed=0):
+    """
+    A copy of the real table with L, E and D replaced by planted values.
+
+    The truth parameters are the truth candidate's real full-fit save, so each
+    truth is a mechanism that was fitted to the real data. Per summary, in the
+    order L, E, D: a normal offset per run in sorted run order, then a normal
+    draw per admitted row scaled by `sqrt(sigma_w^2 + se^2)`. `se` is
+    unchanged.
+    """
+    table = summary_table(substrate)
+    path = os.path.join(
+        DISCRIMINATION_DIR, f"real_{substrate}_{truth}_full.json")
+    real = _load_fit(path)
+    parameters = dict(zip(real["names"], real["x"]))
+    predicted = candidate_predict(truth, parameters, table["rows"],
+                                  table["times"])
+    rows = table["rows"].copy()
+    experiments = rows["experiment"].to_numpy()
+    generator = np.random.default_rng(seed)
+    for name in ("L", "E", "D"):
+        observed = rows[name].to_numpy(dtype=float)
+        se = rows[f"{name}_se"].to_numpy(dtype=float)
+        admitted = np.isfinite(observed)
+        runs = sorted(pd.unique(experiments[admitted]))
+        sigma_w = 10.0 ** float(parameters[f"ls_w_{name}"])
+        sigma_b = 10.0 ** float(parameters[f"ls_b_{name}"])
+        offset = generator.normal(0.0, sigma_b, len(runs))
+        by_run = {int(run): float(offset[index])
+                  for index, run in enumerate(runs)}
+        drawn = generator.normal(0.0, 1.0, int(admitted.sum())) * np.sqrt(
+            sigma_w ** 2 + se[admitted] ** 2)
+        planted = np.full(observed.shape, np.nan)
+        indices = np.where(admitted)[0]
+        planted[indices] = (
+            predicted[name][admitted]
+            + np.array([by_run[int(run)] for run in experiments[indices]])
+            + drawn)
+        rows[name] = planted
+    return {"rows": rows, "times": table["times"], "substrate": substrate}
+
+
+def planted_fits(substrate, truth, workers=16):
+    """
+    Every candidate on the planted table, fitted then cross-validated.
+
+    Saves `planted_<substrate>_<truth>_<candidate>.json` as each finishes and
+    reads existing saves back. Workers receive the table in their payload and
+    never call `scope`.
+    """
+    os.makedirs(DISCRIMINATION_DIR, exist_ok=True)
+    records = {}
+    pending = []
+
+    def path_for(candidate):
+        return os.path.join(
+            DISCRIMINATION_DIR,
+            f"planted_{substrate}_{truth}_{candidate}.json")
+
+    for candidate in CANDIDATES:
+        if os.path.exists(path_for(candidate)):
+            records[candidate] = _load_fit(path_for(candidate))
+        else:
+            pending.append(candidate)
+    if not pending:
+        return records
+    table = planted_table(substrate, truth)
+    if workers > 1 and len(pending) > 1:
+        with ProcessPoolExecutor(max_workers=min(workers, len(pending))) as pool:
+            futures = {pool.submit(_fit_planted_task,
+                                   (candidate, substrate, truth, table)):
+                       candidate
+                       for candidate in pending}
+            for future in as_completed(futures):
+                candidate, record = future.result()
+                _save_fit(path_for(candidate), record)
+                records[candidate] = record
+    else:
+        for candidate in pending:
+            fit = fit_candidate(candidate, table, substrate)
+            record = dict(fit)
+            record.update(cross_validate_candidate(candidate, table, substrate,
+                                                   fit))
+            _save_fit(path_for(candidate), record)
+            records[candidate] = record
+    return records
+
+
+def discrimination_table(substrate):
+    """
+    Which candidates the planted design can tell apart (Task 3).
+
+    From the planted saves, `candidate_tie` per truth. Returns `status` (truth
+    rows x candidate columns), `recovered` per truth, `pairs` per unordered
+    pair, and `flags` (truth x candidate degeneracy verdicts).
+    """
+    status = {}
+    recovered = {}
+    flags = {}
+    for truth in CANDIDATES:
+        columns = {}
+        verdicts = {}
+        for candidate in CANDIDATES:
+            path = os.path.join(
+                DISCRIMINATION_DIR,
+                f"planted_{substrate}_{truth}_{candidate}.json")
+            record = _load_fit(path)
+            columns[candidate] = pd.Series(record["folds"], dtype=float)
+            verdicts[candidate] = record["flags"]
+        scores = pd.DataFrame(columns).T.sort_index(axis=1)
+        tie = candidate_tie(scores)
+        status[truth] = tie["status"]
+        recovered[truth] = ("truth recovered"
+                            if tie.loc[truth, "status"] in ("best", "tied")
+                            else "truth not recovered")
+        flags[truth] = pd.Series(verdicts)
+    status = pd.DataFrame(status).T
+    flags = pd.DataFrame(flags).T
+    pairs = {}
+    for first, second in itertools.combinations(CANDIDATES, 2):
+        first_excludes = status.loc[first, second] == "excluded"
+        second_excludes = status.loc[second, first] == "excluded"
+        if first_excludes and second_excludes:
+            pairs[f"{first} vs {second}"] = "distinguishable"
+        elif first_excludes:
+            pairs[f"{first} vs {second}"] = (
+                f"one-way ({first} as truth excludes {second})")
+        elif second_excludes:
+            pairs[f"{first} vs {second}"] = (
+                f"one-way ({second} as truth excludes {first})")
+        else:
+            pairs[f"{first} vs {second}"] = "not distinguishable"
+    return {"status": status, "recovered": pd.Series(recovered),
+            "pairs": pd.Series(pairs), "flags": flags}

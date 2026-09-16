@@ -8,6 +8,146 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-16 — Stage C Task 3: "distinguishable" only for C1 vs C4 on 4OMe-BnOH; all ten BnOH pairs "not distinguishable"; BnOH truth C0 is "truth not recovered"
+
+`PLAN_MECHANISM_DISCRIMINATION.md` Task 3, with Amendment 1.
+
+What was asked: fit every candidate to the real summaries, then, with each fit
+as a planted truth, find which candidates the scoring can tell apart on this
+archive's own design and scatter.
+What was built: `DISCRIMINATION_DIR`, `real_full_fits`, `planted_table`,
+`planted_fits`, `discrimination_table`, `_fit_full_task`, `_fit_planted_task`,
+`_save_fit` and `_load_fit` in `data/mechanism_discrimination.py`, and the
+saves `data/fits/mechanism_discrimination/real_<substrate>_<candidate>_full.json`
+(10) and `planted_<substrate>_<truth>_<candidate>.json` (50).
+Bugs found: `discrimination_table` passed `candidate_tie` the transpose of its
+scores table; every fit was already saved, so only the table was rebuilt. A4
+(real 4OMe-BnOH C0 or C1 NLL above 125.0) and A5 (a real full fit whose success
+is False after its one refit) did not fire.
+
+Real full fits (`real_full_fits`), degeneracy verdict per candidate. No
+parameter values.
+
+**4OMe-BnOH**
+
+| candidate | NLL | success | refit | degeneracy |
+|---|---|---|---|---|
+| C0 | 121.723 | True | False | degenerate: at bound: pKa; at bound: theta0; clocks outside the run window on 147 of 147 curves |
+| C1 | 102.823 | True | True | degenerate: at bound: theta0; clocks outside the run window on 147 of 147 curves |
+| C2 | 140.530 | True | False | degenerate: at bound: pKa; clocks outside the run window on 91 of 147 curves |
+| C3 | 143.314 | True | False | degenerate: at bound: lk_r; at bound: pKa; at bound: theta0; clocks outside the run window on 85 of 147 curves |
+| C4 | 136.307 | True | False | degenerate: at bound: lk_r; at bound: theta0; clocks outside the run window on 119 of 147 curves |
+
+**BnOH**
+
+| candidate | NLL | success | refit | degeneracy |
+|---|---|---|---|---|
+| C0 | 503.753 | True | False | degenerate: at bound: lK_O; at bound: theta0 |
+| C1 | 503.754 | True | False | degenerate: at bound: lK_O; clocks outside the run window on 164 of 164 curves |
+| C2 | 506.357 | True | False | degenerate: at bound: lk_f; at bound: lk_r; at bound: pKa; at bound: theta0; clocks outside the run window on 164 of 164 curves |
+| C3 | 495.606 | True | False | degenerate: at bound: lk_r; at bound: ls_b_D |
+| C4 | 503.754 | True | False | degenerate: at bound: lK_O; at bound: lk_f; at bound: lk_r; at bound: pKa; at bound: theta0; clocks outside the run window on 164 of 164 curves |
+
+Status (`discrimination_table`; rows the planted truth, columns the fitted
+candidate):
+
+**4OMe-BnOH**
+
+| truth | C0 | C1 | C2 | C3 | C4 |
+|---|---|---|---|---|---|
+| C0 | best | tied | excluded | excluded | excluded |
+| C1 | tied | best | excluded | excluded | excluded |
+| C2 | tied | tied | best | tied | tied |
+| C3 | tied | tied | tied | best | tied |
+| C4 | tied | excluded | tied | excluded | best |
+
+`recovered`: C0 truth recovered; C1 truth recovered; C2 truth recovered; C3
+truth recovered; C4 truth recovered.
+
+**BnOH**
+
+| truth | C0 | C1 | C2 | C3 | C4 |
+|---|---|---|---|---|---|
+| C0 | excluded | tied | tied | tied | best |
+| C1 | tied | tied | best | tied | tied |
+| C2 | tied | tied | best | tied | tied |
+| C3 | tied | tied | best | tied | tied |
+| C4 | tied | tied | best | tied | tied |
+
+`recovered`: C0 truth not recovered; C1 truth recovered; C2 truth recovered;
+C3 truth recovered; C4 truth recovered.
+
+Pairs (`discrimination_table`):
+
+**4OMe-BnOH**
+
+| pair | verdict |
+|---|---|
+| C0 vs C1 | not distinguishable |
+| C0 vs C2 | one-way (C0 as truth excludes C2) |
+| C0 vs C3 | one-way (C0 as truth excludes C3) |
+| C0 vs C4 | one-way (C0 as truth excludes C4) |
+| C1 vs C2 | one-way (C1 as truth excludes C2) |
+| C1 vs C3 | one-way (C1 as truth excludes C3) |
+| C1 vs C4 | distinguishable |
+| C2 vs C3 | not distinguishable |
+| C2 vs C4 | not distinguishable |
+| C3 vs C4 | one-way (C4 as truth excludes C3) |
+
+**BnOH**
+
+| pair | verdict |
+|---|---|
+| C0 vs C1 | not distinguishable |
+| C0 vs C2 | not distinguishable |
+| C0 vs C3 | not distinguishable |
+| C0 vs C4 | not distinguishable |
+| C1 vs C2 | not distinguishable |
+| C1 vs C3 | not distinguishable |
+| C1 vs C4 | not distinguishable |
+| C2 vs C3 | not distinguishable |
+| C2 vs C4 | not distinguishable |
+| C3 vs C4 | not distinguishable |
+
+Planted fits' degeneracy verdicts (`discrimination_table`'s `flags`; rows the
+planted truth, columns the fitted candidate), where not `"not degenerate"`:
+
+**4OMe-BnOH**
+
+| truth | C0 | C1 | C2 | C3 | C4 |
+|---|---|---|---|---|---|
+| C0 | degenerate: at bound: pKa; at bound: theta0; clocks outside the run window on 147 of 147 curves | degenerate: clocks outside the run window on 75 of 147 curves | degenerate: clocks outside the run window on 147 of 147 curves | degenerate: at bound: lk_r | degenerate: clocks outside the run window on 147 of 147 curves |
+| C1 | not degenerate | degenerate: at bound: theta0 | degenerate: at bound: theta0; clocks outside the run window on 108 of 147 curves | degenerate: at bound: lk_r | degenerate: at bound: lk_r; at bound: theta0; clocks outside the run window on 147 of 147 curves |
+| C2 | degenerate: clocks outside the run window on 147 of 147 curves | degenerate: at bound: Ea_s | degenerate: at bound: Ea_s | degenerate: at bound: lK_O | degenerate: not converged; at bound: Ea_d |
+| C3 | degenerate: at bound: lk_r; at bound: pKa; at bound: Ea_act; at bound: Ea_s | degenerate: at bound: lk_r; at bound: Ea_act | degenerate: at bound: pKa | degenerate: at bound: lk_r; at bound: theta0; at bound: Ea_s | degenerate: at bound: lk_r; clocks outside the run window on 147 of 147 curves |
+| C4 | degenerate: at bound: theta0 | degenerate: at bound: theta0; at bound: Ea_s | degenerate: at bound: pKa; at bound: Ea_s | degenerate: at bound: theta0; clocks outside the run window on 147 of 147 curves | degenerate: at bound: theta0; at bound: Ea_act; at bound: Ea_d |
+
+**BnOH**
+
+| truth | C0 | C1 | C2 | C3 | C4 |
+|---|---|---|---|---|---|
+| C0 | degenerate: at bound: pKa; at bound: ls_b_D | degenerate: at bound: ls_b_D | degenerate: clocks outside the run window on 164 of 164 curves | degenerate: at bound: ls_b_D; clocks outside the run window on 115 of 164 curves | degenerate: at bound: pKa; at bound: ls_b_D |
+| C1 | degenerate: at bound: ls_b_D | not degenerate | degenerate: at bound: ls_b_D | not degenerate | degenerate: at bound: pKa; at bound: ls_b_D |
+| C2 | degenerate: at bound: ls_b_D | not degenerate | degenerate: at bound: ls_b_D | degenerate: at bound: pKa; at bound: ls_b_D | degenerate: at bound: pKa; at bound: ls_b_D |
+| C3 | degenerate: at bound: ls_b_D | not degenerate | degenerate: at bound: ls_b_D | degenerate: at bound: theta0; clocks outside the run window on 135 of 164 curves | degenerate: at bound: ls_b_D |
+| C4 | degenerate: at bound: ls_b_D | degenerate: at bound: ls_b_D | degenerate: at bound: ls_b_D | degenerate: at bound: ls_b_D; clocks outside the run window on 115 of 164 curves | degenerate: at bound: pKa; at bound: ls_b_D |
+
+Verdicts (from `discrimination_table`): the status, `recovered` and pair
+tables above; 4OMe-BnOH's only `"distinguishable"` pair is C1 vs C4, and all
+ten BnOH pairs are `"not distinguishable"` with truth C0 `"truth not
+recovered"`.
+Degeneracy: every one of the 10 real full fits is degenerate (above); of the
+50 planted fits 45 are degenerate and the only `"not degenerate"` verdicts are
+4OMe-BnOH planted truth C1's C0 and BnOH planted truths C1's C1 and C3 and
+C2's C1.
+Could overturn this: one planted seed per truth; each truth is a candidate's
+own fit, so a mechanism outside the five is not represented; the tie rule
+cannot exclude a candidate that fails on a few folds only.
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-15 — Stage C Task 2: machinery only
 
 `PLAN_MECHANISM_DISCRIMINATION.md` Task 2.
