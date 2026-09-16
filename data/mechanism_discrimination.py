@@ -585,9 +585,11 @@ def _save_fit(path, record):
     """Write one fit record as JSON, arrays and folds as plain lists."""
     payload = {key: value for key, value in record.items()
                if key != "flag_list"}
-    payload["x"] = [float(value) for value in record["x"]]
-    payload["starts"] = [[float(nll), bool(ok)]
-                         for nll, ok in record["starts"]]
+    if "x" in record:
+        payload["x"] = [float(value) for value in record["x"]]
+    if "starts" in record:
+        payload["starts"] = [[float(nll), bool(ok)]
+                             for nll, ok in record["starts"]]
     if "folds" in record:
         payload["folds"] = {str(int(run)): float(score)
                             for run, score in record["folds"].items()}
@@ -601,7 +603,8 @@ def _load_fit(path):
     """Read one fit record back, restoring arrays and integer fold keys."""
     with open(path) as handle:
         record = json.load(handle)
-    record["x"] = np.array(record["x"], dtype=float)
+    if "x" in record:
+        record["x"] = np.array(record["x"], dtype=float)
     if "folds" in record:
         record["folds"] = {int(run): float(score)
                            for run, score in record["folds"].items()}
@@ -799,3 +802,198 @@ def discrimination_table(substrate):
             pairs[f"{first} vs {second}"] = "not distinguishable"
     return {"status": status, "recovered": pd.Series(recovered),
             "pairs": pd.Series(pairs), "flags": flags}
+
+
+def _folds_task(payload):
+    """One candidate's real cross-validation, for a worker process."""
+    candidate, substrate, table, x = payload
+    return candidate, cross_validate_candidate(candidate, table, substrate,
+                                               {"x": x})
+
+
+def real_cross_validation(substrate, workers=16):
+    """
+    `cross_validate_candidate` for every candidate's real full fit (Task 4).
+
+    Saves `real_<substrate>_<candidate>_folds.json` and never rewrites the
+    `_full` save; reads an existing folds save back.
+    """
+    os.makedirs(DISCRIMINATION_DIR, exist_ok=True)
+    records = {}
+    pending = []
+
+    def path_for(candidate):
+        return os.path.join(
+            DISCRIMINATION_DIR, f"real_{substrate}_{candidate}_folds.json")
+
+    for candidate in CANDIDATES:
+        if os.path.exists(path_for(candidate)):
+            records[candidate] = _load_fit(path_for(candidate))
+        else:
+            pending.append(candidate)
+    if not pending:
+        return records
+    table = summary_table(substrate)
+    full = {candidate: _load_fit(os.path.join(
+        DISCRIMINATION_DIR, f"real_{substrate}_{candidate}_full.json"))
+        for candidate in pending}
+    if workers > 1 and len(pending) > 1:
+        with ProcessPoolExecutor(max_workers=min(workers, len(pending))) as pool:
+            futures = {pool.submit(_folds_task,
+                                   (candidate, substrate, table,
+                                    full[candidate]["x"])): candidate
+                       for candidate in pending}
+            for future in as_completed(futures):
+                candidate, record = future.result()
+                _save_fit(path_for(candidate), record)
+                records[candidate] = record
+    else:
+        for candidate in pending:
+            record = cross_validate_candidate(candidate, table, substrate,
+                                              full[candidate])
+            _save_fit(path_for(candidate), record)
+            records[candidate] = record
+    return records
+
+
+def _real_scores(substrate):
+    """The real folds as a candidates x folds table, with the skipped count."""
+    columns = {}
+    skipped = None
+    for candidate in CANDIDATES:
+        path = os.path.join(
+            DISCRIMINATION_DIR, f"real_{substrate}_{candidate}_folds.json")
+        record = _load_fit(path)
+        columns[candidate] = pd.Series(record["folds"], dtype=float)
+        skipped = int(record["skipped"])
+    scores = pd.DataFrame(columns).T.sort_index(axis=1)
+    return scores, skipped
+
+
+def candidate_verdicts(substrate):
+    """
+    The real tie rule read against the planted design (Task 4, Amendment 1).
+
+    A substrate whose planted design cannot recover a truth is refused before
+    anything else; otherwise returns `verdicts` per candidate and the `tie`
+    table, plus `skipped` folds.
+    """
+    design = discrimination_table(substrate)
+    recovered = design["recovered"]
+    failed = [truth for truth in CANDIDATES
+              if recovered.loc[truth] == "truth not recovered"]
+    if failed:
+        text = f"not readable (planted truth {failed[0]} not recovered)"
+        return {"verdicts": pd.Series({candidate: text
+                                       for candidate in CANDIDATES}),
+                "tie": None, "skipped": None}
+    scores, skipped = _real_scores(substrate)
+    tie = candidate_tie(scores)
+    best = tie.index[tie["status"] == "best"][0]
+    status = design["status"]
+    verdicts = {}
+    for candidate in CANDIDATES:
+        planted = status.loc[best, candidate]
+        if candidate == best:
+            verdict = "best"
+        elif tie.loc[candidate, "status"] == "tied":
+            if planted == "excluded":
+                verdict = f"tied with {best}; the design can separate them"
+            else:
+                verdict = f"tied with {best}; the design cannot separate them"
+        elif planted == "excluded":
+            verdict = (f"excluded against {best}; the planted design "
+                       "reproduces this separation")
+        else:
+            verdict = (f"excluded against {best}; the planted design "
+                       "does not reproduce this separation")
+        full = _load_fit(os.path.join(
+            DISCRIMINATION_DIR, f"real_{substrate}_{candidate}_full.json"))
+        if full["flags"] != "not degenerate":
+            verdict += f" ({full['flags']})"
+        verdicts[candidate] = verdict
+    return {"verdicts": pd.Series(verdicts), "tie": tie, "skipped": skipped}
+
+
+def residual_trends(substrate, candidate):
+    """
+    The dependence the candidate's real fit leaves in its residuals (4.2).
+
+    `e = observed - predicted` over admitted rows, per summary. Within runs the
+    error and each regressor are demeaned by run and regressed; between runs a
+    separate OLS of the run-mean error on each axis, with an intercept. Flags
+    `|t| > 3`; the within-run fit needs more rows than runs plus regressors.
+    """
+    table = summary_table(substrate)
+    rows = table["rows"]
+    full = _load_fit(os.path.join(
+        DISCRIMINATION_DIR, f"real_{substrate}_{candidate}_full.json"))
+    parameters = dict(zip(full["names"], full["x"]))
+    predicted = candidate_predict(candidate, parameters, rows, table["times"])
+    runs = rows["experiment"].to_numpy()
+    temperature = rows["temperature"].to_numpy(dtype=float)
+    within = {
+        "log s0": np.log(rows["s0"].to_numpy(dtype=float)),
+        "log buf": np.log(rows["buf"].to_numpy(dtype=float)),
+        "log h2o2": np.log(rows["h2o2"].to_numpy(dtype=float)),
+    }
+    between = {
+        "log hoo": np.log(rows["hoo"].to_numpy(dtype=float)),
+        "log e0": np.log(rows["e0"].to_numpy(dtype=float)),
+        "pH": rows["pH"].to_numpy(dtype=float),
+    }
+    if substrate == "4OMe-BnOH":
+        between["invT"] = 1.0 / (temperature + 273.15) - 1.0 / _REFERENCE_TEMPERATURE
+    flags = []
+    for name in ("L", "E", "D"):
+        observed = rows[name].to_numpy(dtype=float)
+        admitted = np.isfinite(observed)
+        error = observed - predicted[name]
+        group = runs[admitted]
+        demeaned_error = error[admitted] - pd.Series(error[admitted]).groupby(
+            group).transform("mean").to_numpy()
+        kept = {}
+        for label, values in within.items():
+            vector = values[admitted]
+            vector = vector - pd.Series(vector).groupby(
+                group).transform("mean").to_numpy()
+            if float(np.std(vector)) >= 0.05:
+                kept[label] = vector
+        n = int(admitted.sum())
+        n_runs = int(pd.unique(group).size)
+        if kept:
+            design = np.column_stack([kept[label] for label in kept])
+            beta = np.linalg.lstsq(design, demeaned_error, rcond=None)[0]
+            residual = demeaned_error - design @ beta
+            dof = n - n_runs - design.shape[1]
+            if dof > 0:
+                sigma2 = float(residual @ residual) / dof
+                covariance = np.linalg.inv(design.T @ design)
+                for index, label in enumerate(kept):
+                    se = float(np.sqrt(sigma2 * covariance[index, index]))
+                    t = float(beta[index] / se)
+                    if abs(t) > 3.0:
+                        flags.append(
+                            f"{name} within runs: {label} t={t:+.2f}")
+        run_ids = sorted(pd.unique(group))
+        if len(run_ids) >= 4:
+            run_mean = pd.Series(error[admitted]).groupby(
+                runs[admitted]).mean().loc[run_ids].to_numpy(dtype=float)
+            for label, values in between.items():
+                axis = pd.Series(values).groupby(runs).median().loc[
+                    run_ids].to_numpy(dtype=float)
+                design = np.column_stack([np.ones(run_ids.__len__()), axis])
+                beta = np.linalg.lstsq(design, run_mean, rcond=None)[0]
+                residual = run_mean - design @ beta
+                dof = axis.size - 2
+                if dof <= 0:
+                    continue
+                sigma2 = float(residual @ residual) / dof
+                covariance = np.linalg.inv(design.T @ design)
+                se = float(np.sqrt(sigma2 * covariance[1, 1]))
+                t = float(beta[1] / se)
+                if abs(t) > 3.0:
+                    flags.append(f"{name} between runs: {label} t={t:+.2f}")
+    verdict = ("unmodelled dependence: " + "; ".join(flags) if flags
+               else "no residual trend detected")
+    return {"verdict": verdict, "flags": flags}

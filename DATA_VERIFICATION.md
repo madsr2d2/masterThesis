@@ -8,6 +8,74 @@ quantum-chemistry tasks.
 
 ---
 
+## 2026-09-16 — Stage C Task 4: C1 "best"; C3 "excluded against C1; the planted design reproduces this separation"; C0 "tied with C1; the design cannot separate them"; C2 and C4 "tied with C1; the design can separate them"; BnOH "not readable (planted truth C0 not recovered)"
+
+`PLAN_MECHANISM_DISCRIMINATION.md` Task 4, with Amendment 1.
+
+What was asked: score every candidate on held-out real runs, read each result
+against what Task 3 says the design can separate, and report which dependences
+the best candidate still misses.
+What was built: `real_cross_validation`, `candidate_verdicts`,
+`residual_trends`, `_folds_task` and `_real_scores` in
+`data/mechanism_discrimination.py`, and the saves
+`real_<substrate>_<candidate>_folds.json`. Per Amendment 1 the
+cross-validation ran on 4OMe-BnOH only; BnOH's planted truth C0 is not
+recovered, so `candidate_verdicts("BnOH")` refuses before any real score is
+read.
+Bugs found: none.
+
+4OMe-BnOH tie table (`candidate_verdicts`; `skipped` = 0):
+
+| candidate | total | mean_difference | bar | status | worst_fold_difference |
+|---|---|---|---|---|---|
+| C0 | 211.535436 | 0.068129 | 0.846361 | tied | 5.672141 |
+| C1 | 208.946516 | 0.000000 | 0.000000 | best | 0.000000 |
+| C2 | 340.486018 | 3.461566 | 3.677534 | tied | 49.769877 |
+| C3 | 308.738337 | 2.626101 | 2.218271 | excluded | 38.839632 |
+| C4 | 237.268300 | 0.745310 | 1.045090 | tied | 7.131219 |
+
+Verdict per candidate (from `candidate_verdicts`), with its pair verdict
+against the best (from `discrimination_table`, Amendment 1 change 4):
+
+| candidate | verdict | against C1 |
+|---|---|---|
+| C0 | tied with C1; the design cannot separate them (degenerate: at bound: pKa; at bound: theta0; clocks outside the run window on 147 of 147 curves) | not distinguishable |
+| C1 | best (degenerate: at bound: theta0; clocks outside the run window on 147 of 147 curves) | — |
+| C2 | tied with C1; the design can separate them (degenerate: at bound: pKa; clocks outside the run window on 91 of 147 curves) | one-way (C1 as truth excludes C2) |
+| C3 | excluded against C1; the planted design reproduces this separation (degenerate: at bound: lk_r; at bound: pKa; at bound: theta0; clocks outside the run window on 85 of 147 curves) | one-way (C1 as truth excludes C3) |
+| C4 | tied with C1; the design can separate them (degenerate: at bound: lk_r; at bound: theta0; clocks outside the run window on 119 of 147 curves) | distinguishable |
+
+BnOH (`candidate_verdicts`): C0, C1, C2, C3 and C4 all
+`"not readable (planted truth C0 not recovered)"`; no tie table.
+
+Best candidate's parameters: not read (C1's degeneracy verdict is
+`"degenerate: at bound: theta0; clocks outside the run window on 147 of 147
+curves"`). No standard errors are computed, so none are quoted.
+
+`residual_trends` on the best and every tied candidate:
+
+| candidate | verdict |
+|---|---|
+| C0 | unmodelled dependence: L between runs: invT t=+4.04; D within runs: log h2o2 t=+3.22 |
+| C1 | unmodelled dependence: D within runs: log h2o2 t=+3.22 |
+| C2 | unmodelled dependence: L within runs: log h2o2 t=+4.59; D within runs: log h2o2 t=+3.21 |
+| C4 | unmodelled dependence: L within runs: log h2o2 t=-3.69; E between runs: log hoo t=+3.19; E between runs: pH t=+3.16; D within runs: log h2o2 t=+3.22 |
+
+Verdicts (from `candidate_verdicts`, `residual_trends`): the verdict table and
+residual table above, verbatim; C1 is `"best"`; every dependence left in C1's
+residuals is `log h2o2` within runs for D.
+Degeneracy: every one of the five 4OMe-BnOH real full fits is degenerate (the
+verdicts above).
+Could overturn this: every candidate shares the assumptions listed in section
+4.3, and the background is assumed to cancel in the reference subtraction
+(section 1.2); buffer identity is confounded with pH, and [enz] and
+temperature move only between runs; no run moves [buf] and [H2O2] together;
+no parameter uncertainty is computed.
+
+Nothing is adopted.
+
+---
+
 ## 2026-09-16 — Stage C Task 3: "distinguishable" only for C1 vs C4 on 4OMe-BnOH; all ten BnOH pairs "not distinguishable"; BnOH truth C0 is "truth not recovered"
 
 `PLAN_MECHANISM_DISCRIMINATION.md` Task 3, with Amendment 1.
