@@ -162,3 +162,22 @@ computational/**/*Dipoles*
 computational/**/*smd_h2o*
 computational/**/*debug_info*
 computational/**/*_D[0-9][0-9][0-9][0-9][0-9].TDDFTGuess.gbw
+
+# OPI (`orca-pi`) builds these next to a job by shelling out to `orca_2json`,
+# and they are the STRUCTURED form of the same output -- bigger than the log
+# they come from (45 MB beside a 17 MB `.out` on the C8 reaction complex).
+# `computational/orca_io.py` reads them; nothing needs them tracked.
+computational/**/*.property.json
+computational/**/*.gbw.json
+computational/**/*.json
+orca_stuff/**/*.property.json
+orca_stuff/**/*.gbw.json
+
+# EXCEPT the parser's own fixtures. `test_orca_io.py` reads a real
+# three-temperature ORCA 6.1.1 job through OPI, and a 43 KB
+# `job.property.json` is enough to parse WITHOUT the ORCA binaries present --
+# so the gate runs on a fresh clone, where `orca_2json` does not exist. The
+# `.out` is tracked with it because OPI's status checks return False, not
+# raise, when the log is missing.
+!computational/fixtures/**
+

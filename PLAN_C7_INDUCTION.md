@@ -130,7 +130,9 @@ that, and record the keyword you used in the log.
   `RT ln(24.46)` = 7.93 kJ/mol at 298.15 K (scale with T) per species to put it
   on 1 mol/L.
 - **Water as a reagent is 55.34 mol/L, not 1 mol/L.** Subtract `RT ln(55.34)` =
-  9.94 kJ/mol at 298.15 K per water consumed.
+  9.95 kJ/mol at 298.15 K per water consumed (9.94 until 2026-09-17 -- RT ln(55.34)
+  is 9.9493, and §10.3 takes it from `orca_io.solvent_standard_state_correction`
+  rather than from this line).
 - State both corrections explicitly in every reported ΔG, as a line of
   arithmetic, so a reader can check them.
 
@@ -289,3 +291,71 @@ Could overturn this: <the task's list>
 
 Question: <the stop's question>
 ```
+
+---
+
+## 10. Amendment 1 — every number comes through `computational/orca_io.py`
+
+Added 2026-09-17, before Task 1 was started. It changes no chemistry and no
+gate; it changes how the numbers are read, and one of the two parsers it
+replaces would have silently answered this plan's own three-temperature jobs
+for the wrong temperature.
+
+**Invoke the `run-orca` skill before writing any input or reading any output.**
+It carries the conventions in full; what follows is only what binds this plan.
+
+**10.1 Do not parse an ORCA output file.** Not with a regex, not with `grep`,
+not with a throwaway script. `computational/orca_io.py` reads every number,
+through OPI (`orca-pi`), from ORCA's own structured property JSON.
+`test_orca_io.py` is its gate and `run_gates.py` discovers it.
+
+Two parsers were in use until 2026-09-17 and both were wrong. A regex on
+`FINAL SINGLE POINT ENERGY` cannot match a **labelled** line, and ORCA closes a
+QM/XTB run with four of them — on the C8 reaction complex it returned the
+r2SCAN-3c QM1 region alone, `-418.878772917932`, against a true QM/QM2 total of
+`-659.180810832202`, while reporting a free energy built on the total in the
+same dict.
+
+**10.2 The three-temperature hazard, which is this plan's specifically.**
+§3.3 runs 288.15 / 298.15 / 313.15 K. On a job with three thermochemistry
+blocks:
+
+| | answers for |
+|---|---|
+| the superseded regex parser | 313.15 K — the last block |
+| OPI's own `get_free_energy()` | 288.15 K — entry `[0]` |
+| `orca_io.free_energy(job, T)` | the T you asked for, or it raises |
+
+Neither of the first two says which it gave. **Never call an OPI convenience
+getter in this task.** `orca_io.temperatures(job)` lists what a job computed.
+
+**10.3 Standard states come from the functions, not from the arithmetic.**
+§3.4 already says to scale with T; do it with
+`orca_io.gas_to_molar_correction(T)` and
+`orca_io.solvent_standard_state_correction(T)`. Over this plan's own range the
+gas correction runs 7.578 / 7.926 / 8.452 kJ/mol and the water term
+9.616 / 9.949 / 10.450, so the 298.15 K constants are more than a third of a
+kJ/mol wrong at both ends — a systematic in the van 't Hoff slope, entering
+where §1's ±20 kJ/mol gate cannot see it.
+
+**10.4 The hydrate fraction comes from the functions too.**
+`orca_io.equilibrium_constant(dG_kJ, T)` then
+`orca_io.fraction_from_equilibrium_constant(K)`. Task 2's bar of 0.8 is K = 4;
+the gate is checked against those two calls, not against a hand conversion.
+
+**10.5 Report the stationary point through `orca_io.stationary_point(job)`,**
+which applies `IMAGINARY_CUTOFF_CM1` (50 cm⁻¹) and **names every imaginary mode
+it ignored**. Do not apply the older skills' rule that more than one imaginary
+mode means the geometry is bad: the C8 reaction complex is a converged minimum
+carrying imaginary modes at −19.76 and −3.55 cm⁻¹, which ORCA's own
+thermochemistry discards. Quote the verdict string verbatim in the report,
+including the ignored modes, so the judgement stays visible.
+
+**10.6 Cost reporting.** §0 asks for wall time and `nprocs`. `job.cpu_seconds`
+is ORCA's own summed module time; take `nprocs` from the input you wrote. Do
+not read either off the log by hand.
+
+**10.7 `load_job` refuses a job that did not converge**, including one whose
+geometry optimisation stopped short, and refuses a path with no `.out` rather
+than reporting it as a crash. If it raises, that is the answer — report it,
+do not pass `require_converged=False` to get past it.

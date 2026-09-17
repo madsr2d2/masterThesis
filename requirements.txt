@@ -40,3 +40,15 @@ textual==8.2.8
 psutil==7.2.2
 plotext==5.3.2
 textual-plotext==1.0.1
+
+# computational/orca_io.py -- ORCA's own Python interface, which reads a job
+# through the structured property JSON `orca_2json` writes rather than the
+# human-readable log. It replaced a regex parser on 2026-09-17 that returned
+# the r2SCAN-3c QM1 region's energy instead of the QM/QM2 total on every
+# QM/XTB job in the C7-C10 register. It was importable here only through
+# ~/.local user site-packages, i.e. by accident of this machine.
+#
+# `test_orca_io.py` runs WITHOUT the ORCA binaries -- its fixture carries the
+# property JSON already built -- but generating one for a new job needs
+# `orca_2json` on PATH, which is homelab-only (COMPUTATIONAL.md, Environment).
+orca-pi==2.0.0

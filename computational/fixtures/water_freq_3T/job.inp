@@ -1,0 +1,16 @@
+! HF def2-SVP Opt Freq TightSCF
+
+%freq
+  Temp 288.15, 298.15, 313.15
+end
+
+%output jsonpropfile true end
+
+%maxcore 2000
+%pal nprocs 4 end
+
+* xyz 0 1
+O   0.0000   0.0000   0.0000
+H   0.0000   0.0000   0.9600
+H   0.9300   0.0000  -0.2400
+*
