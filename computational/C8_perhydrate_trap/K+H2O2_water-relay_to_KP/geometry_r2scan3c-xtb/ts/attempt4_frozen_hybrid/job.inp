@@ -71,25 +71,13 @@
 #    concerted mode), HESS_Modification EV_Reverse (manual 7.26, for the
 #    >1-negative case), and the non-QM host frozen so its soft modes cannot
 #    drive the search.
-# 8. 2026-09-18: the exact full NumFreq at attempt4's geometry
-#    (verify_exact_hessian/) found exactly ONE imaginary mode, -576.3 cm-1, so
-#    that geometry is a genuine first-order saddle (orca_io.stationary_point =
-#    "transition state"). This input now runs the canonical UNCONSTRAINED
-#    OptTS from it -- no Constraints, no Hybrid_Hess -- with a full exact
-#    Hessian. attempt4's frozen/hybrid input is kept in attempt4_frozen_hybrid/.
-# 9. 2026-09-19: the unconstrained OptTS with `Calc_Hess true` did NOT converge
-#    (350 cycles). Its own forward-difference numerical Hessian read 4 negative
-#    eigenvalues at this geometry where the central-difference NumFreq read
-#    exactly 1, so the P-RFO step chased spurious scaffold modes. This version
-#    reads the accurate NumFreq Hessian in (`inhess Read`, `job.hess`).
 #
 # Also added %output jsonpropfile true end (2026-09-17): orca_io/OPI reads the
 # property JSON, which ORCA writes only when this keyword is present.
 #
 # The QM region otherwise follows the version that produced a QMRegion.xyz
-# cleanly. Geometry (job.xyz) is attempt4's converged structure, which the
-# exact NumFreq in verify_exact_hessian/ verified as the first-order saddle
-# (correction 8). alpb_uncorrected/
+# cleanly. Geometry (job.xyz) is the attempt3 c20 frame (correction 7), which
+# sits near the ddCOSMO-level stationary region. alpb_uncorrected/
 # also holds an abandoned SMD-solvation attempt (sp_abandoned_smd_attempt/)
 # from before this correction; plain CPCM/SMD are both rejected outright by
 # ORCA for QM/XTB (see ../rc/job.inp) -- ddCOSMO was chosen because the
@@ -104,25 +92,37 @@ END
 Charge_total 0
 Mult_total 1
 AutoFF_QM2_Method GFNFF
-# The NumFreq .hess was written with $act_atom 0 (no active region defined), so
-# reading it into the optimaliser needs the region supplied explicitly
-# (ORCA 6.0 manual, Multiscale: "manually provide the list of atoms of the
-# extended active region"). All 140 atoms are active.
-ActiveAtoms {0:139} end
 END
 
 %geom
-# Read the accurate NumFreq Hessian (verify_exact_hessian/job.hess, copied here
-# as job.hess) instead of letting Calc_Hess recompute one. Calc_Hess's
-# forward-difference Hessian reported FOUR negative eigenvalues at this exact
-# geometry where the central-difference NumFreq found exactly ONE, so the P-RFO
-# step chased spurious scaffold modes for 350 cycles (2026-09-19). With the good
-# Hessian in, the optimiser sees the true single-negative saddle.
-inhess Read
-InHessName "job.hess"
+Calc_Hess true
+Recalc_Hess 10
+# The TS mode is a delocalized four-centre relay, so per ORCA 6.0 manual
+# 6.3.11.2 compute the exact numerical second derivatives only for the relay
+# atoms; the rest (including the floppy 120-atom host) gets a model Hessian.
+Hybrid_Hess {128 129 130 131 132 133 134 135 136 137 138 139} end
+# The default Shift_Diag did not stabilise the P-RFO step with several negative
+# eigenvalues; reverse the Hessian diagonal instead (manual 7.26).
+HESS_Modification EV_Reverse
+# Follow the forming O136-C129 bond (0-based 135-128).
 TS_Mode {B 135 128} end
+# Ensure the relay centres' bonds are in the internal-coordinate set
+# (manual 6.3.11.1: a breaking/forming bond can be missed if its distance is
+# slightly too large, "leading to slow or even no convergence").
 TS_Active_Atoms {128 129 130 131 132 133 134 135 136} end
 TS_Active_Atoms_Factor 1.5
+# Freeze the non-QM host (0-based 0-60, 62-63, 65-119, 123, 127) so the
+# macrocycle's soft modes cannot drive the search; only the QM region and its
+# link shell move.
+ReduceRedInts true
+Constraints
+  { C 0:60 C}
+  { C 62 C}
+  { C 63 C}
+  { C 65:119 C}
+  { C 123 C}
+  { C 127 C}
+end
 END
 
 %output jsonpropfile true end

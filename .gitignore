@@ -79,7 +79,9 @@ orca_stuff/**/*xtbtopo.mol*
 orca_stuff/**/xtbopt.log
 orca_stuff/**/xtbopt.xyz
 orca_stuff/**/xtbpath*.xyz
-orca_stuff/**/xtblast.xyz
+orca_stuff/**/*xtblast.xyz
+orca_stuff/**/*NOT_CONVERGED*
+orca_stuff/**/*gfnff_topo
 orca_stuff/**/.xtboptok
 orca_stuff/**/*charges*
 orca_stuff/**/*wbo*
@@ -141,7 +143,9 @@ computational/**/*xtbtopo.mol*
 computational/**/xtbopt.log
 computational/**/xtbopt.xyz
 computational/**/xtbpath*.xyz
-computational/**/xtblast.xyz
+computational/**/*xtblast.xyz
+computational/**/*NOT_CONVERGED*
+computational/**/*gfnff_topo
 computational/**/.xtboptok
 computational/**/*charges*
 computational/**/*wbo*

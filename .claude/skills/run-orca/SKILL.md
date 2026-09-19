@@ -111,11 +111,19 @@ which is what makes the job readable afterwards — keep it.
 (OPI has `QM_XTB0/1/2` and `CPCM`/`SMD` only). Those two are therefore
 unvalidated — check them by eye against a known-good `job.inp` before running.
 
+Set the QM2 topology builder with `AutoFF_QM2_Method GFNFF` — OPI does type it,
+as `BlockQmmm(autoff_qm2_method="gfnff")`. The default `XTB` builder
+misperceives non-bonded QM···QM2 contacts as bonds on this folded host and
+ORCA's link-atom pre-optimisation then aborts; the switch changes the topology
+only (QM2 level and its Hirshfeld embedding charges are unaffected). See
+`COMPUTATIONAL.md` Conventions and the 2026-09-17 log.
+
 The conventions, all settled and all in `COMPUTATIONAL.md`:
 
 | | |
 |---|---|
 | geometry / TS / Hessian on the full catalyst | `! QM/XTB r2SCAN-3c ddCOSMO(Water) ...` |
+| QM2 topology builder | **`AutoFF_QM2_Method GFNFF`** — the default `XTB` builder misread a non-bonded QM···QM2 contact as a bond and the link-atom step aborted; topology only, QM2 level and charges unchanged |
 | solvent, QM/XTB tier | **ddCOSMO** — ALPB leaves the QM1 region in vacuum; CPCM/SMD are rejected by ORCA outright |
 | solvent, isolated fragment | **CPCM(water)** |
 | final energies | `! DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C CPCM(Water) TightSCF` on the QM region |

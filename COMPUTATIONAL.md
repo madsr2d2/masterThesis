@@ -36,7 +36,7 @@ not worth running.
   happened to preserve:
   - `geometry_<method>/{rc,ts,pc,irc}/` — the QM/XTB geometry/TS/Hessian tier
     (currently `r2scan3c-xtb`, i.e. `r2SCAN-3c` QM region on GFN-xTB, both in
-    `ALPB(water)`).
+    `ddCOSMO(water)`; see the two-tier note below).
   - `energy_<method>/` — a single-point energy refinement, when the geometry
     tier's method isn't trusted for the final number (see C7/C8 note below).
   Outputs and scratch stay homelab-local, same policy as `orca_stuff/` and the
@@ -83,6 +83,25 @@ not worth running.
   usefully take more of this machine than that — using the rest of it means
   running further reactions' jobs concurrently, not raising one job's
   `nprocs`.
+- **Build the QM2 topology with `AutoFF_QM2_Method GFNFF`, not the default
+  `XTB`**, settled 2026-09-17 on the same worked example. ORCA detects the
+  QM–QM2 boundary with a distance-based topology builder whose default is
+  GFN-xTB; on a folded 130-atom host that builder invented a bond between the
+  ketone oxygen O130 and ring carbon C59 2.48 Å away — a 1,5 non-bonded contact
+  across the dialkoxy ring, not a bond (a C–O bond is 1.2–1.4 Å) — and capped
+  the already proton-accepting carbonyl O with a third link atom, after which
+  the link-atom pre-optimisation died (`CANNOT OPEN FILE
+  job_S_Link.ORCAFF.prms.tmp`) before any QM1 calculation ran. GFN-FF's
+  connectivity sees only the two real cuts, C129–C121 and C129–C125 (scratch
+  probe, same input otherwise: default `XTB` → `Created 3 link atoms`, same
+  fatal; `GFNFF` → `Created 2 link atoms`, setup clears into the initial
+  Hessian). **It changes the topology only**: the QM2 level stays `XTB2` (from
+  the `! QM/XTB` line) and the embedding charges stay Hirshfeld charges off
+  that GFN2-xTB calculation — ORCA reports `QM2 method … XTB2`, `Method for
+  determining QM2 charges … Hirshfeld` and `AutoFF method … GFN-FF` as three
+  independent settings — so charge quality is not degraded. The one knock-on is
+  the boundary charge-alteration scheme (`ChargeAlteration CS`), which
+  redistributes charge using the GFN-FF bond list.
 - **Never trust one initial Hessian across a long optimization — use
   `Recalc_Hess`.** `Calc_Hess true` alone computes an exact numerical Hessian
   at cycle 0 and then lets the optimizer's own RFO update approximate it for
@@ -754,6 +773,128 @@ step in the mechanism with no external support of any kind.
 Newest first. Record the ORCA version, the input files, the wall time and the
 outcome — including failed and abandoned runs, which are the ones most easily
 forgotten and most expensive to repeat.
+
+### 2026-09-19 — the OptTS will not converge on this host; the NumFreq is the TS
+
+Two attempts to wrap the verified geometry in a canonical unconstrained `OptTS`
+failed, both for reasons in the optimiser, not the geometry:
+
+- `Calc_Hess true` (forward differences, 418 displacements) reported **4**
+  negative eigenvalues where the central-difference `NumFreq` found **1**; the
+  gradients were already converged but the P-RFO step chased the spurious
+  scaffold modes for 350 cycles.
+- `inhess Read` of the NumFreq `job.hess` crashed ORCA in LEANSCF. The `.hess`
+  was written with empty active-region records (`$act_atom 0`), and the
+  multiscale reader wants the Hessian's active-atom record to match the job's —
+  it found "0 corresponding active atoms in Hessian file (should be 140)" and
+  aborted parsing the property.
+- Adding `ActiveAtoms {0:139} end` (the manual's own remedy) stopped the crash,
+  but the warning persisted, so the Hessian was never mapped correctly and the
+  optimiser wandered again (3 negative eigenvalues by cycle 22).
+
+**Conclusion: the geometry is already a fully characterised TS** — stationary
+gradients plus, from the exact central-difference `NumFreq` in
+`verify_exact_hessian/`, exactly one imaginary mode at −576.3 cm⁻¹
+(`orca_io.stationary_point` = "transition state") with thermochemistry. The
+`OptTS` is redundant. Proceed to use this as the C8 TS: visualise the mode, add
+the ddCOSMO `pc`, then run `reaction-kinetics`.
+
+### 2026-09-19 — the TS is verified; the canonical unconstrained OptTS is running
+
+The exact full-system `NumFreq` at attempt4's geometry
+(`.../geometry_r2scan3c-xtb/ts/verify_exact_hessian/`) finished in 38 min:
+`orca_io.stationary_point` = **transition state**, with exactly **one**
+imaginary mode at **−576.3 cm⁻¹** (420 frequencies, full 140 atoms). So the
+frozen-host + hybrid-Hessian workaround in attempt4 happened to converge on a
+genuine first-order saddle of the *full* PES; the earlier multi-imaginary
+counts (−209 to −1150 cm⁻¹) were at other points on the wandering trajectory,
+not here.
+
+The canonical **unconstrained** `OptTS` was then launched from that geometry
+(`ts/job.inp`, correction 8): full `Calc_Hess true` / `Recalc_Hess 10`, no
+`Hybrid_Hess`, no `Constraints`, keeping `TS_Mode {B 135 128}` and
+`TS_Active_Atoms`. Gradients at this geometry are already inside tolerance, so
+it should converge in ~one cycle and leave a canonical OptTS record with its
+own exact Hessian. attempt4's frozen/hybrid input is kept in
+`ts/attempt4_frozen_hybrid/`.
+
+### 2026-09-18 — attempt3 stalled too; attempt4 uses a Hybrid Hessian and a frozen host
+
+**attempt3** (`TS_Mode {B 135 128}` + `TS_Active_Atoms`, seeded from attempt2's
+cycle-32 frame) also stalled: ~258 cycles, then killed. Gradients were already
+inside tolerance by cycle 11 (rms 9.2e-6, max 5.3e-5) but the Hessian's
+negative-eigenvalue count flipped 1–5 and the step criteria never held, so it
+never declared convergence and wandered ~30 kJ/mol downhill. Forcing the C–O
+mode did not fix it. Kept in `.../ts/attempt3_qm20_tsmode_stalled/`.
+
+**attempt4** seeds from attempt3's cycle-20 frame (gradients converged,
+neg_eig = 1) and changes the Hessian strategy: `Hybrid_Hess {128 … 139} end`
+(numerical second derivatives for the relay atoms only — ORCA 6.0 §6.3.11.2,
+for a delocalized concerted mode; the numerical Hessian drops from 418 to 37
+displacements), `HESS_Modification EV_Reverse` (§7.26, for the >1-negative
+case), and the non-QM host frozen via Cartesian `Constraints` +
+`ReduceRedInts true` so the macrocycle's soft modes cannot drive the search.
+Setup is clean (`Created 2 link atoms`, `ORCA HYBRID HESSIAN`); running. The
+fallback if it still wanders is a relaxed scan / `NEB-TS` from RC→PC.
+
+### 2026-09-18 — the 20-atom `OptTS` stalled; restarted with a forced TS mode
+
+**attempt2 (launched 2026-09-17) ran ~11 h / ~240 cycles without converging and
+was stopped.** It reached a stationary point at cycle 32 — rms gradient 2.5e-5
+and max 1.25e-4, both inside tolerance — but the full-system numerical Hessian
+never settled at one negative eigenvalue (the count flipped 1–4; 3 at cycle 32,
+with large imaginary modes at −388, −519 and −1150 cm⁻¹, so it is not the
+floppy-scaffold numerical noise the converged `rc` "minimum" shows), and the
+search then wandered downhill ~26 kJ/mol for ~200 cycles. Kept in
+`C8_perhydrate_trap/K+H2O2_water-relay_to_KP/geometry_r2scan3c-xtb/ts/
+attempt2_qm20_fullhess_stalled/`.
+
+**attempt3 restarted from that cycle-32 frame** (frame 32 of the archived
+`job_trj.xyz`) with the same full Hessian (`Calc_Hess true`, `Recalc_Hess 10`)
+and `AutoFF_QM2_Method GFNFF`, plus the ORCA 6.0 §6.3.11 remedies:
+`TS_Mode {B 135 128}` to follow the forming O136–C129 bond rather than whichever
+imaginary mode is lowest, and `TS_Active_Atoms {128 129 130 131 132 133 134 135
+136}` (factor 1.5) so the relay centres' bonds are in the internal set. Setup is
+clean (`Created 2 link atoms`, QM1 = 20 + 2); running. If it wanders again the
+next step is a better guess from a relaxed scan / `NEB-TS` along RC→PC.
+
+### 2026-09-17 — QM2 topology builder fixed: `AutoFF_QM2_Method GFNFF`
+
+First attempt at the ddCOSMO `OptTS` for `K+H2O2_water-relay_to_KP`
+(`C8_perhydrate_trap/K+H2O2_water-relay_to_KP/geometry_r2scan3c-xtb/ts/`, ORCA
+6.1.1, `! QM/XTB r2SCAN-3c ddCOSMO(Water) OptTS Freq TightSCF`, `nprocs 8`,
+`maxcore 4000`). The warm start is the previously converged ALPB-level TS
+(`ts/alpb_uncorrected/job_converged_alpb.xyz`), inherited from
+`orca_stuff/cat/cat+H2O2+H2O+H2O/ts/`.
+
+**Outcome: aborted in multiscale setup, seconds in, before any QM1 energy or
+gradient.** The default `AutoFF_QM2_Method XTB` perceived a QM–QM2 bond between
+the carbonyl oxygen O130 and ring carbon C59 at 2.48 Å — a 1,5 non-bonded
+contact across the folded dialkoxy ring, not a bond — added a third link atom
+on top of the two real cuts (C129–C121, C129–C125), and the crude link-atom
+pre-optimisation failed (`Optimization not converged after 3 cycles` →
+`CANNOT OPEN FILE job_S_Link.ORCAFF.prms.tmp`). The geometry is a valid
+stationary point; the fault is in ORCA's distance-based boundary perception,
+which is built once at setup.
+
+**Probe (scratch, same input, only `AutoFF_QM2_Method` varies):** default `XTB`
+→ `Created 3 link atoms`, same fatal; `GFNFF` → `Created 2 link atoms`, clears
+setup into the initial numerical Hessian. The GFNFF output confirms the change
+is topology-only: `QM2 method … XTB2`, `Method for determining QM2 charges …
+Hirshfeld`, `AutoFF method … GFN-FF`, three independent settings. Adopted as
+the tier convention (see Conventions).
+
+**Also 2026-09-17 — the QM region was enlarged before running.** The 12-atom
+region left the carbonyl's two α-carbons in QM2, so C129 was capped by two link
+H and the QM1 electrophile was H₂C=O, not the real 1,3-dialkoxy ketone (an
+aldehyde-like carbonyl is much more electrophilic). The region now also carries
+the α-carbons C121/C125, their CH₂ hydrogens, and the β-ether oxygens O65/O62 —
+20 atoms, with the boundary now the two O–C(ester) cuts O65–C59 and O62–C56
+(capping the β-O with link H models the substituent as –OH rather than –OR, a
+residual approximation). A scratch probe confirmed 2 link atoms and a clean
+setup with `GFNFF`; the production `OptTS` was then launched from the ALPB warm
+start (ORCA 6.1.1). **Still open:** the geometry is an ALPB warm start, and the
+run has not finished.
 
 ### 2026-09-02 — C9 specced, not started
 

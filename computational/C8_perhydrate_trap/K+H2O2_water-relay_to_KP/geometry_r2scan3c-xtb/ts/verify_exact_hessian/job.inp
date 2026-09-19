@@ -1,0 +1,25 @@
+# Exact numerical Hessian verification of attempt4's candidate TS.
+# No Hybrid_Hess, no Constraints: a full-system NumFreq at the converged
+# geometry (job.xyz, copied from ../job.xyz) to count imaginary modes and see
+# whether the relay is the single imaginary mode. See COMPUTATIONAL.md
+# 2026-09-18.
+! QM/XTB r2SCAN-3c ddCOSMO(Water) NumFreq TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136 137 138 139}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz
