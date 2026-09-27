@@ -1114,6 +1114,13 @@ def summary_text(job: Job) -> str:
     else:
         run = " ".join(inp.run_types) or "SP"
         lines.append(f"[b]{run}[/b]  {inp.method}".rstrip())
+
+    if state.basis:
+        # From the OUTPUT, not the input: a composite method's basis is never
+        # written on the `!` line, and ORCA's own report is what it used.
+        lines.append(f"basis  {state.basis}")
+
+    if inp is not None:
         n_atoms = len(state.atoms) if state.atoms else None
         spin = describe_spin(inp.charge, inp.mult)
         if inp.multilayer:

@@ -30,10 +30,11 @@ sys.path.insert(0, HERE)
 
 from computational.monitor import validate  # noqa: E402
 from computational.monitor.app import (  # noqa: E402
-    STEP_ROWS, geometry_shown, steps_text,
+    STEP_ROWS, geometry_shown, steps_text, summary_text,
 )
 from computational.monitor.orca_input import describe_spin, parse_input  # noqa: E402
 from computational.monitor.parser import JobState  # noqa: E402
+from computational.monitor.status import Status  # noqa: E402
 
 FAILURES = []
 
@@ -219,6 +220,27 @@ end
     check("the spin is named", describe_spin(-1, 2) == "charge -1 · doublet")
 
 
+def test_the_basis_is_the_one_orca_reports():
+    print("\nthe basis is the orbital basis ORCA reports, a composite method's included")
+    state = JobState(path=Path("/nonexistent"))
+    _feed(state, """
+----- Orbital basis set information -----
+Your calculation utilizes the basis: def2-mTZVP
+   Stefan Grimme, ...
+
+----- AuxJ basis set information -----
+Your calculation utilizes the auxiliary basis: def2-mTZVP/J
+""")
+    check("the orbital basis, and not the RI auxiliary one",
+          state.basis == "def2-mTZVP", f"{state.basis}")
+
+    job = _Job(state)
+    job.label, job.input, job.status, job.wall_time_s = "x", parse_input("! B97-3c Opt\n* xyz 0 1\n*\n"), Status.RUNNING, None
+    text = summary_text(job)
+    check("and the summary names it alone",
+          "basis  def2-mTZVP\n" in text and "/J" not in text, text)
+
+
 def test_every_marker_reaches_its_parser():
     print("\nevery marker line reaches its parser past the prefilter")
     check("validate.MARKER_CASES all read", validate.check_markers() == 0)
@@ -231,6 +253,7 @@ if __name__ == "__main__":
     test_every_imaginary_frequency_is_kept()
     test_the_steps_pane_shows_the_latest_cycle()
     test_the_input_names_charge_and_multiplicity()
+    test_the_basis_is_the_one_orca_reports()
     test_every_marker_reaches_its_parser()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))

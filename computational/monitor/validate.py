@@ -122,6 +122,8 @@ MARKER_CASES = [
      lambda s: s.scan_params == 1),
     ("Max. no of cycles        MaxIter  .... 200",
      lambda s: s.max_cycles == 200),
+    ("----- Orbital basis set information -----",
+     lambda s: s._in_orbital_basis),
     ("TOTAL RUN TIME: 0 days 1 hours 2 minutes 3 seconds 456 msec",
      lambda s: s.wall_time_s == 3723.456),
     ("QM1 Subsystem      ...  128 129 130",

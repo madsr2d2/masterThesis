@@ -37,6 +37,13 @@ _SCAN_TOTAL_RE = re.compile(r"There will be\s+(\d+)\s+constrained geometry optim
 _SCAN_PARAMS_RE = re.compile(r"There (?:is|are)\s+(\d+)\s+parameters? to be scanned")
 # Inside the step banner: "*   Bond (130, 128)  :   1.40000000   *"
 _SCAN_VALUE_RE = re.compile(r"^\s*\*\s+(\S.*?)\s*:\s+(-?\d+\.\d+)\s+\*\s*$")
+# The orbital basis ORCA used -- including the one a composite method
+# (r2SCAN-3c, B97-3c, ...) brings with it, which the input never names.
+# Auxiliary (RI) bases get sections of their own and are not recorded:
+#     ----- Orbital basis set information -----
+#     Your calculation utilizes the basis: def2-mTZVPP
+_BASIS_SECTION_RE = re.compile(r"^-+\s*(\S+) basis set information\s*-+\s*$")
+_BASIS_NAME_RE = re.compile(r"Your calculation utilizes the basis:\s*(\S.*?)\s*$")
 _MAXITER_RE = re.compile(r"Max\. no of cycles\s+MaxIter\s+\.+\s+(\d+)")
 _RUNTIME_RE = re.compile(
     r"TOTAL RUN TIME:\s*(\d+)\s*days\s*(\d+)\s*hours\s*(\d+)\s*minutes"
@@ -71,6 +78,7 @@ _RARE_MARKERS_RE = re.compile(
     r"|ORCA TERMINATED NORMALLY|OPTIMIZATION HAS CONVERGED|OPTIMIZATION RUN DONE"
     r"|FINAL SINGLE POINT ENERGY|TOTAL RUN TIME|RELAXED SURFACE SCAN STEP"
     r"|constrained geometry optimizations|to be scanned|Max\. no of cycles"
+    r"|basis set information|utilizes the basis:"
 )
 _CONV_HINT_RE = re.compile(r"gradient|step|Energy change")
 
@@ -149,6 +157,7 @@ class JobState:
     # whose steps have no single value to plot against.
     scan_label: str | None = None
     scan_values: dict = field(default_factory=dict)
+    basis: str | None = None
     convergence_history: deque = field(default_factory=lambda: deque(maxlen=HISTORY_LEN))
     eigen_history: deque = field(default_factory=lambda: deque(maxlen=HISTORY_LEN))
     qm2_error_count: int = 0
@@ -189,6 +198,7 @@ class JobState:
     _pending_atoms: list = field(default_factory=list)
     _in_qm1_composition: bool = False
     _in_scan_banner: bool = False
+    _in_orbital_basis: bool = False
     _freq_imaginary: list = field(default_factory=list)
 
     _IDENTITY_FIELDS = frozenset({"path", "stem", "has_out", "offset", "inode", "mtime"})
@@ -307,6 +317,18 @@ class JobState:
         m = _SCAN_PARAMS_RE.search(line)
         if m:
             self.scan_params = int(m.group(1))
+
+        m = _BASIS_SECTION_RE.match(line)
+        if m:
+            self._in_orbital_basis = m.group(1) == "Orbital"
+
+        m = _BASIS_NAME_RE.search(line)
+        if m and self._in_orbital_basis:
+            # First report wins: a job that re-prints its basis (a compound
+            # job) keeps the one it started with rather than flickering.
+            if self.basis is None:
+                self.basis = m.group(1)
+            self._in_orbital_basis = False
 
         m = _MAXITER_RE.search(line)
         if m:
