@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import io
 
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.patheffects as pe
-import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.colors import to_rgba
+from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d import proj3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from PIL import Image
@@ -31,6 +29,45 @@ BOX_ZOOM = 3 ** 0.5
 # Comfortably above any zorder Axes3D.computed_zorder could ever assign a
 # per-atom scatter collection (zorder_offset + atom count -- see render()).
 _OVERLAY_ZORDER = 100_000
+
+
+def _new_figure(figsize: tuple[float, float], dpi: float) -> Figure:
+    """A figure on its own Agg canvas, outside pyplot. Renders run in worker
+    threads -- two at once when a rotation overlaps the periodic refresh --
+    and pyplot keeps a process-global registry of open figures that is not
+    thread-safe; a bare Figure touches no shared state."""
+    fig = Figure(figsize=figsize, dpi=dpi)
+    FigureCanvasAgg(fig)
+    return fig
+
+
+def _to_image(fig: Figure) -> Image.Image:
+    """The figure's pixels, straight off the canvas.
+
+    This used to `savefig` a PNG and `Image.open` it -- encoding and decoding
+    a frame that the caller then encoded AGAIN for transmission. The pixels
+    are identical (checked: max difference 0 on a 940x900 frame), and a
+    full-pane render went from 56 ms to 38 ms."""
+    fig.canvas.draw()
+    size = fig.canvas.get_width_height()
+    return Image.frombuffer("RGBA", size, fig.canvas.buffer_rgba(), "raw", "RGBA", 0, 1).convert("RGB")
+
+
+def frame_png(image: Image.Image) -> bytes:
+    """A rendered frame as the PNG sent to the terminal: 256-colour palette,
+    undithered.
+
+    A frame is a flat background, flat element colours and their antialiased
+    edges -- about 1,700 distinct colours on a 140-atom QM/XTB frame -- and a
+    palette PNG carries it in 35 KB of base64 against 129 KB as truecolour,
+    at half the encode time. Mean error is ~1 level in 255 and side by side
+    the two are indistinguishable. On an ssh-relayed pane, bytes ARE the
+    latency (see herdr_graphics), so this is the frame rate of a rotation."""
+    buf = io.BytesIO()
+    image.convert("RGB").quantize(
+        colors=256, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.NONE
+    ).save(buf, format="PNG")
+    return buf.getvalue()
 
 
 def camera_basis(elev_deg: float, azim_deg: float) -> tuple[np.ndarray, np.ndarray]:
@@ -102,13 +139,9 @@ def render(
         # Both call sites guard this, but the signature is all-defaults and
         # the framing maths below (ptp/mean over the coordinates) raises on an
         # empty array rather than producing an empty picture.
-        fig = plt.figure(figsize=figsize, dpi=dpi)
+        fig = _new_figure(figsize, dpi)
         fig.patch.set_facecolor("#1e1e1e")
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", facecolor=fig.get_facecolor())
-        plt.close(fig)
-        buf.seek(0)
-        return Image.open(buf)
+        return _to_image(fig)
 
     coords = np.array([(x, y, z) for _, x, y, z in atoms], dtype=float)
     elements = np.array([element for element, *_ in atoms])
@@ -122,7 +155,7 @@ def render(
     else:
         qm_mask = np.ones(n_atoms, dtype=bool)
 
-    fig = plt.figure(figsize=figsize, dpi=dpi)
+    fig = _new_figure(figsize, dpi)
     ax = fig.add_subplot(111, projection="3d")
     # Orthographic, not the mplot3d default perspective: parallel bonds stay
     # parallel and a farther atom doesn't shrink relative to a nearer one,
@@ -287,8 +320,4 @@ def render(
                 bbox=dict(boxstyle="round,pad=0.1,rounding_size=0.3", fc="black", ec="none", alpha=0.65),
             )
 
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", facecolor=fig.get_facecolor())
-    plt.close(fig)
-    buf.seek(0)
-    return Image.open(buf)
+    return _to_image(fig)

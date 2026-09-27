@@ -338,6 +338,29 @@ def test_the_fast_path_reads_what_the_line_path_reads():
                   f"{differ}")
 
 
+def test_a_frame_is_a_small_faithful_palette_png():
+    print("\na frame goes out as a palette PNG, rendered outside pyplot")
+    import io
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from PIL import Image
+    from computational.monitor import geometry_render
+
+    water = [("O", 0.0, 0.0, 0.0), ("H", 0.96, 0.0, 0.0), ("H", -0.24, 0.93, 0.0)]
+    before = plt.get_fignums()
+    image = geometry_render.render(water, size_px=(300, 240))
+    check("the render is RGB at the size asked for",
+          image.mode == "RGB" and image.size == (300, 240), f"{image.mode} {image.size}")
+    check("and left no figure in pyplot's global registry",
+          plt.get_fignums() == before, f"{plt.get_fignums()}")
+
+    sent = Image.open(io.BytesIO(geometry_render.frame_png(image)))
+    error = np.abs(np.asarray(sent.convert("RGB"), int) - np.asarray(image, int)).mean()
+    check("the frame is a 256-colour palette PNG", sent.mode == "P" and sent.size == image.size,
+          f"{sent.mode} {sent.size}")
+    check("within ~1 level in 255 of the render", error < 2.0, f"mean error {error:.2f}")
+
+
 def test_every_marker_reaches_its_parser():
     print("\nevery marker line reaches its parser past the prefilter")
     check("validate.MARKER_CASES all read", validate.check_markers() == 0)
@@ -352,6 +375,7 @@ if __name__ == "__main__":
     test_the_input_names_charge_and_multiplicity()
     test_the_basis_is_the_one_orca_reports()
     test_the_fast_path_reads_what_the_line_path_reads()
+    test_a_frame_is_a_small_faithful_palette_png()
     test_every_marker_reaches_its_parser()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))

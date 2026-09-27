@@ -19,7 +19,6 @@ text enumerates them."""
 from __future__ import annotations
 
 import base64
-import io
 import json
 import os
 import socket
@@ -27,6 +26,8 @@ import time
 from dataclasses import dataclass
 
 from PIL import Image
+
+from . import geometry_render
 
 _TIMEOUT_S = 2.0
 
@@ -38,16 +39,14 @@ _TIMEOUT_S = 2.0
 # The limit is on the PAYLOAD, not the picture: a 2400x1700 frame -- 16.3 MB
 # once decoded -- is accepted happily at 281,740 bytes of PNG. So there is no
 # resolution ceiling worth designing around any more, only a byte one, and a
-# geometry frame at full pane resolution is about 95,000 bytes. This cap
+# geometry frame at full pane resolution is about 35,000 bytes. This cap
 # exists to keep a pathological frame from tripping the limit, not because
 # anything normal approaches it.
 MAX_PNG_B64_BYTES = 600_000
 
 
 def _encode_png(image: Image.Image) -> str:
-    buf = io.BytesIO()
-    image.convert("RGB").save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode("ascii")
+    return base64.b64encode(geometry_render.frame_png(image)).decode("ascii")
 
 
 def _encode_within(image: Image.Image, max_b64_bytes: int) -> tuple[str, Image.Image]:

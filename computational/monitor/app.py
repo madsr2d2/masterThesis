@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import io
 import threading
 import time
 from itertools import islice
@@ -57,7 +56,7 @@ ROTATE_STEP_DEG = 5.0
 COALESCE_S = 0.12
 
 # Linear size of the herdr backend's interim preview frame, as a fraction of
-# the pane. At a typical pane this is ~336x238 and ~20 KB of PNG.
+# the pane. At a typical pane this is ~330x315 and ~10 KB of palette PNG.
 PREVIEW_SCALE = 0.35
 
 
@@ -647,9 +646,7 @@ class KittyGeometryImage(RotatableGeometryImage):
             atoms, elev=self.elev, azim=self.azim, show_distances=self.show_distances,
             zoom=self.zoom, pan=self.pan, qm_atom_indices=job.state.qm_atom_indices,
         )
-        buf = io.BytesIO()
-        image.convert("RGB").save(buf, format="PNG")
-        data_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        data_b64 = base64.b64encode(geometry_render.frame_png(image)).decode("ascii")
 
         chunks = [data_b64[i : i + self.KITTY_CHUNK] for i in range(0, len(data_b64), self.KITTY_CHUNK)] or [""]
         sequence = [f"\x1b[s\x1b[{region.y + 1};{region.x + 1}H"]
@@ -691,7 +688,9 @@ class HerdrGeometryImage(RotatableGeometryImage):
     # socket is 194 ms down to 7 ms -- enough that the preview looks
     # unnecessary. It is kept because that measurement was taken WITHOUT ssh
     # in the path, and the link this exists for cannot be measured from here.
-    # A preview costs one cheap render and about 20 KB.
+    # A preview costs one cheap render and about 10 KB; since frames went to
+    # a 256-colour palette (`geometry_render.frame_png`) a full one is ~35 KB
+    # at 940x900, against 129 KB as truecolour PNG.
     SETTLE_DELAY_S = 0.35
 
     def __init__(self, *args, **kwargs):
@@ -788,7 +787,7 @@ class HerdrGeometryImage(RotatableGeometryImage):
         # full-quality frame is now simply the pane's own pixel extent. It
         # used to be whatever a 480 KB raw-RGBA budget allowed -- about
         # 411x291, well under the pane -- and that budget went away with the
-        # switch to PNG, which carries a full-resolution frame in ~95 KB.
+        # switch to PNG, which carries a full-resolution frame in ~35 KB.
         width = max(1, region.width * cells.width_px)
         height = max(1, region.height * cells.height_px)
         if quality == "preview":
