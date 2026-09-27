@@ -1,0 +1,237 @@
+"""
+The contract `computational/monitor/` -- the terminal ORCA viewer -- holds
+ORCA output to.
+
+    python test_monitor.py
+
+The monitor is a GENERAL viewer, not a reader for this project's jobs, so
+every case here is a few lines of ORCA's own output fed through the parser,
+not a job in the tree. Each is a way the viewer showed the wrong thing:
+
+- the ENERGY of a multilayer job was the high-level region alone. QM/XTB
+  prints four `FINAL SINGLE POINT ENERGY` lines per geometry and the pattern
+  could only match the unlabelled one, which is the QM1 region's;
+- a relaxed SCAN was keyed by cycle, which ORCA restarts at every step, so
+  the chart's x-axis ran 1..9, 1..16, ... and scrubbing to "cycle 3" of a late
+  step drew step 1's geometry;
+- the GEOMETRY STEPS pane rendered 41 lines into 8 and so showed only the
+  oldest of the cycles it listed, never the one running;
+- a point whose coordinates ORCA never printed silently borrowed another
+  geometry.
+
+`run_gates.py` discovers this file by its name, like any other gate.
+"""
+import os
+import sys
+from pathlib import Path
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+from computational.monitor import validate  # noqa: E402
+from computational.monitor.app import (  # noqa: E402
+    STEP_ROWS, geometry_shown, steps_text,
+)
+from computational.monitor.orca_input import describe_spin, parse_input  # noqa: E402
+from computational.monitor.parser import JobState  # noqa: E402
+
+FAILURES = []
+
+
+def check(label, ok, detail=""):
+    print(f"  {'pass' if ok else 'FAIL'}  {label}" + (f": {detail}" if detail else ""))
+    if not ok:
+        FAILURES.append(label)
+
+
+def _feed(state, text):
+    for line in text.strip("\n").split("\n"):
+        state.feed_line(line)
+
+
+def _geometry(state, n_atoms, x=0.0):
+    _feed(state, "CARTESIAN COORDINATES (ANGSTROEM)\n---------------------------------")
+    for i in range(n_atoms):
+        state.feed_line(f"  H      {x + i:.6f}    0.000000    0.000000")
+    state.feed_line("")
+
+
+def _cycle(state, n):
+    state.feed_line(f"         *                GEOMETRY OPTIMIZATION CYCLE  {n:>2}            *")
+
+
+class _Job:
+    def __init__(self, state):
+        self.state = state
+
+
+def test_a_multilayer_energy_is_the_total():
+    print("\na multilayer energy is the total, not the high-level region")
+    state = JobState(path=Path("/nonexistent"))
+    _cycle(state, 1)
+    _geometry(state, 5)
+    _feed(state, """
+FINAL SINGLE POINT ENERGY (L-QM2)     -266.681990679470
+FINAL SINGLE POINT ENERGY (S-QM2)      -40.834442837800
+FINAL SINGLE POINT ENERGY      -647.909099472771
+FINAL SINGLE POINT ENERGY (QM/QM2)     -873.756647314441
+""")
+    check("the job's energy is the QM/QM2 total",
+          state.final_energy == -873.756647314441, f"{state.final_energy}")
+    check("and says which it is", state.final_energy_label == "QM/QM2")
+    check("the plotted point carries the same", state.points[-1].energy == -873.756647314441)
+
+    plain = JobState(path=Path("/nonexistent"))
+    plain.feed_line("FINAL SINGLE POINT ENERGY      -75.959340")
+    check("an ordinary job's unlabelled energy is still read",
+          plain.final_energy == -75.959340 and plain.final_energy_label is None)
+
+
+def test_a_scan_is_keyed_by_step_and_cycle():
+    print("\na scan is keyed by (step, cycle), not by the cycle ORCA restarts")
+    state = JobState(path=Path("/nonexistent"))
+    _feed(state, """
+There is 1 parameter to be scanned.
+There will be   2 constrained geometry optimizations.
+""")
+    for step, value, cycles in ((1, 1.40, 2), (2, 1.50, 1)):
+        _feed(state, f"""
+         *************************************************************
+         *               RELAXED SURFACE SCAN STEP   {step}               *
+         *                                                           *
+         *                 Bond (130, 128)  :   {value:.8f}           *
+         *************************************************************
+""")
+        for c in range(1, cycles + 1):
+            _cycle(state, c)
+            _geometry(state, 3, x=10 * step + c)
+            state.feed_line(f"FINAL SINGLE POINT ENERGY     -{100 + step + c / 10:.6f}")
+
+    keys = [p.key for p in state.points]
+    check("three distinct geometries, not two", keys == [(1, 1), (1, 2), (2, 1)], f"{keys}")
+    check("one profile point per step", sorted(state.scan_points) == [1, 2])
+    check("the profile point is the step's LAST geometry",
+          state.scan_points[1].key == (1, 2))
+    check("the scanned coordinate is read per step",
+          state.scan_values == {1: 1.40, 2: 1.50} and state.scan_label == "Bond (130, 128)",
+          f"{state.scan_label} {state.scan_values}")
+    check("and the total step count", state.scan_total == 2)
+    step2 = state.points[-1]
+    atoms, shown = geometry_shown(_Job(state), step2)
+    check("step 2's cycle 1 draws step 2's geometry, not step 1's",
+          shown is step2 and atoms[0][1] == 21.0, f"x0 = {atoms[0][1]}")
+
+
+def test_a_missing_geometry_is_labelled_not_borrowed_silently():
+    print("\na geometry that was never printed is labelled")
+    state = JobState(path=Path("/nonexistent"))
+    _cycle(state, 1)
+    _geometry(state, 3)
+    state.feed_line("FINAL SINGLE POINT ENERGY     -100.0")
+    _cycle(state, 2)
+    state.feed_line("FINAL SINGLE POINT ENERGY     -100.1")
+    first, second = state.points
+    atoms, shown = geometry_shown(_Job(state), second)
+    check("the point exists, with its energy", second.energy == -100.1 and not second.atoms)
+    check("the pane is handed the geometry it really draws", shown is first and atoms is first.atoms)
+
+
+def test_every_imaginary_frequency_is_kept():
+    print("\nevery imaginary frequency is kept, with its value")
+    state = JobState(path=Path("/nonexistent"))
+    _feed(state, """
+VIBRATIONAL FREQUENCIES
+-----------------------
+
+Scaling factor for frequencies =  1.000000000  (already applied!)
+
+     0:       0.00 cm**-1
+     6:    -229.18 cm**-1  ***imaginary mode***
+     7:     -10.30 cm**-1  ***imaginary mode***
+     8:       8.88 cm**-1
+
+------------
+""")
+    check("both modes, the small one included", state.imaginary_freqs == [-229.18, -10.30],
+          f"{state.imaginary_freqs}")
+    check("and the count agrees", state.n_imaginary == 2)
+
+
+def test_the_steps_pane_shows_the_latest_cycle():
+    print("\nthe geometry-steps pane shows the latest cycle")
+    state = JobState(path=Path("/nonexistent"))
+    for c in range(1, 11):
+        _cycle(state, c)
+        _feed(state, f"""
+          Energy change      -0.0000038757            0.0000050000      NO
+          RMS gradient        {0.01 / c:.10f}            0.0001000000      NO
+          MAX gradient        0.0025000000            0.0003000000      NO
+          RMS step            0.0020825435            0.0020000000      NO
+          MAX step            0.0192646101            0.0040000000      YES
+""")
+    lines = steps_text(state).split("\n")
+    check("one row per cycle, header and tolerances above",
+          len(lines) == STEP_ROWS + 2, f"{len(lines)} lines")
+    check("and the last row is the newest cycle", lines[-1].lstrip().startswith("10 "),
+          lines[-1])
+
+
+def test_the_input_names_charge_and_multiplicity():
+    print("\nthe input names charge and multiplicity, in each syntax")
+    job = parse_input("""
+# a comment with * xyz 9 9 in it
+! B3LYP def2-SVP OptTS Freq PAL8
+* xyz -1 2
+H 0 0 0
+*
+""")
+    check("the * xyz line", (job.charge, job.mult) == (-1, 2), f"{job.charge} {job.mult}")
+    check("run types split from the method",
+          job.run_types == ["OptTS", "Freq"] and job.method == "B3LYP def2-SVP",
+          f"{job.run_types} / {job.method}")
+    check("PAL8 is the processor count", job.nprocs == 8)
+
+    job = parse_input("! r2SCAN-3c Opt\n*xyzfile 0 3 geom.xyz\n")
+    check("*xyzfile with no space", (job.charge, job.mult) == (0, 3))
+
+    job = parse_input("! HF\n%coords\n  CTyp xyz\n  Charge 1\n  Mult 2\n  coords\n  end\nend\n")
+    check("the %coords block", (job.charge, job.mult) == (1, 2))
+
+    job = parse_input("""
+! QM/XTB r2SCAN-3c Opt
+%qmmm
+  QMAtoms {0:5} end
+  Charge_Total -1
+  Mult_Total 1
+end
+%geom
+  Scan
+    B 0 1 = 1.0, 2.0, 5
+  end
+end
+* xyz 0 1
+*
+""")
+    check("a multilayer job carries the whole system's charge and multiplicity too",
+          job.multilayer and job.layers == {"total": (-1, 1)} and (job.charge, job.mult) == (0, 1),
+          f"{job.layers}")
+    check("and a %geom Scan is a run type", "Scan" in job.run_types)
+    check("the spin is named", describe_spin(-1, 2) == "charge -1 · doublet")
+
+
+def test_every_marker_reaches_its_parser():
+    print("\nevery marker line reaches its parser past the prefilter")
+    check("validate.MARKER_CASES all read", validate.check_markers() == 0)
+
+
+if __name__ == "__main__":
+    test_a_multilayer_energy_is_the_total()
+    test_a_scan_is_keyed_by_step_and_cycle()
+    test_a_missing_geometry_is_labelled_not_borrowed_silently()
+    test_every_imaginary_frequency_is_kept()
+    test_the_steps_pane_shows_the_latest_cycle()
+    test_the_input_names_charge_and_multiplicity()
+    test_every_marker_reaches_its_parser()
+    print(f"\n{len(FAILURES)} failure(s)"
+          + (": " + ", ".join(FAILURES) if FAILURES else ""))
+    raise SystemExit(1 if FAILURES else 0)

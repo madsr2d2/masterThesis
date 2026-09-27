@@ -18,14 +18,33 @@ _CRASH_RE = re.compile(
 )
 _NORMAL_DONE_RE = re.compile(r"ORCA TERMINATED NORMALLY")
 _OPT_DONE_RE = re.compile(r"OPTIMIZATION HAS CONVERGED|OPTIMIZATION RUN DONE")
-_FINAL_ENERGY_RE = re.compile(r"FINAL SINGLE POINT ENERGY\s+(-?\d+\.\d+)")
+# The label is optional. A multilayer run prints one line per sub-calculation
+# as well as the combined total, e.g. for QM/XTB, in this order:
+#     FINAL SINGLE POINT ENERGY (L-QM2)     -266.681990679470
+#     FINAL SINGLE POINT ENERGY (S-QM2)      -40.834442837800
+#     FINAL SINGLE POINT ENERGY      -647.909099472771
+#     FINAL SINGLE POINT ENERGY (QM/QM2)     -873.756647314441
+# and a pattern that required the bare form took the third -- the high-level
+# region ALONE -- as the job's energy. `_SUBSYSTEM_LABEL_RE` names the
+# extrapolation's sub-calculations (Large/Small model); of what remains, the
+# LAST line printed for a geometry is the combined total.
+_FINAL_ENERGY_RE = re.compile(
+    r"FINAL SINGLE POINT ENERGY(?:\s+\(([^)]*)\))?\s+(-?\d+\.\d+)"
+)
+_SUBSYSTEM_LABEL_RE = re.compile(r"^[A-Z]-")
+_SCAN_STEP_RE = re.compile(r"RELAXED SURFACE SCAN STEP\s+(\d+)")
+_SCAN_TOTAL_RE = re.compile(r"There will be\s+(\d+)\s+constrained geometry optimizations")
+_SCAN_PARAMS_RE = re.compile(r"There (?:is|are)\s+(\d+)\s+parameters? to be scanned")
+# Inside the step banner: "*   Bond (130, 128)  :   1.40000000   *"
+_SCAN_VALUE_RE = re.compile(r"^\s*\*\s+(\S.*?)\s*:\s+(-?\d+\.\d+)\s+\*\s*$")
+_MAXITER_RE = re.compile(r"Max\. no of cycles\s+MaxIter\s+\.+\s+(\d+)")
 _RUNTIME_RE = re.compile(
     r"TOTAL RUN TIME:\s*(\d+)\s*days\s*(\d+)\s*hours\s*(\d+)\s*minutes"
     r"\s*(\d+)\s*seconds\s*(\d+)\s*msec"
 )
 _FREQ_HEADER_RE = re.compile(r"^VIBRATIONAL FREQUENCIES\s*$")
 _FREQ_LINE_RE = re.compile(
-    r"^\s*\d+:\s+-?[\d.]+\s+cm\*\*-1(\s+\*\*\*imaginary mode\*\*\*)?"
+    r"^\s*\d+:\s+(-?[\d.]+)\s+cm\*\*-1(\s+\*\*\*imaginary mode\*\*\*)?"
 )
 _GEOM_HEADER_RE = re.compile(r"^CARTESIAN COORDINATES \(ANGSTROEM\)\s*$")
 _GEOM_ATOM_RE = re.compile(
@@ -50,7 +69,8 @@ _RARE_MARKERS_RE = re.compile(
     r"GEOMETRY OPTIMIZATION CYCLE|Hessian has|error in the QM2 calculation"
     r"|Aborting|TERMINATING THE RUN|ORCA finished by error termination"
     r"|ORCA TERMINATED NORMALLY|OPTIMIZATION HAS CONVERGED|OPTIMIZATION RUN DONE"
-    r"|FINAL SINGLE POINT ENERGY|TOTAL RUN TIME"
+    r"|FINAL SINGLE POINT ENERGY|TOTAL RUN TIME|RELAXED SURFACE SCAN STEP"
+    r"|constrained geometry optimizations|to be scanned|Max\. no of cycles"
 )
 _CONV_HINT_RE = re.compile(r"gradient|step|Energy change")
 
@@ -69,6 +89,7 @@ _CONV_ITEMS = {
 @dataclass
 class GeometryStep:
     cycle: int
+    scan_step: int | None = None
     energy_change: float | None = None
     energy_tol: float | None = None
     energy_conv: bool | None = None
@@ -87,6 +108,26 @@ class GeometryStep:
 
 
 @dataclass
+class GeometryPoint:
+    """One geometry the job computed an energy for: an optimization cycle, a
+    scan step's cycle, or a single point's one structure.
+
+    Numbered by `(scan_step, cycle)` because ORCA restarts the cycle counter
+    at every scan step -- keyed by cycle alone, a 15-step scan's points ran
+    1..9, 1..16, ... and "cycle 3" named fifteen different geometries."""
+
+    scan_step: int | None
+    cycle: int
+    atoms: list = field(default_factory=list)
+    energy: float | None = None
+    energy_label: str | None = None
+
+    @property
+    def key(self) -> tuple[int | None, int]:
+        return (self.scan_step, self.cycle)
+
+
+@dataclass
 class JobState:
     path: Path
     stem: str = "job"
@@ -96,7 +137,18 @@ class JobState:
     # file by rename gets a new inode at the same-or-larger size, which the
     # size check alone cannot see -- see `update_job`.
     inode: int | None = None
+    # st_mtime of job.out at the last scan -- "how long since it last wrote".
+    mtime: float | None = None
     cycle: int = 0
+    max_cycles: int | None = None
+    scan_step: int | None = None
+    scan_total: int | None = None
+    scan_params: int | None = None
+    # A ONE-parameter scan's coordinate: its name ("Bond (130, 128)") and its
+    # value at each step, read off the step banners. Left empty for a 2D scan,
+    # whose steps have no single value to plot against.
+    scan_label: str | None = None
+    scan_values: dict = field(default_factory=dict)
     convergence_history: deque = field(default_factory=lambda: deque(maxlen=HISTORY_LEN))
     eigen_history: deque = field(default_factory=lambda: deque(maxlen=HISTORY_LEN))
     qm2_error_count: int = 0
@@ -105,21 +157,26 @@ class JobState:
     normal_completion: bool = False
     opt_converged: bool = False
     final_energy: float | None = None
-    n_imaginary: int | None = None
+    final_energy_label: str | None = None
+    # Every imaginary frequency (cm**-1, negative) of the LAST frequency block
+    # printed, in the order printed; None until a block has been read.
+    imaginary_freqs: list | None = None
     wall_time_s: float | None = None
     tail: deque = field(default_factory=lambda: deque(maxlen=TAIL_LINES))
     # Monotonic count of lines ever fed. `tail` is a bounded deque, so it
     # cannot say how much of itself is new; this can, which is what lets the
     # UI append the new lines instead of clearing and rewriting all of them.
     lines_seen: int = 0
-    cycle_energies: deque = field(default_factory=lambda: deque(maxlen=HISTORY_LEN))
     scf_iterations: deque = field(default_factory=lambda: deque(maxlen=HISTORY_LEN))
     atoms: list = field(default_factory=list)
-    # (cycle, atoms) snapshot per printed geometry -- lets the UI scrub back
-    # through an optimization or scan instead of only ever showing the latest
-    # geometry. Keyed by the same `cycle` value as cycle_energies, updated the
-    # same "replace if same cycle repeats, else append" way.
-    geometry_history: deque = field(default_factory=lambda: deque(maxlen=HISTORY_LEN))
+    # One GeometryPoint per geometry, in the order computed -- lets the UI
+    # scrub back through an optimization or scan instead of only ever showing
+    # the latest. Bounded, so a long scan keeps its most recent cycles...
+    points: deque = field(default_factory=lambda: deque(maxlen=HISTORY_LEN))
+    # ...and, separately and unbounded, the latest point of every scan step:
+    # the scan's profile, which is what the chart shows by default, survives
+    # however many cycles the steps take between them.
+    scan_points: dict = field(default_factory=dict)
     # 0-based indices of the high-level ("QM1") layer within `atoms`, for a
     # multilayer (QM/MM, QM/XTB, ONIOM) job -- None for an ordinary job with
     # no layering at all, in which case every atom renders as the QM layer.
@@ -127,13 +184,34 @@ class JobState:
 
     _pending_step: dict = field(default_factory=dict)
     _in_freq_block: bool = False
-    _freq_imaginary_count: int = 0
     _freq_seen_line: bool = False
     _in_geom_block: bool = False
     _pending_atoms: list = field(default_factory=list)
     _in_qm1_composition: bool = False
+    _in_scan_banner: bool = False
+    _freq_imaginary: list = field(default_factory=list)
 
-    _IDENTITY_FIELDS = frozenset({"path", "stem", "has_out", "offset", "inode"})
+    _IDENTITY_FIELDS = frozenset({"path", "stem", "has_out", "offset", "inode", "mtime"})
+
+    @property
+    def n_imaginary(self) -> int | None:
+        return None if self.imaginary_freqs is None else len(self.imaginary_freqs)
+
+    def current_point(self) -> GeometryPoint:
+        """The point for the geometry being computed now, opened on first use.
+
+        Both a coordinate block and an energy can be the first thing seen for
+        a new geometry, so either opens it; everything later for the same
+        `(scan_step, cycle)` -- a multilayer job's subsystem coordinate
+        blocks, the final re-evaluation after convergence -- lands on it."""
+        key = (self.scan_step, self.cycle)
+        if self.points and self.points[-1].key == key:
+            return self.points[-1]
+        point = GeometryPoint(scan_step=self.scan_step, cycle=self.cycle)
+        self.points.append(point)
+        if self.scan_step is not None:
+            self.scan_points[self.scan_step] = point
+        return point
 
     def reset_for_restart(self) -> None:
         """Drop everything derived from the file's CONTENTS, keeping only the
@@ -162,6 +240,9 @@ class JobState:
         # below decide in one pass each whether the group is worth trying.
         if _RARE_MARKERS_RE.search(line):
             self._feed_marker(line)
+
+        if self._in_scan_banner:
+            self._feed_scan_banner(line)
 
         if self._in_qm1_composition or "QM1 Subsystem" in line:
             self._feed_qm1(line.strip())
@@ -208,17 +289,44 @@ class JobState:
 
         m = _FINAL_ENERGY_RE.search(line)
         if m:
-            self.final_energy = float(m.group(1))
-            if self.cycle:
-                if self.cycle_energies and self.cycle_energies[-1][0] == self.cycle:
-                    self.cycle_energies[-1] = (self.cycle, self.final_energy)
-                else:
-                    self.cycle_energies.append((self.cycle, self.final_energy))
+            label, energy = m.group(1), float(m.group(2))
+            if label is None or not _SUBSYSTEM_LABEL_RE.match(label):
+                self.final_energy, self.final_energy_label = energy, label
+                point = self.current_point()
+                point.energy, point.energy_label = energy, label
+
+        m = _SCAN_STEP_RE.search(line)
+        if m:
+            self.scan_step = int(m.group(1))
+            self._in_scan_banner = True
+
+        m = _SCAN_TOTAL_RE.search(line)
+        if m:
+            self.scan_total = int(m.group(1))
+
+        m = _SCAN_PARAMS_RE.search(line)
+        if m:
+            self.scan_params = int(m.group(1))
+
+        m = _MAXITER_RE.search(line)
+        if m:
+            self.max_cycles = int(m.group(1))
 
         m = _RUNTIME_RE.search(line)
         if m:
             d, h, mi, s, ms = (int(x) for x in m.groups())
             self.wall_time_s = d * 86400 + h * 3600 + mi * 60 + s + ms / 1000
+
+    def _feed_scan_banner(self, line: str) -> None:
+        """The lines of a scan step's banner after its title: the scanned
+        coordinate's value for this step, then the closing row of stars."""
+        if set(line.strip()) == {"*"}:
+            self._in_scan_banner = False
+            return
+        m = _SCAN_VALUE_RE.match(line)
+        if m and self.scan_params == 1 and self.scan_step is not None:
+            self.scan_label = m.group(1)
+            self.scan_values[self.scan_step] = float(m.group(2))
 
     def _feed_qm1(self, stripped: str) -> None:
         """The QM1 header and its continuation lines. Kept out of the marker
@@ -242,13 +350,14 @@ class JobState:
         separately."""
         if _FREQ_HEADER_RE.match(stripped):
             self._in_freq_block = True
-            self._freq_imaginary_count = 0
+            self._freq_imaginary = []
             self._freq_seen_line = False
         elif self._in_freq_block:
-            if _FREQ_LINE_RE.match(line):
+            m = _FREQ_LINE_RE.match(line)
+            if m:
                 self._freq_seen_line = True
-                if "imaginary mode" in line:
-                    self._freq_imaginary_count += 1
+                if m.group(2):
+                    self._freq_imaginary.append(float(m.group(1)))
             elif stripped == "":
                 pass
             elif not self._freq_seen_line:
@@ -260,7 +369,7 @@ class JobState:
                 pass
             else:
                 self._in_freq_block = False
-                self.n_imaginary = self._freq_imaginary_count
+                self.imaginary_freqs = self._freq_imaginary
 
         if _GEOM_HEADER_RE.match(stripped):
             self._in_geom_block = True
@@ -286,19 +395,16 @@ class JobState:
                     # LARGEST block seen for this cycle instead -- the full
                     # system is always a superset of any QM-region subset, so
                     # it's always the biggest.
-                    same_cycle = self.geometry_history and self.geometry_history[-1][0] == self.cycle
-                    if not same_cycle:
+                    point = self.current_point()
+                    if len(self._pending_atoms) > len(point.atoms):
                         self.atoms = self._pending_atoms
-                        self.geometry_history.append((self.cycle, self._pending_atoms))
-                    elif len(self._pending_atoms) > len(self.geometry_history[-1][1]):
-                        self.atoms = self._pending_atoms
-                        self.geometry_history[-1] = (self.cycle, self._pending_atoms)
+                        point.atoms = self._pending_atoms
                 self._in_geom_block = False
             else:
                 self._in_geom_block = False
 
     def _finish_step(self) -> None:
-        step = GeometryStep(cycle=self.cycle)
+        step = GeometryStep(cycle=self.cycle, scan_step=self.scan_step)
         for label, (value, tol, conv) in self._pending_step.items():
             _rx, value_attr, tol_attr, conv_attr = _CONV_ITEMS[label]
             setattr(step, value_attr, value)
@@ -366,6 +472,7 @@ def update_job(state: JobState) -> None:
         state.reset_for_restart()
         state.offset = 0
     state.inode = st.st_ino
+    state.mtime = st.st_mtime
 
     if st.st_size == state.offset:
         return  # nothing appended -- the common case, so don't even open it
