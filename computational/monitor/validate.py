@@ -142,13 +142,17 @@ MARKER_CASES = [
 
 
 def check_markers() -> int:
+    # Both paths: `feed_line` behind the per-line prefilters, and `feed_text`,
+    # whose whole-chunk scan is one more prefilter that must admit the line.
     failures = 0
     for line, holds in MARKER_CASES:
-        state = JobState(path=Path("/nonexistent"), stem="job")
-        state.feed_line(line)
-        if not holds(state):
-            failures += 1
-            print(f"  FAIL not read past the prefilter: {line.strip()!r}")
+        for path, feed in (("feed_line", lambda s: s.feed_line(line)),
+                           ("feed_text", lambda s: s.feed_text(line + "\n"))):
+            state = JobState(path=Path("/nonexistent"), stem="job")
+            feed(state)
+            if not holds(state):
+                failures += 1
+                print(f"  FAIL not read past the prefilter by {path}: {line.strip()!r}")
     label = "all read" if not failures else f"{failures} NOT READ"
     print(f"marker lines reaching their parser ({len(MARKER_CASES)} cases): {label}")
     return failures

@@ -9,6 +9,12 @@ STALL_WINDOW = 15
 STALL_IMPROVEMENT_FLOOR = 0.10
 TAIL_LINES = 300
 HISTORY_LEN = 500
+# Bytes read per pass over a job.out. Reading a whole file at once held the
+# bytes, the decoded text and a list of every line at the same time: parsing
+# this tree's 64 jobs (667 MB) peaked at 334 MB resident. In 4 MB chunks it
+# peaks at 121 MB -- most of it the parsed state the app keeps anyway -- and
+# is no slower; 16 MB chunks peaked at 183 MB for nothing.
+READ_CHUNK_BYTES = 4 * 1024 * 1024
 
 _CYCLE_RE = re.compile(r"GEOMETRY OPTIMIZATION CYCLE\s+(\d+)")
 _EIGEN_RE = re.compile(r"Hessian has\s+(\d+)\s+negative eigenvalue")
@@ -83,6 +89,32 @@ _RARE_MARKERS_RE = re.compile(
 _CONV_HINT_RE = re.compile(r"gradient|step|Energy change")
 
 _NUM = r"(-?[\d.]+(?:[eE][-+]?\d+)?)"
+
+# Every line that can change parser state OUTSIDE a block, as ONE pattern run
+# over a whole chunk at C speed. On an 85 MB output that is 11,745 lines of
+# 1,269,463 found in 0.16 s, where handing every line to `_process` took
+# 1.55 s -- the regexes were cheap, the Python call per line was not. Inside
+# a block (coordinates, frequencies, the QM1 index list, a scan banner) every
+# line matters and `feed_text` walks them one by one; see `_in_block`.
+#
+# Each alternative is a literal some per-line pattern REQUIRES, so a line
+# this skips could not have matched anything -- the same contract as the
+# prefilters above, one level out, and held the same way: `validate.py`
+# drives each marker through `feed_text`, not only `feed_line`.
+_LINE_OF_INTEREST_PARTS = (
+    _RARE_MARKERS_RE.pattern,
+    "QM1 Subsystem",
+    "Energy change|RMS gradient|MAX gradient|RMS step|MAX step",
+    "VIBRATIONAL FREQUENCIES",
+    r"CARTESIAN COORDINATES \(ANGSTROEM\)",
+)
+_LINE_OF_INTEREST_RE = re.compile("|".join(_LINE_OF_INTEREST_PARTS))
+# SCF iteration rows carry no literal, and are only read before the first
+# optimization cycle -- so they join the scan only while `cycle == 0`, and a
+# long optimization does not pay for them.
+_LINE_OF_INTEREST_SCF_RE = re.compile(
+    "|".join((*_LINE_OF_INTEREST_PARTS, _SCF_ITER_RE.pattern)), re.M
+)
 
 # label -> (regex, GeometryStep value/tol/conv attribute names)
 _CONV_ITEMS = {
@@ -239,9 +271,47 @@ class JobState:
                 setattr(self, f.name, getattr(fresh, f.name))
 
     def feed_line(self, line: str) -> None:
+        """One line, the reference path. `feed_text` is the fast one and must
+        leave the state exactly as feeding its lines here would."""
         self.tail.append(line.rstrip("\n"))
         self.lines_seen += 1
+        self._process(line)
 
+    def feed_text(self, text: str) -> None:
+        """A run of COMPLETE lines (`text` ends with a newline).
+
+        The tail and the line count are taken in bulk; then only the lines
+        that can change state reach `_process` -- a hit of the pattern, or
+        any line while a block is open."""
+        if not text:
+            return
+        self.lines_seen += text.count("\n")
+        start = len(text) - 1
+        for _ in range(TAIL_LINES):
+            start = text.rfind("\n", 0, start)
+            if start == -1:
+                break
+        self.tail.extend(text[start + 1 : -1].split("\n"))
+
+        pos, end = 0, len(text)
+        while pos < end:
+            if not self._in_block():
+                pattern = _LINE_OF_INTEREST_SCF_RE if self.cycle == 0 else _LINE_OF_INTEREST_RE
+                m = pattern.search(text, pos)
+                if m is None:
+                    return
+                pos = text.rfind("\n", 0, m.start()) + 1
+            nl = text.find("\n", pos)
+            self._process(text[pos:nl])
+            pos = nl + 1
+
+    def _in_block(self) -> bool:
+        return (
+            self._in_geom_block or self._in_freq_block
+            or self._in_qm1_composition or self._in_scan_banner
+        )
+
+    def _process(self, line: str) -> None:
         # Almost nothing in a job.out matches almost any of these patterns --
         # of 249,401 lines in this project's largest output, the cycle banner
         # hits 85 times and the crash, QM2-error and eigenvalue markers zero --
@@ -456,24 +526,6 @@ class JobState:
         return improvement < STALL_IMPROVEMENT_FLOOR
 
 
-def read_new_lines(path: Path, offset: int) -> tuple[list[str], int]:
-    with open(path, "rb") as f:
-        f.seek(offset)
-        data = f.read()
-    if not data:
-        return [], offset
-    last_nl = data.rfind(b"\n")
-    if last_nl == -1:
-        return [], offset
-    complete = data[: last_nl + 1]
-    new_offset = offset + last_nl + 1
-    text = complete.decode("utf-8", errors="replace")
-    lines = text.split("\n")
-    if lines and lines[-1] == "":
-        lines.pop()
-    return lines, new_offset
-
-
 def update_job(state: JobState) -> None:
     out_path = state.path / f"{state.stem}.out"
     try:
@@ -499,10 +551,32 @@ def update_job(state: JobState) -> None:
     if st.st_size == state.offset:
         return  # nothing appended -- the common case, so don't even open it
 
-    lines, new_offset = read_new_lines(out_path, state.offset)
-    state.offset = new_offset
-    for line in lines:
-        state.feed_line(line)
+    read_appended(state, out_path)
+
+
+def read_appended(state: JobState, out_path: Path, chunk_bytes: int = READ_CHUNK_BYTES) -> None:
+    """Feed everything appended since `state.offset`, in bounded chunks.
+
+    Only complete lines are fed: a chunk is cut at its last newline and the
+    remainder carried into the next read, and a line still being written at
+    EOF is left for the next tick. Cutting at a newline is also what makes
+    decoding a chunk on its own safe -- a UTF-8 multibyte sequence never
+    contains the newline byte."""
+    with open(out_path, "rb") as f:
+        f.seek(state.offset)
+        carry = b""
+        while True:
+            block = f.read(chunk_bytes)
+            if not block:
+                return
+            data = carry + block if carry else block
+            last_nl = data.rfind(b"\n")
+            if last_nl == -1:
+                carry = data
+                continue
+            state.feed_text(data[: last_nl + 1].decode("utf-8", errors="replace"))
+            state.offset += last_nl + 1
+            carry = data[last_nl + 1 :]
 
 
 def new_state(job_dir: Path, stem: str = "job") -> JobState:

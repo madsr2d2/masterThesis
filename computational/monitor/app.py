@@ -24,6 +24,16 @@ from .status import Status, compute_status
 
 REFRESH_SECONDS = 3.0
 
+# How often a scan in progress pushes what it has so far to the table. The
+# first scan reads every job.out end to end -- 667 MB and ~5 s on this tree --
+# and the table used to be written once, at the end, so every row read
+# "not run" until the last job was parsed. An idle scan finishes well inside
+# this and still writes once.
+PROGRESS_APPLY_S = 0.25
+
+READING = "reading…"
+READING_STYLE = "dim italic"
+
 JOB_COL_WIDTH = 40
 STATUS_COL_WIDTH = 17
 CYCLE_COL_WIDTH = 7
@@ -104,19 +114,36 @@ class Job:
         self.wall_time_s: float | None = None
         self.input: JobInput | None = None
         self._input_mtime: float | None = None
+        # False until the first read of job.out has finished: until then the
+        # state is partial, and "not run" would be a lie about the job.
+        self.parsed = False
+        # Held by the scan thread while it mutates `state`. The UI never waits
+        # on it -- it skips a render instead (see MonitorApp.update_detail),
+        # because iterating a deque another thread is appending to raises.
+        self.lock = threading.Lock()
 
     def refresh(self, running_cwds: dict[Path, float]) -> None:
-        self._read_input()
-        update_job(self.state)
-        create_time = running_cwds.get(self.state.path.resolve())
-        is_running = create_time is not None
-        self.status = compute_status(self.state, is_running)
-        if self.state.wall_time_s is not None:
-            self.wall_time_s = self.state.wall_time_s
-        elif is_running:
-            self.wall_time_s = time.time() - create_time
-        else:
-            self.wall_time_s = None
+        with self.lock:
+            self._read_input()
+            update_job(self.state)
+            create_time = running_cwds.get(self.state.path.resolve())
+            is_running = create_time is not None
+            self.status = compute_status(self.state, is_running)
+            if self.state.wall_time_s is not None:
+                self.wall_time_s = self.state.wall_time_s
+            elif is_running:
+                self.wall_time_s = time.time() - create_time
+            else:
+                self.wall_time_s = None
+            self.parsed = True
+
+    def pending_bytes(self) -> int:
+        """How much of job.out this job has still to read -- the order key
+        for a scan. 0 when there is no output yet."""
+        try:
+            return max(0, (self.state.path / f"{self.state.stem}.out").stat().st_size - self.state.offset)
+        except OSError:
+            return 0
 
     def _read_input(self) -> None:
         """Re-read the input whenever it changes -- it is edited between
@@ -542,7 +569,11 @@ class KittyGeometryImage(RotatableGeometryImage):
 
     def on_unmount(self) -> None:
         self._input.cancel()
-        self._write(f"\x1b_Ga=d,d=i,i={self.IMAGE_ID}\x1b\\")
+        # Taking a sequence number under the write lock makes every push
+        # still in flight stale, so none can place an image after this delete.
+        with self._write_lock:
+            self._next_seq()
+            self._write(f"\x1b_Ga=d,d=i,i={self.IMAGE_ID}\x1b\\")
 
     def show_job(self, job: Job | None, point=None) -> None:
         is_new_selection = job is not self._job or point is not self._point
@@ -679,7 +710,14 @@ class HerdrGeometryImage(RotatableGeometryImage):
         self._input.cancel()
         if self._settle_timer is not None:
             self._settle_timer.stop()
-        herdr_graphics.clear(self.LAYER_ID)
+        # herdr draws the layer over the PANE, not the app, so one set after
+        # the app has gone stays on screen over whatever the pane shows next.
+        # A push already rendering in a worker thread would do exactly that:
+        # it checks staleness under this lock, so taking a fresh sequence
+        # number here, under it, makes the clear the last word.
+        with self._write_lock:
+            self._next_seq()
+            herdr_graphics.clear(self.LAYER_ID)
 
     def show_job(self, job: Job | None, point=None) -> None:
         # `Job` instances persist for the app's lifetime and are mutated in
@@ -918,7 +956,7 @@ class MonitorApp(App):
         for job in self.jobs:
             table.add_row(
                 short_label(job.label, JOB_COL_WIDTH),
-                job.status.value,
+                Text(READING, style=READING_STYLE),
                 "-",
                 "-",
                 "-",
@@ -951,17 +989,30 @@ class MonitorApp(App):
     def _scan(self) -> None:
         """Read every job's new output, off the main thread.
 
-        The first pass reads each job.out end to end -- 17 MB across this tree
-        -- and it used to run on the main thread inside on_mount, so nothing
-        appeared until it finished. Later passes are cheap, but only because
-        nothing has usually been appended; a job writing hard, or a tree with
-        big outputs, would stall the UI for as long as the parse took."""
+        The first pass reads each job.out end to end -- 667 MB across this
+        tree -- and it used to run on the main thread inside on_mount, so
+        nothing appeared until it finished. Later passes are cheap, but only
+        because nothing has usually been appended; a job writing hard, or a
+        tree with big outputs, would stall the UI for as long as the parse
+        took.
+
+        The selected job is read first, so the job being looked at is ready
+        before the rest, then the others by how much each has left to read --
+        the tree's outputs run from 1 KB to 85 MB, so most rows fill almost at
+        once and the few big ones last. Results are pushed to the table every
+        PROGRESS_APPLY_S rather than only at the end."""
         if not self._scan_lock.acquire(blocking=False):
             return  # a previous scan is still going; this tick can be skipped
         try:
             running_cwds = running_orca_cwds()
-            for job in self.jobs:
+            selected = self.selected_job()
+            order = sorted(self.jobs, key=lambda j: (j is not selected, j.pending_bytes()))
+            last_apply = time.monotonic()
+            for job in order:
                 job.refresh(running_cwds)
+                if time.monotonic() - last_apply >= PROGRESS_APPLY_S:
+                    self.call_from_thread(self._apply_scan)
+                    last_apply = time.monotonic()
         finally:
             self._scan_lock.release()
         self.call_from_thread(self._apply_scan)
@@ -969,6 +1020,8 @@ class MonitorApp(App):
     def _apply_scan(self) -> None:
         table = self.query_one("#job_table", DataTable)
         for job in self.jobs:
+            if not job.parsed:
+                continue  # still showing READING from add_row
             neg_eig = "-"
             if job.state.eigen_history:
                 neg_eig = str(job.state.eigen_history[-1][1])
@@ -1052,6 +1105,25 @@ class MonitorApp(App):
 
     def update_detail(self) -> None:
         job = self.selected_job()
+        if job is None:
+            self._render_detail(None)
+            return
+        if not job.parsed:
+            # First read still going: show that, and leave the half-built
+            # state alone. The scan's next apply comes back here.
+            self._render_detail(None, placeholder=f"[b]{job.label}[/b]\n[dim]{READING}[/dim]")
+            return
+        # A tick's re-read of this job is in progress: skip rather than wait
+        # (the UI thread must never block on the scan). The scan re-renders
+        # when it finishes.
+        if not job.lock.acquire(blocking=False):
+            return
+        try:
+            self._render_detail(job)
+        finally:
+            job.lock.release()
+
+    def _render_detail(self, job: Job | None, placeholder: str = "No job selected") -> None:
         summary = self.query_one("#summary", Static)
         chart = self.query_one("#chart", ConvergencePlot)
         geometry = self.query_one("#geometry")
@@ -1064,7 +1136,7 @@ class MonitorApp(App):
         self._title_geometry(geometry, job, point)
 
         if job is None:
-            self._show_text(summary, "No job selected")
+            self._show_text(summary, placeholder)
             self._show_text(convergence, "")
             self._show_tail(tail, None)
             return

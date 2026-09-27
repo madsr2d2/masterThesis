@@ -241,6 +241,103 @@ Your calculation utilizes the auxiliary basis: def2-mTZVP/J
           "basis  def2-mTZVP\n" in text and "/J" not in text, text)
 
 
+SYNTHETIC_OUTPUT = """\
+----- Orbital basis set information -----
+Your calculation utilizes the basis: def2-SVP
+QM1 Subsystem      ...  0 1
+                         2
+Composition done
+   1   -75.9000000000   0.000000e+00  0.1
+   2   -75.9500000000  -5.000000e-02  0.01
+There is 1 parameter to be scanned.
+There will be   2 constrained geometry optimizations.
+         *************************************************************
+         *               RELAXED SURFACE SCAN STEP   1               *
+         *                 Bond (0, 1)  :   1.00000000           *
+         *************************************************************
+some ordinary line that mentions a gradient and a step
+         *                GEOMETRY OPTIMIZATION CYCLE   1            *
+CARTESIAN COORDINATES (ANGSTROEM)
+---------------------------------
+  O      0.000000    0.000000    0.000000
+  H      0.960000    0.000000    0.000000
+  H     -0.240000    0.930000    0.000000
+
+FINAL SINGLE POINT ENERGY (L-QM2)     -1.000000
+FINAL SINGLE POINT ENERGY      -75.960000
+FINAL SINGLE POINT ENERGY (QM/QM2)     -80.000000
+          Energy change      -0.0000038757            0.0000050000      NO
+          RMS gradient        0.0004500000            0.0001000000      NO
+          MAX gradient        0.0025000000            0.0003000000      NO
+          RMS step            0.0020825435            0.0020000000      NO
+          MAX step            0.0192646101            0.0040000000      YES
+        Hessian has     1 negative eigenvalue
+   3   -80.1000000000   0.000000e+00  0.1
+VIBRATIONAL FREQUENCIES
+-----------------------
+
+Scaling factor for frequencies =  1.000000000  (already applied!)
+
+     0:       0.00 cm**-1
+     6:    -229.18 cm**-1  ***imaginary mode***
+     7:     155.00 cm**-1
+
+------------
+                 ****ORCA TERMINATED NORMALLY****
+"""
+
+
+def _state_fields(state):
+    import dataclasses
+    from collections import deque
+
+    def norm(v):
+        if dataclasses.is_dataclass(v):
+            return tuple((f.name, norm(getattr(v, f.name))) for f in dataclasses.fields(v))
+        if isinstance(v, (list, tuple, deque)):
+            return tuple(norm(x) for x in v)
+        if isinstance(v, dict):
+            return tuple(sorted((k, norm(x)) for k, x in v.items()))
+        if isinstance(v, set):
+            return tuple(sorted(v))
+        return v
+    return {f.name: norm(getattr(state, f.name)) for f in dataclasses.fields(state)}
+
+
+def test_the_fast_path_reads_what_the_line_path_reads():
+    print("\nfeed_text and chunked reads leave the state feed_line would")
+    import tempfile
+    from computational.monitor.parser import read_appended
+
+    reference = JobState(path=Path("/nonexistent"))
+    for line in SYNTHETIC_OUTPUT.split("\n")[:-1]:
+        reference.feed_line(line)
+    expected = _state_fields(reference)
+    check("the reference parse read what it should",
+          reference.basis == "def2-SVP" and reference.qm_atom_indices == {0, 1, 2}
+          and reference.final_energy == -80.0 and reference.imaginary_freqs == [-229.18]
+          and len(reference.convergence_history) == 1 and len(reference.scf_iterations) == 2
+          and reference.scan_values == {1: 1.0} and reference.normal_completion,
+          f"{reference.basis} {reference.qm_atom_indices} {reference.final_energy} "
+          f"{reference.imaginary_freqs} {len(reference.scf_iterations)}")
+
+    whole = JobState(path=Path("/nonexistent"))
+    whole.feed_text(SYNTHETIC_OUTPUT)
+    differ = [k for k, v in _state_fields(whole).items() if v != expected[k]]
+    check("one feed_text of the whole output", not differ, f"{differ}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "job.out"
+        out.write_text(SYNTHETIC_OUTPUT)
+        for chunk in (1, 7, 64, 1 << 20):
+            state = JobState(path=Path("/nonexistent"))
+            read_appended(state, out, chunk_bytes=chunk)
+            got = _state_fields(state)
+            differ = [k for k, v in got.items() if k != "offset" and v != expected[k]]
+            check(f"read in {chunk}-byte chunks", not differ and state.offset == out.stat().st_size,
+                  f"{differ}")
+
+
 def test_every_marker_reaches_its_parser():
     print("\nevery marker line reaches its parser past the prefilter")
     check("validate.MARKER_CASES all read", validate.check_markers() == 0)
@@ -254,6 +351,7 @@ if __name__ == "__main__":
     test_the_steps_pane_shows_the_latest_cycle()
     test_the_input_names_charge_and_multiplicity()
     test_the_basis_is_the_one_orca_reports()
+    test_the_fast_path_reads_what_the_line_path_reads()
     test_every_marker_reaches_its_parser()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
