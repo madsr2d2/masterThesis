@@ -54,6 +54,7 @@ import figure_kit
 import fit_dataset
 import induction
 import ph_role
+import run_gates
 import scope
 from doc_check import Checker
 
@@ -63,9 +64,11 @@ MECHANISM = os.path.join(REPOSITORY, "MECHANISM.md")
 FITTING = os.path.join(REPOSITORY, "FITTING.md")
 SKILL = os.path.join(REPOSITORY, ".claude", "skills", "analyse-kinetics",
                      "SKILL.md")
+README = os.path.join(REPOSITORY, "README.md")
 
 # The documents that carry numbers and now have a gate. `README.md` and
-# `COMPUTATIONAL.md` are deliberately absent: the first quotes almost nothing,
+# `COMPUTATIONAL.md` are deliberately absent: the first quotes almost nothing
+# (its gate count is claimed on its own, below),
 # and the second is a task register whose numbers are TARGETS for calculations
 # not yet run, so there is nothing in the modules to check them against.
 GUARDED_DOCUMENTS = (CLAUDE, BUBBLES, MECHANISM, FITTING, SKILL)
@@ -424,6 +427,17 @@ def main():
               f"`{figure_kit.CHEMISTRY_COLOUR}`, byte-identical")
     doc.claim("CLAUDE.md: the colour it is",
               f"It is `{figure_kit.ARRIVAL_BAND_COLOUR}` now")
+
+    doc.section("the gate count, as run_gates finds it")
+    # CLAUDE.md said "25 gates in about 80 seconds" for nineteen days while
+    # the runner found twelve more, because nothing compared the two. The
+    # runner's own discovery is the count; the documents quote it.
+    routine, everything = len(run_gates.gate_paths()), len(run_gates.gate_paths(include_slow=True))
+    doc.claim("CLAUDE.md: the routine count", f"is for: {routine} gates")
+    doc.claim("CLAUDE.md: with --all", f"optimiser suite ({everything} gates)")
+    doc.claim("CLAUDE.md: of which the documented list is part", f"10 of the repository's {routine}")
+    doc.claim("README.md: the routine count", f"# {routine} gates, parallel", document=README)
+    doc.claim("README.md: with --all", f"# {everything}: adds the optimiser suite", document=README)
 
     doc.section("every guarded document is real and was actually read")
     # The guard is worth nothing if a path stopped resolving: a missing file

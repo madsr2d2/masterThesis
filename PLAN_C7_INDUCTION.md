@@ -143,7 +143,7 @@ sides). Task 1 decides which of the two reproduces experiment; Task 2 then uses
 that one and reports the other beside it.
 
 **3.6 The connectivity check, after every optimisation.** A small script in
-`computational/monitor/` (add it there; that directory already exists) that
+`computational/`, beside `orca_io.py` (not in orcamon, which stays a general ORCA tool), that
 reads the final `.xyz` and reports: the molecular formula; every bond under the
 covalent cutoffs; and specifically whether the C–O(H) bonds that were supposed
 to form did. Plus: a minimum has **zero** imaginary frequencies, a TS has

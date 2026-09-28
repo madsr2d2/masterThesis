@@ -127,18 +127,23 @@ rather than on anything real, which reads as 23 broken gates and is not.
 .venv/bin/python test_doc_check.py                  # the contract every check_numbers runs on
 ```
 
-Or all of it, which is what `.venv/bin/python run_gates.py` is for -- **25
-gates in about 80 seconds**, non-zero if any fails, `--all` to add the slow
-optimiser suite (26 gates, 9 minutes, and it IS the wall time), `--only
-two_axis` to narrow and `--jobs 1` when a failure needs reading in order.
-Gates run in PARALLEL because they are independent processes: nothing here
-builds a page, and the only three that write anything write into their own
-`tempfile` directories. **It DISCOVERS the gates rather than listing
-them.** The list above named 10 and the repository has 25: `test_curve_flags`,
-`test_curve_screen`, `test_kinetic_model`, `test_read_rre`,
-`test_solution_chemistry` and `test_summary_kinetics` were in the tree and in
-no documented suite. A hardcoded list is a list that drifts -- this paragraph
-said 20 until 2026-09-09, four gates after it stopped being true.
+Or all of it, which is what `.venv/bin/python run_gates.py` is for: 37
+gates, non-zero if any fails. `--all` adds the slow optimiser suite
+(38 gates), `--only two_axis` narrows the run, and `--jobs 1` runs in order
+when a failure needs reading. A full run takes about eight minutes on the
+default 8 jobs. That is the wall time of its slowest gate,
+`test_mechanism_evidence.py`, with `data/test_rate_laws.py` close behind; the
+rest finish inside it. Gates run in PARALLEL because they are independent
+processes: nothing here builds a page, and the only three that write anything
+write into their own `tempfile` directories. **It DISCOVERS the gates rather
+than listing them.** The list above names 10 of the repository's 37.
+`test_curve_flags`, `test_curve_screen`, `test_kinetic_model`,
+`test_read_rre`, `test_solution_chemistry` and `test_summary_kinetics` were in
+the tree and in no documented suite. A hardcoded list is a list that drifts.
+This paragraph said 20 until 2026-09-09, four gates after it stopped being
+true, and then "25 gates in about 80 seconds" until 2026-09-28, twelve gates
+and seven minutes after. `test_root_documents.py` now holds the count to
+`run_gates.gate_paths()`.
 
 And each analysis folder's own `check_numbers.py`, which re-derives every number
 in its `ANALYSIS.md` from the modules. About twenty seconds each.

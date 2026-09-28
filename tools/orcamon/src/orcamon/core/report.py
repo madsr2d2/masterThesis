@@ -278,7 +278,10 @@ def report_lines(report: JobReport) -> list[Line]:
         segs += [(" · ", None), ("optimization converged", "green")]
     lines.append(("status", segs))
 
-    if report.liveness_source and (report.liveness_source != "process" or report._liveness_note):
+    # Once a job has ended, how it was known to be running no longer matters,
+    # and "liveness: slurm" on a finished job only raises a question.
+    ended = status in (Status.FINISHED, Status.FAILED, Status.NOT_RUN)
+    if not ended and report.liveness_source and (report.liveness_source != "process" or report._liveness_note):
         note = f" ({report._liveness_note})" if report._liveness_note else ""
         sched = f" · job {report.sched_id}" if report.sched_id else ""
         lines.append(("liveness", [(f"liveness: {report.liveness_source}{note}{sched}", "dim")]))

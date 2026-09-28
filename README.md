@@ -57,7 +57,9 @@ computational/hellowater/   ORCA smoke test, proves the toolchain runs
 
 ## Setting up
 
-Python 3.12, and five third-party packages pinned in `requirements.txt`:
+Python 3.12, and the third-party packages pinned in `requirements.txt`. The
+same file installs orcamon, the ORCA job monitor in `tools/orcamon/`, from
+the tree:
 
 ```bash
 python3 -m venv .venv
@@ -73,8 +75,8 @@ gate will fail at the import line rather than on anything real.
 **One command runs all of them:**
 
 ```bash
-.venv/bin/python run_gates.py             # 25 gates in about 80 s, parallel
-.venv/bin/python run_gates.py --all       # adds the optimiser suite (9 min)
+.venv/bin/python run_gates.py             # 37 gates, parallel, about 8 min (its slowest gate)
+.venv/bin/python run_gates.py --all       # 38: adds the optimiser suite (9 min)
 .venv/bin/python run_gates.py --only two_axis
 .venv/bin/python run_gates.py --jobs 1    # serially, when a failure needs reading
 ```

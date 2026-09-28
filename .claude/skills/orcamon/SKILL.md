@@ -96,7 +96,9 @@ orcamon wait JOB --until done
 ```
 
 `done` means finished, failed or stopped; `finished` means ORCA terminated
-normally. Waiting blocks and polls. Its default timeout sits below a 10-minute
+normally. The exit code follows the status only, so a job can finish, exit
+0 and still carry a flag: read the flags in the summary `wait` prints.
+Waiting blocks and polls. Its default timeout sits below a 10-minute
 tool-call ceiling. On timeout it exits 4 and prints where each job stands.
 To wait longer, run the command in the background and let its exit wake you.
 Never loop `sleep` and `tail` against the output. The conditions are listed
@@ -111,6 +113,11 @@ should come from the project's own reader of finished jobs, if it has one
 (for example ORCA's property JSON), not from this tool.
 
 ## When the commands do not answer
+
+When `orcamon errors` shows only ORCA's error line and nothing before it
+explains it, the log records no cause. Report that line as the failure and
+say the log gives no more; do not go looking for a cause the output does
+not contain.
 
 `orcamon tail JOB --grep REGEX` searches the end of the output and is the
 sanctioned way to look at raw lines. Read the `.out` directly only after that

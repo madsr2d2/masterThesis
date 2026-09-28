@@ -156,6 +156,15 @@ is `.venv/bin/orcamon`, because the venv is not on PATH.
 `.venv/bin/python -m orcamon.validate computational/` runs the parser over
 the real jobs in the tree.
 
+orcamon is a general ORCA tool, not a reader for this project's jobs, so its
+gates never read the jobs in `computational/`. Both sit at the repository
+root and are discovered by `run_gates.py` like any other gate.
+**`test_monitor.py`** feeds the parser snippets of ORCA's own output. It
+holds the multilayer energy (the QM/QM2 total, not the QM1 region), scans
+keyed by step and cycle, the chunk parser against the line-by-line one, and
+the palette-PNG frame. **`test_orcamon.py`** runs every command, the report
+contract and the shipped skill against a synthetic tree.
+
 orcamon reads the live log, for monitoring and triage. `orca_io` reads
 **finished** jobs through the property JSON written at the end, and it is
 the only source for a number this thesis quotes. The two do not overlap.

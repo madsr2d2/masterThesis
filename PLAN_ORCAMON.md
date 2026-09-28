@@ -1,5 +1,19 @@
 # orcamon — implementation plan
 
+> **Status, 2026-09-28: implemented**, one commit per phase, `a8eca67`
+> through `694cb28`. Read the commit messages for what changed against this
+> plan. Three points matter most:
+> - **§1's premise about `pc` and `ts_anion` was wrong.** ORCA aborted the
+>   requested frequencies after MaxIter. The imaginary modes came from
+>   Hessians recomputed mid-optimization, and those are now labelled rather
+>   than flagged.
+> - **`squeue` is installed on this machine,** so the SLURM probe also reads
+>   the local process table.
+> - **A `scan_incomplete` flag was added.**
+>
+> Not built: the optional `orcamon watch`, and PBS. The `computational/monitor`
+> paths below describe the move and are kept as written.
+
 Written 2026-09-28 for an implementation agent. It turns `computational/monitor/`
 (the Textual ORCA job monitor) into **orcamon**, one tool with two tiers:
 
