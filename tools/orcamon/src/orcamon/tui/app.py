@@ -880,7 +880,7 @@ class MonitorApp(App):
         # only the jobs that read something since.
         self._cached_offsets: dict[int, int] = {}
         self._last_cache_save = time.monotonic()
-        self.probe = make_probe(liveness)
+        self.probe = make_probe(liveness, quiet_after=quiet_after)
         self.quiet_after = quiet_after
         self.jobs: list[Job] = []
         self.selected_label: str | None = None

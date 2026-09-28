@@ -82,7 +82,7 @@ def _error(message: str) -> int:
 
 
 def _probe(args) -> LivenessProbe:
-    return make_probe(args.liveness)
+    return make_probe(args.liveness, quiet_after=args.quiet_after)
 
 
 def _root(args) -> Path:

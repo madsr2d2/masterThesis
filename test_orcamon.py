@@ -700,6 +700,101 @@ def test_the_tui_runs_headless():
     elapsed = _time.monotonic() - started
     check("in under 10 s", elapsed < 10, f"{elapsed:.1f} s")
 
+
+def test_slurm_names_what_the_login_node_cannot_see():
+    print("\nSLURM: squeue's view of a job, and the fallbacks when it has none")
+    import stat
+    import time as _time
+    from orcamon.core import liveness
+
+    def reset():
+        liveness.SlurmProbe._cache = None
+        liveness.SlurmProbe._dirs_cache = {}
+        liveness.SlurmProbe._warned = False
+
+    with _Tree() as t:
+        bin_dir = t.root.parent / "bin"
+        bin_dir.mkdir()
+        fake = bin_dir / "squeue"
+        fake.write_text('#!/bin/sh\ncat "$FAKE_SQUEUE_OUT"\nexit "${FAKE_SQUEUE_EXIT:-0}"\n')
+        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        unfinished = _opt(2, [-5.0, -5.1], converged=False)
+        for rel in ("batch/sub", "multi/a", "multi/b", "lonely"):
+            d = t.root / rel
+            d.mkdir(parents=True)
+            (d / "job.inp").write_text(_OPT_FREQ)
+            (d / "job.out").write_text(unfinished)
+        canned = t.root.parent / "squeue.out"
+        canned.write_text("\n".join([
+            f"101|PENDING|{t.dirs['not_yet']}|N/A",
+            f"102|RUNNING|{t.dirs['scan_running']}|2026-09-28T10:00:00",
+            f"103|RUNNING|{t.root / 'batch'}|2026-09-28T10:00:00",
+            f"104|RUNNING|{t.root / 'multi'}|2026-09-28T10:00:00",
+            "this line is garbage",
+            f"105|COMPLETED|{t.dirs['opt_done']}|2026-09-28T09:00:00",
+        ]) + "\n")
+        saved = {k: os.environ.get(k) for k in ("PATH", "FAKE_SQUEUE_OUT", "FAKE_SQUEUE_EXIT")}
+        os.environ["PATH"] = f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+        os.environ["FAKE_SQUEUE_OUT"] = str(canned)
+        slurm = ["--root", str(t.root), "--liveness", "slurm"]
+        try:
+            reset()
+            check("auto picks slurm when squeue is on PATH", liveness.make_probe("auto").name == "slurm")
+
+            def status(name, argv=slurm):
+                code, doc, err = _json([*argv, "show", name])
+                return (doc or {}).get("job", {}), err
+
+            job, _ = status("not_yet")
+            check("PENDING is queued, with the SLURM job id", job.get("status") == "queued"
+                  and job.get("sched_id") == "101", f"{job.get('status')} {job.get('sched_id')}")
+            job, _ = status("scan_running")
+            check("RUNNING at the job's own directory is running", job.get("status") == "running"
+                  and job.get("sched_id") == "102" and job.get("liveness_source") == "slurm")
+            job, _ = status("batch/sub")
+            check("a working directory above exactly one unfinished job matches it",
+                  job.get("status") == "running" and job.get("sched_id") == "103", f"{job}")
+            job, _ = status("multi/a")
+            code, out, err = _orcamon([*slurm, "show", "multi/a"])
+            check("above two unfinished jobs it matches neither, and says why",
+                  job.get("sched_id") is None and job.get("liveness_source") == "mtime"
+                  and "squeue workdir ambiguous" in out, out)
+            check("which, output being fresh, is not called stopped", job.get("status") == "running")
+            job, _ = status("lonely")
+            check("a job squeue does not mention, fresh, is not declared dead", job.get("status") == "running")
+            old = _time.time() - 7200
+            os.utime(t.root / "lonely" / "job.out", (old, old))
+            reset()
+            job, _ = status("lonely")
+            check("and, silent past --quiet-after, is stopped", job.get("status") == "stopped", f"{job}")
+            job, _ = status("scan_running", ["--root", str(t.root), "--liveness", "process"])
+            check("--liveness process ignores squeue", job.get("status") == "stopped" and job.get("sched_id") is None)
+
+            reset()
+            os.environ["FAKE_SQUEUE_EXIT"] = "1"
+            code, out, err = _orcamon([*slurm, "ls"])
+            code2, out2, err2 = _orcamon([*slurm, "show", "scan_running"])
+            check("squeue failing does not crash, and says so once",
+                  code in (0, 1) and err.count("squeue failed") == 1 and "squeue failed" not in err2, err + err2)
+            check("the fallback reads the output's age", "running" in out2.split("\n")[5], out2)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            reset()
+
+
+def test_squeue_lines_parse():
+    print("\nsqueue's lines parse, and garbage is skipped")
+    from pathlib import Path
+    from orcamon.core.liveness import parse_squeue
+    rows = parse_squeue("1|RUNNING|/w|2026-09-28T10:00:00\n2|PENDING|/v|N/A\nnope\n3|x|relative|N/A\n")
+    check("two good lines, two skipped", [(r[0], r[1], r[2]) for r in rows]
+          == [("1", "RUNNING", Path("/w").resolve()), ("2", "PENDING", Path("/v").resolve())], f"{rows}")
+    check("a start time is read, N/A is None", rows[0][3] is not None and rows[1][3] is None)
+
 if __name__ == "__main__":
     test_the_core_needs_only_the_standard_library()
     test_a_job_argument_names_one_job()
@@ -714,6 +809,8 @@ if __name__ == "__main__":
     test_notifications_reach_the_terminal_through_tmux()
     test_the_geometry_pane_degrades_to_text()
     test_the_tui_runs_headless()
+    test_slurm_names_what_the_login_node_cannot_see()
+    test_squeue_lines_parse()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)
