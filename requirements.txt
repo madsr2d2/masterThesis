@@ -30,14 +30,18 @@ xlrd==2.0.2
 # gate and rebuilds every page.
 matplotlib==3.11.1
 
-# computational/monitor/ -- the ORCA job-status TUI. textual is the terminal UI
-# toolkit; psutil matches a live orca process to a job directory by its cwd;
-# plotext/textual-plotext draw the convergence charts in the detail pane. The
-# geometry panel's pixel graphics are hand-rolled (herdr's own pane.graphics
-# API under herdr; raw Kitty protocol, absolute placement, outside it) --
-# no image-widget library needed for either path.
+# tools/orcamon/ -- the ORCA job monitor: a TUI for people and `orcamon
+# <command>` for agents, installed editable from this tree. Its core and CLI
+# are standard library only; the `tui` extra brings textual (the terminal UI
+# toolkit) and plotext/textual-plotext (the convergence chart), `images` the
+# matplotlib/numpy/pillow the pixel geometry renders with. The geometry
+# panel's pixel graphics are hand-rolled (herdr's own pane.graphics API under
+# herdr; raw Kitty protocol, absolute placement, outside it) -- no
+# image-widget library needed for either path. psutil is no longer needed:
+# liveness is read from /proc. The pins below hold the extras to the
+# versions the monitor was tested with.
+-e ./tools/orcamon[tui,images]
 textual==8.2.8
-psutil==7.2.2
 plotext==5.3.2
 textual-plotext==1.0.1
 

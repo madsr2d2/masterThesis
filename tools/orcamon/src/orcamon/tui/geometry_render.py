@@ -11,11 +11,10 @@ from mpl_toolkits.mplot3d import proj3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from PIL import Image
 
-ELEMENT_COLORS = {"H": "#f2f2f2", "O": "#e04040", "C": "#4a4a4a", "N": "#4060e0"}
+from ..core.geometry import BOND_CUTOFF, DEFAULT_ELEMENT_COLOR, ELEMENT_COLORS
+
 ELEMENT_RADII = {"H": 0.32, "O": 0.66, "C": 0.70, "N": 0.68}
-DEFAULT_ELEMENT_COLOR = "#c060c0"
 DEFAULT_ELEMENT_RADIUS = 0.6
-BOND_CUTOFF = 1.7  # angstrom, generous single-bond distance cutoff
 
 # How much of the frame the data cube fills. mplot3d sizes the cube so its
 # DIAGONAL fits at any view angle, so sqrt(3) is exactly the factor that wastes
@@ -68,29 +67,6 @@ def frame_png(image: Image.Image) -> bytes:
         colors=256, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.NONE
     ).save(buf, format="PNG")
     return buf.getvalue()
-
-
-def camera_basis(elev_deg: float, azim_deg: float) -> tuple[np.ndarray, np.ndarray]:
-    """Screen-space right/up unit vectors for `view_init(elev_deg, azim_deg)`.
-
-    Panning applies a step along these at the moment a pan key is pressed,
-    then stores the result as a fixed WORLD-space offset (see
-    `RotatableGeometryImage._pan_by` in app.py) -- exactly like translating a
-    camera before turning it, so a later rotation swings the view around the
-    panned-to point rather than re-deriving "screen right" from the new
-    angle and drifting the pan with it."""
-    elev = np.radians(elev_deg)
-    azim = np.radians(azim_deg)
-    forward = np.array(
-        [np.cos(elev) * np.cos(azim), np.cos(elev) * np.sin(azim), np.sin(elev)]
-    )
-    world_up = np.array([0.0, 0.0, 1.0])
-    right = np.cross(forward, world_up)
-    right_norm = np.linalg.norm(right)
-    right = right / right_norm if right_norm > 1e-6 else np.array([1.0, 0.0, 0.0])
-    up = np.cross(right, forward)
-    up = up / np.linalg.norm(up)
-    return right, up
 
 
 def render(

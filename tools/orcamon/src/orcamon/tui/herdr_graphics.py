@@ -25,9 +25,9 @@ import socket
 import time
 from dataclasses import dataclass
 
-from PIL import Image
-
-from . import geometry_render
+# PIL and the renderer are imported where a frame is encoded, not here:
+# `available()` is asked at startup to choose a graphics mode, and asking it
+# must not require the `images` extra.
 
 _TIMEOUT_S = 2.0
 
@@ -45,16 +45,20 @@ _TIMEOUT_S = 2.0
 MAX_PNG_B64_BYTES = 600_000
 
 
-def _encode_png(image: Image.Image) -> str:
+def _encode_png(image) -> str:
+    from . import geometry_render
+
     return base64.b64encode(geometry_render.frame_png(image)).decode("ascii")
 
 
-def _encode_within(image: Image.Image, max_b64_bytes: int) -> tuple[str, Image.Image]:
+def _encode_within(image, max_b64_bytes: int):
     """PNG the image, shrinking it until the payload fits.
 
     Compression makes the encoded size unpredictable from the pixel count --
     a molecule on a flat background compresses about 100x, noise not at all --
     so the only honest way to respect a byte cap is to encode and look."""
+    from PIL import Image
+
     data = _encode_png(image)
     while len(data) > max_b64_bytes and min(image.width, image.height) > 16:
         image = image.resize(
@@ -142,7 +146,7 @@ def available() -> bool:
 
 
 def set_image(
-    image: Image.Image,
+    image,
     *,
     grid_cols: int,
     grid_rows: int,

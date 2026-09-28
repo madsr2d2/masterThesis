@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orcamon"
+dynamic = ["version"]
+description = "Watch and query ORCA quantum-chemistry jobs from the terminal: a TUI for people, short commands for agents."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# The core and the command-line tier are standard library only, so an
+# agents-only server needs nothing but Python. Everything else is an extra.
+dependencies = []
+
+[project.optional-dependencies]
+tui = ["textual>=8", "textual-plotext>=1", "plotext>=5"]
+images = ["matplotlib>=3.8", "numpy>=1.26", "pillow>=10"]
+procs = ["psutil>=5"]
+
+[project.scripts]
+orcamon = "orcamon.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "orcamon.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+orcamon = ["SKILL.md"]

@@ -1,5 +1,5 @@
 """
-The contract `computational/monitor/` -- the terminal ORCA viewer -- holds
+The contract orcamon (`tools/orcamon/`) -- the terminal ORCA viewer -- holds
 ORCA output to.
 
     python test_monitor.py
@@ -28,13 +28,13 @@ from pathlib import Path
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from computational.monitor import validate  # noqa: E402
-from computational.monitor.app import (  # noqa: E402
+from orcamon import validate  # noqa: E402
+from orcamon.core.orca_input import describe_spin, parse_input  # noqa: E402
+from orcamon.core.parser import JobState  # noqa: E402
+from orcamon.core.report import (  # noqa: E402
     STEP_ROWS, geometry_shown, steps_text, summary_text,
 )
-from computational.monitor.orca_input import describe_spin, parse_input  # noqa: E402
-from computational.monitor.parser import JobState  # noqa: E402
-from computational.monitor.status import Status  # noqa: E402
+from orcamon.core.status import Status  # noqa: E402
 
 FAILURES = []
 
@@ -307,7 +307,7 @@ def _state_fields(state):
 def test_the_fast_path_reads_what_the_line_path_reads():
     print("\nfeed_text and chunked reads leave the state feed_line would")
     import tempfile
-    from computational.monitor.parser import read_appended
+    from orcamon.core.parser import read_appended
 
     reference = JobState(path=Path("/nonexistent"))
     for line in SYNTHETIC_OUTPUT.split("\n")[:-1]:
@@ -344,7 +344,7 @@ def test_a_frame_is_a_small_faithful_palette_png():
     import matplotlib.pyplot as plt
     import numpy as np
     from PIL import Image
-    from computational.monitor import geometry_render
+    from orcamon.tui import geometry_render
 
     water = [("O", 0.0, 0.0, 0.0), ("H", 0.96, 0.0, 0.0), ("H", -0.24, 0.93, 0.0)]
     before = plt.get_fignums()

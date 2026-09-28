@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import threading
 import time
 from itertools import islice
@@ -14,12 +13,20 @@ from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Header, RichLog, Static
 from textual_plotext import PlotextPlot
 
-from . import geometry_render, herdr_graphics
-from .discovery import discover_jobs, relative_label, short_label
-from .orca_input import JobInput, describe_spin, read_input
-from .parser import TAIL_LINES, JobState, new_state, update_job
-from .procs import running_orca_cwds
-from .status import Status, compute_status
+from ..core.discovery import discover_jobs, short_label
+from ..core.geometry import camera_basis
+from ..core.job import Job
+from ..core.liveness import running_orca_cwds
+from ..core.parser import TAIL_LINES, JobState
+from ..core.report import (
+    STATUS_STYLE, cycle_label, describe_point, geometry_shown, steps_text, summary_text,
+)
+from ..core.units import EH_TO_KJ_PER_MOL, format_wall_time
+from . import herdr_graphics, kitty
+
+# `geometry_render` (matplotlib, numpy, PIL -- the `images` extra) is imported
+# inside the two pixel widgets' render paths, never here, so the TUI starts
+# without it.
 
 REFRESH_SECONDS = 3.0
 
@@ -38,14 +45,6 @@ STATUS_COL_WIDTH = 17
 CYCLE_COL_WIDTH = 7
 NEG_EIG_COL_WIDTH = 9
 WALL_TIME_COL_WIDTH = 10
-
-STATUS_STYLE = {
-    Status.NOT_RUN: "dim",
-    Status.RUNNING: "bold cyan",
-    Status.POSSIBLY_STALLED: "bold yellow",
-    Status.CONVERGED: "bold green",
-    Status.CRASHED: "bold red",
-}
 
 ROTATE_STEP_DEG = 5.0
 
@@ -96,96 +95,11 @@ class Coalescer:
             self._timer = None
 
 
-def format_wall_time(seconds: float | None) -> str:
-    if seconds is None:
-        return "-"
-    seconds = int(seconds)
-    h, rem = divmod(seconds, 3600)
-    m, s = divmod(rem, 60)
-    return f"{h:d}:{m:02d}:{s:02d}"
-
-
-class Job:
-    def __init__(self, job_dir: Path, stem: str, root: Path):
-        self.state: JobState = new_state(job_dir, stem)
-        self.label = relative_label(root, job_dir)
-        self.status: Status = Status.NOT_RUN
-        self.wall_time_s: float | None = None
-        self.input: JobInput | None = None
-        self._input_mtime: float | None = None
-        # False until the first read of job.out has finished: until then the
-        # state is partial, and "not run" would be a lie about the job.
-        self.parsed = False
-        # Held by the scan thread while it mutates `state`. The UI never waits
-        # on it -- it skips a render instead (see MonitorApp.update_detail),
-        # because iterating a deque another thread is appending to raises.
-        self.lock = threading.Lock()
-
-    def refresh(self, running_cwds: dict[Path, float]) -> None:
-        with self.lock:
-            self._read_input()
-            update_job(self.state)
-            create_time = running_cwds.get(self.state.path.resolve())
-            is_running = create_time is not None
-            self.status = compute_status(self.state, is_running)
-            if self.state.wall_time_s is not None:
-                self.wall_time_s = self.state.wall_time_s
-            elif is_running:
-                self.wall_time_s = time.time() - create_time
-            else:
-                self.wall_time_s = None
-            self.parsed = True
-
-    def pending_bytes(self) -> int:
-        """How much of job.out this job has still to read -- the order key
-        for a scan. 0 when there is no output yet."""
-        try:
-            return max(0, (self.state.path / f"{self.state.stem}.out").stat().st_size - self.state.offset)
-        except OSError:
-            return 0
-
-    def _read_input(self) -> None:
-        """Re-read the input whenever it changes -- it is edited between
-        re-runs far more often than the output is replaced."""
-        path = self.state.path / f"{self.state.stem}.inp"
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            self.input, self._input_mtime = None, None
-            return
-        if mtime != self._input_mtime:
-            self.input, self._input_mtime = read_input(path), mtime
-
-
-def format_age(seconds: float) -> str:
-    """Minute resolution on purpose: the summary is only repainted when its
-    text changes, and a seconds count would change it on every tick."""
-    seconds = max(0, int(seconds))
-    if seconds < 60:
-        return "<1 min"
-    if seconds < 90 * 60:
-        return f"{seconds // 60} min"
-    if seconds < 36 * 3600:
-        return f"{seconds / 3600:.1f} h"
-    return f"{seconds / 86400:.1f} d"
-
-
-def cycle_label(state: JobState) -> str:
-    if not state.cycle:
-        return "-"
-    if state.scan_step is not None:
-        return f"{state.scan_step}·{state.cycle}"
-    return str(state.cycle)
-
-
 SELECTION_MARKER = "○"
 SELECTION_COLOR = "red"
 # One braille sub-dot per point: a whole-cell marker quantises a 16-row chart
 # to about a tenth of its range per row, and near-equal energies merge.
 POINT_MARKER = "braille"
-
-EH_TO_KJ_PER_MOL = 2625.4996394799
-
 
 class ConvergencePlot(PlotextPlot):
     """Energy per geometry -- one dot each -- or, for a job with only one
@@ -386,44 +300,6 @@ ZOOM_MAX = 5.0
 PAN_STEP = 0.6  # angstrom, per keypress -- about half a bond length
 
 
-def geometry_shown(job: Job | None, point) -> tuple[list, object]:
-    """The atoms to draw for `point` (a scrub selection from the chart) and
-    the point they actually belong to.
-
-    `point` None means "follow the job": its newest geometry. A point whose
-    coordinates were never printed -- ORCA stops printing them on some long
-    optimizations -- borrows the nearest EARLIER point's, and the second value
-    says so, so the pane can label what it is really showing instead of
-    passing one cycle's structure off as another's."""
-    if job is None:
-        return [], None
-    state = job.state
-    if point is None:
-        for p in reversed(state.points):
-            if p.atoms:
-                return p.atoms, p
-        return state.atoms, None
-    if point.atoms:
-        return point.atoms, point
-    history = list(state.points)
-    try:
-        start = next(i for i, p in enumerate(history) if p is point)
-    except StopIteration:
-        start = len(history)
-    for p in reversed(history[:start]):
-        if p.atoms:
-            return p.atoms, p
-    return [], None
-
-
-def describe_point(point) -> str:
-    if point is None:
-        return ""
-    if point.scan_step is not None:
-        return f"scan step {point.scan_step} · cycle {point.cycle}"
-    return f"cycle {point.cycle}" if point.cycle else ""
-
-
 class RotatableGeometryImage(Widget):
     """Shared elev/azim state, key bindings, and stale-completion guarding
     for both geometry-image backends.
@@ -512,7 +388,7 @@ class RotatableGeometryImage(Widget):
         self._pan_by(0.0, -PAN_STEP)
 
     def _pan_by(self, dx: float, dy: float) -> None:
-        right, up = geometry_render.camera_basis(self.elev, self.azim)
+        right, up = camera_basis(self.elev, self.azim)
         px, py, pz = self.pan
         self.pan = (
             px + right[0] * dx + up[0] * dy,
@@ -552,7 +428,6 @@ class KittyGeometryImage(RotatableGeometryImage):
     pane blank -- to one minute, at 1/20th of the old traffic."""
 
     IMAGE_ID = 1
-    KITTY_CHUNK = 4096
     RETRANSMIT_EVERY = 20  # self-heal ticks between full re-transmissions
 
     def __init__(self, *args, **kwargs):
@@ -572,7 +447,7 @@ class KittyGeometryImage(RotatableGeometryImage):
         # still in flight stale, so none can place an image after this delete.
         with self._write_lock:
             self._next_seq()
-            self._write(f"\x1b_Ga=d,d=i,i={self.IMAGE_ID}\x1b\\")
+            self._write(kitty.delete(self.IMAGE_ID))
 
     def show_job(self, job: Job | None, point=None) -> None:
         is_new_selection = job is not self._job or point is not self._point
@@ -607,14 +482,7 @@ class KittyGeometryImage(RotatableGeometryImage):
         self._write(self._placement(region))
 
     def _placement(self, region) -> str:
-        """Re-place the already-transmitted image. `q=2` suppresses the
-        terminal's per-command acknowledgement, which otherwise comes back up
-        the wire and lands in Textual's own input parser."""
-        return (
-            f"\x1b[s\x1b[{region.y + 1};{region.x + 1}H"
-            f"\x1b_Ga=p,i={self.IMAGE_ID},q=2,c={region.width},r={region.height}\x1b\\"
-            "\x1b[u"
-        )
+        return kitty.place(self.IMAGE_ID, region.x, region.y, region.width, region.height)
 
     def _on_change(self) -> None:
         self._push(self._next_seq())
@@ -636,32 +504,27 @@ class KittyGeometryImage(RotatableGeometryImage):
         if not atoms:
             with self._write_lock:
                 if not self._is_stale(seq):
-                    self._write(f"\x1b_Ga=d,d=i,i={self.IMAGE_ID}\x1b\\")
+                    self._write(kitty.delete(self.IMAGE_ID))
             return
         region = self.content_region
         if region.width <= 0 or region.height <= 0:
             return
 
+        from . import geometry_render
+
         image = geometry_render.render(
             atoms, elev=self.elev, azim=self.azim, show_distances=self.show_distances,
             zoom=self.zoom, pan=self.pan, qm_atom_indices=job.state.qm_atom_indices,
         )
-        data_b64 = base64.b64encode(geometry_render.frame_png(image)).decode("ascii")
-
-        chunks = [data_b64[i : i + self.KITTY_CHUNK] for i in range(0, len(data_b64), self.KITTY_CHUNK)] or [""]
-        sequence = [f"\x1b[s\x1b[{region.y + 1};{region.x + 1}H"]
-        for i, chunk in enumerate(chunks):
-            controls = ["q=2"]
-            if i == 0:
-                controls += ["a=T", "f=100", "t=d", f"i={self.IMAGE_ID}", f"c={region.width}", f"r={region.height}"]
-            controls.append("m=1" if i != len(chunks) - 1 else "m=0")
-            sequence.append(f"\x1b_G{','.join(controls)};{chunk}\x1b\\")
-        sequence.append("\x1b[u")
+        sequence = kitty.transmit(
+            geometry_render.frame_png(image), self.IMAGE_ID,
+            region.x, region.y, region.width, region.height,
+        )
 
         with self._write_lock:
             if self._is_stale(seq):
                 return
-            self._write("".join(sequence))
+            self._write(sequence)
             # `a=T` stores under IMAGE_ID as well as displaying, so later
             # self-heals can re-place these pixels instead of resending them.
             self._placed_region = (region.x, region.y, region.width, region.height)
@@ -794,6 +657,8 @@ class HerdrGeometryImage(RotatableGeometryImage):
             width = max(1, int(width * PREVIEW_SCALE))
             height = max(1, int(height * PREVIEW_SCALE))
         target = (width, height)
+        from . import geometry_render
+
         image = geometry_render.render(
             atoms, elev=self.elev, azim=self.azim, show_distances=self.show_distances,
             zoom=self.zoom, pan=self.pan, qm_atom_indices=job.state.qm_atom_indices,
@@ -1159,164 +1024,6 @@ class MonitorApp(App):
             geometry.border_title = title
 
 
-TS_RUN_TYPES = {"optts", "scants", "neb-ts", "zoom-neb-ts"}
-
-_CRITERIA = [
-    ("dE", "energy_change", "energy_tol", "energy_conv"),
-    ("RMS grad", "rms_grad", "rms_grad_tol", "rms_grad_conv"),
-    ("MAX grad", "max_grad", "max_grad_tol", "max_grad_conv"),
-    ("RMS step", "rms_step", "rms_step_tol", "rms_step_conv"),
-    ("MAX step", "max_step", "max_step_tol", "max_step_conv"),
-]
-STEP_ROWS = 6
-
-
-def summary_text(job: Job) -> str:
-    """What the job is, how far it has got, and whether anything is wrong.
-
-    Identity comes from the INPUT, so it is there before the job has written
-    a line; everything after the rule comes from the output, and a line
-    appears only when it has something to say."""
-    state, inp = job.state, job.input
-    lines = [f"[b]{job.label}[/b]"]
-
-    if inp is None:
-        lines.append(f"[dim]no {state.stem}.inp read[/dim]")
-    else:
-        run = " ".join(inp.run_types) or "SP"
-        lines.append(f"[b]{run}[/b]  {inp.method}".rstrip())
-
-    if state.basis:
-        # From the OUTPUT, not the input: a composite method's basis is never
-        # written on the `!` line, and ORCA's own report is what it used.
-        lines.append(f"basis  {state.basis}")
-
-    if inp is not None:
-        n_atoms = len(state.atoms) if state.atoms else None
-        spin = describe_spin(inp.charge, inp.mult)
-        if inp.multilayer:
-            qm = f"QM region {spin}"
-            if state.qm_atom_indices and n_atoms:
-                qm += f" ({len(state.qm_atom_indices)} of {n_atoms} atoms)"
-            total = inp.layers.get("total")
-            system = f"system {describe_spin(*total)}" if total else "system [dim]total charge/mult not set[/dim]"
-            parts = [system, qm]
-            parts += [f"{name} {describe_spin(*cm)}" for name, cm in inp.layers.items() if name != "total"]
-        else:
-            parts = [spin + (f" · {n_atoms} atoms" if n_atoms else "")]
-        if inp.nprocs:
-            mem = f", {inp.maxcore_mb} MB/core" if inp.maxcore_mb else ""
-            parts.append(f"[dim]{inp.nprocs} procs{mem}[/dim]")
-        lines.append("   ".join(parts))
-
-    lines.append("[dim]" + "─" * 40 + "[/dim]")
-
-    style = STATUS_STYLE[job.status]
-    status = [f"[{style}]{job.status.value}[/{style}]"]
-    if state.cycle:
-        status.append(f"cycle {state.cycle}" + (f"/{state.max_cycles}" if state.max_cycles else ""))
-    if state.scan_step is not None:
-        status.append(f"scan step {state.scan_step}" + (f"/{state.scan_total}" if state.scan_total else ""))
-    status.append(format_wall_time(job.wall_time_s))
-    if state.mtime is not None and job.status is not Status.NOT_RUN:
-        status.append(f"last output {format_age(time.time() - state.mtime)} ago")
-    if state.opt_converged:
-        status.append("[green]optimization converged[/green]")
-    lines.append(" · ".join(status))
-
-    if state.convergence_history:
-        step = state.convergence_history[-1]
-        chips = []
-        for name, value_attr, _tol, conv_attr in _CRITERIA:
-            if getattr(step, value_attr) is None:
-                continue
-            ok = getattr(step, conv_attr)
-            chips.append(f"[green]{name} ✓[/green]" if ok else f"[red]{name} ✗[/red]")
-        lines.append("criteria   " + "  ".join(chips))
-
-    is_ts = inp is not None and any(r.lower() in TS_RUN_TYPES for r in inp.run_types)
-    if state.eigen_history:
-        n = state.eigen_history[-1][1]
-        text = f"{n} negative eigenvalue{'s' if n != 1 else ''}"
-        if is_ts:
-            colour = "green" if n == 1 else "yellow"
-            text = f"[{colour}]{text}[/{colour}] (a TS search wants 1)"
-        lines.append(f"Hessian    {text}")
-
-    if state.imaginary_freqs is not None:
-        freqs = state.imaginary_freqs
-        if freqs:
-            values = ", ".join(f"{f:.1f}" for f in freqs)
-            lines.append(f"imaginary  [b]{len(freqs)}[/b]: {values} cm⁻¹")
-        else:
-            lines.append("imaginary  none")
-
-    if state.final_energy is not None:
-        label = f" ({state.final_energy_label})" if state.final_energy_label else ""
-        text = f"energy     {state.final_energy:.6f} Eh{label}"
-        energies = [p.energy for p in state.points if p.energy is not None]
-        if state.scan_points:
-            profile = [p for _, p in sorted(state.scan_points.items()) if p.energy is not None]
-            if len(profile) > 1:
-                top = max(profile, key=lambda p: p.energy)
-                rise = (top.energy - profile[0].energy) * EH_TO_KJ_PER_MOL
-                where = state.scan_values.get(top.scan_step)
-                at = f"{where:g}" if where is not None else f"step {top.scan_step}"
-                text += f" · scan max {rise:+.1f} kJ/mol at {at}"
-        elif len(energies) > 1:
-            change = (energies[-1] - energies[0]) * EH_TO_KJ_PER_MOL
-            text += f" · {change:+.1f} kJ/mol since first geometry"
-        lines.append(text)
-
-    if state.qm2_error_count:
-        lines.append(f"[yellow]QM2 errors: {state.qm2_error_count}[/yellow]")
-    if state.crash_lines:
-        lines.append("[bold red]crash markers:[/bold red]")
-        lines.extend(f"  {cl}" for cl in state.crash_lines)
-    return "\n".join(lines)
-
-
-def steps_text(state: JobState) -> str:
-    """The last STEP_ROWS optimization cycles, one row each, newest last.
-
-    This was five rows per cycle for eight cycles -- 41 lines in a pane with
-    room for 8, which clipped from the bottom and so only ever showed the
-    OLDEST cycles of the eight, never the one running."""
-    history = state.convergence_history
-    if not history:
-        return "[dim]no geometry convergence data yet[/dim]"
-    width = 10
-    head = f"{'cycle':>7} " + "".join(f"{name:>{width}}" for name, *_ in _CRITERIA)
-    last = history[-1]
-    tol = f"{'tol':>7} " + "".join(
-        f"{getattr(last, tol_attr):>{width}.1e}" if getattr(last, tol_attr) is not None else " " * width
-        for _name, _v, tol_attr, _c in _CRITERIA
-    )
-    rows = [f"[b]{head}[/b]", f"[dim]{tol}[/dim]"]
-    for i in range(max(0, len(history) - STEP_ROWS), len(history)):
-        step = history[i]
-        label = f"{step.scan_step}·{step.cycle}" if step.scan_step is not None else str(step.cycle)
-        cells = []
-        for _name, value_attr, _tol, conv_attr in _CRITERIA:
-            value = getattr(step, value_attr)
-            if value is None:
-                cells.append(" " * width)
-                continue
-            colour = "green" if getattr(step, conv_attr) else "red"
-            cells.append(f"[{colour}]{value:>{width}.1e}[/{colour}]")
-        rows.append(f"{label:>7} " + "".join(cells))
-    return "\n".join(rows)
-
-
-def main() -> None:
-    """`python -m computational.monitor.app [ROOT]` -- watch every ORCA job
-    (every directory holding a .inp) under ROOT; by default the directory
-    this package sits in."""
-    import sys
-
-    root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1]
+def run(root: Path) -> None:
+    """Watch every ORCA job (every `<stem>.inp`) under `root`."""
     MonitorApp(root).run()
-
-
-if __name__ == "__main__":
-    main()

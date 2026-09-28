@@ -77,7 +77,7 @@ _INDEX_LINE_RE = re.compile(r"^\d+(?:\s+\d+)*$")
 # work without deciding anything. Keep them in step with the patterns above:
 # adding a marker pattern without adding its literal here would silently stop
 # that marker being seen. `parser` has no gate of its own, so
-# `computational/monitor/validate.py` is where that is checked.
+# `orcamon/validate.py` is where that is checked.
 _RARE_MARKERS_RE = re.compile(
     r"GEOMETRY OPTIMIZATION CYCLE|Hessian has|error in the QM2 calculation"
     r"|Aborting|TERMINATING THE RUN|ORCA finished by error termination"

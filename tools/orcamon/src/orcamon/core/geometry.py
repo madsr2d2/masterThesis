@@ -1,0 +1,38 @@
+"""Molecule-drawing facts both geometry renderers share: which atoms are
+bonded, what colour an element is, and where the camera points.
+
+The pixel renderer (`tui/geometry_render.py`, matplotlib) and the text one
+(`tui/geometry_text.py`, braille) must agree on all three, or rotating the
+same molecule in the two modes would show different bonds from different
+angles. Pure Python so the text renderer needs no numpy."""
+from __future__ import annotations
+
+import math
+
+ELEMENT_COLORS = {"H": "#f2f2f2", "O": "#e04040", "C": "#4a4a4a", "N": "#4060e0"}
+DEFAULT_ELEMENT_COLOR = "#c060c0"
+BOND_CUTOFF = 1.7  # angstrom, generous single-bond distance cutoff
+
+
+def camera_basis(elev_deg: float, azim_deg: float) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """Screen-space right/up unit vectors for matplotlib's
+    `view_init(elev_deg, azim_deg)`.
+
+    Panning applies a step along these at the moment a pan key is pressed,
+    then stores the result as a fixed WORLD-space offset (see
+    `RotatableGeometryImage._pan_by`) -- exactly like translating a camera
+    before turning it, so a later rotation swings the view around the
+    panned-to point rather than re-deriving "screen right" from the new angle
+    and drifting the pan with it."""
+    elev, azim = math.radians(elev_deg), math.radians(azim_deg)
+    forward = (math.cos(elev) * math.cos(azim), math.cos(elev) * math.sin(azim), math.sin(elev))
+    right = _cross(forward, (0.0, 0.0, 1.0))
+    norm = math.sqrt(sum(c * c for c in right))
+    right = tuple(c / norm for c in right) if norm > 1e-6 else (1.0, 0.0, 0.0)
+    up = _cross(right, forward)
+    norm = math.sqrt(sum(c * c for c in up))
+    return right, tuple(c / norm for c in up)
+
+
+def _cross(a, b) -> tuple[float, float, float]:
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])

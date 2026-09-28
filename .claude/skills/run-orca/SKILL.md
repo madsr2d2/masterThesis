@@ -149,11 +149,11 @@ overwriting `job.inp` in place.
 
 ## While a job runs
 
-`computational/monitor/` is the live view — it tails the `.out` incrementally
+orcamon (`tools/orcamon/`; `.venv/bin/orcamon tui computational/`) is the live view — it tails the `.out` incrementally
 for cycle count, gradient history, negative-eigenvalue count and stall
 detection. `orca_io` reads **finished** jobs and needs the property JSON, which
 is written at the end; the two do not overlap. Run
-`.venv/bin/python -m computational.monitor.validate` to check the monitor's own
+`.venv/bin/python -m orcamon.validate computational/` to check the monitor's own
 parsing.
 
 Do not kill a running ORCA job on your own initiative.
