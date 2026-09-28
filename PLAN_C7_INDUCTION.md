@@ -111,14 +111,22 @@ that finding outranks the truncated number.
 ## 3. Method, standard states and checks
 
 **3.1 Tiers.** Isolated small species (Tasks 1, 2, 5): geometry and frequencies
-with `! r2SCAN-3c CPCM(water) Opt Freq TightSCF`, then a single point
-`! DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C CPCM(water) TightSCF`. The 140-atom
-catalyst (Task 3, 4): the QM/XTB tier of `COMPUTATIONAL.md`
-(`! QM/XTB r2SCAN-3c ddCOSMO(Water)`), with the DLPNO-CCSD(T) ONIOM-style
-correction on the extracted `job.QMRegion.xyz`, exactly as C8 does.
+with `! B97-3c CPCM(water) Opt Freq TightSCF` — B97-3c replaced r2SCAN-3c as the
+project's geometry method on 2026-09-21. The 140-atom catalyst (Tasks 3, 4): the
+QM/XTB tier of `COMPUTATIONAL.md` (`! QM/XTB B97-3c ddCOSMO(Water)`), with the
+DLPNO-CCSD(T) single point run as the QM1 of a second QM/XTB job on the whole
+system — `! QM/XTB DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C ddCOSMO(Water)`, the
+**embedded** route — NOT a correction from an extracted `job.QMRegion.xyz`.
 
-**3.2 The free energy of every species** is the DLPNO-CCSD(T) electronic energy
-plus the r2SCAN-3c thermal correction to G at the temperature in question.
+**3.1a OPEN.** A host-free species has no QM2 to embed in, so its single point
+reduces to plain `! DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C CPCM(water)`. Whether
+that is what Tasks 1, 2 and 5 should use, or whether they get a host model, is
+**not decided** (see `COMPUTATIONAL.md` Conventions, 2026-09-21).
+
+**3.2 The free energy of every species** is the single-point electronic energy —
+embedded DLPNO-CCSD(T) for the catalyst, plain DLPNO for host-free species
+pending 3.1a — plus the geometry tier's thermal correction to G at the
+temperature in question.
 
 **3.3 Temperatures.** 288.15, 298.15 and 313.15 K. The measured block runs
 15–40 °C. Obtain the three from ONE Hessian per species rather than three
@@ -234,9 +242,10 @@ fraction is above. Write the amendment for Tasks 3-5?"
 
 - **Task 3, the cavity.** Build Kh from the tracked 140-atom geometry by adding
   water across C128's carbonyl, on both faces, and optimise at the QM/XTB tier
-  with the DLPNO-CCSD(T) correction on the QM region. Compare with Task 2. A3
-  is the trigger. No full Hessian on the macrocycle is attempted; say so, and
-  treat the comparison as electronic plus solvation only.
+  (`! QM/XTB B97-3c ddCOSMO(Water)`) with the DLPNO-CCSD(T) single point
+  embedded as the QM1 of a second QM/XTB job — the same route as C8. Compare
+  with Task 2. A3 is the trigger. No full Hessian on the macrocycle is
+  attempted; say so, and treat the comparison as electronic plus solvation only.
 - **Task 4, the barriers, and the question the kinetics could not answer.**
   ΔG‡ for `Kh → K + H₂O` water-assisted, and the same with **one phosphate
   dianion** in the model, at 50-80 mM-relevant geometry — the block is
@@ -312,8 +321,8 @@ through OPI (`orca-pi`), from ORCA's own structured property JSON.
 Two parsers were in use until 2026-09-17 and both were wrong. A regex on
 `FINAL SINGLE POINT ENERGY` cannot match a **labelled** line, and ORCA closes a
 QM/XTB run with four of them — on the C8 reaction complex it returned the
-r2SCAN-3c QM1 region alone, `-418.878772917932`, against a true QM/QM2 total of
-`-659.180810832202`, while reporting a free energy built on the total in the
+r2SCAN-3c QM1 region alone, `-647.909099472771`, against a true QM/QM2 total of
+`-873.7566473144415`, while reporting a free energy built on the total in the
 same dict.
 
 **10.2 The three-temperature hazard, which is this plan's specifically.**
@@ -345,9 +354,9 @@ the gate is checked against those two calls, not against a hand conversion.
 
 **10.5 Report the stationary point through `orca_io.stationary_point(job)`,**
 which applies `IMAGINARY_CUTOFF_CM1` (50 cm⁻¹) and **names every imaginary mode
-it ignored**. Do not apply the older skills' rule that more than one imaginary
-mode means the geometry is bad: the C8 reaction complex is a converged minimum
-carrying imaginary modes at −19.76 and −3.55 cm⁻¹, which ORCA's own
+it ignored**. Do not apply the older skills' rule that an imaginary mode
+means the geometry is bad: the C8 reaction complex is a converged minimum
+carrying an imaginary mode at −16.27 cm⁻¹, which ORCA's own
 thermochemistry discards. Quote the verdict string verbatim in the report,
 including the ignored modes, so the judgement stays visible.
 

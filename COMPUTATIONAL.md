@@ -35,8 +35,9 @@ not worth running.
   history except for what ORCA's own incidental `.out.v###.xyz` versioning
   happened to preserve:
   - `geometry_<method>/{rc,ts,pc,irc}/` — the QM/XTB geometry/TS/Hessian tier
-    (currently `r2scan3c-xtb`, i.e. `r2SCAN-3c` QM region on GFN-xTB, both in
-    `ddCOSMO(water)`; see the two-tier note below).
+    (currently `b973c-xtb`, i.e. `B97-3c` QM region on GFN-xTB, both in
+    `ddCOSMO(water)`; see the two-tier note below. Replaced `r2scan3c-xtb` on
+    2026-09-21).
   - `energy_<method>/` — a single-point energy refinement, when the geometry
     tier's method isn't trusted for the final number (see C7/C8 note below).
   Outputs and scratch stay homelab-local, same policy as `orca_stuff/` and the
@@ -45,41 +46,80 @@ not worth running.
   this convention, tracks its ORCA output in full by a separate prior
   decision, and is not covered by any of the above.
 - **Two-tier method for anything using the full 130-atom catalyst**, settled
-  2026-09-09, worked example `K+H2O2_water-relay_to_KP` (C8 item 1). Geometry,
-  TS search and Hessian: `QM/XTB`, `r2SCAN-3c` on the reactive QM region,
-  GFN-xTB on the rest — cheap enough to run repeatedly on a 130+-atom
-  macrocycle, and r2SCAN-3c is benchmarked "on par with or more accurate than
-  M06-2X-D3(0)/TZP" for geometries (Grimme group, *J. Chem. Phys.* **154**,
-  064103 (2021)). **Solvent for this tier is `ddCOSMO(water)`, not `ALPB`** —
-  ALPB only solvates the QM2 (xtb) layer, leaving the QM1 (r2SCAN-3c) reactive
-  region in vacuum electrostatics regardless of what the keyword says (ORCA
-  6.1 manual, Multiscale Simulations: "If the ALPB model or CPCM-X are
-  requested [within QM/XTB], the solvation effect is just included in the
-  calculation for the large QM2 system"). Plain `CPCM`/`SMD` are not an
-  option here at all — ORCA aborts at input-check for QM/XTB with "This is
-  not implemented. Provide respective ALPB, ddCOSMO or CPCMX keyword
-  instead." ddCOSMO is the one of those three the manual confirms gets
-  cavity-charge propagation into QM1 (the same "C-PCM/B" scheme it describes
-  for real QM1/QM2 pairs). Final energies: **do not trust the geometry tier's
-  functional for ΔG/ΔG‡** — density functionals (r2SCAN-3c included) carry an
-  RMSE of roughly 5 kcal/mol (~20 kJ/mol) against CCSD(T)-quality barriers,
-  which is at C7's own gate width and wider than C8's 4 kJ/mol target window.
-  Instead take a `DLPNO-CCSD(T)/def2-TZVPP` (+ `def2-TZVPP/C`) single point on
-  just the extracted+capped QM-region fragment (ORCA writes this out itself as
-  `job.QMRegion.xyz`), at both `r2SCAN-3c` and `DLPNO-CCSD(T)`, and add the
-  difference as an ONIOM-style correction to the full embedded energy —
-  ORCA's own documented QM1/QM2 subtractive scheme, applied post hoc rather
-  than as a full three-layer rerun. `CPCM(water)` here — this tier is an
-  isolated small-molecule fragment, not an embedded QM/XTB run, so plain CPCM
-  applies fine and matches the level every isolated-species task (C1, C4–C6,
-  C9) already commits to. Protocol follows ORCA's own worked example
-  ("Calculating accurate energy barriers", ORCA 6.1 Tutorials).
+  2026-09-09 and revised 2026-09-21 (geometry method), worked example
+  `K+H2O2_water-relay_to_KP` (C8 item 1). **Geometry, TS search and Hessian:
+  `QM/XTB`, `B97-3c` on the reactive QM region, GFN-xTB on the rest.**
+  B97-3c replaced r2SCAN-3c on 2026-09-21, after a three-arm test on the reduced
+  C8 reactant — same system, QM region, solvent and seed, only the QM1 changed:
+
+  | QM1 | cpu-s/atom | wall | imaginary modes |
+  |---|---|---|---|
+  | r2SCAN-3c | 32.5 | 1:15:55 | −65.33, −19.67 (a saddle) |
+  | PBEh-3c | 36.9 | 1:25:01 | −39.74, −15.21 |
+  | **B97-3c** | **25.7** | **0:59:50** | **none** |
+
+  B97-3c is ~21% cheaper per atom than r2SCAN-3c **and the only arm that
+  converged to a genuine minimum with no imaginary mode at all** (the r2SCAN-3c
+  RC is a *saddle* at B97-3c, −65.33 cm⁻¹ — the surfaces genuinely differ). It
+  is also the method the earlier oniom work used for its 23-atom region
+  (`orca_stuff/cat/.../ONIOM/ts*/B97-3c_XTB/`). B97-3c is B97-D3(0)/def2-mTZVP +
+  gCP + SRB. PBEh-3c was tried first on the manual's geometry recommendation
+  ("performs particularly well in the optimization of geometries") but turned
+  out *dearer* than r2SCAN-3c — the 42% Fock exchange eats the smaller basis.
+  **The saving is ~21%, so it does NOT buy a much larger QM region**: a bond
+  which forms across the QM/QM2 boundary needs the region grown, and that needs
+  a genuinely cheap QM1 (HF-3c/MINIS, or xtb), not B97-3c.
+  **Solvent for this tier is `ddCOSMO(water)`, not `ALPB`** — ALPB only solvates
+  the QM2 (xtb) layer, leaving the QM1 reactive region in vacuum electrostatics
+  regardless of what the keyword says (ORCA 6.1 manual, Multiscale Simulations:
+  "If the ALPB model or CPCM-X are requested [within QM/XTB], the solvation
+  effect is just included in the calculation for the large QM2 system"). Plain
+  `CPCM`/`SMD` are not an option here at all — ORCA aborts at input-check for
+  QM/XTB with "This is not implemented. Provide respective ALPB, ddCOSMO or
+  CPCMX keyword instead." ddCOSMO is the one of those three the manual confirms
+  gets cavity-charge propagation into QM1 (the "C-PCM/B" scheme it describes
+  for real QM1/QM2 pairs).
+  Final energies: **do not trust the geometry tier's functional for ΔG/ΔG‡** —
+  density functionals (B97-3c included) carry an RMSE of roughly 5 kcal/mol
+  (~20 kJ/mol) against CCSD(T)-quality barriers, at C7's own gate width and
+  wider than C8's 4 kJ/mol target window. Run the higher-level method **as the
+  QM1 of a second QM/XTB single point on the whole system** — the DIRECT route,
+  settled 2026-09-20 and the ONLY single-point route since 2026-09-21:
+
+       ! QM/XTB DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C ddCOSMO(Water) TightSCF
+
+  ORCA accepts a correlated method as QM1 (6.1 manual 6.1.1: multiscale single
+  points take "all kinds of available electronic structure methods as QM
+  method") and embeds it electrostatically (`Embedding Scheme ...
+  electrostatic`; it prints `Point charges in QM calc. from MM atoms    120`),
+  so the DLPNO density is polarised by the 120 host atoms inside the
+  whole-system ddCOSMO cavity. **That embedding is the whole point, and the
+  single point is ALWAYS this embedded job.** On C8 item 1 the embedded route
+  differs from the old isolated-fragment correction by 6.4 kJ/mol on the RC —
+  the fragment simply cannot see the host. The number is
+  `orca_io.composite_free_energy_eh(geom_job, T, dlpno_qm1_job, geom_job)` —
+  the geometry job passed twice, because the DLPNO job is a single point with
+  no thermochemistry: G comes from the geometry tier's frequencies plus an
+  electronic level change. One job, ~4.5 min, no `job.QMRegion.xyz` extraction
+  and so no geometry-freshness trap.
+
+   **A DLPNO single point on an extracted fragment in `CPCM` is NOT used**
+  (2026-09-21). The retired route is recorded only as history: it was
+  `E(DLPNO) − E(geometry tier)` on the extracted `job.QMRegion.xyz` in
+  `CPCM(water)` (`energy_dlpno-ccsdt/`), blind to the host, and it differs from
+  the embedded route by 5–7 kJ/mol on the barrier. **One thing is still open,
+  and is not to be assumed:** a species with no host at all (C1's small
+  molecules, C9's `H₂O₂ + HPO₄²⁻`) has no QM2 to embed in, so a "QM/XTB ONIOM"
+  whose whole system is the QM region reduces to plain DLPNO — whether those
+  tasks get a host model, or are the one place plain DLPNO + CPCM survives, is
+  undecided.
   **Resources**: benchmarked in place on the homelab (i9-14900K, 8 P-cores /
   16 E-cores, 125 GB RAM) — `nprocs 8` beat `16` and `24` on the DLPNO-CCSD(T)
-  fragment job (43.5 s vs 51.5 s vs 50.8 s wall); past the physical P-core
-  count, ranks either share a P-core's SMT sibling or land on a slower E-core,
-  and MPI syncs to the slowest rank. `maxcore 4000` is already generous (the
-  pilot's own peak use was 1178 MB/rank). A single small-fragment job cannot
+  fragment job (43.5 s vs 51.5 s vs 50.8 s wall — measured on an 11-atom
+  DLPNO-CCSD(T) job before the embedded route replaced it); past the physical
+  P-core count, ranks either share a P-core's SMT sibling or land on a slower
+  E-core, and MPI syncs to the slowest rank. `maxcore 4000` is already generous
+  (the pilot's own peak use was 1178 MB/rank). A single small job cannot
   usefully take more of this machine than that — using the rest of it means
   running further reactions' jobs concurrently, not raising one job's
   `nprocs`.
@@ -102,6 +142,32 @@ not worth running.
   independent settings — so charge quality is not degraded. The one knock-on is
   the boundary charge-alteration scheme (`ChargeAlteration CS`), which
   redistributes charge using the GFN-FF bond list.
+- **Write the geometry and its frequency as ONE job: `! OptTS Freq` (a TS) or
+  `! Opt Freq` (a minimum)**, settled 2026-09-25. The frequency runs
+  automatically at the converged geometry, in the same job and the same `.out`,
+  so there is no geometry file to carry between jobs and no way to point the
+  frequency at the wrong structure — on 2026-09-25 a hand-copied `NumFreq`
+  launched from the wrong working directory silently re-ran the *previous* step,
+  and the geometry it was meant to check sat in a sibling directory untouched.
+  ORCA also **refuses to run the frequency when the optimisation did not
+  converge** (`As a subsequent Frequencies calculation has been requested /
+  ORCA will abort at this point of the run`), a guard the two-job split does not
+  have: a separate `NumFreq` will build a Hessian on whatever unconverged
+  geometry it is handed. `Freq` is accepted by ORCA 6.1.1 (verified against a
+  throwaway job). `Calc_Hess true` still supplies the seed Hessian `OptTS` needs
+  to identify the imaginary mode and the trailing `Freq` recomputes it at the
+  final geometry — **two Hessians, exactly the two-job split's cost**, so the
+  win is provenance and the convergence guard, not time. `orca_io` reads the
+  result from the single `.out` as it does any other. **Add `TightOpt` for
+  anything a barrier is quoted from.** The default tolerance leaves the
+  gradients near 1e-4 Eh/bohr and the ZPE/G are read off the Hessian there, so
+  under-convergence shows up in the thermochemistry rather than in `E`.
+  `TightOpt` tightens the default about three-fold (`TolRMSG 1.0e-4 → 3.0e-5`,
+  `TolMAXG 3.0e-4 → 1.0e-4` Eh/bohr, confirmed in the job's own output). On the
+  C8 TS it separated two consistent runs — two `OptTS Freq` jobs (default and
+  `TightOpt`) agreeing to 0.09 kJ/mol on G — from the older two-job
+  optimisation, which had landed in a different low-frequency well and differed
+  by 30 kJ/mol on G through the ZPE alone.
 - **Never trust one initial Hessian across a long optimization — use
   `Recalc_Hess`.** `Calc_Hess true` alone computes an exact numerical Hessian
   at cycle 0 and then lets the optimizer's own RFO update approximate it for
@@ -773,6 +839,639 @@ step in the mechanism with no external support of any kind.
 Newest first. Record the ORCA version, the input files, the wall time and the
 outcome — including failed and abandoned runs, which are the ones most easily
 forgotten and most expensive to repeat.
+
+### 2026-09-25 — QM/MM charge goes on the `*xyzfile` line; `Charge_total` is the whole system
+
+The anion model (ketone + HOO⁻, no water) aborted instantly:
+
+    Charge of total system ... -1
+    Error : multiplicity (1) is odd and number of electrons (93) is odd -> impossible
+
+An ORCA QM/MM job takes the charge in **two** places and they are not the same
+thing:
+
+- `* xyzfile <charge> <mult>` — the **QM region's** charge and multiplicity.
+  This is what the SCF uses.
+- `%QMMM Charge_total <q>` — the **whole system's** charge.
+
+The input had `Charge_total -1` (correct: the total is −1 because the GFN-FF
+host is neutral) but `* xyzfile 0 1`, so the SCF was set up for a **neutral** QM
+region — 17 QM atoms + 2 link H = 93 electrons, odd, against a singlet. The fix
+is `* xyzfile -1 1`, giving 94 electrons (even), confirmed by
+`N(Alpha) : 47.000…`. The split is then −1 (QM) + 0 (XTB) = −1 (total), matching
+`Charge_total`. Any charged QM region in a QM/XTB job needs both lines set
+consistently; with a neutral QM region (every earlier C8 job) the two coincide
+and the distinction is invisible.
+
+### 2026-09-25 — IRC from the 21-atom bridge TS: it IS the perhydrate reaction coordinate
+
+`irc_bridge/` — `! QM/XTB B97-3c ddCOSMO(Water) IRC TightSCF`, 21-atom QM1,
+`Direction both`, `MaxIter 50` — ran 1 h 06 m and terminated normally, but hit
+MaxIter in both directions, so the endpoints are **directions, not converged
+minima**. The connectivity is unambiguous:
+
+- **Forward → the reactant**: C128···O133 stretches 1.607 → 1.918 Å (no bond),
+  the carbonyl returns to 1.250 Å, the proton stays on O133 (1.014 Å).
+- **Backward → the product**: C128–O133 forms (1.607 → 1.423 Å), the carbonyl
+  stretches to 1.335 Å, and the proton relays OFF O133 (1.112 → 2.018 Å) onto
+  the water O131 (O131–H132 0.951 Å) — i.e. to hydronium.
+
+So the −490.3 cm⁻¹ mode **is** the reaction coordinate: the saddle connects the
+ketone + H₂O₂ pre-complex to the perhydrate, C–O formation coupled to the
+proton relay. This is the confirmation a mode tally cannot give, and it resolves
+the −313 (17-atom) vs −490 (21-atom) vs −576 (r2SCAN-3c) disagreement in favour
+of the enlarged region: the 17-atom saddle was a cut-ring artefact.
+
+Two notes for what follows. (1) The backward endpoint is product-like
+(C128–O133 1.423 Å) and is the seed for the PC; the forward endpoint is
+reactant-like. (2) Neither reached its minimum inside `MaxIter 50`, so both need
+a full relaxation (21-atom QM1, `Opt Freq TightOpt`) before any barrier — the
+`−9.81 cm⁻¹` mode under the cutoff on the TS also means the saddle is soft and
+should be rechecked after the RC/PC are in hand.
+
+### 2026-09-25 — C8 item 1 at the B97-3c tier: full-system TS, and the composite ΔG‡
+
+**The full-system TS converged.** `ts/optts_full/` — `! OptTS Freq TightOpt`, no
+`ActiveAtoms` (all 137 atoms), seeded from the frozen-host TS — converged in
+79 cycles, 50 min 43 s, and the Freq ran automatically: `transition state`, one
+imaginary mode −313.23 cm⁻¹, E(QM/QM2) = −797.138622 Eh, G(298.15) =
+−796.178483 Eh. It converged despite a long step-oscillation (gradients inside
+tolerance by cycle 31, steps not shrinking until the end), so the frozen host
+was **helpful, not necessary**.
+
+**`ActiveAtoms` was scaffolding and is gone from the final geometry.** It took
+the optimiser from a poor full-system start to a frozen-host saddle — enough to
+get a good geometry — but a barrier must be one model, and the RC was already a
+full 137-atom relaxation. The frozen-host runs (`ts/optts_freq_tight/`, and the
+superseded `ts/optts/` + `ts/optts_numfreq/`) are kept as the seed and the
+comparison.
+
+**Composite ΔG‡ (embedded DLPNO on the consistent full-system B97-3c
+geometries):** `energy_qm1_dlpno_b973c/{ts,rc}/` run
+`! QM/XTB DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C ddCOSMO(Water) TightSCF`
+(NormalPNO), the 17-atom QM1 electrostatically embedded in the 120 host atoms
+(`Embedding Scheme ... electrostatic`, `Point charges in QM calc. from MM
+atoms 120`).
+
+- E(QM/QM2): TS −796.589645, RC −796.621965 Eh; B97-3c: −797.138622 / −797.161042 Eh
+- level correction DLPNO−B97-3c: +1441.3 (TS) / +1415.3 (RC) kJ/mol — it raises the barrier by **26.0 kJ/mol**
+- **ΔG‡ = 97.2 kJ/mol (23.2 kcal/mol)**, ΔE_composite = 84.9 kJ/mol
+
+**This is a large move from the superseded 59.5 kJ/mol** (r2SCAN-3c geometry,
+11-atom QM1, embedded). Three things changed at once — geometry tier (r2SCAN-3c
+→ B97-3c), QM region (11 → 17 atoms), and full-system vs reduced thermochemistry
+— so 97.2 is the current best value, not a settled one. Two caveats: the full
+Hessian's softest host modes are 13.5–31 cm⁻¹, so G (and hence ΔG‡) carries real
+quasi-RRHO uncertainty; and −313 cm⁻¹ is far from the r2SCAN-3c TS's −576, so an
+IRC is owed before this is confirmed as the same saddle.
+
+### 2026-09-25 — the B97-3c C8 TS exists; and write the geometry and its frequency as ONE job
+
+**The B97-3c reduced-system TS is verified.** Seed = frame 0 of
+`ts/optts/job_trj.xyz` (the verified r2SCAN-3c TS with its host already relaxed
+at B97-3c). `! QM/XTB B97-3c ddCOSMO(Water) OptTS` with the host held by
+`%qmmm ActiveAtoms` (17 atoms) converged in **46 cycles, 6 min 41 s** to
+E(QM/QM2) = −797.138648 Eh; the active-region Hessian (49 displacements, 4 min
+03 s) gives **`transition state` — one imaginary mode at −379.28 cm⁻¹**, the
+lowest real mode 48.96. The mode is the relay: the transferring proton
+(full-system 132, |v| = 0.63), then the carbonyl C129 (0.40) and the peroxide O
+(0.30). **−379 cm⁻¹ is well below the r2SCAN-3c TS's −576 cm⁻¹** — same
+character, different point (B97-3c moves the TS to C129···O136 1.736 Å,
+O136–H135 1.083 Å) — so an IRC is still owed before this is quoted as *the* C8
+TS. The low-level QM/XTB barrier is 58.8 kJ/mol and **not yet a consistent
+number**: the reduced RC (`geometry_b973c-xtb/rc`) was a full 137-atom
+relaxation while this TS had its host frozen, so the two host geometries differ.
+
+**THE OPTIMISATION AND ITS FREQUENCY GO IN ONE JOB.** `! OptTS Freq` (and
+`! Opt Freq` for a minimum) runs the frequency at the converged geometry, in the
+same job and the same `.out` — no geometry file to carry across, and ORCA
+refuses to run the frequency if the geometry did not converge (`As a subsequent
+Frequencies calculation has been requested / ORCA will abort at this point of
+the run`). This is not cosmetic. On this date a hand-copied `NumFreq` was
+launched from the wrong working directory and silently became a re-run of the
+*previous* step; the geometry it was meant to check was never touched and
+produced no `.out` at all, and nothing in a two-job split can catch that.
+`Calc_Hess true` still supplies the seed Hessian `OptTS` needs and the trailing
+`Freq` recomputes it — two Hessians, exactly the two-job split's cost. Recorded
+in the Conventions, in the run-orca skill, and in the skill's conventions table.
+
+**`TightOpt` is required for a barrier — and it identified a bad optimisation.**
+The default `OptTS` tolerance leaves the gradients near 1e-4 Eh/bohr, and the
+ZPE and G are read off the Hessian at that point, so under-convergence hides in
+the thermochemistry rather than in `E`. Re-running the TS as
+`! OptTS Freq TightOpt` (41 cycles, 9 min 15 s, thresholds `TolRMSG 3.0e-5` /
+`TolMAXG 1.0e-4` Eh/bohr from the job's own output) gives
+E = −797.138685 Eh, ZPE = 0.129941, G(298.15) = −797.042444, imaginary mode
+−369.0 cm⁻¹ — **agreeing with the default-tolerance single-job run to
+0.09 kJ/mol on G** (0.02 on ZPE). The two-job result is the outlier: its lowest
+real modes are 49.0 and 91.1 cm⁻¹ against 130.4 and 147.2, and its G differs by
+30 kJ/mol, all of it in the ZPE. So the "30 kJ/mol systematic" flagged when the
+two-job number was read was not a tolerance artefact at all — it was one
+optimisation that had converged to a different low-frequency well. The
+`TightOpt` run is canonical; `optts_freq/` agrees with it and `optts/` +
+`optts_numfreq/` are superseded.
+
+**And the relaxed scan is not the route to a B97-3c TS.** Four constrained
+attempts had already failed by the 2026-09-21 entry; the working `ActiveAtoms`
+scan then died at the end of step 1 with the same `ERROR (SHARK): Failed to read
+input file (job.SHARKINP.tmp)` that killed the first full-host scan (411 cycles)
+— disk not full, geometry files written anyway — so the crash is in ORCA's
+scan/numerical-Hessian machinery, not in the freeze. The seed was good enough
+for `OptTS` without a scan, which is simpler and is what was used.
+
+### 2026-09-21 — to freeze part of a QM/XTB system, use `%qmmm ActiveAtoms`, NOT `%geom Constraints`
+
+Four attempts to optimise the QM region with the 120-atom host frozen failed —
+251, 411, then 225 cycles without converging, and the failed PC optimisation
+before them (420 cycles, ring broke). The cause was the MECHANISM, and ORCA's
+own setup output says so. With `%geom Constraints { C ... C }` on the host:
+
+    optimized atoms = activeRegion ... 137      <- ALL 137 atoms optimised
+    Active atoms                   ... All atoms
+    activeRegion                   ... NO
+    Choice of coordinates  ... (2022) Redundant Internals
+
+The constraints only PIN the host; ORCA still carries every atom through the
+step, the Hessian and the convergence test, in a 2022-dimensional redundant-
+internal set. So the free QM-region coordinates converge (RMS 2.9e-4, inside
+even the tight target) while the pinned host's do not (RMS 0.16, MAX 0.69), and
+the convergence criterion can never be met — no tolerance helps, because the
+failing coordinates are the ones we deliberately held. Cartesian constraints
+belong to a Cartesian optimisation; bolted onto a redundant-internal QM/MM run
+they misbehave.
+
+**The native tool is the QM/MM active region.** `%qmmm ActiveAtoms { ... } end`
+with `ExtendActiveRegion no` gives, on the same system:
+
+    activeRegion                   ... YES
+    optimized atoms = activeRegion ... 17
+    Active atoms                   ...  61  64 120 121 122 124 125 126 128 129 ...
+
+ORCA's own QM/MM optimizer then holds everything else. The knock-on is not just
+convergence: the numerical Hessian drops from **409 displacements to 49**,
+because only the active atoms are differentiated — roughly an order of magnitude
+cheaper for the same job. Any future "optimise the QM region with the MM region
+frozen" must use `ActiveAtoms`; `%geom` constraints are the wrong layer.
+
+### 2026-09-21 — the project's geometry method becomes B97-3c/XTB; the embedded single point becomes the only route
+
+Two conventions changed, on the three-arm test above and the embedded-route
+finding:
+
+1. **Geometry / TS / Hessian: `! QM/XTB B97-3c ddCOSMO(Water)`** (was
+   r2SCAN-3c). B97-3c was ~21% cheaper per atom, the only arm that converged to
+   a clean minimum, and the method the earlier oniom work used for its 23-atom
+   region. The saving is real but modest, and the Conventions now say plainly
+   that it does **not** make a much larger QM region affordable.
+2. **The DLPNO-CCSD(T) single point is ALWAYS embedded** — run as the QM1 of a
+   second QM/XTB job on the whole system,
+   `! QM/XTB DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C ddCOSMO(Water)`. A correction
+   from an extracted `job.QMRegion.xyz` in `CPCM` is retired: the embedding is
+   the point, and the two differ by 6.4 kJ/mol on the C8 RC and 5–7 kJ/mol on
+   the barrier.
+
+Updated for this: `COMPUTATIONAL.md` (Conventions and the layout line), the
+`run-orca` skill (conventions table and the composite-energy section), and
+`PLAN_C7_INDUCTION.md` (§3.1–3.2 and Task 3).
+
+One thing is deliberately left **OPEN** rather than papered over: a host-free
+species (C1's small molecules, C9's `H₂O₂ + HPO₄²⁻`) has no QM2 to embed in, so
+its single point reduces to plain DLPNO + CPCM. Whether those tasks get a host
+model or keep the plain route is undecided, and both documents say so.
+
+**Consequence, NOT yet discharged:** every C8 number now on file is an
+r2SCAN-3c-geometry result — the verified TS (−576.3 cm⁻¹), the `displace_minus`
+RC, and ΔG‡ = 59.5–60.3 kJ/mol. The three-arm test showed the r2SCAN-3c RC is a
+*saddle* at B97-3c (−65.33 cm⁻¹), so the surfaces genuinely differ and those
+numbers are **superseded, not merely kept**. Re-running RC, TS and PC at B97-3c
+is outstanding work, not a formality.
+
+### 2026-09-21 — the three-arm comparison: B97-3c is the cheapest AND the cleanest, but ~20% is not enough
+
+All three on the reduced RC seed (137 atoms, 17-atom QM region, GFN-FF,
+ddCOSMO(Water)); only the QM1 method differs.
+
+| arm | atoms | cpu_seconds | per atom | wall | imaginary modes |
+|---|---|---|---|---|---|
+| r2SCAN-3c (seed only) | 140 | 4546 (1.26 h) | 32.5 | 1:15:55 | −65.33, −19.67 (saddle) |
+| PBEh-3c | 137 | 5051 (1.40 h) | 36.9 | 1:25:01 | −39.74, −15.21 |
+| **B97-3c** | 137 | **3520 (0.98 h)** | **25.7** | **0:59:50** | **none** |
+
+**B97-3c is the cheap one**: ~21% less CPU per atom than r2SCAN-3c and ~30% less
+than PBEh-3c. It is also the only arm that converged to a genuine **minimum with
+no imaginary mode at all** — no "ignoring N under 50 cm⁻¹" clause.
+
+Geometry (old atom names; `new(old) = old − #{131,132,139 < old}`):
+
+| pair | seed | PBEh-3c | B97-3c |
+|---|---|---|---|
+| C129=O130 (ketone) | 1.225 | 1.212 | 1.232 |
+| O136···C129 | 2.920 | 3.832 | 3.098 |
+| O136–O137 | 1.464 | 1.411 | 1.459 |
+| O130···H133 | 3.125 | 2.069 | 2.052 |
+
+RMSD: PBEh-3c↔seed 0.502 Å, B97-3c↔seed 0.348 Å, B97-3c↔PBEh-3c 0.280 Å. So
+B97-3c sits between the seed and PBEh-3c, moving the peroxide off the carbonyl
+far less (2.92 → 3.10, against PBEh-3c's → 3.83).
+
+**One real consequence of the water removal, visible in all three:**
+O130···H133 collapses from 3.125 to ~2.05 Å. Dropping water1 (whose H131 was the
+ketone-O H-bond donor) lets water2's H133 swing in and take that role. The
+reduced system is therefore not simply "the same complex minus one water" — it
+re-forms the H-bond network around the remaining water.
+
+**And the affordability answer is no.** B97-3c saves ~21% per atom, which is real
+but small. Growing the QM region enough to carry the product's ring bridge would
+cost a multiple of the present QM1 work, so a 21% saving does not buy it. If the
+enlarged region is genuinely needed, the QM1 has to get much cheaper (HF-3c,
+MINIS basis; or xtb) or the strategy has to change — B97-3c alone does not
+close that gap.
+
+### 2026-09-20 — PBEh-3c: good geometry, but NOT cheaper than r2SCAN-3c; B97-3c launched
+
+The reduced RC (137 atoms) was optimised with `! QM/XTB PBEh-3c ddCOSMO(Water)
+opt freq` — the manual's geometry recommendation. It converged (RMS 5.1e-6, MAX
+5.1e-5, 70 cycles) and terminated normally in **1 h 25 m**.
+
+**It fails the cost test.** Like-for-like against the r2SCAN-3c RC:
+
+| arm | atoms | cpu_seconds | wall |
+|---|---|---|---|
+| PBEh-3c | 137 | 5051 (1.40 h) | 1:25:01 |
+| r2SCAN-3c | 140 | 4546 (1.26 h) | 1:15:55 |
+
+PBEh-3c costs ~11% MORE CPU on 3 fewer atoms — the 42% Fock exchange eats the
+smaller (def2-mSVP) basis, exactly as the manual's ambiguous ordering warned
+(HF-3c < B97-3c < PBEh-3c, with no clear placement of PBEh-3c against
+r2SCAN-3c). **So PBEh-3c is not the lever for affording a larger QM region.**
+
+**It converged to a genuinely different minimum.** RMSD from the seed 0.502 Å,
+and the change is chemical:
+
+| distance | seed | PBEh-3c |
+|---|---|---|
+| C129=O130 (ketone) | 1.225 | 1.212 |
+| O136···C129 (peroxide to carbonyl) | 2.920 | **3.832** |
+| O136–O137 (O–O) | 1.464 | 1.411 |
+| O130···H133 (water2 to ketone O) | 3.125 | **2.069** |
+
+The peroxide pulls ~0.9 Å off the carbonyl and water2's H133 swings in to
+H-bond the ketone O. Several FRAMEWORK atoms move >1 Å (C55 1.05, O61 1.24,
+H110 1.53, H117 1.41) — a lot for a rigid host, and a sign of a flat surface
+with several nearby basins. Modes: two imaginary, both under the 50 cm⁻¹ cutoff
+(−39.74, −15.21), so a "minimum" by the rule; the seed's −65.33 (above cutoff)
+is gone, so the one real saddle was resolved.
+
+**B97-3c launched** on the same seed, system and QM region
+(`geometry_b973c-xtb/rc/`) — the remaining cheap candidate (plain GGA on
+def2-mTZVP), and the method the earlier oniom work used for its 23-atom region.
+It gives the third cost point and a third geometry for the comparison.
+
+### 2026-09-20 — the spectator water identified and dropped; PBEh-3c adopted for the geometry tier
+
+**The TS's H-bond chain settles which water is which.** Measured on the verified
+TS geometry:
+
+    O136-H135 ... O134(water2) -> O132(water1) -> O130(ketone O)
+      1.129            1.307          1.897          1.822
+
+H135 — the peroxide proton — sits 1.307 Å from O134, i.e. delivered to
+**water2**; H133 (on O134) H-bonds to O132; H131 (on O132) H-bonds to the ketone
+O. The IRC showed H131 never moving in either direction. So the spectator is
+**water1 = O132 + H131 + H139**, and the reduced system is the RC with those
+three atoms removed: **137 atoms**, QM region of 17 (0-based
+`{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}`), written
+to `geometry_r2scan3c-xtb/rc_reduced/job.xyz`.
+
+**Why the reduction.** The product makes a new bond ACROSS the QM/QM2 boundary,
+so the QM region has to grow to carry the complete bridge across the ring — and
+at r2SCAN-3c that is not affordable. Dropping the non-participating water buys
+three atoms back.
+
+**Method: PBEh-3c**, adopted on the ORCA manual's geometry recommendation —
+"highly efficient ... performing particularly well in the optimization of
+geometries", and "much better geometries [than HF-3c] ... roughly of
+MP2-quality". `geometry_pbeh3c-xtb/rc/` is that job: the reduced system, the
+same QM region and GFN-FF topology as the r2SCAN-3c tier, so the only change is
+the QM1 method.
+
+**The A/B was started and then abandoned.** `geometry_r2scan3c-xtb/rc_reduced/`
+and `geometry_b973c-xtb/rc/` hold the two arms (r2SCAN-3c reference vs B97-3c),
+both killed part-way through their initial Hessians when PBEh-3c was chosen.
+They are kept for the wall-time comparison if it is wanted. The cost question
+they were to answer is now **open**, and the manual's ordering (HF-3c < B97-3c <
+PBEh-3c, with no clear placement of PBEh-3c against r2SCAN-3c) means PBEh-3c is
+not automatically the cheaper method. The wall time of `geometry_pbeh3c-xtb/rc/`
+is the number that settles it.
+
+Also recorded: the two `not implemented` warnings ORCA prints for this job are
+benign and method-independent — `QMMM chosen together with analytic frequencies
+/ analytical Hessian ... Switching to numerical`.
+
+### 2026-09-20 — the PC optimisation FAILED: it never converged and the ring opened
+
+`geometry_r2scan3c-xtb/pc/`, seeded from the IRC product endpoint
+(`irc/job_IRC_B.xyz`), `opt freq` at the 20-atom region. Ran **5 h 12 min**,
+terminated normally — and is **unusable**:
+
+- **It did not converge.** It reached the maximum number of optimisation cycles
+  (420) and ORCA then refused the frequency:
+  `The optimization did not converge but reached the maximum number of
+  optimization cycles. As a subsequent Frequencies calculation has been
+  requested ORCA will abort at this point of the run.`
+  So there is **no G(PC)** from it — C8's ΔG° gate and the reverse barrier stay
+  blocked.
+- **The geometry collapsed.** The C129–C121 bond broke during the optimisation:
+  **1.549 Å in the seed → 5.822 Å** in the result, i.e. the dialkoxy ring
+  opened. `job.xyz`'s C129 then has only O130 (1.170), O136 (1.301) and C125
+  (1.568) within 1.9 Å. O134 carries three H at 0.78–0.79 Å (a hydronium).
+- **The energy fell ~0.6 Eh** (−873.77 at cycle 1 → −874.37 at the end), far
+  more than any conformational change — consistent with a rearrangement, not a
+  relaxation.
+
+So relaxing the stretched IRC endpoint unconstrained does not give the
+perhydrate: the PES prefers to open the ring and move the proton onto a water.
+Whether that means KP is not a minimum at this tier, or only that this seed was
+too distorted, is open. Re-seeding is the next thing to try — a constrained
+relaxation that holds C129–C121, or finishing the IRC properly
+(`Direction down`, larger `MaxIter`) and optimising a genuine product minimum —
+rather than relaxing a stretched endpoint unconstrained.
+
+### 2026-09-20 — the TS IRC: the coordinate is the C-O bond and H135, not the water relay
+
+`geometry_r2scan3c-xtb/irc/`, from the verified TS geometry (md5
+fb47acb010589f690425efa03e53a441). Same tier and solvent as the
+geometry/frequency runs. `InitHess` left at ORCA's default, so a fresh numerical
+Hessian is built rather than reading the crashed `.hess`. Ran **34 min 54 s**,
+terminated normally.
+
+**It did NOT converge.** `MAXIMUM NUMBER OF ITERATIONS REACHED - STOPPING IRC
+RUN` appears **twice** — both directions hit `MaxIter 20` without reaching a
+minimum. So it does not yet demonstrate that the TS connects reactant to
+product; it is a truncated path, not a finished one.
+
+What it does establish, and what it corrects:
+
+- **The coordinate is the C129-O136 bond**, not the proton relay. O136···C129
+  runs 1.547 Å (product branch) ↔ 1.883 Å (reactant branch) through the TS's
+  1.820 Å. On the product branch C129=O130 weakens 1.265 → 1.319 Å.
+- **The proton that moves is H135**, the one on the attacking peroxide oxygen.
+  It stretches off O136: 1.129 Å at the TS, 1.501 Å at the product endpoint,
+  where it sits nearest O134. On the **verified** Hessian the imaginary mode
+  agrees — mode 6 at −576 cm⁻¹ is dominated by **H135 (1.280 Å)**, then C129
+  (0.257), H133 (0.225), H139 (0.185), O136 (0.181).
+- **H131 is a spectator.** It stays on water1 (O132) at ~0.98 Å in every IRC
+  frame, in both directions. **This corrects the earlier reading of this TS as a
+  "Grotthuss relay through water1"** (the folder's original label): the earlier
+  0.613 Å-atom-131 figure was the RC's **−313 cm⁻¹** mode — a different
+  structure and a different mode, not this TS's imaginary mode.
+- **The reactant branch stalled.** O136···C129 only moved 1.820 → 1.883 and the
+  energy plateaued at −873.742063 Eh, which is **2.25 mEh ABOVE the TS**
+  (−873.744316) — so within 20 steps the forward branch did not descend below
+  the saddle at all, and the connection to the reactant is unproven. The product
+  branch descended properly (23 mEh below the TS at the endpoint).
+
+Follow-up launched: `geometry_r2scan3c-xtb/pc/`, seeded from the product-side
+endpoint (`job_IRC_B.xyz`), `opt freq` at the same 20-atom region — to give the
+missing G(PC). A restart of the reactant branch (`Direction down`, larger
+`MaxIter`) is the documented way to finish the unconverged direction.
+
+### 2026-09-20 — OPI-driven prototype of the same two steps, and why it is the better fit
+
+Same cheap bench (water dimer, QM region = one water; driver
+`/tmp/opencode/orca_probe/opi_workflow.py`), two steps driven from Python with
+OPI's `Calculator`:
+
+1. `! qm/xtb r2scan-3c opt freq tightscf` with
+   `BlockQmmm(qmatoms=IntGroupEnd(values=[0,1,2]), charge_total=0, mult_total=1,
+   autoff_qm2_method="gfnff")`.
+2. `! qm/xtb dlpno-ccsd(t) def2-tzvpp def2-tzvpp/c tightscf`, the SAME block
+   repeated, on step 1's geometry.
+
+Against the Compound probe on the identical system:
+
+| | Compound | OPI-driven |
+|---|---|---|
+| step 1 E / Eh | −81.500312 | −81.500312 |
+| step 1 G(298.15) / Eh | −81.480860 | −81.480861 |
+| step 2 E / Eh | −81.418060 | −81.418060 |
+| composite G / Eh | −81.398608 | −81.398609 |
+
+They agree to ~1e-6 Eh (0.003 kJ/mol) — two independent ORCA runs of the same
+thing, not a difference of method.
+
+**A finding that decides the hand-off:** for a QM/XTB job the property JSON
+carries only the **QM-region** geometry — `geometries[-1].geometry` reports
+natoms 3 while `calculation_info.numofatoms` says 6 — so OPI cannot hand you the
+full system. The full geometry has to come from the `.xyz` ORCA writes for the
+job: per-directory, programmatically read, and not a hand-managed file.
+
+**Recommendation: the OPI-driven route.** No new reader is needed — each step
+has its own `.out`, so `load_job` works and `composite_free_energy_eh` stays the
+single home of the arithmetic — the geometry hand-off is programmatic, and the
+inputs are built from OPI's typed keywords. Compound's one real advantage
+(geometry inheritance) is matched here, and its costs are worse for this repo:
+`%qmmm` silently does not inherit (MM-only, E = 0.0, normal termination), its
+steps have no `.out` so `load_job` cannot read them and `terminated_normally()`
+returns False, and it puts the workflow in a second place nothing gates.
+
+### 2026-09-20 — Compound prototype: what ORCA's own workflow tool does and does not inherit
+
+Bench probe (`/tmp`, water dimer, QM region = one water, so the whole prototype
+is ~100 s) of the shape we actually need — geometry tier `Opt Freq`, then
+DLPNO-CCSD(T) as the QM1 single point, then the composite. What it establishes:
+
+- **`%Compound` works in ORCA 6.1.1** and runs both steps from one input. Each
+  step writes the input ORCA actually ran, `job_Compound_<n>.inp`, and — with
+  `%base "stepN"` and `%output jsonpropfile true end` **inside the step** —
+  `stepN.property.json` / `stepN.property.txt`.
+- **The GEOMETRY inherits across steps.** Step 2 ran on step 1's optimised
+  geometry, to the printed precision, in both a plain and a QM/XTB compound.
+  That is the whole provenance gain: there is no geometry file to copy and so
+  nothing to poison, and the failure that cost us `energy_qm1_dlpno/ts/job.xyz`
+  today cannot happen in this shape.
+- **The `%qmmm` BLOCK DOES NOT INHERIT, and failing to repeat it is SILENT.** A
+  step with no `%qmmm` block printed `No QM2 atoms in system. Switching to QMMM
+  only calculation.` then `No QM atoms in system. Switching to MM only
+  calculation.`, ran as **pure MM**, and `get_final_energy()` read **0.0** —
+  while still terminating NORMALLY. So every step must repeat its QM region, and
+  a compound script needs a per-step assertion that it really is a QM/XTB step.
+  This is a new silent-wrong-answer trap and the reason the QM region cannot be
+  specified once.
+- **The `%qmmm` block is passed through verbatim**, so it must be the working
+  form exactly: `QMATOMS {…}` needs its own `END` before `Charge_total`, or
+  ORCA dies with `Error in [QMMM] block - Scan QM atoms - Line 6
+  (CHARGE_TOTAL)`.
+- **OPI reads a Compound step that has no `.out`.** `Output(basename="stepN",
+  working_dir=…)` + `parse(read_gbw_json=False)` works, and the thermochemistry
+  is at `geometries[-1].thermochemistry_energies[0]` (`freeenergyg`), matching
+  ORCA's printed `Final Gibbs free energy`. `orca_io.load_job` cannot load such a
+  step — it demands `<basename>.out`.
+- **`terminated_normally()` / `scf_converged()` return False without a `.out`**
+  — the trap this module exists for — while the property JSON's
+  `Calculation_Status.status` reads `NORMAL TERMINATION`. A step loader has to
+  validate from the JSON, not from OPI's status calls.
+
+Prototype number (water dimer, deliberately not a project target): step 1
+`QM/XTB r2SCAN-3c Opt Freq` E = −81.500312, G(298.15) = −81.480860 Eh; step 2
+`QM1 = DLPNO-CCSD(T)` E = −81.418060 Eh; composite
+`G = G_step1 + (E2 − E1)` = −81.398608 Eh. The combination is exactly the
+formula already in `orca_io.composite_free_energy_eh` — nothing new is needed
+for the arithmetic, only for the reading.
+
+**To adopt (superseded the same day by the OPI-driven route above, which is what
+we took):** an `orca_io` loader for Compound steps (JSON-only, status from
+`Calculation_Status`), a per-step QM-region assertion, and then one compound
+input per species (RC, TS, PC).
+
+### 2026-09-20 — DLPNO-CCSD(T) can be the QM1 method directly in QM/XTB, and it moves the barrier
+
+**It can, and it is the more complete route.** `! QM/XTB DLPNO-CCSD(T)
+def2-TZVPP def2-TZVPP/C ddCOSMO(Water) TightSCF` runs unchanged (ORCA 6.1 manual
+6.1.1: multiscale single points accept "all kinds of available electronic
+structure methods as QM method"). ORCA reports `Embedding Scheme ...
+electrostatic`, `Charge alteration scheme ... Charge shifting`, `Point charges in
+QM calc. from MM atoms ... 120` and 6217 ddCOSMO surface charges — so the
+high-level energy sees the cyclodextrin's own embedded QM2 charges, which the
+post-hoc fragment correction cannot, because its fragment is isolated (CPCM
+only) and ~9.7 Å of host is replaced by continuum. No `job.QMRegion.xyz`
+extraction and no geometry-freshness trap; one job, **4 min 25 s** (the fragment
+*pair* took ~6 min).
+
+Pilot on C8 item 1, TS and both RCs (`energy_qm1_dlpno/`). The "correction" is
+the QM1 level change, `E(QM1=DLPNO) − E(QM1=r2SCAN-3c)`, both QM/QM2 totals:
+
+| species | post-hoc (isolated, CPCM) /kJ | direct (embedded) /kJ | diff |
+|---|---|---|---|
+| TS | 2068.15 | 2067.12 | −1.0 |
+| RC `displace_plus` | 2045.72 | 2039.34 | −6.4 |
+| RC `displace_minus` | 2045.68 | 2037.81 | −7.9 |
+
+The host stabilises the **RC more than the TS**, so the barrier rises:
+
+    ΔG‡ post-hoc 54.9 (plus) / 52.7 (minus)  →  direct 60.3 / 59.5 kJ/mol
+
+a **+5.4 to +6.8 kJ/mol** move — larger than C8's own 4 kJ/mol target window.
+The H131-rotamer spread grows from 0.04 to 1.5 kJ/mol, still inside it.
+
+**Caveat, not resolved.** The direct route also swaps the continuum model
+(ddCOSMO on the whole 140-atom system vs CPCM on the isolated fragment), and its
+cavity is the *host's*. The shift therefore mixes "the host's point charges
+polarise the QM1" with "a different continuum cavity". Rerunning the fragment in
+ddCOSMO does not isolate them, because its cavity would still be the bare
+fragment's. **Pick one route and use it for the whole register** — do not mix the
+two — and say which when a C7–C10 number is quoted.
+
+**Adopted the same day.** `energy_qm1_dlpno/` is now the energy tier for C8 (and
+the pattern for C7/C10); `energy_dlpno-ccsdt/` is kept as the fragment-route
+comparison for the isolated-species tasks. Nothing new was needed in the reader:
+the two routes are the same two calls, so the pair added for the direct route
+(`qm1_level_correction_eh`, `direct_free_energy_eh`) was **withdrawn the same day
+as a synonym** — `direct_free_energy_eh(low, high, T)` is exactly
+`composite_free_energy_eh(low, T, high, low)` — and
+`orca_io.composite_free_energy_eh` now documents both call patterns. The
+duplicate was found by asking what the direct route actually computes, not by a
+test. `test_orca_io.py` pins both routes and their disagreement. The gate's C8
+fixture moved with the RC: it now points at `rc/displace_minus` (total
+`-873.7566473144415`), because the re-run replaced the old 12-atom `rc/job.out`
+the constants used to describe.
+
+### 2026-09-20 — the re-run RC converged to a saddle; displaced re-minimisations running
+
+The 20-atom RC minimisation converged (61 cycles, gradients inside tolerance,
+terminated normally in 1 h 17 m) but the final frequency check makes it a
+**saddle**: one imaginary mode past the cutoff at **−313.5 cm⁻¹** (plus the
+usual −10.3 cm⁻¹ floppy noise), while the connectivity is still reactant-like
+(intact ketone C129=O130 1.226 Å, H₂O₂ not bonded — O136···C129 2.94 Å, H135
+still on O136). The BFGS/RFO minimisation slid onto a ridge and stopped there.
+
+`orca_pltvib rc/job.hess 6` gives that mode; its two extremes (frames 5 and 14,
+amplitude ±0.70) are the seeds for `rc/displace_plus/` and
+`rc/displace_minus/`, each a fresh 20-atom `opt freq`. Whichever returns with
+no imaginary mode past the cutoff is the RC minimum. **Both converged normally,
+and both are minima by the cutoff — but they are two conformers of the same
+pre-complex, not one.** `displace_minus` carries only **−16.3 cm⁻¹** (the floppy
+libration `orca_io` documents as noise) with G(298.15) = −872.775959 Eh;
+`displace_plus` carries **−49.8 cm⁻¹**, just inside the 50 cm⁻¹ cutoff and on a
+heavy-atom/water libration, with G(298.15) = −872.776846 Eh — **2.3 kJ/mol
+lower**. Both are reactant-like (ketone 1.225 Å, H₂O₂ intact, O136···C129
+2.92–3.05 Å); they differ almost entirely in H131 (O130···H131 2.14 Å in
+`displace_plus`, pre-organised towards the TS, against 2.60 Å in
+`displace_minus`). The −313 cm⁻¹ mode is gone from both. Against the verified TS
+(G(298.15) = −872.764465 Eh) that gives **ΔG‡ = 30.2 kJ/mol** with
+`displace_minus` and **32.5 kJ/mol** with `displace_plus`; the 2.3 kJ/mol spread
+is the H131-rotamer systematic and sits inside C8's own 4 kJ/mol window.
+
+**The composite barrier, computed the same day** (`energy_dlpno-ccsdt/`: the
+DLPNO-CCSD(T)/def2-TZVPP (+def2-TZVPP/C) and r2SCAN-3c single points on the
+22-atom `job.QMRegion.xyz` fragments, both CPCM(water), assembled with
+`orca_io.composite_free_energy_eh` at 298.15 K; inputs modelled on
+`K+peroxide+BnOH_bridged_UNIDENTIFIED/energy_dlpno-ccsdt/`):
+
+| species | G(QM/XTB)/Eh | DLPNO correction/kJ/mol | G(composite)/Eh |
+|---|---|---|---|
+| TS | −872.764465 | +2068.15 | −871.976748 |
+| RC `displace_plus` | −872.776846 | +2045.72 | −871.997675 |
+| RC `displace_minus` | −872.775959 | +2045.68 | −871.996803 |
+
+**ΔG‡ = 54.9 kJ/mol (13.1 kcal/mol)** with `displace_plus`, **52.7 kJ/mol
+(12.6 kcal/mol)** with `displace_minus`. The DLPNO correction is 22 kJ/mol
+larger on the TS than on the RC, so the final tier raises the barrier well above
+the 30–33 kJ/mol the geometry tier alone gave — the r2SCAN-3c//GFN-FF barrier is
+not the number to quote. The H131-rotamer spread survives essentially unchanged
+(−2.3 kJ/mol at both tiers), so it stays inside C8's 4 kJ/mol window and does
+not choose between the two RCs.
+
+Two traps recorded while setting this up:
+
+- **`geometry_r2scan3c-xtb/ts/job.xyz` is NOT the verified TS.** A crashed
+  OptTS attempt overwrote it (O136–C129 2.596 vs the verified 1.820 Å, RMSD
+  0.447 Å), and `ts/job.QMRegion.xyz` belongs to that bad geometry — verified
+  atom-by-atom (its O136–C129 is 2.596 Å). The verified geometry is
+  `ts/verify_exact_hessian/job.xyz`; its fragment was re-emitted by the
+  one-cycle opt in `ts/qmregion_extract/` (heaviest-atom mismatch 0.004 Å,
+  O136–C129 1.820 Å). A plain ORCA single point does **not** write
+  `job.QMRegion.xyz` — only an optimisation does.
+- The TS fragment's DLPNO energy (−647.148010 Eh) is 0.023 Eh above the RC's
+  (−647.171059 Eh), while at r2SCAN-3c the gap is only 0.0145 Eh — the whole
+  reason the composite barrier is larger than the geometry-tier one.
+
+Still missing for C8: **the product PC**, for which the TS must be followed
+along O136–C129 (IRC or relaxed scan) and re-minimised at 20 atoms (`opt freq`),
+and then the separated K + H₂O₂ reference if a binding free energy is wanted.
+
+One trap recorded: `orca_pltvib`'s frames carry element + xyz **plus three
+displacement columns**, and must be rewritten with element + xyz only. Fed
+as-is, ORCA misreads them and aborts with `Zero distance between atoms … in
+Cartesian2Internal` (a formatting artefact, not a real clash — the C–C pair it
+names is 1.54 Å apart).
+
+### 2026-09-19 — reactant re-run at the enlarged QM region; the C8 pipeline
+
+With the TS verified (one imaginary mode at −576.3 cm⁻¹), the reactant had to
+be brought to the same level: `rc/job.inp` still used the **12-atom** QM region
+(the carbonyl capped as H2C=O), while the TS uses **20 atoms**. The RC was
+re-run at 20 atoms, `AutoFF_QM2_Method GFNFF`, ddCOSMO(Water), `opt freq`,
+seeded from the converged 12-atom geometry (`rc/job.xyz`). The 12-atom input
+and its only surviving output (`job.property.json`) are kept in
+`rc/attempt1_qm12/`.
+
+Two things block a barrier from the existing files, both recorded here so they
+are not rediscovered:
+
+- **The old `pc/job.xyz` is not the relay product** — H131 is still on water1
+  (0.97 Å to O132) and H133 is mid-transfer, so relaxing it gives a different
+  species. The product must be obtained by following the TS (IRC, or a relaxed
+  scan along O136–C129) and then `opt freq` at 20 atoms.
+- **`rc/job.out`, and every other `job.out`, were deleted** in a home-directory
+  cleanup (2026-09-18/19). Only `job.property.json` survives for the old RC.
+
+Remaining pipeline for C8 ΔG‡/ΔG_rxn: (a) this RC re-run; (b) the product as
+above; (c) the composite energies — DLPNO-CCSD(T)/def2-TZVPP (+def2-TZVPP/C)
+and r2SCAN-3c single points on each species' QM-region fragment, assembled with
+`orca_io.composite_free_energy_eh`. The repo rule is explicit: the generic
+`reaction-kinetics` script refuses a composite, so the number comes from
+`orca_io`, not that skill's `compute_rate.py`.
 
 ### 2026-09-19 — the OptTS will not converge on this host; the NumFreq is the TS
 
