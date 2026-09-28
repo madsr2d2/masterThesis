@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .core.discovery import discover_jobs, relative_label
 from .core.job import Job
-from .core.liveness import running_orca_cwds
+from .core.liveness import lookup, make_probe, running_orca_cwds
 from .core.parser import JobState
 
 
@@ -20,20 +20,25 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     root = Path(argv[0] if argv else ".").resolve()
     running_cwds = running_orca_cwds()
+    probe = make_probe("auto")
+    snapshot = probe.snapshot()
     jobs = discover_jobs(root)
     print(f"discover_jobs found {len(jobs)} jobs under {root}\n")
     for job_dir, stem in jobs:
         job = Job(job_dir, stem, root)
-        job.refresh(running_cwds)
+        job.refresh(lookup(snapshot, probe, job_dir))
         state = job.state
         print(f"--- {relative_label(root, job_dir)} ({stem}) ---")
-        print(f"  status: {job.status.value}")
+        print(f"  status: {job.status.value}  (liveness: {job.liveness.source})")
+        for flag in job.flags:
+            print(f"  ! {flag.code}: {flag.message}")
         print(f"  bytes read: {state.offset}  cycle: {state.cycle}  "
               f"convergence steps: {len(state.convergence_history)}  "
               f"eigenvalue readings: {len(state.eigen_history)}")
         print(f"  final_energy: {state.final_energy} ({state.final_energy_label})  "
               f"n_imaginary: {state.n_imaginary}  wall_time_s: {state.wall_time_s}")
         print(f"  normal_completion: {state.normal_completion}  opt_converged: {state.opt_converged}  "
+              f"opt_maxiter_reached: {state.opt_maxiter_reached}  "
               f"qm2_errors: {state.qm2_error_count}  possibly_stalled: {state.possibly_stalled()}")
         print()
 
@@ -70,6 +75,10 @@ MARKER_CASES = [
      lambda s: s.normal_completion),
     ("      ***        THE OPTIMIZATION HAS CONVERGED     ***",
      lambda s: s.opt_converged),
+    ("       The optimization did not converge but reached the maximum ",
+     lambda s: s.opt_maxiter_reached),
+    ("       The optimization did not converge but reached the maximum number of",
+     lambda s: s.opt_maxiter_reached),
     ("                    *** OPTIMIZATION RUN DONE ***",
      lambda s: s.opt_converged),
     ("FINAL SINGLE POINT ENERGY      -647.909099472771",

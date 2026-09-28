@@ -1,6 +1,6 @@
 """One ORCA job as the monitor tracks it: its parsed output, its parsed
-input, and how it stands. No Textual here -- the TUI and the CLI hold the
-same objects."""
+input, how it stands and what about it needs attention. No Textual here --
+the TUI and the CLI hold the same objects."""
 from __future__ import annotations
 
 import threading
@@ -8,9 +8,10 @@ import time
 from pathlib import Path
 
 from .discovery import relative_label
+from .liveness import Liveness
 from .orca_input import JobInput, read_input
 from .parser import JobState, new_state, update_job
-from .status import Status, compute_status
+from .status import QUIET_AFTER_S, Flag, Status, attention, compute_status
 
 
 class Job:
@@ -18,6 +19,8 @@ class Job:
         self.state: JobState = new_state(job_dir, stem)
         self.label = label if label is not None else relative_label(root, job_dir)
         self.status: Status = Status.NOT_RUN
+        self.flags: list[Flag] = []
+        self.liveness: Liveness | None = None
         self.wall_time_s: float | None = None
         self.input: JobInput | None = None
         self._input_mtime: float | None = None
@@ -37,19 +40,25 @@ class Job:
     def inp_path(self) -> Path:
         return self.state.path / f"{self.state.stem}.inp"
 
-    def refresh(self, running_cwds: dict[Path, float]) -> None:
+    def refresh(
+        self, liveness: Liveness, now: float | None = None, quiet_after: float = QUIET_AFTER_S,
+    ) -> None:
+        """Read what the output gained since last time and re-derive the
+        status and flags. `liveness` is this job's entry from the refresh's
+        one probe snapshot (`liveness.lookup`)."""
+        now = time.time() if now is None else now
         with self.lock:
             self._read_input()
             update_job(self.state)
-            create_time = running_cwds.get(self.state.path.resolve())
-            is_running = create_time is not None
-            self.status = compute_status(self.state, is_running)
+            self.liveness = liveness
+            self.status = compute_status(self.state, liveness, now, quiet_after)
             if self.state.wall_time_s is not None:
                 self.wall_time_s = self.state.wall_time_s
-            elif is_running:
-                self.wall_time_s = time.time() - create_time
+            elif liveness.alive and liveness.since is not None:
+                self.wall_time_s = now - liveness.since
             else:
                 self.wall_time_s = None
+            self.flags = attention(self.state, self.input, self.status, now)
             self.parsed = True
 
     def pending_bytes(self) -> int:

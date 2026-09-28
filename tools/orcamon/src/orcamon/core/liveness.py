@@ -8,6 +8,8 @@ when it happens to be installed.
 from __future__ import annotations
 
 import os
+import shutil
+from dataclasses import dataclass
 from pathlib import Path
 
 _PROC = Path("/proc")
@@ -96,3 +98,82 @@ def _resolve(path: Path) -> Path:
         return path.resolve()
     except OSError:
         return path
+
+
+@dataclass
+class Liveness:
+    """What one source can say about whether a job is running.
+
+    `alive` is three-valued on purpose. A process table can say "not here",
+    but a login node cannot see a compute node's processes and a file's age
+    cannot see anything -- and a source that cannot tell must say None, so
+    that the status step never turns "I don't know" into "stopped"."""
+
+    alive: bool | None
+    source: str                 # "process" | "slurm" | "mtime"
+    since: float | None = None  # process/job start (epoch s), for wall time
+    queued: bool = False        # the scheduler has it pending
+    sched_id: str | None = None
+    note: str | None = None     # why the source could not decide, if it could not
+
+
+class LivenessProbe:
+    """One snapshot per refresh, keyed by resolved job directory; `default`
+    answers for a directory the snapshot does not mention."""
+
+    name = "?"
+
+    def snapshot(self, job_dirs: list[Path] | None = None) -> dict[Path, Liveness]:
+        raise NotImplementedError
+
+    def default(self, job_dir: Path) -> Liveness:
+        raise NotImplementedError
+
+
+class ProcessProbe(LivenessProbe):
+    """This machine's process table. A job directory with no `orca*` process
+    in it is not running -- on this machine, which is the only claim made."""
+
+    name = "process"
+
+    def snapshot(self, job_dirs=None):
+        return {cwd: Liveness(True, self.name, since=t) for cwd, t in running_orca_cwds().items()}
+
+    def default(self, job_dir):
+        return Liveness(False, self.name)
+
+
+class MtimeProbe(LivenessProbe):
+    """No process information at all -- a copied tree, a mounted remote
+    filesystem. It never says a job is dead; the status step reads the
+    output's age instead."""
+
+    name = "mtime"
+
+    def snapshot(self, job_dirs=None):
+        return {}
+
+    def default(self, job_dir):
+        return Liveness(None, self.name)
+
+
+# The extension point for schedulers: a name on the command line -> a probe.
+PROBES: dict[str, type[LivenessProbe]] = {
+    "process": ProcessProbe,
+    "mtime": MtimeProbe,
+}
+
+LIVENESS_MODES = ("auto", *PROBES)
+
+
+def make_probe(mode: str = "auto") -> LivenessProbe:
+    if mode == "auto":
+        mode = "slurm" if "slurm" in PROBES and shutil.which("squeue") else "process"
+    try:
+        return PROBES[mode]()
+    except KeyError:
+        raise ValueError(f"unknown liveness mode {mode!r}; one of {', '.join(LIVENESS_MODES)}") from None
+
+
+def lookup(snapshot: dict[Path, Liveness], probe: LivenessProbe, job_dir: Path) -> Liveness:
+    return snapshot.get(_resolve(job_dir)) or probe.default(job_dir)

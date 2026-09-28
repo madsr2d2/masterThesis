@@ -16,11 +16,13 @@ from textual_plotext import PlotextPlot
 from ..core.discovery import discover_jobs, short_label
 from ..core.geometry import camera_basis
 from ..core.job import Job
-from ..core.liveness import running_orca_cwds
+from ..core.liveness import lookup, make_probe
 from ..core.parser import TAIL_LINES, JobState
 from ..core.report import (
-    STATUS_STYLE, cycle_label, describe_point, geometry_shown, steps_text, summary_text,
+    FINISHED_WITH_FLAGS_STYLE, STATUS_STYLE, build_report, cycle_label, describe_point,
+    geometry_shown, render_markup, render_steps_markup, steps_rows,
 )
+from ..core.status import QUIET_AFTER_S, Status
 from ..core.units import EH_TO_KJ_PER_MOL, format_wall_time
 from . import herdr_graphics, kitty
 
@@ -677,6 +679,12 @@ class HerdrGeometryImage(RotatableGeometryImage):
             )
 
 
+def _status_style(job: Job) -> str:
+    if job.status is Status.FINISHED and job.flags:
+        return FINISHED_WITH_FLAGS_STYLE
+    return STATUS_STYLE[job.status]
+
+
 class MonitorApp(App):
     CSS = """
     Screen {
@@ -760,9 +768,11 @@ class MonitorApp(App):
         ("m", "toggle_maximize", "Maximize geometry"),
     ]
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, liveness: str = "auto", quiet_after: float = QUIET_AFTER_S):
         super().__init__()
         self.root = root.resolve()
+        self.probe = make_probe(liveness)
+        self.quiet_after = quiet_after
         self.jobs: list[Job] = []
         self.selected_label: str | None = None
         self.maximized = False
@@ -868,12 +878,12 @@ class MonitorApp(App):
         if not self._scan_lock.acquire(blocking=False):
             return  # a previous scan is still going; this tick can be skipped
         try:
-            running_cwds = running_orca_cwds()
+            snapshot = self.probe.snapshot()
             selected = self.selected_job()
             order = sorted(self.jobs, key=lambda j: (j is not selected, j.pending_bytes()))
             last_apply = time.monotonic()
             for job in order:
-                job.refresh(running_cwds)
+                job.refresh(lookup(snapshot, self.probe, job.state.path), quiet_after=self.quiet_after)
                 if time.monotonic() - last_apply >= PROGRESS_APPLY_S:
                     self.call_from_thread(self._apply_scan)
                     last_apply = time.monotonic()
@@ -889,8 +899,10 @@ class MonitorApp(App):
             neg_eig = "-"
             if job.state.eigen_history:
                 neg_eig = str(job.state.eigen_history[-1][1])
+            # A finished job with flags is marked, not shown as a plain
+            # success: the whole reason status was rewritten.
             cells = (
-                job.status.value,
+                job.status.value + (" !" if job.flags else ""),
                 cycle_label(job.state),
                 neg_eig,
                 format_wall_time(job.wall_time_s),
@@ -906,7 +918,7 @@ class MonitorApp(App):
             table.update_cell(
                 job.label,
                 "status",
-                Text(status, style=STATUS_STYLE[job.status]),
+                Text(status, style=_status_style(job)),
                 update_width=False,
             )
             table.update_cell(job.label, "cycle", cycle)
@@ -1005,8 +1017,8 @@ class MonitorApp(App):
             self._show_tail(tail, None)
             return
 
-        self._show_text(summary, summary_text(job))
-        self._show_text(convergence, steps_text(job.state))
+        self._show_text(summary, render_markup(build_report(job)))
+        self._show_text(convergence, render_steps_markup(steps_rows(job.state)))
         self._show_tail(tail, job)
 
     def _title_geometry(self, geometry, job: Job | None, point) -> None:

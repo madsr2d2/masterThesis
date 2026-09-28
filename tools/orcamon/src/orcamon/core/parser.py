@@ -24,6 +24,20 @@ _CRASH_RE = re.compile(
 )
 _NORMAL_DONE_RE = re.compile(r"ORCA TERMINATED NORMALLY")
 _OPT_DONE_RE = re.compile(r"OPTIMIZATION HAS CONVERGED|OPTIMIZATION RUN DONE")
+# ORCA wraps this sentence, and not always at the same word:
+#     The optimization did not converge but reached the maximum number of
+#     optimization cycles.
+# and
+#     The optimization did not converge but reached the maximum
+#     number of optimization cycles.
+# both occur in real outputs, so only the part before the first wrap point is
+# matched. The run then goes on -- to the next scan step, or to a requested
+# frequency calculation -- and can still end "ORCA TERMINATED NORMALLY".
+_OPT_MAXITER_RE = re.compile(r"The optimization did not converge but reached the maximum")
+# TODO: SCF non-convergence. No output in hand shows ORCA's exact wording for
+# an SCF that fails to converge (none exists in the tree this was written
+# against), and a marker guessed from memory would silently never fire. Add
+# it with a real sample and a MARKER_CASES row.
 # The label is optional. A multilayer run prints one line per sub-calculation
 # as well as the combined total, e.g. for QM/XTB, in this order:
 #     FINAL SINGLE POINT ENERGY (L-QM2)     -266.681990679470
@@ -85,6 +99,7 @@ _RARE_MARKERS_RE = re.compile(
     r"|FINAL SINGLE POINT ENERGY|TOTAL RUN TIME|RELAXED SURFACE SCAN STEP"
     r"|constrained geometry optimizations|to be scanned|Max\. no of cycles"
     r"|basis set information|utilizes the basis:"
+    r"|did not converge but reached the maximum"
 )
 _CONV_HINT_RE = re.compile(r"gradient|step|Energy change")
 
@@ -145,6 +160,9 @@ class GeometryStep:
     max_step: float | None = None
     max_step_tol: float | None = None
     max_step_conv: bool | None = None
+    # The optimizer's "Hessian has N negative eigenvalues" for this cycle,
+    # printed before its convergence table; None where it printed none.
+    neg_eig: int | None = None
 
 
 @dataclass
@@ -197,11 +215,27 @@ class JobState:
     crash_lines: deque = field(default_factory=lambda: deque(maxlen=10))
     normal_completion: bool = False
     opt_converged: bool = False
+    # "did not converge but reached the maximum number of optimization
+    # cycles". A scan says it per step and carries on, so the steps it was
+    # said for are kept too.
+    opt_maxiter_reached: bool = False
+    maxiter_scan_steps: list = field(default_factory=list)
     final_energy: float | None = None
     final_energy_label: str | None = None
     # Every imaginary frequency (cm**-1, negative) of the LAST frequency block
     # printed, in the order printed; None until a block has been read.
     imaginary_freqs: list | None = None
+    # EVERY frequency of that block, in printed order -- the zero
+    # translations and rotations included, so a mode's index here is ORCA's.
+    frequencies: list | None = None
+    # Whether that block is the job's FINAL answer: read with no optimization
+    # under way (a plain Freq job) or after it ended. An OptTS with
+    # Calc_Hess/Recalc_Hess prints a full frequency block for every Hessian it
+    # computes, at geometries that are not stationary points -- a TS search's
+    # cycle-1 Hessian with three imaginary modes says nothing about the TS it
+    # will find. `freq_cycle` is the cycle such a block was computed at.
+    freqs_final: bool | None = None
+    freq_cycle: int | None = None
     wall_time_s: float | None = None
     tail: deque = field(default_factory=lambda: deque(maxlen=TAIL_LINES))
     # Monotonic count of lines ever fed. `tail` is a bounded deque, so it
@@ -232,6 +266,8 @@ class JobState:
     _in_scan_banner: bool = False
     _in_orbital_basis: bool = False
     _freq_imaginary: list = field(default_factory=list)
+    _freq_all: list = field(default_factory=list)
+    _pending_eig: int | None = None
 
     _IDENTITY_FIELDS = frozenset({"path", "stem", "has_out", "offset", "inode", "mtime"})
 
@@ -349,10 +385,12 @@ class JobState:
         m = _CYCLE_RE.search(line)
         if m:
             self.cycle = int(m.group(1))
+            self._pending_eig = None
 
         m = _EIGEN_RE.search(line)
         if m:
             self.eigen_history.append((self.cycle, int(m.group(1))))
+            self._pending_eig = int(m.group(1))
 
         if _QM2_ERROR_RE.search(line):
             self.qm2_error_count += 1
@@ -366,6 +404,11 @@ class JobState:
 
         if _OPT_DONE_RE.search(line):
             self.opt_converged = True
+
+        if _OPT_MAXITER_RE.search(line):
+            self.opt_maxiter_reached = True
+            if self.scan_step is not None and self.scan_step not in self.maxiter_scan_steps:
+                self.maxiter_scan_steps.append(self.scan_step)
 
         m = _FINAL_ENERGY_RE.search(line)
         if m:
@@ -443,11 +486,13 @@ class JobState:
         if _FREQ_HEADER_RE.match(stripped):
             self._in_freq_block = True
             self._freq_imaginary = []
+            self._freq_all = []
             self._freq_seen_line = False
         elif self._in_freq_block:
             m = _FREQ_LINE_RE.match(line)
             if m:
                 self._freq_seen_line = True
+                self._freq_all.append(float(m.group(1)))
                 if m.group(2):
                     self._freq_imaginary.append(float(m.group(1)))
             elif stripped == "":
@@ -462,6 +507,9 @@ class JobState:
             else:
                 self._in_freq_block = False
                 self.imaginary_freqs = self._freq_imaginary
+                self.frequencies = self._freq_all
+                self.freqs_final = self.cycle == 0 or self.opt_converged or self.opt_maxiter_reached
+                self.freq_cycle = None if self.freqs_final else self.cycle
 
         if _GEOM_HEADER_RE.match(stripped):
             self._in_geom_block = True
@@ -496,7 +544,8 @@ class JobState:
                 self._in_geom_block = False
 
     def _finish_step(self) -> None:
-        step = GeometryStep(cycle=self.cycle, scan_step=self.scan_step)
+        step = GeometryStep(cycle=self.cycle, scan_step=self.scan_step, neg_eig=self._pending_eig)
+        self._pending_eig = None
         for label, (value, tol, conv) in self._pending_step.items():
             _rx, value_attr, tol_attr, conv_attr = _CONV_ITEMS[label]
             setattr(step, value_attr, value)
