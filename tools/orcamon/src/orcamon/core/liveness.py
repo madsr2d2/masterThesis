@@ -180,10 +180,10 @@ class SlurmProbe(LivenessProbe):
     candidates under one working directory are left unmatched rather than
     guessed at, and say so (`note`).
 
-    A job directory SLURM does not mention is not declared dead outright: it
-    may be running on the login node itself, outside the scheduler. If its
-    output is fresher than QUIET_AFTER_S its liveness is unknown (None),
-    otherwise False."""
+    A job directory SLURM does not mention is looked up in this machine's
+    process table, since it may be running here outside the scheduler. If
+    no process is found either, its liveness is unknown (None) while its
+    output is fresher than QUIET_AFTER_S, and False after that."""
 
     name = "slurm"
     _cache: tuple[float, list] | None = None
@@ -241,6 +241,15 @@ class SlurmProbe(LivenessProbe):
             elif len(under) > 1:
                 for d in under:
                     self._ambiguous[d] = f"squeue workdir ambiguous: job {job_id}"
+        # A machine with SLURM installed can still run ORCA directly -- the
+        # login node, or a workstation whose queue is empty. `auto` picks
+        # this probe wherever squeue exists, and without this a job started
+        # by hand read as stopped once it had been quiet for --quiet-after,
+        # with its process alive.
+        for cwd, started in running_orca_cwds().items():
+            if cwd not in live:
+                live[cwd] = Liveness(True, "process", since=started)
+                self._ambiguous.pop(cwd, None)
         return live
 
     @classmethod

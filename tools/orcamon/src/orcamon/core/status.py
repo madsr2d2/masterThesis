@@ -99,7 +99,7 @@ class Flag:
 # Flag codes are part of the JSON contract (`orcamon ... --json`), in the order
 # they are reported.
 FLAG_CODES = (
-    "failed", "stopped", "stalled", "quiet", "opt_not_converged",
+    "failed", "stopped", "stalled", "quiet", "opt_not_converged", "scan_incomplete",
     "ts_hessian", "ts_imaginary", "minimum_imaginary", "qm2_errors",
 )
 
@@ -146,6 +146,13 @@ def attention(
     # ended, a final frequency block supersedes it -- but a search that ended
     # without one (MaxIter aborts the requested Freq) is still judged by it.
     hessian_speaks = status is not Status.FINISHED or not state.freqs_final
+    # A relaxed scan that terminated normally short of its last step.
+    # Failed and stopped jobs already say they ended early.
+    if (status is Status.FINISHED and state.scan_total
+            and (state.scan_step or 0) < state.scan_total):
+        flags.append(Flag("scan_incomplete",
+                          f"scan ended at step {state.scan_step or 0} of {state.scan_total}"))
+
     if is_ts and hessian_speaks and state.eigen_history:
         n = state.eigen_history[-1][1]
         if n != 1:

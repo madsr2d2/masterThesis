@@ -297,6 +297,9 @@ def test_a_job_argument_names_one_job():
         check("no match exits 2", code == 2 and "no job matches" in err, err)
         code, out, err = t.run("show", "ts/final")
         check("an exact label wins over the labels it is a substring of", code == 0, err)
+        code, out, err = t.run("show", "ts")
+        check("a directory holding no job of its own falls through to the label it is part of",
+              code == 0 and out.startswith("ts/final"), out + err)
         code, out, err = t.run("show", str(t.dirs["spaced"]))
         check("a directory with two jobs exits 2 naming both files",
               code == 2 and "opt.inp" in err and "freq.inp" in err, err)
@@ -470,6 +473,10 @@ def test_the_other_commands_answer_boundedly():
               and all("FINAL SINGLE" in line for line in out.strip().split("\n")), out)
         code, out, err = t.run("tail", "opt_done", "--grep", "(")
         check("a bad pattern is a usage error", code == 2, err)
+
+        code, out, err = t.run()
+        check("bare `orcamon` without a terminal points to the commands instead of hanging in the TUI",
+              code == 2 and "orcamon ls" in err, err)
 
 
 def test_a_cached_state_equals_a_fresh_parse():
@@ -769,6 +776,17 @@ def test_slurm_names_what_the_login_node_cannot_see():
             check("and, silent past --quiet-after, is stopped", job.get("status") == "stopped", f"{job}")
             job, _ = status("scan_running", ["--root", str(t.root), "--liveness", "process"])
             check("--liveness process ignores squeue", job.get("status") == "stopped" and job.get("sched_id") is None)
+            # A machine with SLURM installed can still run ORCA by hand: the
+            # local process table answers for what squeue does not mention.
+            real = liveness.running_orca_cwds
+            liveness.running_orca_cwds = lambda: {(t.root / "lonely").resolve(): _time.time() - 60}
+            try:
+                reset()
+                job, _ = status("lonely")
+                check("in slurm mode a local ORCA process still counts, quiet or not",
+                      job.get("status") == "running" and job.get("liveness_source") == "process", f"{job}")
+            finally:
+                liveness.running_orca_cwds = real
 
             reset()
             os.environ["FAKE_SQUEUE_EXIT"] = "1"
@@ -795,6 +813,160 @@ def test_squeue_lines_parse():
           == [("1", "RUNNING", Path("/w").resolve()), ("2", "PENDING", Path("/v").resolve())], f"{rows}")
     check("a start time is read, N/A is None", rows[0][3] is not None and rows[1][3] is None)
 
+
+# --- the shipped skill -------------------------------------------------------
+
+_SKILL_PLACEHOLDERS = {"JOB": "opt_done", "REGEX": "FINAL", "COND": "done"}
+_SHELL_OPERATORS = {">", ">>", "|", "&&", ";", "&", "2>&1"}
+
+
+def _skill_mentions(text):
+    """Every `orcamon <word>` the body uses as a command: inline in
+    backticks, or at the start of a line inside a fenced block."""
+    import re
+    inline = re.findall(r"`orcamon ([a-z][a-z-]*)", text)
+    fenced = []
+    in_block = False
+    for line in text.splitlines():
+        if line.startswith("```"):
+            in_block = not in_block
+            continue
+        m = re.match(r"\s*orcamon ([a-z][a-z-]*)", line) if in_block else None
+        if m:
+            fenced.append(m.group(1))
+    return set(inline) | set(fenced)
+
+
+def _skill_examples(text):
+    """(argv, expected exit) for every `orcamon ...` line in a fenced block.
+    A trailing `# exit N` states a non-zero exit; any other comment, and
+    anything after a shell operator, is not part of the command."""
+    import re
+    import shlex
+    found, in_block = [], False
+    for line in text.splitlines():
+        if line.startswith("```"):
+            in_block = not in_block
+            continue
+        if not in_block or not line.strip().startswith("orcamon "):
+            continue
+        command, _, comment = line.partition("#")
+        m = re.search(r"exit (\d+)", comment)
+        words = shlex.split(command)
+        cut = next((i for i, w in enumerate(words) if w in _SHELL_OPERATORS), len(words))
+        argv = [_SKILL_PLACEHOLDERS.get(w, w) for w in words[1:cut]]
+        found.append((line.strip(), argv, int(m.group(1)) if m else 0))
+    return found
+
+
+def test_the_skill_names_every_command():
+    print("\nthe skill names every command, and only commands that exist")
+    from orcamon.cli import build_parser, skill, subcommands
+    body = skill.body()
+    registered = set(subcommands(build_parser()))
+    mentioned = _skill_mentions(body)
+    check("every registered command appears in the hand-written body",
+          registered <= mentioned, f"missing {sorted(registered - mentioned)}")
+    check("every `orcamon <word>` in it is a registered command",
+          mentioned <= registered, f"unknown {sorted(mentioned - registered)}")
+
+
+def test_the_skill_examples_run():
+    print("\nevery example in the skill runs, with the exit code it states")
+    from orcamon.cli import skill
+    examples = _skill_examples(skill.body())
+    check("the skill has runnable examples", len(examples) >= 5, f"{len(examples)}")
+    with _Tree() as t:
+        # Only jobs with nothing wrong, so an example's exit states the
+        # command's behaviour rather than the tree's contents.
+        clean = t.root.parent / "clean"
+        clean.mkdir()
+        for name in ("opt_done", "scan_profile", "ts"):
+            os.rename(t.root / name, clean / name)
+        for line, argv, expected in examples:
+            try:
+                code, out, err = _orcamon(["--root", str(clean), "--liveness", "process", *argv])
+            except Exception as exc:  # noqa: BLE001 -- a raise is the failure being tested
+                check(f"`{line}` runs", False, repr(exc))
+                continue
+            check(f"`{line}` exits {expected}", code == expected, f"exit {code}: {(out + err)[:300]}")
+
+
+def test_the_skill_reference_matches_the_parser():
+    print("\nthe generated reference lists every command and every flag")
+    import argparse
+    from orcamon.cli import build_parser, skill, subcommands
+    parser = build_parser()
+    reference = skill.reference(parser)
+    missing = []
+    for name, sub in subcommands(parser).items():
+        if f"### orcamon {name}" not in reference:
+            missing.append(name)
+        for action in sub._actions:
+            if isinstance(action, argparse._HelpAction):
+                continue
+            for flag in action.option_strings:
+                if flag not in reference:
+                    missing.append(f"{name} {flag}")
+    for action in parser._actions:
+        for flag in action.option_strings:
+            if flag not in ("-h", "--help", "--version") and flag not in reference:
+                missing.append(flag)
+    check("nothing registered is missing from it", not missing, f"{missing}")
+    check("and it ends with the exit codes", "### Exit codes" in reference and "`4`: wait timed out" in reference)
+
+
+def test_skill_install_and_check():
+    print("\nskill install writes a stamped copy; --check says current, stale or absent")
+    import tempfile
+    from pathlib import Path
+    from orcamon import __version__
+    with tempfile.TemporaryDirectory() as tmp:
+        project = Path(tmp)
+        where = ["--project", str(project)]
+        path = project / ".claude" / "skills" / "orcamon" / "SKILL.md"
+        code, out, err = _orcamon(["skill", "--check", *where])
+        check("absent: --check exits 2", code == 2, out + err)
+        code, out, err = _orcamon(["skill", "install", *where])
+        check("install writes it and prints the path", code == 0 and out.strip() == str(path) and path.exists(),
+              out + err)
+        text = path.read_text()
+        check("with the version in its frontmatter",
+              text.startswith("---\nname: orcamon\n") and f"orcamon_version: {__version__}" in text.split("---")[1])
+        code, out, err = _orcamon(["skill"])
+        check("and otherwise exactly what `orcamon skill` prints",
+              text.replace(f"metadata:\n  orcamon_version: {__version__}\n", "") == out, "")
+        code, out, err = _orcamon(["skill", "--check", *where])
+        check("current: --check exits 0", code == 0, out + err)
+        path.write_text(text.replace("## Waiting", "## Waiting (edited)"))
+        code, out, err = _orcamon(["skill", "--check", *where])
+        check("edited: --check exits 1", code == 1 and "differs" in out, out)
+        path.write_text(text.replace(f"orcamon_version: {__version__}", "orcamon_version: 0.0.1"))
+        code, out, err = _orcamon(["skill", "--check", *where])
+        check("stale: --check exits 1 naming both versions",
+              code == 1 and f"installed skill is 0.0.1, orcamon is {__version__}" in out, out)
+        path.write_text("---\nname: my-own\n---\nmine\n")
+        code, out, err = _orcamon(["skill", "install", *where])
+        check("someone else's SKILL.md is not overwritten", code == 2 and path.read_text().endswith("mine\n"), err)
+        code, out, err = _orcamon(["skill", "install", "--force", *where])
+        check("unless --force", code == 0 and "orcamon_version" in path.read_text())
+
+
+def test_the_skill_is_general():
+    print("\nthe shipped skill says nothing about this repository")
+    from orcamon.cli import build_parser, skill
+    text = skill.full_text(build_parser())
+    deny = ("masterThesis", "computational/C", "C8_", "orca_io", "homelab")
+    found = [word for word in deny if word in text]
+    check("none of this repository's names or paths", not found, f"{found}")
+
+
+def test_this_repository_has_the_current_skill():
+    print("\nthis repository's installed copy is the one this orcamon prints")
+    code, out, err = _orcamon(["skill", "--check", "--project", HERE])
+    check("orcamon skill --check --project <repo> (run `orcamon skill install --project .` after an upgrade)",
+          code == 0, out + err)
+
 if __name__ == "__main__":
     test_the_core_needs_only_the_standard_library()
     test_a_job_argument_names_one_job()
@@ -811,6 +983,12 @@ if __name__ == "__main__":
     test_the_tui_runs_headless()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
+    test_the_skill_names_every_command()
+    test_the_skill_examples_run()
+    test_the_skill_reference_matches_the_parser()
+    test_skill_install_and_check()
+    test_the_skill_is_general()
+    test_this_repository_has_the_current_skill()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)

@@ -528,6 +528,13 @@ def test_attention_flags():
 
     check("qm2_errors", _codes(_fed(f"There was an error in the QM2 calculation\n{_TERMINATED}"), opt, gone)
           == ["qm2_errors"])
+    scan_head = "There will be   3 constrained geometry optimizations.\n"
+    step = "         *               RELAXED SURFACE SCAN STEP   {}               *\n"
+    short = _fed(scan_head + step.format(1) + _TERMINATED)
+    whole = _fed(scan_head + step.format(1) + step.format(2) + step.format(3) + _TERMINATED)
+    check("scan_incomplete: a scan that terminated normally short of its last step",
+          _codes(short, opt, gone) == ["scan_incomplete"], f"{_codes(short, opt, gone)}")
+    check("a scan that reached its last step has none", _codes(whole, opt, gone) == [])
     check("a clean finished optimization has no flags at all",
           _codes(_fed(f"      ***        THE OPTIMIZATION HAS CONVERGED     ***\n{_freq_block([0.0, 40.0])}\n{_TERMINATED}"),
                  opt, gone) == [])

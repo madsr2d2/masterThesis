@@ -18,7 +18,7 @@ import sys
 
 from ..core import liveness
 from ..core.status import QUIET_AFTER_S
-from . import commands
+from . import commands, skill
 
 TUI_MISSING = "the TUI needs the tui extra: uv tool install 'orcamon[tui]'"
 
@@ -154,7 +154,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="give up after S seconds, exit 4 (default: %(default)s, under a 10-minute tool ceiling)")
     _output(p)
 
-    commands.add_skill_parser(add)
+    skill.add_parser(add)
     return parser
 
 

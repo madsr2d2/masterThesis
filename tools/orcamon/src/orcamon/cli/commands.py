@@ -158,6 +158,11 @@ def add_tui_options(p) -> None:
 
 
 def cmd_tui(args) -> int:
+    # Bare `orcamon` is the TUI, and an agent or a script that types it has
+    # no terminal: Textual would hang or fail there. Say what to use instead.
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return _error("the TUI needs a terminal; from a script or an agent use "
+                      "`orcamon ls`, `orcamon show JOB` or `orcamon --help`")
     try:
         from ..tui.app import run
     except ImportError as exc:
@@ -799,9 +804,3 @@ def _wait_timeout(args, jobs, reports, use_cache) -> int:
     out.flush()
     return EXIT_TIMEOUT
 
-
-# --- skill ------------------------------------------------------------------
-
-
-def add_skill_parser(add) -> None:
-    """Registered by `skill.py` once it exists (Phase 7)."""

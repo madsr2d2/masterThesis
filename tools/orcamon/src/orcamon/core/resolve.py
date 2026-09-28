@@ -19,6 +19,10 @@ class ResolveError(Exception):
     and lists up to MAX_CANDIDATES of them."""
 
 
+class _NoJobHere(ResolveError):
+    """An existing directory with no job in it -- not yet a failure."""
+
+
 def _candidates(labels: list[str]) -> str:
     shown = "\n".join(f"  {label}" for label in labels[:MAX_CANDIDATES])
     more = len(labels) - MAX_CANDIDATES
@@ -27,10 +31,17 @@ def _candidates(labels: list[str]) -> str:
 
 def resolve(arg: str, root: Path, exclude=()) -> JobRef:
     root = root.resolve()
+    path_error = None
     for base in (Path.cwd(), root):
         path = (base / arg) if not Path(arg).is_absolute() else Path(arg)
         if path.exists():
-            return _from_path(path, root)
+            try:
+                return _from_path(path, root)
+            except _NoJobHere as exc:
+                # `ts` names a directory, but the job is `ts/final`: a label
+                # match can still find it, so try that before refusing.
+                path_error = str(exc)
+                break
 
     refs = discover(root, exclude)
     exact = [r for r in refs if r.label == arg]
@@ -40,7 +51,7 @@ def resolve(arg: str, root: Path, exclude=()) -> JobRef:
     if len(matches) == 1:
         return matches[0]
     if not matches:
-        raise ResolveError(f"no job matches {arg!r} under {root}")
+        raise ResolveError(path_error or f"no job matches {arg!r} under {root}")
     raise ResolveError(
         f"{arg!r} matches {len(matches)} jobs under {root}; name one:\n"
         + _candidates([r.label for r in matches])
@@ -58,7 +69,7 @@ def _from_path(path: Path, root: Path) -> JobRef:
         # A directory with an output but no input -- a copied result, say.
         stems = sorted(p.stem for p in path.glob("*.out"))
     if not stems:
-        raise ResolveError(f"no ORCA job (.inp or .out) in {path}")
+        raise _NoJobHere(f"no ORCA job (.inp or .out) in {path}")
     if len(stems) > 1:
         raise ResolveError(
             f"{path} holds {len(stems)} jobs; name the file instead:\n"

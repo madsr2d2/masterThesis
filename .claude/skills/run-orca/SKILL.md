@@ -149,12 +149,20 @@ overwriting `job.inp` in place.
 
 ## While a job runs
 
-orcamon (`tools/orcamon/`; `.venv/bin/orcamon tui computational/`) is the live view — it tails the `.out` incrementally
-for cycle count, gradient history, negative-eigenvalue count and stall
-detection. `orca_io` reads **finished** jobs and needs the property JSON, which
-is written at the end; the two do not overlap. Run
-`.venv/bin/python -m orcamon.validate computational/` to check the monitor's own
-parsing.
+Use the **orcamon** skill to check on a job or wait for one; its commands,
+flags and exit codes are documented there and nowhere else. Here the command
+is `.venv/bin/orcamon`, because the venv is not on PATH.
+`.venv/bin/orcamon tui computational/` is the live view for a person, and
+`.venv/bin/python -m orcamon.validate computational/` runs the parser over
+the real jobs in the tree.
+
+orcamon reads the live log, for monitoring and triage. `orca_io` reads
+**finished** jobs through the property JSON written at the end, and it is
+the only source for a number this thesis quotes. The two do not overlap.
+
+Running the monitor headless (Textual `run_test`, screenshots) needs
+`HERDR_ENV=0`: the process inherits the pane's herdr socket and would
+otherwise draw the molecule over the pane you are working in.
 
 Do not kill a running ORCA job on your own initiative.
 
