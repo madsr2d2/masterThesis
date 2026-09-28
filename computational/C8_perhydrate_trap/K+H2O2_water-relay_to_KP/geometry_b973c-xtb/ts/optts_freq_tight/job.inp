@@ -1,0 +1,42 @@
+# C8 reduced TS at TIGHT convergence: OptTS + Freq in one job, TightOpt.
+#
+# Same seed and same active-region freeze as ../optts_freq/, but with `TightOpt`.
+# The default OptTS tolerance leaves the gradients near 1e-4 Eh/bohr, and on a
+# frozen-host partial Hessian the floppy low modes are hypersensitive to that
+# residual: ../optts_freq/ and the two-job ../optts_numfreq/ agree to 0.03 kJ/mol
+# on E yet to ~30 kJ/mol on G, entirely through the ZPE (lowest real modes 137
+# cm-1 against 49 cm-1). TightOpt tightens the ORCA default about three-fold
+# (TolRMSG 1.0e-4 -> 3.0e-5, TolMAXG 3.0e-4 -> 1.0e-4 Eh/bohr), so the
+# stationary point, and the Hessian read off it, are better defined.
+#
+# MaxIter raised because the tighter criterion needs more cycles on a floppy
+# 17-active-atom region.
+! QM/XTB B97-3c ddCOSMO(Water) OptTS Freq TightOpt TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+ActiveAtoms
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+ExtendActiveRegion no
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  MaxIter 400
+  Calc_Hess true
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

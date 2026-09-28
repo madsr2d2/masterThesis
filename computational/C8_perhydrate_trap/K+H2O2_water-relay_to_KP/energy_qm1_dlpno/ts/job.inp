@@ -1,0 +1,42 @@
+# THE DIRECT ENERGY TIER, ADOPTED 2026-09-20 for the full-catalyst tasks
+# (C7, C8, C10): DLPNO-CCSD(T) run AS the QM1 method inside ORCA's QM/XTB, so
+# the high-level energy sees the cyclodextrin's embedded QM2 point charges.
+# It replaces the post-hoc fragment correction in energy_dlpno-ccsdt/, whose
+# fragment is isolated (CPCM only, no environment); the two differ by 5-7
+# kJ/mol on the C8 barrier. Isolated species (C1, C4-C6, C9) keep the fragment
+# route -- they have no host to embed in. See COMPUTATIONAL.md, Conventions.
+#
+# ORCA 6.1 manual 6.1.1: multiscale runs accept "all kinds of available
+# electronic structure methods as QM method" for single points, and 6.1.6 makes
+# the default embedding ELECTROSTATIC ("the electrostatic interaction between QM
+# and MM system is computed at the QM level ... the electron density is
+# automatically perturbed by the surrounding point charges"). So the QM1 should
+# be polarized by the framework.
+#
+# Geometry: the VERIFIED TS (../geometry_r2scan3c-xtb/ts/verify_exact_hessian/job.xyz,
+# one imaginary mode at -576.3 cm-1). Same 20-atom QM region, GFNFF topology and
+# charge 0 as the geometry tier, so the only change is the QM1 method and that
+# this is a single point on the full system (no fragment extraction).
+#
+# Solvent stays ddCOSMO(Water): CPCM/SMD are rejected outright inside QM/XTB
+# (ORCA aborts at input check).
+! QM/XTB DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C ddCOSMO(Water) TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136 137 138 139}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

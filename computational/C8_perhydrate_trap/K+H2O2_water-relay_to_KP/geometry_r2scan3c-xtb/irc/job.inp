@@ -1,0 +1,54 @@
+# IRC from the VERIFIED TS (COMPUTATIONAL.md C8 item 1).
+#
+# Purpose: show that the single imaginary mode at -576.3 cm-1 IS the reaction
+# coordinate -- that it connects the reactant pre-complex to the product --
+# rather than trusting a mode tally on a floppy 140-atom host. It also produces
+# the product endpoint, which the reverse rate needs.
+#
+# Geometry is ../ts/verify_exact_hessian/job.xyz (md5 fb47acb010589f690425efa03e53a441),
+# the geometry whose exact NumFreq gave one imaginary mode. It is NOT
+# ../ts/job.xyz, which a crashed OptTS attempt overwrote (O136-C129 2.596 vs the
+# verified 1.820 A).
+#
+# Same method and solvent as the geometry/frequency tier, which the manual
+# requires for an IRC ("The same method and basis set as used for optimization
+# and frequency calculation should be used"). 20-atom QM region, GFNFF topology,
+# charge 0.
+#
+# InitHess is DELIBERATELY left at ORCA's default. A standalone IRC job computes
+# a fresh numerical Hessian at the start, which is what we want. We do NOT read
+# ../ts/verify_exact_hessian/job.hess: that file carries an empty active-region
+# record ($act_atom 0) and crashed ORCA in LEANSCF when the OptTS attempt tried
+# `inhess Read` on it (COMPUTATIONAL.md 2026-09-19).
+! QM/XTB r2SCAN-3c ddCOSMO(Water) IRC TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136 137 138 139}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%irc
+  MaxIter 20
+  Direction both
+  # The relay, watched as it moves: the forming C-O bond and the two protons.
+  # Indices are 0-based, so 135 = atom 136 (O136), 128 = atom 129 (C129).
+  Monitor_Internals
+    {B 135 128}
+    {B 129 130}
+    {B 131 130}
+  end
+END
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

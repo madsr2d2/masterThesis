@@ -1,0 +1,42 @@
+# A/B geometry test, reference arm: r2SCAN-3c on the REDUCED system.
+#
+# 137 atoms: the RC (../rc/displace_minus/job.xyz) with the spectator water
+# removed -- water1 = O132 + H131 + H139 (1-based). At the verified TS the
+# H-bond chain is
+#     O136-H135 ... O134(water2) -> O132(water1) -> O130(ketone O)
+#       1.129          1.307           1.897          1.822
+# so H135 (the peroxide proton) is delivered to water2 (O134), while water1's
+# H131 only H-bonds to the ketone O and -- as the IRC showed -- never moves.
+# Water1 is therefore the spectator and is dropped here.
+#
+# QM region: the previous 20-atom region minus the removed O132/H131/H139,
+# remapped to the 137-atom numbering (17 atoms, 0-based).
+#
+# Pairs with ../../geometry_b973c-xtb/rc/, the B97-3c arm on the identical
+# system and QM region, to measure B97-3c's geometry against r2SCAN-3c's and its
+# wall time.
+! QM/XTB r2SCAN-3c ddCOSMO(Water) opt freq TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+Calc_Hess true
+Recalc_Hess 50
+END
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

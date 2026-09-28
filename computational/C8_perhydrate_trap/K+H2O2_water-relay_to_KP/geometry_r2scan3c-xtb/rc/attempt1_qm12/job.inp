@@ -1,0 +1,75 @@
+# Reactant complex for K + H2O2 (2 waters, Grotthuss relay) -> KP
+# (COMPUTATIONAL.md C8 item 1). Geometry confirmed by direct connectivity
+# analysis 2026-09-09 (bond distances, not assumed from the folder name):
+# intact ketone C129=O130 (1.218 A), intact H2O2 (H135-O136-O137-H138,
+# O-O 1.46 A), two intact waters (O132: H131,H139; O134: H133,H140) -- no
+# BnOH, no HOO-, charge 0. See ../../README.md-equivalent note in this
+# folder's parent for how this superseded catHO2(-)+BnOH/, which turned out
+# to be a different, unidentified three-body system
+# (../../K+peroxide+BnOH_bridged_UNIDENTIFIED/).
+#
+# Corrected from the version orca_stuff carried, 2026-09-09:
+#
+# 1. ALPB(Water) -> ddCOSMO(Water). QM/XTB's ALPB only solvates the QM2 (xtb)
+#    layer, NOT the QM1 (r2SCAN-3c) region where the actual chemistry is --
+#    ORCA 6.1 manual, Multiscale Simulations: "If the ALPB model or CPCM-X
+#    are requested [within QM/XTB], the solvation effect is just included
+#    in the calculation for the large QM2 system." The manual's fix for that
+#    is "C-PCM or ddCOSMO... with the default C-PCM/B scheme" -- but plain
+#    CPCM itself is NOT implemented for QM/XTB (tried it first: ORCA aborts
+#    at input-check with "CPCM or SMD requested together with QM/XTB method.
+#    This is not implemented. Provide respective ALPB, ddCOSMO or CPCMX
+#    keyword instead."). ddCOSMO is the one of those three that still gets
+#    the C-PCM/B-style propagation: cavity charges computed once on the
+#    full QM2 system, then reused as point charges feeding the QM1
+#    calculation too -- the only one of the three that actually solvates the
+#    reactive region itself, not just the xtb scaffold. Matters here
+#    specifically because the TS moves charge across four centres
+#    (H2O2 -> water2 -> water1 -> ketone O) in a polar relay. Mechanism is
+#    single-pass (QM2's own solvation computed once, not iterated to
+#    self-consistency with QM1's density) -- the manual doesn't specify
+#    iteration either way, but says "once this calculation finishes...
+#    used as... subsequent", i.e. sequential.
+#
+# 2. nprocs 12 / maxcore 2200 -> nprocs 8 / maxcore 4000: homelab-benchmarked
+#    (COMPUTATIONAL.md Conventions, 2026-09-09) -- 8 physical P-cores beat
+#    16/24 ranks on this machine's hybrid P/E chip for jobs this size.
+#
+# 3. Added Recalc_Hess 50, 2026-09-09, after a first attempt (bare
+#    Calc_Hess true, no refresh -- attempt1_no_recalc/) converged steadily
+#    through cycle ~111 then started regressing by cycle 131 (RMS/MAX
+#    gradient both got WORSE, not better) -- the same RFO-Hessian-drift
+#    signature the TS searches showed, milder here since a plain
+#    minimization's BFGS/RFO update is more forgiving than TS eigenvector-
+#    following. 50, not the TS's 10: minimizations don't need refreshing as
+#    often, and this system's full Hessian recompute costs real wall time.
+#    Restarted from attempt 1's cycle-131 geometry
+#    (attempt1_no_recalc/job_cycle131.xyz), not from scratch.
+#
+# QM region unchanged (12 atoms: the ketone C=O, both peroxide O's, all four
+# water/H2O2 hydrogens transiently in play, both explicit waters' oxygens) --
+# this list already ran cleanly before (job.QMRegion.xyz exists from a prior
+# successful pass), unlike the other system's boundary problem.
+
+! QM/XTB r2SCAN-3c ddCOSMO(Water) opt freq TightSCF
+
+%QMMM
+QMATOMS
+	{128 129 130 131 138 132 133 139 134 135 136 137}
+END
+Charge_total 0
+Mult_total 1
+END
+
+%geom
+Calc_Hess true
+Recalc_Hess 50
+END
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

@@ -1,0 +1,40 @@
+# C8 reduced TS, FINAL: full-system OptTS Freq (no ActiveAtoms), TightOpt.
+#
+# ActiveAtoms was SCAFFOLDING. It took the optimiser from a poor full-system
+# start to a frozen-host saddle, which is how we got a good geometry at all --
+# but a barrier must be made of one model, and the RC (../rc/) is a full
+# 137-atom relaxation. A frozen-host TS against a fully-relaxed RC mixes two
+# models and is not the number to publish. Here the whole system relaxes.
+#
+# Seed: the frozen-host TightOpt TS (../optts_freq_tight/job.xyz). Its QM region
+# is already at the saddle, which is what makes the full search tractable -- the
+# 2026-09-19 attempts that would not converge started from far worse geometries.
+#
+# No ActiveAtoms and no ExtendActiveRegion: %qmmm QMATOMS defines the QM1 region
+# only. The Hessian is therefore full-system (409 displacements), so this is
+# slower than the frozen-host runs by roughly the host's share of the system.
+! QM/XTB B97-3c ddCOSMO(Water) OptTS Freq TightOpt TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  MaxIter 400
+  Calc_Hess true
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

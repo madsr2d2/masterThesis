@@ -1,0 +1,29 @@
+# High-level term of the DLPNO-CCSD(T)/def2-TZVPP (+def2-TZVPP/C) : r2SCAN-3c
+# composite correction, COMPUTATIONAL.md C8 (K + H2O2 -> KP, item 1).
+#
+# Species: reactant pre-complex, `displace_minus` conformer (the one whose only
+# imaginary mode is -16.3 cm-1, H131 at 2.60 A from O130).
+#
+# Single point on the QM-region fragment ALONE, as the QM/XTB run extracted
+# and capped it (job.xyz = geometry_r2scan3c-xtb/rc/displace_minus/job.QMRegion.xyz,
+# 22 atoms = 20 QM + 2 link H, net charge 0). Pairs with ../r2scan3c/job.inp:
+#
+#   G_final = G(r2SCAN-3c/xtb, full 140-atom system, 298.15 K)
+#           + [ E(DLPNO-CCSD(T), fragment) - E(r2SCAN-3c, fragment) ]
+#
+# assembled by orca_io.composite_free_energy_eh. CPCM(Water) here, matching the
+# register's convention for every isolated-species task (C1, C4-C6, C9); the
+# geometry tier is ddCOSMO(Water) only because plain CPCM is not implemented
+# for QM/XTB. Level and basis follow the ORCA 6.1 "accurate barriers" tutorial
+# rather than trusting any single DFT functional for the final number.
+# nprocs 8 / maxcore 4000: homelab-benchmarked; 8 physical P-cores beat 16/24
+# ranks on this hybrid P/E chip for fragments this small.
+! DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C CPCM(Water) TightSCF
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

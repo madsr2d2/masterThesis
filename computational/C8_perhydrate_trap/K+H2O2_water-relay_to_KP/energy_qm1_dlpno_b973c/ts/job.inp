@@ -1,0 +1,30 @@
+# C8 embedded DLPNO single point on the FULL-SYSTEM B97-3c TS.
+#
+# Geometry: ../geometry_b973c-xtb/ts/optts_full/job.xyz (full 137-atom B97-3c
+# TS, one imaginary mode at -313.23 cm-1, TightOpt).
+#
+# QM1 = DLPNO-CCSD(T)/def2-TZVPP (def2-TZVPP/C fitting), closed shell, ORCA
+# default PNO thresholds (NormalPNO). QM2 = the 120 host atoms at GFN2-xTB with
+# GFN-FF topology; its Hirshfeld charges embed the QM1 electrostatically. Whole
+# system in ddCOSMO(water). Single point -- no thermochemistry; G comes from the
+# B97-3c geometry tier via orca_io.composite_free_energy_eh(geom, T, this, geom).
+! QM/XTB DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C ddCOSMO(Water) TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

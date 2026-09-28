@@ -1,0 +1,34 @@
+# High-level term of the DLPNO-CCSD(T)/def2-TZVPP (+def2-TZVPP/C) : r2SCAN-3c
+# composite correction, COMPUTATIONAL.md C8 (K + H2O2 -> KP, item 1).
+#
+# Species: the VERIFIED transition state, geometry ../verify_exact_hessian/job.xyz
+# (exact NumFreq: one imaginary mode at -576.3 cm-1).
+#
+# Its 22-atom QM-region fragment could NOT be taken from the sibling
+# geometry run: geometry_r2scan3c-xtb/ts/job.xyz was overwritten by a crashed
+# OptTS attempt and ts/job.QMRegion.xyz belongs to that bad geometry
+# (O136-C129 2.596 A). It was re-emitted for the verified geometry by the
+# one-cycle opt in geometry_r2scan3c-xtb/ts/qmregion_extract/ (O136-C129
+# 1.820 A, heaviest-atom mismatch 0.004 A) and copied here.
+#
+# Single point on that fragment ALONE; pairs with ../r2scan3c/job.inp:
+#
+#   G_final = G(r2SCAN-3c/xtb, full 140-atom system, 298.15 K)
+#           + [ E(DLPNO-CCSD(T), fragment) - E(r2SCAN-3c, fragment) ]
+#
+# assembled by orca_io.composite_free_energy_eh. CPCM(Water) here, matching the
+# register's convention for every isolated-species task (C1, C4-C6, C9); the
+# geometry tier is ddCOSMO(Water) only because plain CPCM is not implemented
+# for QM/XTB. Level and basis follow the ORCA 6.1 "accurate barriers" tutorial
+# rather than trusting any single DFT functional for the final number.
+# nprocs 8 / maxcore 4000: homelab-benchmarked; 8 physical P-cores beat 16/24
+# ranks on this hybrid P/E chip for fragments this small.
+! DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C CPCM(Water) TightSCF
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

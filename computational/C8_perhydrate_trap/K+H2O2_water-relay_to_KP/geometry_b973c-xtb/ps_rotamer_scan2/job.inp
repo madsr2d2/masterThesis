@@ -1,0 +1,43 @@
+# C8 anion addition: H-bonded PS rotamer, DIHEDRAL attempt -- FAILED.
+#
+# Retry of the rotamer search as a dihedral scan of the C128-O130 torsion
+# O129-C128-O130-O131 (the coordinate a rigid sweep shows CAN reach the
+# O129...H132 H-bond, min 2.48 A near +145 deg).
+#
+# Fixed vs ps_rotamer_scan/: start at the seed's OWN value (-4 deg, the seed is
+# at -4.18) so step 1 is the unperturbed minimum, and MaxIter 500.
+#
+# RESULT (2026-09-27): fatal before step 1 --
+#   Decreasing the constraint accuracy, check your results carefully!
+#   [Tool-GStep/qcgstep.cpp, line 521]: GSTEP: could not impose initial constraints.
+# ORCA's redundant-internal-coordinate engine cannot set up a torsion about
+# C128-O130 (the O129-C128-O130 unit is near-planar, so that torsion is an
+# ill-conditioned internal coordinate). Not fixable by MaxIter. The distance
+# scan of O129...H132 (ps_rotamer_dist/) is the working equivalent.
+! QM/XTB B97-3c ddCOSMO(Water) Opt TightOpt TightSCF
+
+%QMMM
+QMATOMS
+	{55 58 61 64 120 121 122 123 124 125 126 127 128 129 130 131 132}
+END
+Charge_total -1
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  Scan
+    D 129 128 130 131 = -4, 356, 24
+  end
+  MaxIter 500
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+  nprocs 8
+end
+
+* xyzfile -1 1 job.xyz

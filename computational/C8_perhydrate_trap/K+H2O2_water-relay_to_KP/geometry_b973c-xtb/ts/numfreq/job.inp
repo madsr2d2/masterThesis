@@ -1,0 +1,38 @@
+# Reduced TS, step 2: NumFreq on the host-relaxed structure (COMPUTATIONAL.md C8).
+#
+# Geometry: ../job.xyz, the result of step 1 -- the reduced TS seed with the
+# reacting core (1-based 129-137) held fixed while the 120-atom host relaxed onto
+# the B97-3c surface (host RMSD 0.200 A, core unchanged).
+#
+# Purpose: (a) the mode picture -- whether the reaction coordinate is the single
+# imaginary mode; (b) a central-difference HESSIAN to feed the OptTS in step 3.
+# NumFreq, not Freq/Calc_Hess: ORCA's forward-difference Calc_Hess produced 4
+# spurious negatives against central-difference NumFreq's 1 on the earlier
+# attempt, and sent that OptTS chasing scaffold modes.
+#
+# NO constraints here -- the Hessian must cover all 137 atoms for the
+# unconstrained OptTS that follows.
+#
+# Next: OptTS with `%geom inhess Read; InHessName "../numfreq/job.hess"`, and
+# `%qmmm OptRegion_FixedAtoms {...}` if it hits the empty-$act_atom crash the
+# earlier attempt hit.
+! QM/XTB B97-3c ddCOSMO(Water) NumFreq TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

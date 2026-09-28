@@ -1,0 +1,49 @@
+# Reduced TS, step 3a: relaxed surface scan along the forming bond (C8).
+#
+# Why a scan rather than OptTS: step 2 showed the frozen-core structure is an
+# ORDER-3 SADDLE -- the relay mode (-799.57 cm-1, H135 + C129) plus an alpha-CH2
+# ring mode (-261.87) and a mixed host mode (-52.52). The ring is strained
+# because the reacting core is frozen at the r2SCAN-3c TS geometry while the host
+# relaxed on the B97-3c surface. Handing that straight to OptTS means resolving
+# three imaginary modes at once, and OptTS already failed once on this host.
+#
+# A relaxed scan varies one coordinate and re-optimizes everything else at each
+# point, so the ring strain is resolved at every step and the maximum of the
+# curve is a clean TS guess (ORCA manual 4.2: "The structure at the maximum of
+# the curve is probably a very good guess for the true transition state").
+#
+# Coordinate: the forming bond O136...C129 -- 0-based 133 and 128 (0-based
+# confirmed by the step-1 constraint echo: input 128 -> 1-based 129 = C129).
+# Range 1.6 -> 2.8 A: the seed sits at 1.820, the r2SCAN-3c TS at 1.820 and the
+# r2SCAN-3c product endpoint near 1.55, so the maximum lies inside this window.
+#
+# Next: from the scan maximum, an OptTS (inhess from a NumFreq at that point),
+# or a direct NumFreq verdict if the maximum is already clean.
+! QM/XTB B97-3c ddCOSMO(Water) Opt TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  Scan
+    B 128 133 = 1.6, 2.8, 13
+  end
+  Calc_Hess true
+  Recalc_Hess 50
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

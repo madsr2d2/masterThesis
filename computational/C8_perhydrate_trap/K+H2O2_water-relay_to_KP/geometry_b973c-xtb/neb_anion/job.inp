@@ -1,0 +1,39 @@
+# C8 anion addition: NEB-TS instead of a direct OptTS.
+#
+# Direct OptTS has failed twice on this step (ts_anion: 400 cycles, no
+# convergence; ts_earlier: wandered to 3 imaginary modes), because the anion
+# surface is flat between ~1.6 and 2.5 A. Two readings are possible -- the
+# barrier is genuinely ~0 (plausible for an alpha-effect anion onto a ketone),
+# or the optimiser cannot cope with a very flat surface -- and a direct saddle
+# search cannot tell them apart. NEB maps the path between the endpoints and
+# lets ORCA find the maximum itself.
+#
+# Reactant  = scan_anion/job.015.xyz  (C128...O133 = 2.80, carbonyl 1.200)
+# Product   = scan_anion/job.001.xyz  (C128...O133 = 1.40, carbonyl 1.358)
+# Both are relaxed-scan endpoints on the 21/17-atom anion surface.
+#
+# QM1 = 17 atoms, charge -1 (HOO-), full system. Same method as the tier.
+! QM/XTB B97-3c ddCOSMO(Water) NEB-TS TightSCF
+
+%QMMM
+QMATOMS
+	{55 58 61 64 120 121 122 123 124 125 126 127 128 129 130 131 132}
+END
+Charge_total -1
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%neb
+  NEB_End_XYZFile "product.xyz"
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile -1 1 job.xyz

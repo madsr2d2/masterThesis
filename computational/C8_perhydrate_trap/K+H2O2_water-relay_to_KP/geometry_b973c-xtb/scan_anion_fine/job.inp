@@ -1,0 +1,42 @@
+# C8 item 1, ANION model: FINE relaxed scan around the shallow barrier maximum.
+#
+# The coarse scan (scan_anion/, 1.40-2.80 in 0.1 steps) put the maximum at
+# 1.80 A, +17 kJ/mol off the bonded end. An OptTS from there did not converge --
+# 400 cycles, Hessian mostly 0 negative eigenvalues -- because the barrier is
+# only ~17 kJ/mol and the surface between ~1.6 and 2.5 A is nearly flat, so
+# eigenvector-following cannot pin a soft saddle on it.
+#
+# This refines the maximum on the grid, 1.70-1.95 in 0.025 A steps, before
+# another attempt at the saddle. Seed = scan_anion/job.005.xyz (the 1.80 point).
+#
+# NO Calc_Hess: with Calc_Hess true a scan writes step 1's Hessian as
+# job.001.hess but then reads job.hess at step 2 and dies (2026-09-25).
+# Charge convention: QM region charge on the *xyzfile line; Charge_total = whole
+# system. QM -1, host 0, total -1.
+! QM/XTB B97-3c ddCOSMO(Water) Opt TightOpt TightSCF
+
+%QMMM
+QMATOMS
+	{55 58 61 64 120 121 122 123 124 125 126 127 128 129 130 131 132}
+END
+Charge_total -1
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  Scan
+    B 128 130 = 1.70, 1.95, 11
+  end
+  MaxIter 200
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile -1 1 job.xyz

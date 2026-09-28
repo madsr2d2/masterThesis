@@ -1,0 +1,20 @@
+# Low-level term of the DLPNO-CCSD(T) : r2SCAN-3c composite correction,
+# COMPUTATIONAL.md C8 (K + H2O2 -> KP, item 1).
+#
+# Species: the VERIFIED transition state (see ../dlpno-ccsdt/job.inp for how its
+# 22-atom QM-region fragment was obtained -- not from the overwritten
+# geometry_r2scan3c-xtb/ts/job.QMRegion.xyz).
+#
+# r2SCAN-3c single point on the SAME 22-atom fragment as ../dlpno-ccsdt/job.xyz,
+# in CPCM(Water); subtracted from the DLPNO energy to give the correction added
+# to the embedded G(r2SCAN-3c/xtb). Same method as the full-system tier, so the
+# difference is a pure level-of-theory correction.
+! r2SCAN-3c CPCM(Water) TightSCF
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

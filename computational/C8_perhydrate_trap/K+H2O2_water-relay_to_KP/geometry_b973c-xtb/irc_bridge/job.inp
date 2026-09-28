@@ -1,0 +1,47 @@
+# IRC from the 21-atom (complete ester bridge) TS.
+#
+# Purpose: show what the single imaginary mode at -490.3 cm-1 actually connects.
+# The mode moved from -313 (17-atom QM region) to -490 (21-atom), and the TS
+# geometry moved with it (C128-O133 1.730 -> 1.607 A), so the mode tally alone
+# cannot say whether this is the same saddle. The IRC decides.
+#
+# Geometry: ../optts_bridge/job.xyz (full-system B97-3c TightOpt TS, QM1 = 21
+# atoms).
+#
+# Same method/solvent as the geometry+freq tier (the manual requires it for an
+# IRC). InitHess left at ORCA's default: a standalone IRC computes a fresh
+# numerical Hessian at the start, which is what we want. MaxIter raised from the
+# 20 that the r2SCAN-3c IRC hit in BOTH directions without reaching a minimum.
+#
+# Monitors are 0-based: C128-O133 the forming bond, C128=O129 the carbonyl,
+# O133-O134 the peroxide, O133-H132 the transferring proton.
+! QM/XTB B97-3c ddCOSMO(Water) IRC TightSCF
+
+%QMMM
+QMATOMS
+	{55 58 61 64 120 121 122 123 124 125 126 127 128 129 130 131 132 133 134 135 136}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%irc
+  MaxIter 50
+  Direction both
+  Monitor_Internals
+    {B 128 133}
+    {B 129 128}
+    {B 133 132}
+  end
+END
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

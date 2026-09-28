@@ -1,0 +1,40 @@
+# QM-region extraction for the VERIFIED TS geometry (COMPUTATIONAL.md C8).
+#
+# The verified TS is ../verify_exact_hessian/job.xyz -- the geometry whose exact
+# NumFreq gave one imaginary mode at -576.3 cm-1. It is copied here verbatim.
+# ../job.xyz must NOT be used as the TS: it was overwritten by a crashed OptTS
+# attempt and is a DIFFERENT structure (RMSD 0.447 A, O136-C129 2.596 vs the
+# verified 1.820 A). ../job.QMRegion.xyz was checked atom-by-atom against both
+# geometries and belongs to the bad one (its O136-C129 is 2.596 A), so it cannot
+# seed the composite correction either.
+#
+# A plain single point does NOT emit job.QMRegion.xyz, so this is a one-cycle
+# optimisation purely to make ORCA write it (MaxIter 1, no freq -- the geometry
+# must not be allowed to leave the saddle). The QM/MM block is identical to
+# ../verify_exact_hessian/job.inp (same 20-atom QM region, same GFNFF topology
+# convention, charge 0), so the extracted 22-atom fragment (20 QM + 2 link H)
+# is the one the composite correction needs.
+! QM/XTB r2SCAN-3c ddCOSMO(Water) opt TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136 137 138 139}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+MaxIter 1
+END
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

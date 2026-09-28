@@ -1,0 +1,51 @@
+# Reduced TS, step 1: relax the HOST around a frozen reacting core (COMPUTATIONAL.md C8).
+#
+# New geometry tier: ! QM/XTB B97-3c ddCOSMO(Water) (settled 2026-09-21).
+# System: the 137-atom reduced TS seed -- the verified r2SCAN-3c TS minus the
+# spectator water water1 (O132 + H131 + H139). At that TS the H-bond chain is
+#   O136-H135 ... O134(water2) -> O132(water1) -> O130(ketone O)
+# and H135 is delivered to water2 while water1's H131 never moves.
+#
+# The host (120 atoms of QM2) was last relaxed around an r2SCAN-3c core, so it
+# needs to settle on the B97-3c surface. The reacting core is held FIXED so the
+# relaxation cannot drag the reaction coordinate:
+#
+#   frozen (reduced numbering, 1-based): 129-137
+#     129,130        ketone C129 and O130
+#     131,132,137    water2 O134, H133, H140
+#     133,134,135,136  H2O2 H135, O136, O137, H138
+#
+# Next: NumFreq on the result (step 2), then OptTS with `inhess Read` of that
+# Hessian (step 3). NOT `Calc_Hess true` in the OptTS -- its forward differences
+# produced 4 spurious negatives against central-difference NumFreq's 1 and sent
+# the earlier OptTS chasing scaffold modes for 350 cycles.
+! QM/XTB B97-3c ddCOSMO(Water) opt TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  # Cartesian constraints need the trailing `C`, and ORCA's constraint atom
+  # indices are 0-BASED: the frozen core is 1-based 129-137 = 0-based 128:136.
+  Constraints
+    { C 128:136 C }
+  end
+  Calc_Hess true
+  Recalc_Hess 50
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

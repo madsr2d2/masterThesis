@@ -1,0 +1,33 @@
+# C8 REACTANT complex (RC): full-system B97-3c Opt Freq TightOpt, 21-atom QM1.
+#
+# Seed: ../irc_bridge/job_IRC_F.xyz, the forward IRC endpoint -- reactant-like
+# (C128...O133 stretched to 1.918 A with no bond, carbonyl back to 1.250 A, the
+# proton still on O133). The IRC hit MaxIter, so this seed is a direction, not a
+# minimum; this relaxation turns it into one.
+#
+# Same QM1 as the bridge TS (21 atoms), same full-system/TightOpt standard.
+! QM/XTB B97-3c ddCOSMO(Water) Opt Freq TightOpt TightSCF
+
+%QMMM
+QMATOMS
+	{55 58 61 64 120 121 122 123 124 125 126 127 128 129 130 131 132 133 134 135 136}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  MaxIter 400
+  Calc_Hess true
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

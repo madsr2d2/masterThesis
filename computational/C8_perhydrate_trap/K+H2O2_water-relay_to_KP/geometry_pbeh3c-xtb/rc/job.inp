@@ -1,0 +1,48 @@
+# Geometry tier with PBEh-3c as the QM1 method (COMPUTATIONAL.md C8).
+#
+# Why this method: the ORCA 6.1 manual singles PBEh-3c out for geometries --
+# "highly efficient ... performing particularly well in the optimization of
+# geometries", and "much better geometries [than HF-3c] ... roughly of
+# MP2-quality (or even better for non-covalent structures)". The geometry tier
+# needs exactly that, and r2SCAN-3c (def2-mTZVPP) is too expensive for the QM
+# region the product requires -- the new bond forms ACROSS the QM/QM2 boundary,
+# so the complete bridge across the ring (both ester oxygens and both ester
+# carbons) has to come inside the QM region.
+#
+# Cost caveat, to be measured rather than assumed: PBEh-3c is 42% HF exchange on
+# a double-zeta basis (def2-mSVP), so it is NOT the cheapest option. The manual's
+# ordering is HF-3c < B97-3c < PBEh-3c, and it does not clearly place PBEh-3c
+# below r2SCAN-3c. The wall time from this job is the number that settles it.
+#
+# System: the 137-atom reduced reactant. The spectator water (water1 = O132 +
+# H131 + H139) is removed -- at the verified TS the chain is
+#   O136-H135 ... O134(water2) -> O132(water1) -> O130(ketone O)
+# and H135 is delivered to water2 while water1's H131 never moves (IRC).
+#
+# Same QM region (17 atoms, 0-based) and GFN-FF topology as the r2SCAN-3c tier,
+# so the only change is the QM1 method.
+! QM/XTB PBEh-3c ddCOSMO(Water) opt freq TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+Calc_Hess true
+Recalc_Hess 50
+END
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

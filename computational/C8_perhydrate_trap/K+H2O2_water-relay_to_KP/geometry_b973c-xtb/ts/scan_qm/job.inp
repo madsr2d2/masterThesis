@@ -1,0 +1,67 @@
+# Reduced TS, step 3c: relaxed scan, HOST FROZEN VIA THE QM/MM ACTIVE REGION (C8).
+#
+# Step 3b used %geom Cartesian constraints to freeze the host and never
+# converged. ORCA's own setup output said why:
+#
+#     optimized atoms = activeRegion ... 137
+#     Active atoms                   ... All atoms
+#     activeRegion                   ... NO
+#     Choice of coordinates  ... (2022) Redundant Internals
+#
+# The constraints only PINNED the host; ORCA still carried all 137 atoms -- in a
+# 2022-dimensional redundant-internal set -- through the step, the Hessian and
+# the convergence test. So the free QM-region coordinates converged (RMS 2.9e-4)
+# while the pinned host's did not (RMS 0.16, MAX 0.69), and the criterion could
+# never be met. Cartesian constraints belong to a Cartesian optimization; bolted
+# onto a redundant-internal QM/MM run they misbehave.
+#
+# The native tool is the QM/MM ACTIVE REGION: %qmmm ActiveAtoms names the atoms
+# to optimise and ORCA holds everything else itself. With the 17 QM atoms active,
+# `optimized atoms = activeRegion` becomes 17, not 137. ExtendActiveRegion NO
+# stops ORCA adding its usual constrained shell around the active set, so only
+# the QM region moves.
+#
+# Coordinate: forming bond O136...C129, 0-based 133 and 128 (0-based confirmed by
+# the step-1 constraint echo: input 128 -> 1-based 129 = C129).
+# Range 1.6 -> 2.6 A in 11 steps: brackets the maximum (seed and r2SCAN-3c TS
+# both at 1.820, the r2SCAN-3c product endpoint near 1.55).
+#
+# Tolerances kept loose (TolRMSG 1e-3, TolMaxG 1e-2) because this scan exists to
+# produce a GEOMETRY at the maximum for the OptTS to refine, not a final number.
+! QM/XTB B97-3c ddCOSMO(Water) Opt TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+# The atoms to OPTIMISE. Everything else is held by ORCA's QM/MM optimizer.
+ActiveAtoms
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+ExtendActiveRegion no
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  Scan
+    B 128 133 = 1.6, 2.6, 11
+  end
+  TolMaxG 1.0e-2
+  TolRMSG 1.0e-3
+  TolMaxD 1.0e-2
+  TolRMSD 5.0e-3
+  Calc_Hess true
+  Recalc_Hess 50
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

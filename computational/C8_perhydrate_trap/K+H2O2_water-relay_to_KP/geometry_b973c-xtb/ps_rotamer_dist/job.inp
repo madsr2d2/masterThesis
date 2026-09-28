@@ -1,0 +1,47 @@
+# C8 anion addition: locate the H-bonded PS rotamer (DISTANCE-scan fallback).
+#
+# Same objective as ps_rotamer_scan2/: bring H132 round to O129 to form the
+# five-membered O129...H132-O131-O130-C128 H-bond that ps_anion/ lacks
+# (H132...O129 = 3.845 A). That is why PS sits +129 kJ/mol above RS.
+#
+# WHY NOT THE DIHEDRAL: scanning D 129 128 130 131 aborts before step 1 with
+#   GSTEP: could not impose initial constraints
+# -- ORCA's redundant-internal-coordinate generator cannot set up a torsion
+# about C128-O130 (the O129-C128-O130 unit is near-planar, so that torsion is
+# ill-conditioned). The earlier D 128 130 131 132 scan imposed its constraint
+# but snapped 85 deg in step 1 and never converged. Dihedral scans are out.
+#
+# The DISTANCE O129...H132 is the robust equivalent and drives the same motion:
+# a rigid sweep shows O-H rotation ALONE bottoms out at 3.51 A (O131...O129 is
+# 3.56 A, H swings on a 0.97 A circle), so pulling H132 toward O129 necessarily
+# rotates the C128-O130 bond. Bond-type scans have converged twice here.
+#
+# Start at the seed's own value (3.845 A); no Calc_Hess. Charge convention:
+# QM region charge on the *xyzfile line; Charge_total = whole system (-1 / 0 / -1).
+! QM/XTB B97-3c ddCOSMO(Water) Opt TightOpt TightSCF
+
+%QMMM
+QMATOMS
+	{55 58 61 64 120 121 122 123 124 125 126 127 128 129 130 131 132}
+END
+Charge_total -1
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  Scan
+    B 129 132 = 3.80, 1.80, 10
+  end
+  MaxIter 500
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile -1 1 job.xyz

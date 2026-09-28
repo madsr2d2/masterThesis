@@ -1,0 +1,32 @@
+# C8 anion addition: PRODUCT state (PS) minimum.
+#
+# Endpoint of the relaxed scan at C128...O133 = 1.40 A (C-O formed, carbonyl
+# stretched to 1.358). Relaxing it to a true minimum before NEB-TS -- the scan
+# endpoints are constrained relaxations, not minima, and NEB anchors the band to
+# them.
+! QM/XTB B97-3c ddCOSMO(Water) Opt Freq TightOpt TightSCF
+
+%QMMM
+QMATOMS
+	{55 58 61 64 120 121 122 123 124 125 126 127 128 129 130 131 132}
+END
+Charge_total -1
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  MaxIter 400
+  Calc_Hess true
+  Recalc_Hess 50
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile -1 1 job.xyz

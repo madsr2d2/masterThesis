@@ -1,0 +1,37 @@
+# C8 product complex: PLAIN (unconstrained) relaxation of the product-side IRC end.
+#
+# pc_bridge/ was exactly this: a full-system relaxation of the IRC backward
+# endpoint, no constraints, no active region. It hit MaxIter 400 while still
+# descending -- 0.9 Eh below the IRC endpoint, the proton relayed off O133 onto
+# a water. That is a real descent, not a runaway: nothing is wrong with relaxing
+# the product end, it just needs more than 400 cycles. This continues from
+# pc_bridge's last geometry with a much higher cap and periodic Hessian refresh.
+#
+# Seed: ../pc_bridge/job.xyz.
+# Full system, 21-atom QM1, TightOpt -- same standard as the bridge TS.
+! QM/XTB B97-3c ddCOSMO(Water) Opt Freq TightOpt TightSCF
+
+%QMMM
+QMATOMS
+	{55 58 61 64 120 121 122 123 124 125 126 127 128 129 130 131 132 133 134 135 136}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  MaxIter 2000
+  Calc_Hess true
+  Recalc_Hess 50
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

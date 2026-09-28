@@ -1,0 +1,48 @@
+# C8 reduced TS: OptTS + Freq in ONE job.
+#
+# `! OptTS Freq` runs the frequency calculation automatically at the converged
+# saddle, in this job and this .out -- no second job, no geometry file to carry
+# across. ORCA also refuses to run the Freq if the optimisation did not
+# converge ("ORCA will abort at this point of the run"), so a frequency can
+# never be read off an unconverged geometry. That guard is the reason to write
+# it this way rather than as OptTS followed by a hand-copied NumFreq.
+#
+# Seed: frame 0 of ts/optts/job_trj.xyz -- the verified r2SCAN-3c TS (H135
+# transferring, C129...O136 1.820) with its host relaxed at B97-3c. r2SCAN-3c
+# and B97-3c are both 3c methods, so the QM region already sits in the B97-3c
+# saddle's catchment; OptTS only refines it.
+#
+# ActiveAtoms + ExtendActiveRegion no hold the 120-atom host and move only the
+# 17 QM atoms (2026-09-21 COMPUTATIONAL.md entry: %geom Cartesian constraints
+# are the wrong layer here). Calc_Hess true gives OptTS the exact seed Hessian
+# it needs to identify the imaginary mode; the trailing Freq recomputes the
+# Hessian at the final geometry.
+! QM/XTB B97-3c ddCOSMO(Water) OptTS Freq TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+ActiveAtoms
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+ExtendActiveRegion no
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  MaxIter 200
+  Calc_Hess true
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

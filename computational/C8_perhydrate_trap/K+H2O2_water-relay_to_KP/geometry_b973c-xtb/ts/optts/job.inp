@@ -1,0 +1,43 @@
+# C8 reduced TS: OptTS with the host frozen via the QM/MM active region.
+#
+# Seed: geometry_b973c-xtb/ts/job.xyz -- the verified r2SCAN-3c TS (H135
+# transferring, C129...O136 1.820) with its host already relaxed at B97-3c in
+# step 1. r2SCAN-3c and B97-3c are both 3c composite methods and differ little
+# geometrically, so the QM region already sits in the B97-3c saddle's catchment
+# and OptTS only refines it and pins the imaginary mode.
+#
+# ActiveAtoms + ExtendActiveRegion no hold the 120-atom host and move only the
+# 17 QM atoms. See the 2026-09-21 COMPUTATIONAL.md entry for why %geom Cartesian
+# constraints were the wrong mechanism here (ORCA still carried all 137 atoms in
+# a redundant-internal set, so convergence could never be met).
+#
+# Calc_Hess true: OptTS needs the exact Hessian to find and follow the imaginary
+# mode. A separate NumFreq on the result gives the one-imaginary-mode verdict.
+! QM/XTB B97-3c ddCOSMO(Water) OptTS TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+ActiveAtoms
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+ExtendActiveRegion no
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  Calc_Hess true
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

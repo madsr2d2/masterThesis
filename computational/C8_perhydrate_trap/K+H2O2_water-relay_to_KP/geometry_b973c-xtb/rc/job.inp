@@ -1,0 +1,45 @@
+# B97-3c geometry job on the reduced system (COMPUTATIONAL.md C8).
+#
+# Why B97-3c: it is the remaining cheap candidate for a QM region large enough to
+# carry the product's new bond, which forms ACROSS the QM/QM2 boundary. PBEh-3c
+# was tried first on the ORCA manual's geometry recommendation but FAILED the
+# cost test -- 5051 cpu-s on 137 atoms against r2SCAN-3c's 4546 cpu-s on 140, so
+# the 42% HF exchange ate the smaller basis. B97-3c is a plain GGA on
+# def2-mTZVP and is the method the earlier oniom work used for a 23-atom region
+# (orca_stuff/cat/.../ONIOM/ts*/B97-3c_XTB/), so it is the natural next test.
+#
+# This gives two numbers: the wall/cpu cost against the r2SCAN-3c and PBEh-3c
+# arms, and the optimised geometry to compare with them (RMSD plus the key
+# distances). Same seed, same 137-atom system, same 17-atom QM region and
+# GFN-FF topology as geometry_pbeh3c-xtb/rc/ -- so the only change is the QM1
+# method.
+#
+# Seed: the reduced RC (the r2SCAN-3c RC with the spectator water removed,
+# water1 = O132 + H131 + H139). At the verified TS the chain is
+#   O136-H135 ... O134(water2) -> O132(water1) -> O130(ketone O)
+# and H135 is delivered to water2 while water1's H131 never moves.
+! QM/XTB B97-3c ddCOSMO(Water) opt freq TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+Calc_Hess true
+Recalc_Hess 50
+END
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

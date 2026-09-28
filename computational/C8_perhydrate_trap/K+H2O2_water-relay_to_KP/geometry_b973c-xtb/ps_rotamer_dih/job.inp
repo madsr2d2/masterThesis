@@ -1,0 +1,49 @@
+# C8 anion addition: H-bonded PS rotamer, DIHEDRAL scan about C128-O130.
+#
+# Goal: rotate the O-O-H about the newly-formed C128-O130 bond to bring H132
+# round to O129 and form the five-membered O129...H132-O131-O130-C128 H-bond
+# that ps_anion/ lacks (H132...O129 = 3.845 A), the reason PS is +129 kJ/mol
+# above RS.
+#
+# WHY NOT "D 129 128 130 131": that torsion is DEGENERATE. O129-C128-O130 is
+# near-planar (the O129=C128 conjugation; angle 102 deg, torsion -4 deg), so
+# ORCA's redundant-internal-coordinate generator does not retain it and the job
+# dies with "GSTEP: could not impose initial constraints" before step 1.
+# (ps_rotamer_scan2/ is that failure on record.)
+#
+# ANY other substituent of C128 defines the SAME C128-O130 rotation. C120 is
+# 55 deg out of the O129-C128-O130 plane, so D 120 128 130 131 is well
+# conditioned. Reference substituents of C128: O129 (1.336), O130 (1.507),
+# C120 (1.524), C124 (1.527); C124 is the equivalent alternative.
+#
+# Start at the seed's OWN value (-124.3 deg) so step 1 is the unperturbed
+# minimum; MaxIter 500. NO Calc_Hess (scan Hessian bug, 2026-09-25).
+# Charge convention: QM region charge on the *xyzfile line; Charge_total = whole
+# system. QM -1, host 0, total -1.
+! QM/XTB B97-3c ddCOSMO(Water) Opt TightOpt TightSCF
+
+%QMMM
+QMATOMS
+	{55 58 61 64 120 121 122 123 124 125 126 127 128 129 130 131 132}
+END
+Charge_total -1
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  Scan
+    D 120 128 130 131 = -124, 236, 24
+  end
+  MaxIter 500
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+  nprocs 8
+end
+
+* xyzfile -1 1 job.xyz

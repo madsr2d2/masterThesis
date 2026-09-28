@@ -1,36 +1,45 @@
-#! QM/XTB r2SCAN-3c ALPB(Water) optTS freq
-! XTB ALPB(Water) opt
+# Product complex KP, seeded from the product-side IRC endpoint (COMPUTATIONAL.md C8).
+#
+# The IRC from the verified TS ran both directions but hit MaxIter 20 without
+# reaching a minimum ("MAXIMUM NUMBER OF ITERATIONS REACHED - STOPPING IRC RUN",
+# twice). Its backward branch is the product side: C129-O136 closes from the
+# TS's 1.820 A to 1.547 A and the ketone C129=O130 weakens from 1.265 to 1.319.
+# That endpoint is job.xyz here, copied verbatim from ../irc/job_IRC_B.xyz.
+#
+# What the IRC also showed, and what it corrects: the coordinate is dominated by
+# the C129-O136 bond, NOT the water relay. The proton that moves is H135 (on the
+# attacking O136) -- it stretches off O136 (1.129 at the TS, 1.501 at the
+# product endpoint, nearest O134) -- while H131 stays on water1 (O132) at ~0.98 A
+# throughout BOTH directions. So H131 is an H-bond spectator here, not the relay
+# proton.
+#
+# This optimisation resolves where the protons actually end up and gives KP,
+# which is the missing G(PC): needed for C8's dGdeg gate (-6 to -10 kJ/mol) and
+# for the reverse barrier, dG_rev = G(TS) - G(PC).
+#
+# Same tier as everything else: 20-atom QM region, GFNFF topology, charge 0.
+! QM/XTB r2SCAN-3c ddCOSMO(Water) opt freq TightSCF
 
-%QMMM 
-#QMATOMS 
-#	{136 129 128 130 131 132 134 127} 
-#END 
-#Charge_total 0
-#Mult_total 1
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136 137 138 139}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
 END
 
 %geom
-#Calc_Hess true
-inhess Read
-InHessName "job.hess"
-#Scan
-#	B 146 36 = 2.673, 1.2, 5
-#END
-#Constraints
-#	{C 127 C}
-#	{C 134 C}
-#	{C 132 C}
-#	{C 131 C}
-#	{C 130 C}
-#	{C 128 C}
-#END
+Calc_Hess true
+Recalc_Hess 50
 END
 
-%maxcore 2200
+%output jsonpropfile true end
+
+%maxcore 4000
 
 %pal
-   nprocs 12
+   nprocs 8
 end
-
 
 * xyzfile 0 1 job.xyz

@@ -1,0 +1,27 @@
+# Direct QM1 = DLPNO-CCSD(T) inside QM/XTB (see ../ts/job.inp for the rationale
+# and the manual references): the high-level energy sees the cyclodextrin's 120
+# embedded QM2 point charges, which the post-hoc fragment correction in
+# ../../../energy_dlpno-ccsdt/ cannot.
+#
+# Species: reactant pre-complex, `displace_plus` conformer (the 2.3 kJ/mol lower
+# H131 rotamer). Geometry: ../../../geometry_r2scan3c-xtb/rc/displace_plus/job.xyz.
+! QM/XTB DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C ddCOSMO(Water) TightSCF
+
+%QMMM
+QMATOMS
+	{61 64 120 121 122 124 125 126 128 129 130 131 132 133 134 135 136 137 138 139}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz
