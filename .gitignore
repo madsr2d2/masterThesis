@@ -166,6 +166,15 @@ computational/**/*Dipoles*
 computational/**/*smd_h2o*
 computational/**/*debug_info*
 computational/**/*_D[0-9][0-9][0-9][0-9][0-9].TDDFTGuess.gbw
+# NEB per-image restart state (job_im3.gbw0 is 1.8 MB, one per image) and a
+# numerical Hessian's per-displacement QM2 scratch (job_D00344_S_QM2.pcharge,
+# its _XTB.xyz and .sccnotconverged markers): ORCA rereads them within a run.
+# The images' own job_imN.xyz and the NEB log stay tracked.
+computational/**/*.gbw0
+computational/**/*.lastneb
+computational/**/*.res.Converged
+computational/**/*.res.Energies
+computational/**/*_D[0-9][0-9][0-9][0-9][0-9]_S_QM2*
 
 # OPI (`orca-pi`) builds these next to a job by shelling out to `orca_2json`,
 # and they are the STRUCTURED form of the same output -- bigger than the log
