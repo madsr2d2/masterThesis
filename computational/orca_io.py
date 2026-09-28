@@ -7,16 +7,16 @@ the WRONG SYSTEM's energy on every QM/XTB job in this project -- the tier the
 whole C7-C10 register is built on. ORCA closes a QM/XTB run with four
 differently-labelled energies:
 
-    FINAL SINGLE POINT ENERGY (L-QM2)     -266.683980845360
-    FINAL SINGLE POINT ENERGY (S-QM2)      -26.381942931090
-    FINAL SINGLE POINT ENERGY      -418.878772917932
-    FINAL SINGLE POINT ENERGY (QM/QM2)     -659.180810832202
+    FINAL SINGLE POINT ENERGY (L-QM2)     -266.681990679470
+    FINAL SINGLE POINT ENERGY (S-QM2)      -40.834442837800
+    FINAL SINGLE POINT ENERGY      -647.909099472771
+    FINAL SINGLE POINT ENERGY (QM/QM2)     -873.756647314441
 
 and `FINAL SINGLE POINT ENERGY\\s+(-?\\d+\\.\\d+)` cannot match a labelled
 line, so it took the bare one -- the r2SCAN-3c QM1 region ALONE -- while
 returning, in the same dict, a Gibbs free energy built on the QM/QM2 total.
 The two numbers described different systems and nothing said so. OPI returns
--659.180810832202 for the same file, because it reads ORCA's own structured
+-873.7566473144415 for the same file, because it reads ORCA's own structured
 property JSON rather than the human-readable log.
 
 OPI (`orca-pi`, ORCA's own Python interface) shells out to `orca_2json` to
@@ -49,9 +49,9 @@ WHAT THIS MODULE ADDS ON TOP OF OPI, and why it is not a thin pass-through:
    job. `load_job` requires the file to exist.
 4. AN IMAGINARY FREQUENCY NEEDS A CUTOFF. The C8 reaction complex -- a
    genuine minimum, converged, which ORCA's own thermochemistry treats as one
-   ("The first frequency considered to be a vibration is 8") -- carries two
-   imaginary modes at -19.76 and -3.55 cm-1. On a floppy 140-atom macrocycle
-   that is numerical noise, and a rule reading "more than one imaginary mode
+   ("The first frequency considered to be a vibration is 8") -- carries an
+   imaginary mode at -16.27 cm-1. On a floppy 140-atom macrocycle
+   that is numerical noise, and a rule reading "an imaginary mode
    means this is not a clean saddle point" condemns every real TS this
    project will produce. `stationary_point` applies `IMAGINARY_CUTOFF_CM1`
    and says what it ignored.
@@ -82,8 +82,8 @@ WATER_MOLARITY_M = 55.34
 
 # Below this, an imaginary mode is numerical noise rather than a reaction
 # coordinate. Set from the C8 reaction complex, a converged minimum carrying
-# imaginary modes at -19.76 and -3.55 cm-1 that ORCA's own thermochemistry
-# discards; 50 cm-1 clears both with room to spare and is far below any real
+# an imaginary mode at -16.27 cm-1 that ORCA's own thermochemistry
+# discards; 50 cm-1 clears it with room to spare and is far below any real
 # heavy-atom reaction coordinate (the C8 relay TS's own mode is >1000 cm-1).
 # A mode between the cutoff and a real coordinate is a JUDGEMENT CALL, and
 # `stationary_point` reports what it ignored so the call can be made.
@@ -376,45 +376,74 @@ def fraction_from_equilibrium_constant(k: float) -> float:
 
 # --------------------------------------------------------------------------
 # The composite energy this project's two-tier method is built on.
+#
+# ONE formula, TWO ways of filling it in, settled 2026-09-20:
+#
+#   fragment route (isolated species, C1, C4-C6, C9 -- no host to embed in):
+#       composite_free_energy_eh(geom_job, T, dlpno_fragment, r2scan_fragment)
+#
+#   direct route (full catalyst, C7, C8, C10):
+#       composite_free_energy_eh(geom_job, T, dlpno_qm1_job, geom_job)
+#
+# The arithmetic is identical; only which jobs are passed differs. There is no
+# separate "direct free energy" function, because arithmetically there never
+# was one: the DLPNO job is a single point with no thermochemistry, so G always
+# comes from the geometry tier's frequencies plus an electronic level change.
 # --------------------------------------------------------------------------
 
-def oniom_correction_eh(high_fragment: OrcaJob, low_fragment: OrcaJob) -> float:
-    """E(high) - E(low) on the SAME extracted QM-region fragment, in Eh.
+def oniom_correction_eh(high: OrcaJob, low: OrcaJob) -> float:
+    """E(high) - E(low) for one and the same system, in Eh.
 
-    COMPUTATIONAL.md's Conventions: a DLPNO-CCSD(T)/def2-TZVPP single point on
-    `job.QMRegion.xyz` minus an r2SCAN-3c single point on the same geometry,
-    added to the full embedded energy as ORCA's own subtractive QM1/QM2
-    scheme applied post hoc. Raises if the two jobs are not the same
-    fragment, which is the mistake this function exists to make impossible.
+    The level change the composite adds to the geometry tier's free energy.
+    Which two jobs these are depends on the route (COMPUTATIONAL.md,
+    Conventions):
+
+    - **fragment route** (isolated species, C1, C4-C6, C9): two single points
+      on the SAME extracted `job.QMRegion.xyz` -- DLPNO-CCSD(T)/def2-TZVPP in
+      CPCM minus r2SCAN-3c in CPCM.
+    - **direct route** (full catalyst, C7, C8, C10): two full-system QM/QM2
+      totals -- the job whose QM1 is the correlated method minus the geometry
+      tier's own. That second job is the object `composite_free_energy_eh` also
+      takes as `embedded`, so on this route one job is passed twice.
+
+    Raises if the two jobs are not the same system, which is the mistake this
+    function exists to make impossible.
     """
-    if high_fragment.natoms != low_fragment.natoms:
+    if high.natoms != low.natoms:
         raise OrcaJobError(
-            f"the two fragment jobs are different systems: "
-            f"{high_fragment.label} has {high_fragment.natoms} atoms, "
-            f"{low_fragment.label} has {low_fragment.natoms}"
+            f"the two jobs are different systems: {high.label} has "
+            f"{high.natoms} atoms, {low.label} has {low.natoms}"
         )
-    if high_fragment.charge != low_fragment.charge:
+    if high.charge != low.charge:
         raise OrcaJobError(
-            f"the two fragment jobs carry different charges: "
-            f"{high_fragment.charge} and {low_fragment.charge}"
+            f"the two jobs carry different charges: {high.charge} and {low.charge}"
         )
-    high = high_fragment.final_energy_eh
-    low = low_fragment.final_energy_eh
-    if high is None or low is None:
-        raise OrcaJobError("a fragment job has no final energy")
-    return high - low
+    high_energy = high.final_energy_eh
+    low_energy = low.final_energy_eh
+    if high_energy is None or low_energy is None:
+        raise OrcaJobError("a job has no final energy")
+    return high_energy - low_energy
 
 
 def composite_free_energy_eh(embedded: OrcaJob, temperature_K: float,
-                             high_fragment: OrcaJob, low_fragment: OrcaJob) -> float:
-    """G(QM/XTB, at T) + [E(DLPNO) - E(r2SCAN-3c)] on the QM region, in Eh.
+                             high: OrcaJob, low: OrcaJob) -> float:
+    """G(geometry tier, T) + [E(high) - E(low)], in Eh.
 
     The formula every final number in the C7-C10 register rests on. It lived
-    only as prose in `job.inp` comment headers until 2026-09-17, which means
-    it was re-derived by hand each time it was used.
+    only as prose in `job.inp` comment headers until 2026-09-17, which means it
+    was re-derived by hand each time it was used.
+
+    `embedded` carries the frequencies and is normally also `low`: pass it
+    twice on the direct route (`composite_free_energy_eh(geom, T, dlpno_qm1,
+    geom)`) and pass the two extracted-fragment jobs on the fragment route. The
+    DLPNO job has no thermochemistry, so the geometry tier's G is the only free
+    energy there is and the level change stays electronic.
+
+    The two routes do NOT agree -- 5-7 kJ/mol on C8 item 1's barrier -- so a
+    quoted number has to say which one it came from.
     """
     return (free_energy(embedded, temperature_K)
-            + oniom_correction_eh(high_fragment, low_fragment))
+            + oniom_correction_eh(high, low))
 
 
 def to_kj_per_mol(energy_eh: float) -> float:

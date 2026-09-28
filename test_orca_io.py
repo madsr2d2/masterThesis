@@ -9,9 +9,9 @@ WRONG, in opposite directions, silently.
 `~/.claude/skills/lib/orca_thermo.py` matched `FINAL SINGLE POINT ENERGY` with
 a regex that cannot match a LABELLED line, so on every QM/XTB job -- the tier
 the whole C7-C10 register is built on -- it returned the r2SCAN-3c QM1 region
-alone (-418.878772917932 on the C8 reaction complex) while reporting, in the
-same dict, a Gibbs free energy built on the QM/QM2 total (-658.19992068). OPI
-returns -659.180810832202 for that file.
+alone (-647.909099472771 on the C8 reaction complex) while reporting, in the
+same dict, a Gibbs free energy built on the QM/QM2 total. OPI returns
+-873.7566473144415 for that file.
 
 And on a job run at more than one temperature the two disagree about WHICH
 temperature they answered for. Measured on the fixture below, a real ORCA
@@ -55,13 +55,27 @@ FIXTURE_FREE_ENERGIES = {288.15: -75.95510681,
                          298.15: -75.95582142,
                          313.15: -75.95690128}
 
-# The C8 reaction complex: QM/XTB, 140 atoms, a converged MINIMUM that carries
-# two imaginary modes at -19.76 and -3.55 cm-1 -- the case the cutoff exists
-# for. Homelab-local; skipped where absent.
-C8_RC = os.path.join(HERE, "computational", "C8_perhydrate_trap",
-                     "K+H2O2_water-relay_to_KP", "geometry_r2scan3c-xtb", "rc")
-C8_RC_TOTAL_ENERGY_EH = -659.180810832202
-C8_RC_QM1_ONLY_EH = -418.878772917932
+# The C8 reaction complex -- the `displace_minus` H131 rotamer, the RC minimum:
+# QM/XTB, 140 atoms, a converged MINIMUM whose one imaginary mode sits at
+# -16.27 cm-1, under the cutoff, which is the case the cutoff exists for.
+# Homelab-local; skipped where absent. (Until 2026-09-20 this pointed at the
+# 12-atom-QM-region RC, whose job.out the re-run replaced; the constants below
+# moved with it.)
+C8_GEOM = os.path.join(HERE, "computational", "C8_perhydrate_trap",
+                       "K+H2O2_water-relay_to_KP", "geometry_r2scan3c-xtb")
+C8_RC = os.path.join(C8_GEOM, "rc", "displace_minus")
+C8_RC_TOTAL_ENERGY_EH = -873.7566473144415
+C8_RC_QM1_ONLY_EH = -647.909099472771
+
+# The two energy routes settled 2026-09-20. The direct route runs DLPNO-CCSD(T)
+# AS the QM1 of a second QM/XTB point on the whole system, so it sees the host's
+# point charges; the fragment route isolates the QM region. On C8 item 1 they
+# differ by 5-7 kJ/mol on the barrier, so a gate has to hold both.
+C8_DIRECT = os.path.join(HERE, "computational", "C8_perhydrate_trap",
+                         "K+H2O2_water-relay_to_KP", "energy_qm1_dlpno")
+C8_FRAGMENT = os.path.join(HERE, "computational", "C8_perhydrate_trap",
+                           "K+H2O2_water-relay_to_KP", "energy_dlpno-ccsdt")
+C8_TS_GEOMETRY = os.path.join(C8_GEOM, "ts", "verify_exact_hessian")
 
 # The skill that tells an agent to use `orca_io` at all. CLAUDE.md's rule --
 # "a number that reaches CLAUDE.md, BUBBLES.md or the skill now needs a claim
@@ -256,17 +270,17 @@ def test_the_qm_xtb_total_is_the_energy_returned():
           f"{abs(energy - C8_RC_QM1_ONLY_EH):.3f} Eh apart")
     check("it has 140 atoms", job.natoms == 140, f"{job.natoms}")
     verdict = orca_io.stationary_point(job)
-    check("and it is a MINIMUM despite two imaginary modes under the cutoff",
+    check("and it is a MINIMUM despite an imaginary mode under the cutoff",
           verdict.startswith("minimum"), verdict)
     check("which the verdict names rather than hiding",
-          "-19.76" in verdict and "-3.55" in verdict, verdict)
+          "-16.27" in verdict, verdict)
 
 
 def test_the_skill_quotes_what_the_code_says():
     """Every number in the run-orca skill, re-derived.
 
     One number is quoted there and NOT re-derived from a live job:
-    `-418.878772917932`, what the superseded regex parser returned for the C8
+    `-647.909099472771`, what the superseded regex parser returned for the C8
     reaction complex. It is the bare `FINAL SINGLE POINT ENERGY` line, which
     includes r2SCAN-3c's gCP and dispersion terms, and OPI's `get_energies()`
     exposes only the SCF component (-418.88865521) -- so re-deriving it would
@@ -315,6 +329,48 @@ def test_the_skill_quotes_what_the_code_says():
     print(f"  ({doc.claims} claims)")
 
 
+def test_the_direct_route_swaps_the_qm1():
+    """The direct route and the fragment route are different numbers, by design.
+
+    Homelab-local: both need the C8 energy-tier jobs. When present, this pins
+    the 5-7 kJ/mol disagreement that forced the 2026-09-20 decision, so a later
+    edit cannot quietly put the register back on the route the pilot rejected.
+    """
+    print("\nthe direct route swaps the qm1")
+    ts_low = os.path.join(C8_TS_GEOMETRY, "job.out")
+    ts_high = os.path.join(C8_DIRECT, "ts", "job.out")
+    ts_frag = os.path.join(C8_FRAGMENT, "ts", "dlpno-ccsdt", "job.out")
+    if not (os.path.exists(ts_low) and os.path.exists(ts_high)
+            and os.path.exists(ts_frag)):
+        skip("the C8 energy tiers",
+             "homelab-local by .gitignore policy; run this on the machine that has it")
+        return
+
+    low = orca_io.load_job(C8_TS_GEOMETRY)
+    high = orca_io.load_job(os.path.join(C8_DIRECT, "ts"))
+    embedded = orca_io.oniom_correction_eh(high, low)
+    check("the embedded QM1 swap on the TS is about +0.787 Eh",
+          abs(embedded - 0.787323) < 1e-5, f"{embedded:.6f}")
+
+    isolated = orca_io.oniom_correction_eh(
+        orca_io.load_job(os.path.join(C8_FRAGMENT, "ts", "dlpno-ccsdt")),
+        orca_io.load_job(os.path.join(C8_FRAGMENT, "ts", "r2scan3c")))
+    gap = (isolated - embedded) * orca_io.EH_TO_KJ_PER_MOL
+    check("and the isolated fragment route is ~1 kJ/mol larger on the TS",
+          0.0 < gap < 3.0, f"{gap:.2f} kJ/mol")
+    check("so the two routes are not interchangeable",
+          abs(isolated - embedded) > 1e-6)
+
+    # ONE function, both routes: the direct route is the same call with the
+    # geometry job passed as both `embedded` and `low`, not a second function.
+    direct = orca_io.composite_free_energy_eh(low, 298.15, high, low)
+    expected = orca_io.free_energy(low, 298.15) + embedded
+    check("the direct composite is G(geometry tier) plus the embedded swap",
+          abs(direct - expected) < 1e-12, f"{direct:.6f}")
+    check("and it is the fragment route's own function, filled differently",
+          direct == orca_io.composite_free_energy_eh(low, 298.15, high, low))
+
+
 if __name__ == "__main__":
     test_a_temperature_is_never_guessed()
     test_the_entropy_is_not_the_entropy_term()
@@ -326,6 +382,7 @@ if __name__ == "__main__":
     test_a_fragment_pair_must_be_one_fragment()
     test_the_water_job_is_a_minimum()
     test_the_qm_xtb_total_is_the_energy_returned()
+    test_the_direct_route_swaps_the_qm1()
     test_the_skill_quotes_what_the_code_says()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
