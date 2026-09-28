@@ -15,6 +15,7 @@ from textual_plotext import PlotextPlot
 
 from ..core import cache
 from ..core.discovery import discover, short_label
+from ..core.events import events
 from ..core.geometry import camera_basis
 from ..core.job import Job
 from ..core.liveness import lookup, make_probe
@@ -23,15 +24,21 @@ from ..core.report import (
     FINISHED_WITH_FLAGS_STYLE, STATUS_STYLE, build_report, cycle_label, describe_point,
     geometry_shown, render_markup, render_steps_markup, steps_rows,
 )
-from ..core.status import QUIET_AFTER_S, Status
+from ..core.status import QUIET_AFTER_S, TERMINAL, Status
 from ..core.units import EH_TO_KJ_PER_MOL, format_wall_time
-from . import herdr_graphics, kitty
+from . import geometry_text, graphics_probe, herdr_graphics, kitty, notify
 
 # `geometry_render` (matplotlib, numpy, PIL -- the `images` extra) is imported
 # inside the two pixel widgets' render paths, never here, so the TUI starts
 # without it.
 
 REFRESH_SECONDS = 3.0
+
+# How often the tree is walked again for jobs submitted since launch, and
+# finished jobs re-checked for a re-run. Discovery is ~0.03 s on a local tree,
+# but on Lustre or NFS an rglob is metadata-heavy, which is why this is not
+# every tick. `r` forces it.
+REDISCOVER_SECONDS = 30.0
 
 # How often a scan in progress pushes what it has so far to the table. The
 # first scan reads every job.out end to end -- 667 MB and ~5 s on this tree --
@@ -436,9 +443,14 @@ class KittyGeometryImage(RotatableGeometryImage):
 
     IMAGE_ID = 1
     RETRANSMIT_EVERY = 20  # self-heal ticks between full re-transmissions
+    # The frame the pixel renderer draws by default, which the terminal
+    # scales into the pane. A preview is this times PREVIEW_SCALE: ~9.5 KB
+    # against ~35 KB, which over ssh is the difference a held key feels.
+    FULL_PX = (900, 750)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._settle_timer = None
         self._last_atoms: list | None = None
         # Region the currently-stored image was rendered for. Placing it into
         # a different one would scale the wrong pixels into the wrong box.
@@ -450,6 +462,8 @@ class KittyGeometryImage(RotatableGeometryImage):
 
     def on_unmount(self) -> None:
         self._input.cancel()
+        if self._settle_timer is not None:
+            self._settle_timer.stop()
         # Taking a sequence number under the write lock makes every push
         # still in flight stale, so none can place an image after this delete.
         with self._write_lock:
@@ -471,7 +485,7 @@ class KittyGeometryImage(RotatableGeometryImage):
         atoms = self._atoms_for(job, point)
         if atoms is not self._last_atoms:
             self._last_atoms = atoms
-            self._on_change()
+            self._push(self._next_seq(), quality="full")
             return
         self._heal()
 
@@ -484,7 +498,7 @@ class KittyGeometryImage(RotatableGeometryImage):
             self._placed_region != (region.x, region.y, region.width, region.height)
             or self._heals_since_transmit >= self.RETRANSMIT_EVERY
         ):
-            self._on_change()
+            self._push(self._next_seq(), quality="full")
             return
         self._write(self._placement(region))
 
@@ -492,7 +506,16 @@ class KittyGeometryImage(RotatableGeometryImage):
         return kitty.place(self.IMAGE_ID, region.x, region.y, region.width, region.height)
 
     def _on_change(self) -> None:
-        self._push(self._next_seq())
+        """Interaction: a small frame now, the full one once input settles --
+        the behaviour HerdrGeometryImage has, for the same reason."""
+        if self._settle_timer is not None:
+            self._settle_timer.stop()
+        self._push(self._next_seq(), quality="preview")
+        self._settle_timer = self.set_timer(HerdrGeometryImage.SETTLE_DELAY_S, self._push_settled)
+
+    def _push_settled(self) -> None:
+        self._settle_timer = None
+        self._push(self._next_seq(), quality="full")
 
     def _write(self, data: str) -> None:
         driver = self.app._driver
@@ -500,7 +523,7 @@ class KittyGeometryImage(RotatableGeometryImage):
             driver.write(data)
 
     @work(thread=True, exclusive=True)
-    def _push(self, seq: int) -> None:
+    def _push(self, seq: int, quality: str = "full") -> None:
         # Bind the selection ONCE. This body runs in a worker thread while the
         # main thread can still be reassigning `_job`/`_point` underneath it,
         # so reading them more than once could pair one job's atoms with
@@ -519,9 +542,13 @@ class KittyGeometryImage(RotatableGeometryImage):
 
         from . import geometry_render
 
+        size = self.FULL_PX
+        if quality == "preview":
+            size = (max(1, int(size[0] * PREVIEW_SCALE)), max(1, int(size[1] * PREVIEW_SCALE)))
         image = geometry_render.render(
             atoms, elev=self.elev, azim=self.azim, show_distances=self.show_distances,
             zoom=self.zoom, pan=self.pan, qm_atom_indices=job.state.qm_atom_indices,
+            size_px=size,
         )
         sequence = kitty.transmit(
             geometry_render.frame_png(image), self.IMAGE_ID,
@@ -536,6 +563,60 @@ class KittyGeometryImage(RotatableGeometryImage):
             # self-heals can re-place these pixels instead of resending them.
             self._placed_region = (region.x, region.y, region.width, region.height)
             self._heals_since_transmit = 0
+
+
+class TextGeometry(RotatableGeometryImage):
+    """The molecule in braille and element symbols (`geometry_text`), for
+    terminals the pixel paths cannot reach -- tmux, screen, mosh, anything
+    that drops image escapes. Ordinary cells: a few KB a frame.
+
+    The atoms are bound in `show_job`, which runs under the job's lock,
+    rather than read in `render`, which Textual calls whenever it likes --
+    iterating a job's history while the scan thread appends to it raises."""
+
+    BINDINGS = [*GEOMETRY_BINDINGS, ("h", "toggle_hydrogens", "Hydrogens")]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._atoms: list = []
+        self._qm: set | None = None
+        self._bonds: tuple[int, list] | None = None  # (id(atoms), bonds)
+        self._hydrogens: bool | None = None  # None: by atom count
+
+    def show_job(self, job: Job | None, point=None) -> None:
+        if job is not self._job:
+            self._hydrogens = None
+        self._job, self._point = job, point
+        atoms = self._atoms_for(job, point)
+        qm = job.state.qm_atom_indices if job is not None else None
+        if atoms is not self._atoms or qm is not self._qm:
+            self._atoms, self._qm = atoms, qm
+            self.refresh()
+
+    def _on_change(self) -> None:
+        self.refresh()
+
+    def _show_hydrogens(self) -> bool:
+        if self._hydrogens is not None:
+            return self._hydrogens
+        return len(self._atoms) <= geometry_text.SHOW_HYDROGENS_UP_TO
+
+    def action_toggle_hydrogens(self) -> None:
+        self._hydrogens = not self._show_hydrogens()
+        self._input.request()
+
+    def render(self):
+        size = self.content_size
+        atoms = self._atoms
+        if not atoms:
+            return ""
+        if self._bonds is None or self._bonds[0] != id(atoms):
+            self._bonds = (id(atoms), geometry_text.bonds(atoms))
+        view = geometry_text.View(
+            elev=self.elev, azim=self.azim, zoom=self.zoom, pan=self.pan,
+            show_hydrogens=self._show_hydrogens(),
+        )
+        return geometry_text.render(atoms, size.width, size.height, view, self._qm, self._bonds[1])
 
 
 class HerdrGeometryImage(RotatableGeometryImage):
@@ -776,11 +857,25 @@ class MonitorApp(App):
     def __init__(
         self, root: Path, liveness: str = "auto", quiet_after: float = QUIET_AFTER_S,
         exclude: tuple[str, ...] = (), use_cache: bool = True,
+        graphics: str = "text", graphics_note: str | None = None,
+        notify_mode: str = "all", on_event: str | None = None,
     ):
         super().__init__()
         self.root = root.resolve()
         self.exclude = tuple(exclude)
         self.use_cache = use_cache
+        # Chosen BEFORE the app starts (see `run`): asking the terminal what
+        # it supports needs it in raw mode, which Textual then owns.
+        self.graphics = graphics
+        self.graphics_note = graphics_note
+        self.notify_mode = notify_mode
+        self._hook = notify.Hook(on_event)
+        # The last report per job, to diff for events. A job's first report
+        # has nothing to diff against, so the first scan announces nothing.
+        self._reports: dict[int, object] = {}
+        self._gone: set[str] = set()
+        self._last_discover = time.monotonic()
+        self._force_discover = False
         # The offset each job's cache entry was written at, so a save writes
         # only the jobs that read something since.
         self._cached_offsets: dict[int, int] = {}
@@ -790,8 +885,6 @@ class MonitorApp(App):
         self.jobs: list[Job] = []
         self.selected_label: str | None = None
         self.maximized = False
-        self.use_herdr_graphics = herdr_graphics.available()
-        self._geometry_mode = "pixel, herdr graphics" if self.use_herdr_graphics else "pixel, raw kitty"
         # What each pane is currently SHOWING. Every widget update dirties the
         # widget and a dirty widget is a repaint, which over ssh is the whole
         # cost of a tick on which nothing actually changed -- so each of these
@@ -811,10 +904,9 @@ class MonitorApp(App):
         with Horizontal():
             with Vertical(id="left"):
                 yield DataTable(id="job_table")
-                if self.use_herdr_graphics:
-                    yield HerdrGeometryImage(id="geometry")
-                else:
-                    yield KittyGeometryImage(id="geometry")
+                widget = {"herdr": HerdrGeometryImage, "kitty": KittyGeometryImage}.get(
+                    self.graphics, TextGeometry)
+                yield widget(id="geometry")
             with Vertical(id="detail"):
                 yield Static(id="summary")
                 yield ConvergencePlot(id="chart")
@@ -853,7 +945,7 @@ class MonitorApp(App):
         if self.jobs:
             self.selected_label = self.jobs[0].label
 
-        self.query_one("#geometry").border_title = f"geometry ({self._geometry_mode})"
+        self.query_one("#geometry").border_title = self._geometry_title()
         self.query_one("#summary", Static).border_title = "summary"
         self.query_one("#chart", ConvergencePlot).border_title = "convergence"
         self.query_one("#convergence", Static).border_title = "geometry steps"
@@ -864,7 +956,12 @@ class MonitorApp(App):
         self.set_interval(REFRESH_SECONDS, self.refresh_all)
 
     def action_refresh_now(self) -> None:
+        self._force_discover = True
         self.refresh_all()
+
+    def _geometry_title(self) -> str:
+        note = f", {self.graphics_note}" if self.graphics_note else ""
+        return f"geometry ({self.graphics}{note})"
 
     def action_toggle_maximize(self) -> None:
         self.maximized = not self.maximized
@@ -900,12 +997,27 @@ class MonitorApp(App):
                     if not job.parsed and id(job) not in self._cached_offsets:
                         restored = cache.restore(job.state)
                         self._cached_offsets[id(job)] = job.state.offset if restored else -1
+            full = self._force_discover or time.monotonic() - self._last_discover >= REDISCOVER_SECONDS
+            if full:
+                self._force_discover = False
+                self._rediscover()
             snapshot = self.probe.snapshot([job.state.path for job in self.jobs])
             selected = self.selected_job()
             order = sorted(self.jobs, key=lambda j: (j is not selected, j.pending_bytes()))
             last_apply = time.monotonic()
+            raised = []
             for job in order:
+                if job.label in self._gone:
+                    continue
+                # A finished, failed or stopped job only changes if it is
+                # re-run, and `update_job` notices a replaced file whenever it
+                # is next read -- so between rediscoveries it is not stat'ed.
+                if not full and job.parsed and job.status in TERMINAL:
+                    continue
                 job.refresh(lookup(snapshot, self.probe, job.state.path), quiet_after=self.quiet_after)
+                report = build_report(job)
+                raised += events(self._reports.get(id(job)), report)
+                self._reports[id(job)] = report
                 if time.monotonic() - last_apply >= PROGRESS_APPLY_S:
                     self.call_from_thread(self._apply_scan)
                     last_apply = time.monotonic()
@@ -914,7 +1026,49 @@ class MonitorApp(App):
         finally:
             self._scan_lock.release()
         self.call_from_thread(self._apply_scan)
+        if raised:
+            self.call_from_thread(self._announce, raised)
 
+    def _rediscover(self) -> None:
+        """Add jobs that appeared since launch; mark those whose directory
+        went as gone rather than pulling a row out from under the cursor.
+        Runs in the scan thread; the job list and the table change on the
+        main thread."""
+        self._last_discover = time.monotonic()
+        refs = discover(self.root, self.exclude)
+        known = {job.label for job in self.jobs}
+        current = {ref.label for ref in refs}
+        new = [Job(ref.path, ref.stem, self.root, label=ref.label) for ref in refs if ref.label not in known]
+        gone = known - current
+        if new or gone != self._gone:
+            self.call_from_thread(self._apply_discovery, new, gone)
+
+    def _apply_discovery(self, new: list, gone: set) -> None:
+        table = self.query_one("#job_table", DataTable)
+        for job in new:
+            self.jobs.append(job)
+            table.add_row(short_label(job.label, JOB_COL_WIDTH), Text(READING, style=READING_STYLE),
+                          "-", "-", "-", key=job.label)
+        for label in gone - self._gone:
+            self._rendered_rows.pop(label, None)
+            table.update_cell(label, "status", Text("gone", style="dim"), update_width=False)
+        self._gone = set(gone)
+        for label in {job.label for job in self.jobs} - gone:
+            if label in self._rendered_rows and self._rendered_rows[label][0] == "gone":
+                self._rendered_rows.pop(label)
+
+    def _announce(self, raised: list) -> None:
+        """Tell the person: the terminal's own notification (bell, OSC 9/777
+        -- through ssh, and through tmux with passthrough on), the
+        `--on-event` hook, and a toast in the app itself."""
+        driver = self._driver
+        for event in raised:
+            seq = notify.sequences(event, self.notify_mode)
+            if seq and driver is not None:
+                driver.write(seq)
+            self._hook(event)
+            severity = "error" if event.status in ("failed", "stopped") else "warning" if event.kind == "flag" else "information"
+            self.notify(event.text, severity=severity, timeout=8)
     def save_cache(self, lock_timeout: float | None = None) -> None:
         """Write every job whose output was read since its last save. From
         the scan thread (which holds no job lock between jobs), or at exit
@@ -934,8 +1088,8 @@ class MonitorApp(App):
     def _apply_scan(self) -> None:
         table = self.query_one("#job_table", DataTable)
         for job in self.jobs:
-            if not job.parsed:
-                continue  # still showing READING from add_row
+            if not job.parsed or job.label in self._gone:
+                continue  # still showing READING from add_row, or gone
             neg_eig = "-"
             if job.state.eigen_history:
                 neg_eig = str(job.state.eigen_history[-1][1])
@@ -1065,7 +1219,7 @@ class MonitorApp(App):
         """Say WHICH geometry the pane is drawing -- and, when the requested
         one had no coordinates printed, that it is drawing another."""
         _atoms, shown = geometry_shown(job, point)
-        title = f"geometry ({self._geometry_mode})"
+        title = self._geometry_title()
         where = describe_point(shown)
         if point is not None and shown is not point:
             asked = describe_point(point)
@@ -1079,12 +1233,16 @@ class MonitorApp(App):
 def run(root: Path, args=None) -> None:
     """Watch every ORCA job (every `<stem>.inp`) under `root`. `args` is the
     parsed `orcamon tui` command line, when there is one."""
+    graphics, note = graphics_probe.choose(getattr(args, "graphics", "auto"))
     app = MonitorApp(
         root,
         liveness=getattr(args, "liveness", "auto"),
         quiet_after=getattr(args, "quiet_after", QUIET_AFTER_S),
         exclude=tuple(getattr(args, "exclude", ()) or ()),
         use_cache=not getattr(args, "no_cache", False),
+        graphics=graphics, graphics_note=note,
+        notify_mode=getattr(args, "notify", "all"),
+        on_event=getattr(args, "on_event", None),
     )
     try:
         app.run()

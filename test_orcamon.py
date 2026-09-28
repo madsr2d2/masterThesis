@@ -21,6 +21,9 @@ import textwrap
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+# The TUI tests run headless. Inheriting a herdr pane would draw the
+# molecule over the pane this runs in.
+os.environ["HERDR_ENV"] = "0"
 
 FAILURES = []
 
@@ -554,6 +557,149 @@ def test_the_cli_uses_the_cache_and_can_refuse_it():
               {k: v for k, v in first["job"].items() if k != "last_output_age_s"}
               == {k: v for k, v in second["job"].items() if k != "last_output_age_s"})
 
+
+def test_events_announce_changes_not_the_first_scan():
+    print("\nevents: a change is announced, the first sighting is not")
+    from dataclasses import replace
+    from orcamon.core.events import events
+    from orcamon.core.report import JobReport
+
+    base = JobReport(
+        schema=1, label="rxn/ts_anion", path="/x", stem="job", run_types=["OptTS"], method="", basis=None,
+        charge=0, mult=1, layers={}, multilayer=False, n_atoms=None, n_qm_atoms=None, nprocs=None,
+        maxcore_mb=None, status="running", liveness_source="process", sched_id=None, cycle=3,
+        max_cycles=None, scan_step=None, scan_total=None, scan_coordinate=None, wall_time_s=None,
+        last_output_age_s=None, opt_converged=False, opt_maxiter_reached=False, criteria=None,
+        negative_eigenvalues=None, imaginary_freqs=None, freq_cycle=None, energy_eh=None,
+        energy_label=None, delta_kj_mol=None, scan_max_kj_mol=None, scan_max_at=None, qm2_errors=0,
+        crash_lines=[], attention=[],
+    )
+    flag = {"code": "ts_imaginary", "message": "2 imaginary frequencies (a TS wants 1)"}
+    done = replace(base, status="finished", attention=[flag])
+    check("the first report of a job raises nothing", events(None, done) == [])
+    check("an unchanged report raises nothing", events(base, base) == [])
+    raised = events(base, done)
+    check("finishing raises one event that carries its flag",
+          len(raised) == 1 and raised[0].text == "ts_anion: finished · 2 imaginary frequencies (a TS wants 1)",
+          f"{raised}")
+    later = replace(done, attention=[flag, {"code": "qm2_errors", "message": "1 QM2 error"}])
+    raised = events(done, later)
+    check("a new flag on its own raises a flag event",
+          [(e.kind, e.text) for e in raised] == [("flag", "ts_anion: 1 QM2 error")], f"{raised}")
+    check("reaching running is not news", events(replace(base, status="queued"), base) == [])
+
+
+def test_notifications_reach_the_terminal_through_tmux():
+    print("\nnotifications: bell and OSC, wrapped for tmux byte-exactly")
+    from orcamon.core.events import Event
+    from orcamon.tui import notify
+
+    check("tmux passthrough doubles every ESC inside the envelope",
+          notify.tmux_wrap("\x1b]9;hi\x07") == "\x1bPtmux;\x1b\x1b]9;hi\x07\x1b\\")
+    event = Event("status", "a/b", "finished", "b: finished")
+    check("all = bell, OSC 9, OSC 777",
+          notify.sequences(event, "all", in_tmux=False)
+          == "\a\x1b]9;b: finished\x07\x1b]777;notify;orcamon;b: finished\x07")
+    check("inside tmux the OSCs are wrapped, the bell is not",
+          notify.sequences(event, "all", in_tmux=True)
+          == "\a" + notify.tmux_wrap("\x1b]9;b: finished\x07")
+          + notify.tmux_wrap("\x1b]777;notify;orcamon;b: finished\x07"))
+    check("off is silent", notify.sequences(event, "off") == "")
+    check("a BEL or ESC in the text cannot end the OSC early",
+          notify.sequences(Event("status", "j", "failed", "x\x07y\x1bz"), "osc", in_tmux=False)
+          == "\x1b]9;xyz\x07\x1b]777;notify;orcamon;xyz\x07")
+
+
+def test_the_geometry_pane_degrades_to_text():
+    print("\ngraphics: auto picks text in a multiplexer; the probe and the text renderer")
+    import random
+    import time as _time
+    from orcamon.tui import geometry_text, graphics_probe as gp
+
+    def auto(env, herdr=False, images=True, kitty=True):
+        return gp.choose("auto", environ=env, herdr_available=herdr, have_images=images,
+                         kitty_probe=lambda: kitty)
+    check("auto inside tmux is text", auto({"TMUX": "/tmp/x"}) == ("text", None))
+    check("and inside screen", auto({"STY": "1.pts"}) == ("text", None))
+    check("herdr wins when it answers", auto({"TMUX": "/tmp/x"}, herdr=True) == ("herdr", None))
+    check("outside a multiplexer the terminal is asked", auto({}) == ("kitty", None)
+          and auto({}, kitty=False) == ("text", None))
+    check("no images extra means text, with the reason",
+          auto({}, images=False) == ("text", "images extra not installed"))
+    check("--graphics kitty forces it", gp.choose("kitty", environ={"TMUX": "x"}, have_images=True)
+          == ("kitty", None))
+
+    check("probe: a Kitty OK before DA1 is kitty",
+          gp.parse_probe_reply(b"\x1b_Gi=31;OK\x1b\\\x1b[?62;22c") is True)
+    check("probe: DA1 alone is not", gp.parse_probe_reply(b"\x1b[?62;22c") is False)
+    check("probe: nothing yet is undecided", gp.parse_probe_reply(b"") is None
+          and gp.parse_probe_reply(b"\x1b_Gi=31;OK\x1b\\") is None)
+
+    water = [("O", 0.0, 0.0, 0.0), ("H", 0.96, 0.0, 0.0), ("H", -0.24, 0.93, 0.0)]
+    text = geometry_text.render(water, 20, 10).plain
+    rows = text.split("\n")
+    check("water in 20x10: O and both H drawn, braille between them",
+          len(rows) == 10 and all(len(r) == 20 for r in rows) and text.count("O") == 1
+          and text.count("H") == 2 and any(0x2800 < ord(c) <= 0x28FF for c in text), repr(text))
+    check("H-H is never a bond", sorted(geometry_text.bonds(water)) == [(0, 1), (0, 2)],
+          f"{geometry_text.bonds(water)}")
+    random.seed(7)
+    big = [(random.choice("CCCNOH"), random.uniform(0, 12), random.uniform(0, 12), random.uniform(0, 12))
+           for _ in range(300)]
+    started = _time.perf_counter()
+    geometry_text.render(big, 80, 30)
+    elapsed = (_time.perf_counter() - started) * 1000
+    check("300 atoms in under 50 ms", elapsed < 50, f"{elapsed:.1f} ms")
+
+
+def test_the_tui_runs_headless():
+    print("\nthe TUI, headless: selection, maximize, refresh, a new job, an event")
+    import asyncio
+    import time as _time
+    from orcamon.tui.app import MonitorApp
+
+    async def drive(t, hook_file):
+        app = MonitorApp(t.root, liveness="test", graphics="text", notify_mode="off",
+                         on_event=f'echo "$ORCAMON_JOB $ORCAMON_STATUS" >> "{hook_file}"')
+        async with app.run_test(size=(180, 50)) as pilot:
+            deadline = _time.monotonic() + 5
+            while not (app.jobs and all(j.parsed for j in app.jobs)) and _time.monotonic() < deadline:
+                await pilot.pause(0.05)
+            await pilot.press("down")
+            await pilot.pause(0.3)
+            label = app.selected_label
+            job = app.selected_job()
+            summary = str(app.query_one("#summary").render())
+            check("the summary shows the selected job's label and status",
+                  label in summary and job.status.value in summary, summary[:200])
+            await pilot.press("m")
+            await pilot.pause(0.1)
+            check("m maximizes the geometry", app.maximized)
+            await pilot.press("m")
+
+            new = t.root / "submitted_later"
+            new.mkdir()
+            (new / "job.inp").write_text("! B97-3c Opt\n* xyz 0 1\n*\n")
+            with open(t.dirs["scan_running"] / "job.out", "a") as f:
+                f.write(_DONE + "\n")
+            _AliveProbe.ALIVE = set()
+            await pilot.press("r")
+            deadline = _time.monotonic() + 5
+            while _time.monotonic() < deadline and not (
+                    any(j.label == "submitted_later" for j in app.jobs) and hook_file.exists()):
+                await pilot.pause(0.1)
+            check("r finds a job submitted after launch",
+                  any(j.label == "submitted_later" for j in app.jobs))
+            fired = hook_file.read_text() if hook_file.exists() else ""
+            check("and a job finishing runs the --on-event hook with its environment",
+                  "scan_running finished" in fired, repr(fired))
+
+    started = _time.monotonic()
+    with _Tree() as t:
+        asyncio.run(drive(t, t.root.parent / "hook.log"))
+    elapsed = _time.monotonic() - started
+    check("in under 10 s", elapsed < 10, f"{elapsed:.1f} s")
+
 if __name__ == "__main__":
     test_the_core_needs_only_the_standard_library()
     test_a_job_argument_names_one_job()
@@ -564,6 +710,10 @@ if __name__ == "__main__":
     test_the_other_commands_answer_boundedly()
     test_a_cached_state_equals_a_fresh_parse()
     test_the_cli_uses_the_cache_and_can_refuse_it()
+    test_events_announce_changes_not_the_first_scan()
+    test_notifications_reach_the_terminal_through_tmux()
+    test_the_geometry_pane_degrades_to_text()
+    test_the_tui_runs_headless()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)

@@ -145,6 +145,16 @@ TUI_MISSING = "the TUI needs the tui extra: uv tool install 'orcamon[tui]'"
 def add_tui_options(p) -> None:
     """The TUI's own options. Declared here so the parser (and so the
     generated reference) lists them without importing Textual."""
+    p.add_argument("--graphics", choices=("auto", "herdr", "kitty", "text"), default="auto",
+                   help="geometry pane: herdr/kitty pixels or text; auto asks the terminal "
+                        "and picks text inside tmux or screen (default: auto)")
+    p.add_argument("--notify", choices=("off", "bell", "osc", "all"), default="all",
+                   help="how finished/failed/stopped/stalled jobs and new flags are announced: "
+                        "terminal bell, OSC 9/777 desktop notification, or both. Inside tmux "
+                        "the OSC needs `set -g allow-passthrough on` (default: all)")
+    p.add_argument("--on-event", metavar="CMD",
+                   help="run CMD through the shell per event, with ORCAMON_EVENT, ORCAMON_JOB, "
+                        "ORCAMON_STATUS and ORCAMON_MESSAGE set (e.g. to push to a phone)")
 
 
 def cmd_tui(args) -> int:
