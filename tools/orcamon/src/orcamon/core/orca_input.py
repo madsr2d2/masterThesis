@@ -35,8 +35,10 @@ MULTIPLICITY_NAMES = {
 
 _COMMENT_RE = re.compile(r"#.*$", re.M)
 # `* xyz 0 1`, `*xyzfile -1 2 geom.xyz`, `* int 0 1`, `* pdbfile 0 1 x.pdb` ...
+# The file form names its file after the multiplicity, on the same line --
+# `[ \t]`, not `\s`, so an inline block's first atom is not read as one.
 _COORDS_RE = re.compile(
-    r"^\s*\*\s*(xyzfile|xyz|internal|int|gzmtfile|gzmt|pdbfile)\s+(-?\d+)\s+(\d+)",
+    r"^\s*\*\s*(xyzfile|xyz|internal|int|gzmtfile|gzmt|pdbfile)\s+(-?\d+)\s+(\d+)(?:[ \t]+(\S+))?",
     re.I | re.M,
 )
 # The %coords block form: `Charge 0` / `Mult 1` on lines of their own.
@@ -69,6 +71,10 @@ class JobInput:
     layers: dict[str, tuple[int | None, int | None]] = field(default_factory=dict)
     nprocs: int | None = None
     maxcore_mb: int | None = None
+    # Where the coordinates come from: the `*` line's form (`xyz`, `xyzfile`,
+    # `int`, ...) or `%coords`, and the file a `*...file` form names.
+    coords_kind: str | None = None
+    coords_file: str | None = None
 
     @property
     def method(self) -> str:
@@ -104,7 +110,11 @@ def parse_input(text: str) -> JobInput:
     m = _COORDS_RE.search(text)
     if m:
         job.charge, job.mult = int(m.group(2)), int(m.group(3))
+        job.coords_kind = m.group(1).lower()
+        if job.coords_kind.endswith("file"):
+            job.coords_file = m.group(4)
     elif _COORDS_BLOCK_RE.search(text):
+        job.coords_kind = "%coords"
         c, mu = _BLOCK_CHARGE_RE.search(text), _BLOCK_MULT_RE.search(text)
         job.charge = int(c.group(1)) if c else None
         job.mult = int(mu.group(1)) if mu else None

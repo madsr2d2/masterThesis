@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from .core.discovery import discover_jobs, relative_label
+from .core.discovery import discover
 from .core.job import Job
 from .core.liveness import lookup, make_probe, running_orca_cwds
 from .core.parser import JobState
@@ -21,14 +21,14 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(argv[0] if argv else ".").resolve()
     running_cwds = running_orca_cwds()
     probe = make_probe("auto")
-    snapshot = probe.snapshot()
-    jobs = discover_jobs(root)
-    print(f"discover_jobs found {len(jobs)} jobs under {root}\n")
-    for job_dir, stem in jobs:
-        job = Job(job_dir, stem, root)
-        job.refresh(lookup(snapshot, probe, job_dir))
+    jobs = discover(root)
+    snapshot = probe.snapshot([ref.path for ref in jobs])
+    print(f"discover found {len(jobs)} jobs under {root}\n")
+    for ref in jobs:
+        job = Job(ref.path, ref.stem, root, label=ref.label)
+        job.refresh(lookup(snapshot, probe, ref.path))
         state = job.state
-        print(f"--- {relative_label(root, job_dir)} ({stem}) ---")
+        print(f"--- {ref.label} ({ref.stem}) ---")
         print(f"  status: {job.status.value}  (liveness: {job.liveness.source})")
         for flag in job.flags:
             print(f"  ! {flag.code}: {flag.message}")

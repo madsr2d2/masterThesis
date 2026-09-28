@@ -13,7 +13,7 @@ from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Header, RichLog, Static
 from textual_plotext import PlotextPlot
 
-from ..core.discovery import discover_jobs, short_label
+from ..core.discovery import discover, short_label
 from ..core.geometry import camera_basis
 from ..core.job import Job
 from ..core.liveness import lookup, make_probe
@@ -768,9 +768,13 @@ class MonitorApp(App):
         ("m", "toggle_maximize", "Maximize geometry"),
     ]
 
-    def __init__(self, root: Path, liveness: str = "auto", quiet_after: float = QUIET_AFTER_S):
+    def __init__(
+        self, root: Path, liveness: str = "auto", quiet_after: float = QUIET_AFTER_S,
+        exclude: tuple[str, ...] = (),
+    ):
         super().__init__()
         self.root = root.resolve()
+        self.exclude = tuple(exclude)
         self.probe = make_probe(liveness)
         self.quiet_after = quiet_after
         self.jobs: list[Job] = []
@@ -815,8 +819,8 @@ class MonitorApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        job_dirs = discover_jobs(self.root)
-        self.jobs = [Job(d, stem, self.root) for d, stem in job_dirs]
+        refs = discover(self.root, self.exclude)
+        self.jobs = [Job(ref.path, ref.stem, self.root, label=ref.label) for ref in refs]
 
         table = self.query_one("#job_table", DataTable)
         table.border_title = "jobs"
@@ -878,7 +882,7 @@ class MonitorApp(App):
         if not self._scan_lock.acquire(blocking=False):
             return  # a previous scan is still going; this tick can be skipped
         try:
-            snapshot = self.probe.snapshot()
+            snapshot = self.probe.snapshot([job.state.path for job in self.jobs])
             selected = self.selected_job()
             order = sorted(self.jobs, key=lambda j: (j is not selected, j.pending_bytes()))
             last_apply = time.monotonic()
@@ -1036,6 +1040,12 @@ class MonitorApp(App):
             geometry.border_title = title
 
 
-def run(root: Path) -> None:
-    """Watch every ORCA job (every `<stem>.inp`) under `root`."""
-    MonitorApp(root).run()
+def run(root: Path, args=None) -> None:
+    """Watch every ORCA job (every `<stem>.inp`) under `root`. `args` is the
+    parsed `orcamon tui` command line, when there is one."""
+    MonitorApp(
+        root,
+        liveness=getattr(args, "liveness", "auto"),
+        quiet_after=getattr(args, "quiet_after", QUIET_AFTER_S),
+        exclude=tuple(getattr(args, "exclude", ()) or ()),
+    ).run()

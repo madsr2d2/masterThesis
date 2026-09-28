@@ -26,7 +26,8 @@ FAILURES = []
 
 
 def check(label, ok, detail=""):
-    print(f"  {'pass' if ok else 'FAIL'}  {label}" + (f": {detail}" if detail else ""))
+    # The detail is for reading a FAILURE; on a pass it would bury the list.
+    print(f"  {'pass' if ok else 'FAIL'}  {label}" + (f": {detail}" if detail and not ok else ""))
     if not ok:
         FAILURES.append(label)
 
@@ -79,10 +80,402 @@ def test_the_core_needs_only_the_standard_library():
     check("every orcamon.core and orcamon.cli module imports with the TUI's "
           "dependencies refused", code == 0 and output.strip().endswith("OK"),
           output.strip().splitlines()[-1] if output.strip() else "")
+    with _Tree() as t:
+        root = ["--root", str(t.root), "--liveness", "process"]
+        commands = [
+            [*root, "ls"], [*root, "ls", "--json"],
+            [*root, "show", "opt_done"], [*root, "show", "opt_done", "--json"],
+            [*root, "wait", "opt_done", "--until", "done", "--timeout", "5"],
+        ]
+        code, output = _stdlib_probe(commands)
+        ran = [line for line in output.splitlines() if "->" in line]
+        check("and ls, show and wait run with them refused",
+              code == 0 and output.strip().endswith("OK") and len(ran) == len(commands),
+              output.strip()[-400:])
 
+
+
+
+# --- the synthetic tree ------------------------------------------------------
+#
+# One of each kind of job an agent asks about. Built fresh per run in a
+# temporary directory; the state cache is pointed there too, so a run never
+# reads or writes the user's own ~/.cache.
+
+_CYCLE = "         *                GEOMETRY OPTIMIZATION CYCLE  {n:>2}            *"
+_TABLE = """          Energy change      -0.0000038757            0.0000050000      {c}
+          RMS gradient        {g:.10f}            0.0001000000      {c}
+          MAX gradient        0.0025000000            0.0003000000      {c}
+          RMS step            0.0020825435            0.0020000000      {c}
+          MAX step            0.0192646101            0.0040000000      YES"""
+_DONE = "                             ****ORCA TERMINATED NORMALLY****"
+_CONVERGED = "                  ***        THE OPTIMIZATION HAS CONVERGED     ***"
+_MAXITER_TEXT = ("       The optimization did not converge but reached the maximum \n"
+                 "       number of optimization cycles.")
+
+
+def _coords(x):
+    return ("CARTESIAN COORDINATES (ANGSTROEM)\n---------------------------------\n"
+            f"  O      {x:.6f}    0.000000    0.000000\n"
+            f"  H      {x + 0.96:.6f}    0.000000    0.000000\n"
+            f"  H      {x - 0.24:.6f}    0.930000    0.000000\n")
+
+
+def _freqs(values):
+    rows = "\n".join(f"   {i:>3}:   {f:>9.2f} cm**-1" + ("  ***imaginary mode***" if f < 0 else "")
+                     for i, f in enumerate(values))
+    return ("VIBRATIONAL FREQUENCIES\n-----------------------\n\n"
+            "Scaling factor for frequencies =  1.000000000  (already applied!)\n\n"
+            f"{rows}\n\n------------\n")
+
+
+def _opt(cycles, energies, coords_at=None, converged=True, hessian=None):
+    out = ["Max. no of cycles        MaxIter  .... 3"]
+    for n in range(1, cycles + 1):
+        out.append(_CYCLE.format(n=n))
+        if coords_at is None or n in coords_at:
+            out.append(_coords(n / 10))
+        out.append(f"FINAL SINGLE POINT ENERGY     {energies[n - 1]:.9f}")
+        if hessian is not None:
+            out.append(f"        Hessian has     {hessian} negative eigenvalue")
+        last = n == cycles and converged
+        out.append(_TABLE.format(g=1e-2 / n, c="YES" if last else "NO"))
+    return "\n".join(out) + "\n"
+
+
+def _scan(steps):
+    """A finished one-parameter relaxed scan: (coordinate, energy) per step,
+    two cycles each (coordinates printed on both)."""
+    out = ["There is 1 parameter to be scanned.",
+           f"There will be   {len(steps)} constrained geometry optimizations."]
+    for k, (value, energy) in enumerate(steps, start=1):
+        out += ["         *************************************************************",
+                f"         *               RELAXED SURFACE SCAN STEP   {k}               *",
+                f"         *                 Bond (0, 1)  :   {value:.8f}           *",
+                "         *************************************************************"]
+        for c in (1, 2):
+            out += [_CYCLE.format(n=c), _coords(value), f"FINAL SINGLE POINT ENERGY     {energy + (2 - c) * 1e-3:.9f}"]
+        out.append(_CONVERGED)
+    return "\n".join(out) + "\n" + _DONE + "\n"
+
+
+_OPT_FREQ = "! B97-3c Opt Freq PAL4\n%maxcore 2000\n* xyz 0 1\nO 0 0 0\n*\n"
+_OPTTS_FREQ = "! B97-3c OptTS Freq\n* xyzfile -1 2 start.xyz\n"
+_SCAN_INPUT = "! B97-3c Opt\n%geom\n  Scan\n    B 0 1 = 1.0, 2.0, 3\n  end\nend\n* xyz 0 1\n*\n"
+_ERROR_OUT = "\n".join([
+    "some setup line",
+    "     SCF ITERATIONS",
+    "  line before the error 1",
+    "  line before the error 2",
+    "ORCA finished by error termination in SCF",
+    "Calling Command: mpirun ...",
+    "[file orca_tools/qcmsg.cpp, line 394]:",
+]) + "\n"
+
+
+def _tree(base):
+    """Write the synthetic tree under `base`; returns {name: directory}."""
+    from test_monitor import SYNTHETIC_OUTPUT
+
+    jobs = {
+        "opt_done": (_OPT_FREQ, _opt(3, [-76.10, -76.20, -76.25]) + _CONVERGED + "\n"
+                     + _freqs([0.0, 0.0, 1600.0, 3700.0, 3800.0]) + _DONE + "\n"),
+        "opt_maxiter": (_OPT_FREQ, _opt(3, [-76.10, -76.15, -76.18], coords_at={1}, converged=False)
+                        + _MAXITER_TEXT + "\n" + _DONE + "\n"),
+        "ts/final": (_OPTTS_FREQ, _opt(2, [-80.00, -79.99], hessian=1) + _CONVERGED + "\n"
+                     + _freqs([0.0, -512.3, 45.0, 120.5]) + _DONE + "\n"),
+        "scan_done": (_SCAN_INPUT.replace("! B97-3c Opt", "! QM/XTB B97-3c Opt"), SYNTHETIC_OUTPUT),
+        "scan_running": (_SCAN_INPUT, SYNTHETIC_OUTPUT.split("VIBRATIONAL FREQUENCIES")[0]),
+        "scan_profile": (_SCAN_INPUT, _scan([(1.0, -100.000), (1.5, -99.990), (2.0, -99.995)])),
+        "broken": (_OPT_FREQ, _ERROR_OUT),
+        "not_yet": (_OPT_FREQ, None),
+    }
+    dirs = {}
+    for name, (inp, out) in jobs.items():
+        d = base / name
+        d.mkdir(parents=True)
+        (d / "job.inp").write_text(inp)
+        if out is not None:
+            (d / "job.out").write_text(out)
+        dirs[name] = d
+    spaced = base / "B97-3c_XTB " / "pair"
+    spaced.mkdir(parents=True)
+    (spaced / "opt.inp").write_text(_OPT_FREQ)
+    (spaced / "opt.out").write_text(_opt(2, [-10.0, -10.5]) + _CONVERGED + "\n" + _DONE + "\n")
+    (spaced / "freq.inp").write_text("! B97-3c Freq\n* xyz 0 1\n*\n")
+    # ORCA's own generated inputs are not jobs.
+    (dirs["opt_done"] / "job.scfgrad.inp").write_text("! engrad\n")
+    (dirs["opt_done"] / "job_D00001.scfgrad.inp").write_text("! engrad\n")
+    dirs["spaced"] = spaced
+    return dirs
+
+
+class _AliveProbe:
+    """Test liveness: every directory in ALIVE has a running ORCA."""
+    name = "test"
+    ALIVE: set = set()
+
+    def snapshot(self, job_dirs=None):
+        from orcamon.core.liveness import Liveness
+        import time as _time
+        return {d.resolve(): Liveness(True, self.name, since=_time.time() - 60) for d in self.ALIVE}
+
+    def default(self, job_dir):
+        from orcamon.core.liveness import Liveness
+        return Liveness(False, self.name)
+
+
+def _orcamon(argv):
+    """`orcamon ARGV` in-process: (exit code, stdout, stderr)."""
+    import contextlib
+    import io
+    from orcamon import cli
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = cli.main(list(argv))
+    return code, out.getvalue(), err.getvalue()
+
+
+def _json(argv):
+    import json
+    code, out, err = _orcamon([*argv, "--json"])
+    try:
+        return code, json.loads(out), err
+    except ValueError:
+        return code, None, out + err
+
+
+class _Tree:
+    """The synthetic tree, the test liveness registered, the cache isolated."""
+
+    def __enter__(self):
+        import tempfile
+        from pathlib import Path
+        from orcamon.core import liveness
+        self._tmp = tempfile.TemporaryDirectory()
+        base = Path(self._tmp.name)
+        self._env = {k: os.environ.get(k) for k in ("XDG_CACHE_HOME", "ORCAMON_ROOT", "COLUMNS")}
+        os.environ["XDG_CACHE_HOME"] = str(base / "cache")
+        os.environ.pop("ORCAMON_ROOT", None)
+        os.environ["COLUMNS"] = "120"
+        self.root = base / "tree"
+        self.dirs = _tree(self.root)
+        liveness.PROBES["test"] = _AliveProbe
+        _AliveProbe.ALIVE = {self.dirs["scan_running"]}
+        self.args = ["--root", str(self.root), "--liveness", "test"]
+        return self
+
+    def run(self, *argv):
+        return _orcamon([*self.args, *argv])
+
+    def json(self, *argv):
+        return _json([*self.args, *argv])
+
+    def __exit__(self, *exc):
+        from orcamon.core import liveness
+        liveness.PROBES.pop("test", None)
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        self._tmp.cleanup()
+
+
+def test_a_job_argument_names_one_job():
+    print("\na JOB argument resolves to one job, or is refused with the candidates")
+    with _Tree() as t:
+        code, out, err = t.run("show", "opt_done")
+        check("a unique substring of a label", code == 0 and "opt_done" in out, err)
+        code, out, err = t.run("show", "opt")
+        check("an ambiguous one exits 2 and lists the candidates",
+              code == 2 and "opt_done" in err and "opt_maxiter" in err, err)
+        code, out, err = t.run("show", "no_such_job")
+        check("no match exits 2", code == 2 and "no job matches" in err, err)
+        code, out, err = t.run("show", "ts/final")
+        check("an exact label wins over the labels it is a substring of", code == 0, err)
+        code, out, err = t.run("show", str(t.dirs["spaced"]))
+        check("a directory with two jobs exits 2 naming both files",
+              code == 2 and "opt.inp" in err and "freq.inp" in err, err)
+        code, out, err = t.run("show", str(t.dirs["spaced"] / "opt.out"))
+        check("a path with a space in it resolves, by its file", code == 0 and "pair/opt" in out, out + err)
+        code, doc, err = t.json("ls")
+        labels = [j["label"] for j in doc["jobs"]]
+        check("two jobs in one directory are two jobs, labelled dir/stem",
+              "B97-3c_XTB /pair/opt" in labels and "B97-3c_XTB /pair/freq" in labels, f"{labels}")
+        check("and ORCA's generated inputs are not jobs",
+              not any("scfgrad" in label for label in labels), f"{labels}")
+
+
+def test_ls_lists_every_job_boundedly():
+    print("\nls: one line per job, bounded, with a JSON twin")
+    with _Tree() as t:
+        code, out, err = t.run("ls")
+        lines = out.strip().split("\n")
+        check("exit 1, because one listed job failed", code == 1, f"{code} {err}")
+        check("a header and one line per job", len(lines) == 1 + 10, f"{len(lines)}\n{out}")
+        check("the failed job carries its flag", any("broken" in ln and "! failed" in ln for ln in lines), out)
+        check("the MaxIter job reads finished with its flag, not converged",
+              any("opt_maxiter" in ln and ln.startswith("finished") and "opt_not_converged" in ln
+                  for ln in lines), out)
+        code, out, err = t.run("ls", "--max-lines", "4")
+        lines = out.strip().split("\n")
+        check("--max-lines holds, and the cut says so", len(lines) == 4 and "more lines" in lines[-1], out)
+        code, doc, err = t.json("ls")
+        check("--json parses and carries the schema", doc is not None and doc.get("schema") == 1, err)
+        check("without crash lines or criteria per job",
+              doc is not None and all("crash_lines" not in j and "criteria" not in j for j in doc["jobs"]))
+        code, doc, err = t.json("ls", "--attention")
+        check("--attention keeps only flagged jobs",
+              doc is not None and doc["jobs"] and all(j["attention"] for j in doc["jobs"]))
+        code, doc, err = t.json("ls", "--status", "running")
+        check("--status filters", doc is not None and [j["label"] for j in doc["jobs"]] == ["scan_running"],
+              f"{doc and [j['label'] for j in doc['jobs']]}")
+        code, out, err = t.run("ls", "--status", "bogus")
+        check("an unknown status is a usage error", code == 2, err)
+
+
+def test_show_and_ls_agree():
+    print("\nshow and ls report the same numbers for the same job")
+    with _Tree() as t:
+        _, listed, _ = t.json("ls")
+        by_label = {j["label"]: j for j in listed["jobs"]}
+        for name in ("opt_done", "scan_done", "ts/final"):
+            code, shown, err = t.json("show", name)
+            job = shown["job"] if shown else {}
+            check(f"{name}: the same energy and status",
+                  job.get("energy_eh") == by_label[name]["energy_eh"]
+                  and job.get("status") == by_label[name]["status"], err)
+        code, out, err = t.run("show", "broken")
+        check("show exits 1 on a failed job and prints its crash line",
+              code == 1 and "error termination in SCF" in out, out)
+        code, out, err = t.run("show", "scan_running")
+        check("and 0 on a running one", code == 0 and out.split("\n")[5].startswith("running"), out)
+
+
+def test_geom_never_substitutes_a_geometry():
+    print("\ngeom: XYZ of a real point, or exit 2 naming the nearest earlier one")
+    with _Tree() as t:
+        code, out, err = t.run("geom", "opt_done")
+        lines = out.split("\n")
+        check("the latest geometry as XYZ", code == 0 and lines[0] == "3" and "cycle 3" in lines[1]
+              and lines[2].startswith("O "), out)
+        code, out, err = t.run("geom", "opt_maxiter", "--cycle", "3")
+        check("a cycle whose coordinates were never printed exits 2",
+              code == 2 and "cycle 3: coordinates not printed; nearest earlier with coordinates: cycle 1" in err,
+              err)
+        code, out, err = t.run("geom", "opt_done", "--cycle", "9")
+        check("a cycle never reached exits 2", code == 2 and "not in the kept history" in err, err)
+
+
+def test_wait_returns_when_the_job_is_done():
+    print("\nwait: returns on the condition, times out with 4")
+    import threading
+    with _Tree() as t:
+        out_file = t.dirs["scan_running"] / "job.out"
+
+        def finish():
+            import time as _time
+            _time.sleep(1.0)
+            with open(out_file, "a") as f:
+                f.write(_DONE + "\n")
+            _AliveProbe.ALIVE = set()
+
+        writer = threading.Thread(target=finish)
+        import time as _time
+        started = _time.monotonic()
+        writer.start()
+        code, out, err = t.run("wait", "scan_running", "--until", "done", "--interval", "0.2", "--timeout", "10")
+        elapsed = _time.monotonic() - started
+        writer.join()
+        check("exit 0 once the termination line lands", code == 0 and "met --until done" in out,
+              f"{code} {out} {err}")
+        check("within 5 s", elapsed < 5, f"{elapsed:.1f} s")
+
+        _AliveProbe.ALIVE = {t.dirs["scan_running"]}
+        code, out, err = t.run("wait", "scan_done", "scan_running", "--until", "done")
+        check("with several jobs, any one done returns at once", code == 0 and "scan_done" in out, out + err)
+        code, out, err = t.run("wait", "opt_done", "--until", "change", "--interval", "0.2", "--timeout", "1")
+        check("nothing changing times out with 4", code == 4 and "timed out" in out, f"{code} {out}")
+        code, out, err = t.run("wait", "opt_done", "--until", "sometime")
+        check("a bad condition is a usage error", code == 2, err)
+
+
+def test_the_other_commands_answer_boundedly():
+    print("\nconv, energies, freqs, input, errors, tail")
+    with _Tree() as t:
+        code, out, err = t.run("conv", "opt_done")
+        lines = out.strip().split("\n")
+        check("conv: header, tolerances, one row per cycle, the legend",
+              code == 0 and len(lines) == 2 + 3 + 1 and lines[-2].lstrip().startswith("3 "), out)
+        check("with the met criteria starred in the text", lines[-2].count("*") == 5, lines[-2])
+        code, doc, err = t.json("conv", "opt_done", "--last", "2")
+        check("--last and --json: the latest cycles, each criterion with value, tol and ok",
+              doc is not None and [r["cycle"] for r in doc["cycles"]] == [2, 3]
+              and doc["cycles"][-1]["criteria"]["RMS grad"]["ok"] is True, f"{doc}")
+        code, out, err = t.run("conv", "opt_done", "--max-lines", "3")
+        check("and --max-lines holds there too", len(out.strip().split("\n")) == 3, out)
+
+        code, doc, err = t.json("energies", "opt_done")
+        check("energies of an optimization: one row per cycle, dE from the first",
+              doc is not None and doc["mode"] == "opt" and len(doc["rows"]) == 3
+              and abs(doc["rows"][-1]["dE_kj_mol"] - (-0.15 * 2625.4996394799)) < 1e-6, f"{doc}")
+        code, out, err = t.run("energies", "scan_profile")
+        lines = out.strip().split("\n")
+        check("energies of a scan: a row per step with its coordinate, the maximum marked",
+              code == 0 and len(lines) == 4 and "<- max" in lines[2] and "1.5" in lines[2], out)
+        code, doc, err = t.json("energies", "scan_profile")
+        top = max(doc["rows"], key=lambda r: r["energy_eh"]) if doc else {}
+        check("and --json agrees with show's scan maximum",
+              doc is not None and top.get("max") is True
+              and abs(top["dE_first_kj_mol"] - t.json("show", "scan_profile")[1]["job"]["scan_max_kj_mol"]) < 1e-9,
+              f"{doc}")
+
+        code, out, err = t.run("freqs", "ts/final")
+        check("freqs: the count, the imaginary mode with its index, then the lowest real",
+              code == 0 and "4 modes (1 zero, 1 imaginary)" in out and "mode    1     -512.30" in out
+              and "lowest 2 real" in out, out)
+        code, doc, err = t.json("freqs", "ts/final", "--lowest", "1")
+        check("--lowest bounds the real modes", doc is not None and len(doc["lowest_real"]) == 1
+              and doc["lowest_real"][0]["cm1"] == 45.0, f"{doc}")
+        code, out, err = t.run("freqs", "not_yet")
+        check("no block yet says so", code == 0 and out.strip() == "no frequency block yet", out)
+
+        code, out, err = t.run("input", "ts/final")
+        check("input: run types, spin and the coordinate file",
+              code == 0 and "OptTS Freq" in out and "charge -1 · doublet" in out and "xyzfile start.xyz" in out, out)
+        code, doc, err = t.json("input", "not_yet")
+        check("and it works on a job with no output",
+              code == 0 and doc is not None and doc["input"]["nprocs"] == 4 and doc["input"]["maxcore_mb"] == 2000,
+              f"{doc} {err}")
+
+        code, out, err = t.run("errors", "broken", "--context", "2")
+        check("errors: the error line with its context, exit 1 for a failed job",
+              code == 1 and "> ORCA finished by error termination in SCF" in out
+              and "  line before the error 2" in out and "  Calling Command: mpirun ..." in out
+              and "line before the error 1" in out and "some setup line" not in out, out)
+        code, doc, err = t.json("errors", "broken", "--context", "0")
+        check("--json counts them", doc is not None and doc["crash_count"] == 1 and doc["qm2_error_count"] == 0
+              and doc["matches"][0]["before"] == [], f"{doc}")
+        code, out, err = t.run("errors", "not_yet")
+        check("no output is a usage error, not a crash", code == 2 and "no output yet" in err, err)
+
+        code, out, err = t.run("tail", "opt_done", "-n", "2")
+        check("tail -n: the last lines", out.split("\n")[:2] == ["------------", _DONE], out)
+        code, out, err = t.run("tail", "opt_done", "--grep", "FINAL SINGLE")
+        check("tail --grep: the matching lines only", code == 0 and len(out.strip().split("\n")) == 3
+              and all("FINAL SINGLE" in line for line in out.strip().split("\n")), out)
+        code, out, err = t.run("tail", "opt_done", "--grep", "(")
+        check("a bad pattern is a usage error", code == 2, err)
 
 if __name__ == "__main__":
     test_the_core_needs_only_the_standard_library()
+    test_a_job_argument_names_one_job()
+    test_ls_lists_every_job_boundedly()
+    test_show_and_ls_agree()
+    test_geom_never_substitutes_a_geometry()
+    test_wait_returns_when_the_job_is_done()
+    test_the_other_commands_answer_boundedly()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)
