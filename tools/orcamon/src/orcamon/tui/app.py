@@ -13,6 +13,7 @@ from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Header, RichLog, Static
 from textual_plotext import PlotextPlot
 
+from ..core import cache
 from ..core.discovery import discover, short_label
 from ..core.geometry import camera_basis
 from ..core.job import Job
@@ -38,6 +39,10 @@ REFRESH_SECONDS = 3.0
 # "not run" until the last job was parsed. An idle scan finishes well inside
 # this and still writes once.
 PROGRESS_APPLY_S = 0.25
+
+# How often the scan thread writes changed jobs to the state cache. It also
+# writes on exit; this bounds what a killed TUI loses.
+CACHE_SAVE_S = 60.0
 
 READING = "reading…"
 READING_STYLE = "dim italic"
@@ -770,11 +775,16 @@ class MonitorApp(App):
 
     def __init__(
         self, root: Path, liveness: str = "auto", quiet_after: float = QUIET_AFTER_S,
-        exclude: tuple[str, ...] = (),
+        exclude: tuple[str, ...] = (), use_cache: bool = True,
     ):
         super().__init__()
         self.root = root.resolve()
         self.exclude = tuple(exclude)
+        self.use_cache = use_cache
+        # The offset each job's cache entry was written at, so a save writes
+        # only the jobs that read something since.
+        self._cached_offsets: dict[int, int] = {}
+        self._last_cache_save = time.monotonic()
         self.probe = make_probe(liveness)
         self.quiet_after = quiet_after
         self.jobs: list[Job] = []
@@ -882,6 +892,14 @@ class MonitorApp(App):
         if not self._scan_lock.acquire(blocking=False):
             return  # a previous scan is still going; this tick can be skipped
         try:
+            if self.use_cache:
+                # Before the first read of each job, resume from its cache
+                # entry: a finished job then costs a stat, not a parse. Done
+                # before ordering, so the order sees what is really left.
+                for job in self.jobs:
+                    if not job.parsed and id(job) not in self._cached_offsets:
+                        restored = cache.restore(job.state)
+                        self._cached_offsets[id(job)] = job.state.offset if restored else -1
             snapshot = self.probe.snapshot([job.state.path for job in self.jobs])
             selected = self.selected_job()
             order = sorted(self.jobs, key=lambda j: (j is not selected, j.pending_bytes()))
@@ -891,9 +909,27 @@ class MonitorApp(App):
                 if time.monotonic() - last_apply >= PROGRESS_APPLY_S:
                     self.call_from_thread(self._apply_scan)
                     last_apply = time.monotonic()
+            if self.use_cache and time.monotonic() - self._last_cache_save >= CACHE_SAVE_S:
+                self.save_cache()
         finally:
             self._scan_lock.release()
         self.call_from_thread(self._apply_scan)
+
+    def save_cache(self, lock_timeout: float | None = None) -> None:
+        """Write every job whose output was read since its last save. From
+        the scan thread (which holds no job lock between jobs), or at exit
+        with `lock_timeout` so a scan still unwinding cannot hang the quit."""
+        for job in self.jobs:
+            if not job.parsed or job.state.offset == self._cached_offsets.get(id(job)):
+                continue
+            if not job.lock.acquire(timeout=-1 if lock_timeout is None else lock_timeout):
+                continue
+            try:
+                if cache.save(job.state):
+                    self._cached_offsets[id(job)] = job.state.offset
+            finally:
+                job.lock.release()
+        self._last_cache_save = time.monotonic()
 
     def _apply_scan(self) -> None:
         table = self.query_one("#job_table", DataTable)
@@ -1043,9 +1079,15 @@ class MonitorApp(App):
 def run(root: Path, args=None) -> None:
     """Watch every ORCA job (every `<stem>.inp`) under `root`. `args` is the
     parsed `orcamon tui` command line, when there is one."""
-    MonitorApp(
+    app = MonitorApp(
         root,
         liveness=getattr(args, "liveness", "auto"),
         quiet_after=getattr(args, "quiet_after", QUIET_AFTER_S),
         exclude=tuple(getattr(args, "exclude", ()) or ()),
-    ).run()
+        use_cache=not getattr(args, "no_cache", False),
+    )
+    try:
+        app.run()
+    finally:
+        if app.use_cache:
+            app.save_cache(lock_timeout=1.0)

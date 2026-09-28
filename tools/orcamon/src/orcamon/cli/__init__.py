@@ -53,6 +53,8 @@ def _common(parser: argparse.ArgumentParser, suppress: bool) -> None:
     parser.add_argument("--quiet-after", type=float, default=d(QUIET_AFTER_S), metavar="S",
                         help=f"seconds without output before a job of unknown liveness "
                              f"is called quiet (default: {QUIET_AFTER_S:g})")
+    parser.add_argument("--no-cache", action="store_true", default=d(False),
+                        help="parse every output from scratch; neither read nor write the state cache")
 
 
 def _output(parser: argparse.ArgumentParser, lines: bool = True) -> None:

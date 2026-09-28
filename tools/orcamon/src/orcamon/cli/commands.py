@@ -1,8 +1,8 @@
 """One function per `orcamon` subcommand. Standard library only.
 
 Every command reads jobs the same way (`_load`): resolve the argument, take
-ONE liveness snapshot, read the output (from the state cache when it is
-current), and build the `JobReport` the TUI would show. What each prints is
+ONE liveness snapshot, read the output (resuming from the state cache when
+its entry is still valid), and build the `JobReport` the TUI would show. What each prints is
 a rendering of that report or of the parsed state behind it -- never a
 second computation of the same number.
 """
@@ -17,6 +17,7 @@ from collections import deque
 from pathlib import Path
 
 from .. import __version__  # noqa: F401 -- `orcamon --version` reads it here
+from ..core import cache
 from ..core.discovery import JobRef, discover, short_label
 from ..core.job import Job
 from ..core.liveness import LivenessProbe, lookup, make_probe
@@ -90,7 +91,14 @@ def _root(args) -> Path:
 
 def _load_ref(ref: JobRef, root: Path, probe: LivenessProbe, snapshot, args, now=None) -> Job:
     job = Job(ref.path, ref.stem, root, label=ref.label)
+    use_cache = not args.no_cache
+    restored = use_cache and cache.restore(job.state)
+    offset = job.state.offset
     job.refresh(lookup(snapshot, probe, ref.path), now=now, quiet_after=args.quiet_after)
+    # Saved only when this call read something: an unchanged finished job
+    # costs one stat and one small unpickle, and writes nothing.
+    if use_cache and (not restored or job.state.offset != offset):
+        cache.save(job.state)
     return job
 
 
@@ -98,7 +106,7 @@ def _load(args, arg: str) -> Job:
     root = _root(args)
     ref = resolve(arg, root)
     probe = _probe(args)
-    return _load_ref(ref, root, probe, probe.snapshot(), args)
+    return _load_ref(ref, root, probe, probe.snapshot([ref.path]), args)
 
 
 def _job_exit(job: Job) -> int:
@@ -200,10 +208,11 @@ def cmd_ls(args) -> int:
     if not root.is_dir():
         return _error(f"no such directory: {root}")
     probe = _probe(args)
-    snapshot = probe.snapshot()
+    refs = discover(root, args.exclude)
+    snapshot = probe.snapshot([ref.path for ref in refs])
     now = time.time()
     reports = []
-    for ref in discover(root, args.exclude):
+    for ref in refs:
         job = _load_ref(ref, root, probe, snapshot, args, now=now)
         r = build_report(job, now=now)
         if statuses is not None and r.status not in statuses:
@@ -686,14 +695,17 @@ def cmd_wait(args) -> int:
 
     probe = _probe(args)
     jobs = [Job(ref.path, ref.stem, root, label=ref.label) for ref in refs]
-    use_cache = False
+    use_cache = not args.no_cache
+    if use_cache:
+        for job in jobs:
+            cache.restore(job.state)
     first: dict[int, JobReport] = {}
     deadline = time.monotonic() + max(0.0, args.timeout)
 
     def poll() -> tuple[list[JobReport], list[int]]:
         # One liveness snapshot per poll; each Job is kept across polls, so a
         # poll reads only the bytes appended since the last.
-        snapshot = probe.snapshot()
+        snapshot = probe.snapshot([job.state.path for job in jobs])
         now = time.time()
         reports = []
         for i, job in enumerate(jobs):
@@ -742,7 +754,9 @@ def _restore_sigterm(previous) -> None:
 
 
 def _save_all(jobs, use_cache) -> None:
-    pass
+    if use_cache:
+        for job in jobs:
+            cache.save(job.state)
 
 
 def _wait_done(args, jobs, reports, hits, use_cache) -> int:

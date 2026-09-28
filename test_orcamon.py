@@ -468,6 +468,92 @@ def test_the_other_commands_answer_boundedly():
         code, out, err = t.run("tail", "opt_done", "--grep", "(")
         check("a bad pattern is a usage error", code == 2, err)
 
+
+def test_a_cached_state_equals_a_fresh_parse():
+    print("\nthe state cache: a resumed parse equals a fresh one, and a stale entry is refused")
+    import tempfile
+    from pathlib import Path
+    from test_monitor import SYNTHETIC_OUTPUT, _state_fields
+    from orcamon.core import cache
+    from orcamon.core.parser import new_state, update_job
+
+    saved = os.environ.get("XDG_CACHE_HOME")
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["XDG_CACHE_HOME"] = str(Path(tmp) / "cache")
+        try:
+            job_dir = Path(tmp) / "job"
+            job_dir.mkdir()
+            out = job_dir / "job.out"
+            cut = SYNTHETIC_OUTPUT.index("VIBRATIONAL FREQUENCIES")
+            head, rest = SYNTHETIC_OUTPUT[:cut], SYNTHETIC_OUTPUT[cut:]
+            out.write_text(head)
+
+            first = new_state(job_dir)
+            update_job(first)
+            check("an entry is written for a parsed output", cache.save(first))
+
+            with open(out, "a") as f:
+                f.write(rest)
+            resumed = new_state(job_dir)
+            check("and read back", cache.restore(resumed) and resumed.offset == len(head.encode()))
+            update_job(resumed)
+            fresh = new_state(job_dir)
+            update_job(fresh)
+            a, b = _state_fields(resumed), _state_fields(fresh)
+            differ = [k for k in a if k not in ("mtime",) and a[k] != b[k]]
+            check("restored, then updated with the appended bytes, it equals a fresh parse",
+                  not differ, f"{differ}")
+
+            original_key = cache.CACHE_KEY
+            try:
+                cache.CACHE_KEY = "a different parser"
+                check("an entry written by another parser is refused",
+                      not cache.restore(new_state(job_dir)))
+            finally:
+                cache.CACHE_KEY = original_key
+
+            cache.save(fresh)
+            replacement = job_dir / "job.out.new"
+            replacement.write_text(SYNTHETIC_OUTPUT + "\n" * 10)
+            os.replace(replacement, out)
+            check("a replaced file (a new inode) is refused",
+                  not cache.restore(new_state(job_dir)))
+
+            long = new_state(job_dir)
+            update_job(long)
+            cache.save(long)
+            out.write_text("short\n")  # truncated in place: same inode
+            check("so is a file shorter than the entry's offset",
+                  not cache.restore(new_state(job_dir)))
+
+            cache.entry_path(out).write_bytes(b"not a pickle")
+            check("and a corrupt entry is no entry, not an error", not cache.restore(new_state(job_dir)))
+
+            mid = new_state(job_dir)
+            mid.feed_text("CARTESIAN COORDINATES (ANGSTROEM)\n---------------------------------\n")
+            mid.has_out, mid.offset = True, 10
+            check("a state caught inside a block is not saved", not cache.save(mid))
+        finally:
+            if saved is None:
+                os.environ.pop("XDG_CACHE_HOME", None)
+            else:
+                os.environ["XDG_CACHE_HOME"] = saved
+
+
+def test_the_cli_uses_the_cache_and_can_refuse_it():
+    print("\nthe CLI reads through the cache, and --no-cache bypasses it")
+    from orcamon.core import cache
+    with _Tree() as t:
+        entry = cache.entry_path(t.dirs["opt_done"] / "job.out")
+        code, _, _ = t.run("--no-cache", "show", "opt_done")
+        check("--no-cache writes nothing", code == 0 and not entry.exists())
+        code, first, _ = t.json("show", "opt_done")
+        check("a command writes an entry", code == 0 and entry.exists())
+        code, second, _ = t.json("show", "opt_done")
+        check("and a second run from it reports the same", first == second or
+              {k: v for k, v in first["job"].items() if k != "last_output_age_s"}
+              == {k: v for k, v in second["job"].items() if k != "last_output_age_s"})
+
 if __name__ == "__main__":
     test_the_core_needs_only_the_standard_library()
     test_a_job_argument_names_one_job()
@@ -476,6 +562,8 @@ if __name__ == "__main__":
     test_geom_never_substitutes_a_geometry()
     test_wait_returns_when_the_job_is_done()
     test_the_other_commands_answer_boundedly()
+    test_a_cached_state_equals_a_fresh_parse()
+    test_the_cli_uses_the_cache_and_can_refuse_it()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)
