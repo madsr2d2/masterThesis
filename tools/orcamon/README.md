@@ -144,6 +144,25 @@ Parsed state is kept in `$XDG_CACHE_HOME/orcamon/` (default
 dropped automatically when the parser's source changes or the output is
 replaced or truncated. `--no-cache` bypasses it.
 
+## Development
+
+orcamon is a general ORCA tool, not a reader for any one project's jobs, so
+its tests never read real jobs. Both are repository-root gates, discovered by
+`run_gates.py` like any other:
+
+- **`test_monitor.py`** feeds the parser snippets of ORCA's own output. It
+  holds the multilayer energy (the QM/QM2 total, not the QM1 region), scans
+  keyed by step and cycle, the chunk parser against the line-by-line one,
+  status and attention flags, and the palette-PNG frame.
+- **`test_orcamon.py`** runs every command, the report contract, the cache,
+  the SLURM probe, a headless TUI and the shipped skill against a synthetic
+  tree. It also checks that the repository's installed skill is current:
+  after changing a command or a flag, run `orcamon skill install --project .`.
+
+`python -m orcamon.validate ROOT` runs the parser over a real tree, for a
+person to read against the outputs, and checks that every marker line
+reaches the parser past its prefilters.
+
 ## Command reference
 
 Pasted from `--help`.

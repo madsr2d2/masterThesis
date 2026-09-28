@@ -1,6 +1,6 @@
 ---
 name: run-orca
-description: Use when setting up, running, restarting or reading ANY ORCA quantum-chemistry job in this repo — the C1–C10 tasks in COMPUTATIONAL.md, anything under computational/, geometry or TS optimisation, frequencies, DLPNO single points, hydration or perhydrate equilibria, barriers, or extracting an energy, free energy, frequency or wall time from a finished job. Load before writing any ORCA input or reading any ORCA output.
+description: This project's ORCA conventions — use when setting up, launching or restarting ANY ORCA quantum-chemistry job in this repo, or taking a number from a FINISHED one for the thesis — the C1–C10 tasks in COMPUTATIONAL.md, anything under computational/, geometry or TS optimisation, frequencies, DLPNO single points, hydration or perhydrate equilibria, barriers, or an energy, free energy, frequency or wall time to quote. Load before writing any ORCA input or quoting any ORCA number. Not for checking on, triaging or waiting for a job — that is the orcamon skill.
 ---
 
 # Running and reading ORCA jobs
@@ -11,7 +11,9 @@ execute against it without re-deriving anything.
 ## The rule
 
 **Every number that comes out of an ORCA job comes out through
-`computational/orca_io.py`. Never parse an output file yourself.**
+`computational/orca_io.py`. Never parse an output file yourself.** Watching a
+job that has not finished is the one exception, and it goes through orcamon
+(see "While a job runs"): its numbers are for monitoring and are never quoted.
 
 Not with a regex, not with `grep`, not with a throwaway script — the same rule
 `analyse-kinetics` states for `data/curve_metrics.py`, for the same reason and
@@ -149,25 +151,14 @@ overwriting `job.inp` in place.
 
 ## While a job runs
 
-Use the **orcamon** skill to check on a job or wait for one; its commands,
-flags and exit codes are documented there and nowhere else. Here the command
-is `.venv/bin/orcamon`, because the venv is not on PATH.
-`.venv/bin/orcamon tui computational/` is the live view for a person, and
-`.venv/bin/python -m orcamon.validate computational/` runs the parser over
-the real jobs in the tree.
+Checking on a job, triaging one or waiting for it belongs to the **orcamon**
+skill, not this one. Here the command is `.venv/bin/orcamon`, because the
+venv is not on PATH. `.venv/bin/orcamon tui computational/` is the live view
+for a person.
 
-orcamon is a general ORCA tool, not a reader for this project's jobs, so its
-gates never read the jobs in `computational/`. Both sit at the repository
-root and are discovered by `run_gates.py` like any other gate.
-**`test_monitor.py`** feeds the parser snippets of ORCA's own output. It
-holds the multilayer energy (the QM/QM2 total, not the QM1 region), scans
-keyed by step and cycle, the chunk parser against the line-by-line one, and
-the palette-PNG frame. **`test_orcamon.py`** runs every command, the report
-contract and the shipped skill against a synthetic tree.
-
-orcamon reads the live log, for monitoring and triage. `orca_io` reads
-**finished** jobs through the property JSON written at the end, and it is
-the only source for a number this thesis quotes. The two do not overlap.
+orcamon reads the live log, so its numbers are for monitoring and triage.
+A number this thesis quotes comes from `orca_io` on the finished job (above),
+never from orcamon.
 
 Running the monitor headless (Textual `run_test`, screenshots) needs
 `HERDR_ENV=0`: the process inherits the pane's herdr socket and would
