@@ -666,6 +666,10 @@ def test_the_geometry_pane_degrades_to_text():
     check("water in 20x10: O and both H drawn, braille between them",
           len(rows) == 10 and all(len(r) == 20 for r in rows) and text.count("O") == 1
           and text.count("H") == 2 and any(0x2800 < ord(c) <= 0x28FF for c in text), repr(text))
+    bare = geometry_text.render(water, 20, 10, geometry_text.View(show_labels=False)).plain
+    check("labels off: every atom a dot, no symbols, the bonds unchanged",
+          bare.count(geometry_text.ATOM_DOT) == 3 and not any(c.isalpha() for c in bare)
+          and any(0x2800 < ord(c) <= 0x28FF for c in bare), repr(bare))
     check("H-H is never a bond", sorted(geometry_text.bonds(water)) == [(0, 1), (0, 2)],
           f"{geometry_text.bonds(water)}")
     random.seed(7)
@@ -701,6 +705,13 @@ def test_the_tui_runs_headless():
             await pilot.pause(0.1)
             check("m maximizes the geometry", app.maximized)
             await pilot.press("m")
+            geometry = app.query_one("#geometry")
+            geometry.focus()
+            await pilot.press("l")
+            await pilot.pause(0.2)
+            check("l on the geometry pane turns the atom labels off", geometry.show_labels is False)
+            await pilot.press("l")
+            app.query_one("#job_table").focus()
 
             new = t.root / "submitted_later"
             new.mkdir()

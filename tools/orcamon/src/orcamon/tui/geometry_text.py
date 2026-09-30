@@ -32,6 +32,7 @@ TEXT_ELEMENT_COLORS = {**ELEMENT_COLORS, "C": "#a8a8a8"}
 QM_BOND_STYLE = Style(color="#cccccc")
 ENV_BOND_STYLE = Style(color="#6a6a6a")
 SHOW_HYDROGENS_UP_TO = 60  # atoms; above this, hydrogens start hidden
+ATOM_DOT = "●"  # an atom with its label off
 
 # Braille: each cell is a 2x4 dot grid, dot (x, y) -> bit.
 _BRAILLE_BIT = {
@@ -47,6 +48,9 @@ class View:
     zoom: float = 1.0
     pan: tuple[float, float, float] = (0.0, 0.0, 0.0)
     show_hydrogens: bool = True
+    # Off: each atom is a dot in its element colour instead of its symbol,
+    # so a crowded region reads as structure rather than as letters.
+    show_labels: bool = True
 
 
 def bonds(atoms: list) -> list[tuple[int, int]]:
@@ -147,7 +151,7 @@ def render(
             continue
         color = TEXT_ELEMENT_COLORS.get(el, DEFAULT_ELEMENT_COLOR)
         style = Style(color=color, bold=is_qm[i], dim=not is_qm[i])
-        for off, ch in enumerate(el[:2]):
+        for off, ch in enumerate(el[:2] if view.show_labels else ATOM_DOT):
             if 0 <= col + off < width:
                 glyphs[row * width + col + off] = (ch, style)
 

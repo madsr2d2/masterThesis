@@ -301,6 +301,7 @@ GEOMETRY_BINDINGS = [
     ("up", "rotate_up", "Tilt +"),
     ("down", "rotate_down", "Tilt -"),
     ("d", "toggle_distances", "Distances"),
+    ("l", "toggle_labels", "Labels"),
     ("[", "zoom_out", "Zoom -"),
     ("]", "zoom_in", "Zoom +"),
     ("ctrl+left", "pan_left", "Pan -"),
@@ -336,6 +337,9 @@ class RotatableGeometryImage(Widget):
         self.elev = 20.0
         self.azim = -60.0
         self.show_distances = False
+        # Atom labels: the index numbers on the pixel render, the element
+        # symbols in text mode. Off shows the bare structure.
+        self.show_labels = True
         self.zoom = 1.0
         self.pan: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._job: Job | None = None
@@ -379,6 +383,10 @@ class RotatableGeometryImage(Widget):
 
     def action_toggle_distances(self) -> None:
         self.show_distances = not self.show_distances
+        self._input.request()
+
+    def action_toggle_labels(self) -> None:
+        self.show_labels = not self.show_labels
         self._input.request()
 
     def action_zoom_in(self) -> None:
@@ -547,6 +555,7 @@ class KittyGeometryImage(RotatableGeometryImage):
             size = (max(1, int(size[0] * PREVIEW_SCALE)), max(1, int(size[1] * PREVIEW_SCALE)))
         image = geometry_render.render(
             atoms, elev=self.elev, azim=self.azim, show_distances=self.show_distances,
+            show_labels=self.show_labels,
             zoom=self.zoom, pan=self.pan, qm_atom_indices=job.state.qm_atom_indices,
             size_px=size,
         )
@@ -615,6 +624,7 @@ class TextGeometry(RotatableGeometryImage):
         view = geometry_text.View(
             elev=self.elev, azim=self.azim, zoom=self.zoom, pan=self.pan,
             show_hydrogens=self._show_hydrogens(),
+            show_labels=self.show_labels,
         )
         return geometry_text.render(atoms, size.width, size.height, view, self._qm, self._bonds[1])
 
@@ -749,6 +759,7 @@ class HerdrGeometryImage(RotatableGeometryImage):
 
         image = geometry_render.render(
             atoms, elev=self.elev, azim=self.azim, show_distances=self.show_distances,
+            show_labels=self.show_labels,
             zoom=self.zoom, pan=self.pan, qm_atom_indices=job.state.qm_atom_indices,
             size_px=target,
         )

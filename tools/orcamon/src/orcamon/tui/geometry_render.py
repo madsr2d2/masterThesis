@@ -75,6 +75,7 @@ def render(
     azim: float = -60,
     dpi: int = 150,
     show_distances: bool = False,
+    show_labels: bool = True,
     zoom: float = 1.0,
     pan: tuple[float, float, float] = (0.0, 0.0, 0.0),
     qm_atom_indices: set[int] | None = None,
@@ -275,7 +276,9 @@ def render(
     # nothing reassigns anything -- but `_OVERLAY_ZORDER` stays deliberately
     # far above both of them rather than becoming a third fragile "3".
     projection = ax.get_proj()
-    for index in qm_indices:
+    # `show_labels` off leaves the spheres alone: on a crowded QM region the
+    # index labels cover the structure they are there to identify.
+    for index in (qm_indices if show_labels else ()):
         x, y, z = coords[index]
         lx, ly, _ = proj3d.proj_transform(x, y, z, projection)
         ax.annotate(

@@ -135,7 +135,8 @@ without `crash_lines` and `criteria`. Changing the key set bumps
 - Keys: `q` quit, `r` refresh, `m` maximize the geometry. In the chart,
   left/right scrub through geometries, `end` follows the newest, and `a`
   shows all cycles of a scan. In the geometry pane, arrows rotate,
-  `[`/`]` zoom, ctrl+arrows pan and `d` shows distances.
+  `[`/`]` zoom, ctrl+arrows pan, `d` shows distances and `l` hides the atom
+  labels (the index numbers in pixel mode; in text mode atoms become dots).
 
 ## State cache
 

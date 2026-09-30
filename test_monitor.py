@@ -376,6 +376,12 @@ def test_a_frame_is_a_small_faithful_palette_png():
           f"{sent.mode} {sent.size}")
     check("within ~1 level in 255 of the render", error < 2.0, f"mean error {error:.2f}")
 
+    bare = np.asarray(geometry_render.render(water, size_px=(300, 240), show_labels=False), int)
+    labelled = np.asarray(image, int)
+    changed = (np.abs(bare - labelled).sum(axis=2) > 0).mean()
+    check("show_labels=False drops the index labels and nothing else of the frame",
+          0 < changed < 0.05, f"{changed:.3%} of pixels differ")
+
 
 def test_every_marker_reaches_its_parser():
     print("\nevery marker line reaches its parser past the prefilter")
