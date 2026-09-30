@@ -85,7 +85,10 @@ labelled `QM/QM2`, never the high-level region alone.
 `orcamon geom` takes a cycle, or a scan step and its cycle. ORCA does not
 print coordinates for every cycle. When the one asked for was not printed,
 the command exits 2 and names the nearest earlier cycle that was. Report
-that; do not quietly use the other geometry in its place.
+that; do not quietly use the other geometry in its place. A job that prints
+no coordinates at all (ORCA's SOLVATOR writes its cluster to a file) gives the
+geometry file the log names, or else its input geometry. The XYZ comment line
+and the pane title say which, so report it as that file, not as a cycle.
 
 ## Waiting
 

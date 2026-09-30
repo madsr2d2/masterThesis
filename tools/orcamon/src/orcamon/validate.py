@@ -75,6 +75,8 @@ MARKER_CASES = [
      lambda s: s.normal_completion),
     ("      ***        THE OPTIMIZATION HAS CONVERGED     ***",
      lambda s: s.opt_converged),
+    ("Final structured saved to        :             job.solvator.xyz",
+     lambda s: s.result_geometry_file == "job.solvator.xyz"),
     ("       The optimization did not converge but reached the maximum ",
      lambda s: s.opt_maxiter_reached),
     ("       The optimization did not converge but reached the maximum number of",

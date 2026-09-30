@@ -373,6 +373,24 @@ def test_geom_never_substitutes_a_geometry():
         code, out, err = t.run("geom", "opt_done", "--cycle", "9")
         check("a cycle never reached exits 2", code == 2 and "not in the kept history" in err, err)
 
+        # SOLVATOR: no coordinate block in the log, the cluster only in the
+        # file the log names.
+        solv = t.root / "solvated"
+        solv.mkdir()
+        (solv / "job.inp").write_text("! XTB ALPB(Water) SOLVATOR\n* xyzfile 0 1 start.xyz\n")
+        (solv / "job.solvator.xyz").write_text("2\ncluster\nO 0.0 0.0 0.0\nH 0.96 0.0 0.0\n")
+        (solv / "job.out").write_text("Final structured saved to        :             job.solvator.xyz\n"
+                                      + _DONE + "\n")
+        code, out, err = t.run("geom", "solvated")
+        lines = out.split("\n")
+        check("a job that printed no coordinates gives the file it wrote, and names it",
+              code == 0 and lines[0] == "2" and lines[1] == "solvated · job.solvator.xyz", out + err)
+        code, doc, err = t.json("geom", "solvated")
+        check("--json says where it came from", doc is not None and doc["point"]["source"] == "job.solvator.xyz"
+              and doc["point"]["cycle"] == 0 and len(doc["atoms"]) == 2, f"{doc}")
+        code, out, err = t.run("geom", "solvated", "--cycle", "1")
+        check("but a cycle that was never printed is still refused", code == 2, out + err)
+
 
 def test_wait_returns_when_the_job_is_done():
     print("\nwait: returns on the condition, times out with 4")

@@ -15,6 +15,7 @@ import re
 import time
 from dataclasses import asdict, dataclass, field
 
+from .geometry import FileGeometry
 from .job import Job
 from .orca_input import describe_spin
 from .parser import JobState
@@ -159,7 +160,8 @@ def build_report(job: Job, now: float | None = None) -> JobReport:
         mult=inp.mult if inp else None,
         layers=layers,
         multilayer=bool(inp and inp.multilayer),
-        n_atoms=len(state.atoms) if state.atoms else None,
+        n_atoms=(len(state.atoms) if state.atoms
+                 else len(job.file_geometry.atoms) if getattr(job, "file_geometry", None) else None),
         n_qm_atoms=len(state.qm_atom_indices) if state.qm_atom_indices else None,
         nprocs=inp.nprocs if inp else None,
         maxcore_mb=inp.maxcore_mb if inp else None,
@@ -457,7 +459,14 @@ def geometry_shown(job: Job | None, point) -> tuple[list, object]:
         for p in reversed(state.points):
             if p.atoms:
                 return p.atoms, p
-        return state.atoms, None
+        if state.atoms:
+            return state.atoms, None
+        # Nothing printed: the file the job wrote, or its input geometry,
+        # carrying its source so the pane can say what it is showing.
+        fallback = getattr(job, "file_geometry", None)
+        if fallback is not None:
+            return fallback.atoms, fallback
+        return [], None
     if point.atoms:
         return point.atoms, point
     history = list(state.points)
@@ -474,6 +483,8 @@ def geometry_shown(job: Job | None, point) -> tuple[list, object]:
 def describe_point(point) -> str:
     if point is None:
         return ""
+    if isinstance(point, FileGeometry):
+        return point.source
     if point.scan_step is not None:
         return f"scan step {point.scan_step} · cycle {point.cycle}"
     return f"cycle {point.cycle}" if point.cycle else ""

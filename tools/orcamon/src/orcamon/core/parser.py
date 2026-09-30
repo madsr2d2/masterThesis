@@ -34,6 +34,13 @@ _OPT_DONE_RE = re.compile(r"OPTIMIZATION HAS CONVERGED|OPTIMIZATION RUN DONE")
 # matched. The run then goes on -- to the next scan step, or to a requested
 # frequency calculation -- and can still end "ORCA TERMINATED NORMALLY".
 _OPT_MAXITER_RE = re.compile(r"The optimization did not converge but reached the maximum")
+# A geometry the job writes to a FILE instead of printing it. ORCA's SOLVATOR
+# prints no coordinate block at all -- the solvated cluster exists only as
+# `job.solvator.xyz` -- and names the file on this line, typo included:
+#     Final structured saved to        :             job.solvator.xyz
+# Reading the name ORCA announces, rather than guessing file names, keeps the
+# fallback to what the job itself says it produced.
+_RESULT_FILE_RE = re.compile(r"Final structured? saved to\s*:\s*(\S+)")
 # TODO: SCF non-convergence. No output in hand shows ORCA's exact wording for
 # an SCF that fails to converge (none exists in the tree this was written
 # against), and a marker guessed from memory would silently never fire. Add
@@ -99,7 +106,7 @@ _RARE_MARKERS_RE = re.compile(
     r"|FINAL SINGLE POINT ENERGY|TOTAL RUN TIME|RELAXED SURFACE SCAN STEP"
     r"|constrained geometry optimizations|to be scanned|Max\. no of cycles"
     r"|basis set information|utilizes the basis:"
-    r"|did not converge but reached the maximum"
+    r"|did not converge but reached the maximum|saved to"
 )
 _CONV_HINT_RE = re.compile(r"gradient|step|Energy change")
 
@@ -220,6 +227,9 @@ class JobState:
     # said for are kept too.
     opt_maxiter_reached: bool = False
     maxiter_scan_steps: list = field(default_factory=list)
+    # A geometry file the job announced it wrote (relative to the job's
+    # directory), for jobs that print no coordinates -- see _RESULT_FILE_RE.
+    result_geometry_file: str | None = None
     final_energy: float | None = None
     final_energy_label: str | None = None
     # Every imaginary frequency (cm**-1, negative) of the LAST frequency block
@@ -404,6 +414,10 @@ class JobState:
 
         if _OPT_DONE_RE.search(line):
             self.opt_converged = True
+
+        m = _RESULT_FILE_RE.search(line)
+        if m:
+            self.result_geometry_file = m.group(1)
 
         if _OPT_MAXITER_RE.search(line):
             self.opt_maxiter_reached = True

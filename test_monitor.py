@@ -599,6 +599,58 @@ def test_report_keys_are_stable():
     check("and the schema is in the document", REPORT_SCHEMA == 1)
 
 
+def test_a_job_that_prints_no_geometry_shows_the_one_it_wrote():
+    print("\na job that prints no coordinates shows the file it wrote, or its input, and says which")
+    import os
+    import tempfile
+    from orcamon.core.report import describe_point
+
+    def xyz(path, atoms):
+        path.write_text(f"{len(atoms)}\ncomment\n" + "".join(f"{e} {x} 0.0 0.0\n" for e, x in atoms))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "job.inp").write_text("! XTB ALPB(Water) SOLVATOR\n* xyzfile 0 1 start.xyz\n")
+        xyz(d / "start.xyz", [("O", 0.0), ("H", 0.96), ("H", -0.24)])
+        xyz(d / "job.solvator.xyz", [("O", 0.0), ("H", 0.96), ("H", -0.24), ("O", 3.0), ("H", 3.9), ("H", 2.7)])
+        # What SOLVATOR prints: no coordinate block, one line naming the file.
+        (d / "job.out").write_text("                       * ORCA Solvator *\n"
+                                   "Final structured saved to        :             job.solvator.xyz\n"
+                                   "		****ORCA-SOLVATOR TERMINATED NORMALLY****\n"
+                                   f"{_TERMINATED}\n")
+        job = Job(d, "job", d.parent)
+        gone = Liveness(False, "process")
+        job.refresh(gone)
+        atoms, shown = geometry_shown(job, None)
+        check("the file the log names is drawn", len(atoms) == 6 and describe_point(shown) == "job.solvator.xyz",
+              f"{len(atoms)} {describe_point(shown)!r}")
+        check("and counted in the summary", build_report(job).n_atoms == 6)
+        first = job.file_geometry
+        job.refresh(gone)
+        check("an unchanged file is the same object, so the pixel panes do not redraw",
+              job.file_geometry is first)
+
+        os.remove(d / "job.solvator.xyz")
+        job.refresh(gone)
+        atoms, shown = geometry_shown(job, None)
+        check("without it, the input's *xyzfile, named as the input",
+              len(atoms) == 3 and describe_point(shown) == "input geometry, start.xyz", describe_point(shown))
+
+        (d / "job.inp").write_text("! XTB SP\n* xyz 0 1\nO 0.0 0.0 0.0\nH 0.96 0.0 0.0\n*\n")
+        job.refresh(gone)
+        atoms, shown = geometry_shown(job, None)
+        check("an inline * xyz block is the input geometry too",
+              len(atoms) == 2 and describe_point(shown) == "input geometry", describe_point(shown))
+
+        with open(d / "job.out", "a") as f:
+            f.write("CARTESIAN COORDINATES (ANGSTROEM)\n---------------------------------\n"
+                    "  O      0.000000    0.000000    0.000000\n\n")
+        job.refresh(gone)
+        atoms, shown = geometry_shown(job, None)
+        check("a printed geometry always wins", len(atoms) == 1 and job.file_geometry is None
+              and not describe_point(shown).startswith("input"), f"{len(atoms)} {describe_point(shown)!r}")
+
+
 if __name__ == "__main__":
     test_a_multilayer_energy_is_the_total()
     test_a_scan_is_keyed_by_step_and_cycle()
@@ -614,6 +666,7 @@ if __name__ == "__main__":
     test_attention_flags()
     test_plain_and_markup_say_the_same_thing()
     test_report_keys_are_stable()
+    test_a_job_that_prints_no_geometry_shows_the_one_it_wrote()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)

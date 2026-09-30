@@ -8,6 +8,8 @@ angles. Pure Python so the text renderer needs no numpy."""
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
+from pathlib import Path
 
 ELEMENT_COLORS = {"H": "#f2f2f2", "O": "#e04040", "C": "#4a4a4a", "N": "#4060e0"}
 DEFAULT_ELEMENT_COLOR = "#c060c0"
@@ -36,3 +38,39 @@ def camera_basis(elev_deg: float, azim_deg: float) -> tuple[tuple[float, float, 
 
 def _cross(a, b) -> tuple[float, float, float]:
     return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+@dataclass
+class FileGeometry:
+    """A geometry read from a FILE rather than printed in the log, and where
+    from. It stands in for a GeometryPoint wherever the panes and `geom` take
+    one, with no cycle and no energy, so nothing presents it as a printed
+    optimization step: `source` is what the pane title and the XYZ comment
+    say it is."""
+
+    atoms: list
+    source: str
+    scan_step: None = None
+    cycle: int = 0
+    energy: None = None
+    energy_label: None = None
+    key: None = None
+
+
+def read_xyz(path: Path) -> list | None:
+    """The first frame of an XYZ file as (element, x, y, z) tuples, or None
+    when the file is missing or is not XYZ. Tolerant of what ORCA writes:
+    an element may carry a suffix (`C1`, `H:`), and a trajectory's later
+    frames are ignored."""
+    try:
+        with open(path, errors="replace") as f:
+            n = int(f.readline().split()[0])
+            f.readline()
+            atoms = []
+            for _ in range(n):
+                parts = f.readline().split()
+                element = "".join(ch for ch in parts[0] if ch.isalpha())
+                atoms.append((element.capitalize(), float(parts[1]), float(parts[2]), float(parts[3])))
+    except (OSError, ValueError, IndexError):
+        return None
+    return atoms or None

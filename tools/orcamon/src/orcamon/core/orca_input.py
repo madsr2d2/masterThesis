@@ -75,6 +75,9 @@ class JobInput:
     # `int`, ...) or `%coords`, and the file a `*...file` form names.
     coords_kind: str | None = None
     coords_file: str | None = None
+    # The atoms of an inline `* xyz` block, as (element, x, y, z): the job's
+    # starting geometry, which a job that prints none can still be shown by.
+    coords_atoms: list = field(default_factory=list)
 
     @property
     def method(self) -> str:
@@ -113,6 +116,8 @@ def parse_input(text: str) -> JobInput:
         job.coords_kind = m.group(1).lower()
         if job.coords_kind.endswith("file"):
             job.coords_file = m.group(4)
+        elif job.coords_kind == "xyz":
+            job.coords_atoms = _inline_atoms(text[m.end():])
     elif _COORDS_BLOCK_RE.search(text):
         job.coords_kind = "%coords"
         c, mu = _BLOCK_CHARGE_RE.search(text), _BLOCK_MULT_RE.search(text)
@@ -135,6 +140,27 @@ def parse_input(text: str) -> JobInput:
     if m:
         job.maxcore_mb = int(m.group(1))
     return job
+
+
+def _inline_atoms(rest: str) -> list:
+    """The atom lines after a `* xyz c m` line, up to the closing `*`. A line
+    that is not `element x y z` (a point charge `Q`, a ghost `H:`'s extras)
+    is skipped rather than guessed at; the element keeps only its letters."""
+    atoms = []
+    for line in rest.splitlines()[1:]:
+        parts = line.split()
+        if not parts:
+            continue
+        if parts[0] == "*":
+            break
+        element = "".join(ch for ch in parts[0] if ch.isalpha())
+        try:
+            x, y, z = (float(v) for v in parts[1:4])
+        except (ValueError, TypeError):
+            continue
+        if element and element.upper() not in ("Q", "DA"):
+            atoms.append((element.capitalize(), x, y, z))
+    return atoms
 
 
 def describe_spin(charge: int | None, mult: int | None) -> str:

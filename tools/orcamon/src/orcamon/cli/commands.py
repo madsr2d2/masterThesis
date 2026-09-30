@@ -420,8 +420,12 @@ def _range(values) -> str:
 def cmd_geom(args, job: Job) -> int:
     state = job.state
     point, asked = _find_point(state, args.step, args.cycle)
+    if point is None and job.file_geometry is not None:
+        # Nothing printed, but the job wrote a geometry file (SOLVATOR) or
+        # has an input geometry. It is named as such, never as a cycle.
+        point = job.file_geometry
     if point is None:
-        raise UsageError("no coordinates printed yet")
+        raise UsageError("no coordinates printed yet, and no geometry file to read")
     if not point.atoms:
         history = list(state.points)
         i = next((k for k, p in enumerate(history) if p is point), len(history))
@@ -443,7 +447,8 @@ def cmd_geom(args, job: Job) -> int:
         _emit_json({
             "job": job.label, "region": region,
             "point": {"scan_step": point.scan_step, "cycle": point.cycle,
-                      "energy_eh": point.energy, "energy_label": point.energy_label},
+                      "energy_eh": point.energy, "energy_label": point.energy_label,
+                      "source": getattr(point, "source", "output")},
             "atoms": [[el, x, y, z] for el, x, y, z in atoms],
         })
         return _job_exit(job)
