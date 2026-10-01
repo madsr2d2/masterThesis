@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import signal
 import sys
@@ -20,7 +21,7 @@ from pathlib import Path
 from .. import __version__  # noqa: F401 -- `orcamon --version` reads it here
 from ..core import cache, paths, steer
 from ..core.discovery import JobRef, discover
-from ..core.geometry import View, measure, measurement_text
+from ..core.geometry import View, measure, measurement_text, parse_atom_list
 from ..core.job import Job
 from ..core.liveness import LivenessProbe, lookup, make_probe
 from ..core.parser import _CRASH_RE, _QM2_ERROR_RE, HISTORY_LEN, READ_CHUNK_BYTES
@@ -612,6 +613,85 @@ def cmd_view(args) -> int:
     out(f"{'as XYZ':<11}{doc['as_xyz']}")
     out.flush()
     return EXIT_OK
+
+
+# --- focus ------------------------------------------------------------------
+
+
+FOCUS_POLL_S = 0.1
+
+
+@_with_job
+def cmd_focus(args, job: Job) -> int:
+    """Put a job in front of the person: their TUI jumps to it with the named
+    atoms ringed and measured and a mode animated, and waits up to --timeout
+    for it to take the request (D1, D9). The geometry, the atoms and the mode
+    are checked against the job first, so a bad request never reaches the
+    person's screen."""
+    view = steer.current_view()
+    if view is None:
+        raise UsageError(_no_tui())
+    asked = [name for name in ("point", "step", "cycle") if getattr(args, name) is not None]
+    if len(asked) > 1:
+        raise UsageError("focus takes one of --point, --step or --cycle")
+    point = _requested_point(args, job)
+    try:
+        atoms = parse_atom_list(args.atoms or "", len(point.atoms))
+    except ValueError as exc:
+        raise UsageError(str(exc)) from None
+    if args.mode is not None:
+        from ..core import vibrations
+
+        if job.state.frequencies is None:
+            raise UsageError("this job has no frequency block (no Freq or NumFreq step)")
+        if vibrations.find_mode(job.state, args.mode) is None:
+            raise UsageError(f"no mode {args.mode} in this job; {vibrations.available_text(job.state)}")
+    pid = view["pid"]
+    file = job.inp_path.resolve()
+    tui_root = Path(view["root"])
+    if not file.is_relative_to(tui_root):
+        raise UsageError(f"the TUI (pid {pid}) watches {tui_root}; {file} is outside it")
+
+    request_id = f"{time.time_ns()}-{os.getpid()}"
+    steer.write_json(steer.focus_path(pid), {
+        "schema": steer.STEER_SCHEMA, "id": request_id, "file": str(file),
+        "point": args.point, "step": args.step, "cycle": args.cycle,
+        "mode": args.mode, "atoms": list(atoms), "requested_unix_s": time.time(),
+    })
+    document = {"tui_pid": pid, "request": request_id, "taken": False, "ok": None, "message": None}
+    if args.timeout <= 0:
+        if args.json:
+            _emit_json(document)
+        else:
+            print(f"queued for the TUI (pid {pid}); `orcamon view` shows what it took")
+        return EXIT_OK
+
+    deadline = time.monotonic() + args.timeout
+    taken = None
+    while True:
+        doc = steer.read_json(steer.view_path(pid))
+        focus = doc.get("focus") if doc is not None else None
+        if isinstance(focus, dict) and focus.get("id") == request_id:
+            taken = focus
+            break
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(FOCUS_POLL_S)
+    if taken is None:
+        if args.json:
+            _emit_json(document)
+            return EXIT_TIMEOUT
+        print(f"orcamon: the TUI (pid {pid}) has not taken the request within "
+              f"{args.timeout:g} s; it stays queued", file=sys.stderr)
+        return EXIT_TIMEOUT
+    document.update(taken=True, ok=bool(taken.get("ok")), message=taken.get("message"))
+    if args.json:
+        _emit_json(document)
+        return EXIT_OK if document["ok"] else EXIT_USAGE
+    if document["ok"]:
+        print(f"{document['message']} in the TUI (pid {pid})")
+        return EXIT_OK
+    return _error(f"the TUI (pid {pid}) could not show it: {document['message']}")
 
 
 # --- snapshot ---------------------------------------------------------------

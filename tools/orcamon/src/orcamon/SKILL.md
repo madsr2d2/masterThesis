@@ -158,6 +158,15 @@ the `orcamon geom` command that prints exactly that geometry. It exits 2 when
 no TUI is running for this user on this machine: then ask which job and atoms
 they mean; do not guess.
 
+`orcamon focus JOB` puts a job in front of the person: their TUI jumps to it,
+with `--atoms 129,55` ringed and measured, `--point`, `--step` or `--cycle`
+for one geometry, and `--mode N` animated. Use it to show what you are talking
+about, and to show a proposed structure before anything runs: write the draft
+input beside the others and focus it — the TUI draws a job's input geometry
+before there is any output. It waits up to `--timeout` seconds (default 5) for
+the TUI to take the request; exit 4 means it did not, exit 2 that it could not
+show it.
+
 ## Other rules
 
 - Another machine: `ssh HOST orcamon ls --json` works the same way.
@@ -168,6 +177,7 @@ they mean; do not guess.
 - `orcamon tui` is the interactive view for a person. An agent should not
   start it.
 - Never kill, signal, edit or resubmit a running job on your own initiative.
-  orcamon only reads.
+  orcamon never changes a job: it reads, and `orcamon focus` only moves what
+  the person's TUI shows.
 - `orcamon skill --check` says whether this copy of the skill matches the
   installed orcamon; if it is stale, `orcamon skill install` refreshes it.

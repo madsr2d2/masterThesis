@@ -1619,6 +1619,101 @@ def test_the_tui_tells_the_agent_what_it_shows():
                 os.environ["XDG_STATE_HOME"] = saved
 
 
+def test_focus_waits_for_the_tui_to_take_it():
+    print("\nfocus sends a checked request and waits for the TUI to take it")
+    import tempfile
+    import threading
+    import time as _time
+    from pathlib import Path
+
+    from orcamon.core import steer
+
+    saved = os.environ.get("XDG_STATE_HOME")
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as other:
+        root = Path(tmp) / "tree"
+        root.mkdir()
+        _water_job(root, "water")
+        cli = lambda *a: _orcamon(["--root", str(root), "--liveness", "mtime", "--no-cache", *a])
+        os.environ["XDG_STATE_HOME"] = tmp
+        try:
+            code, out, err = cli("focus", "water")
+            check("with no TUI running focus refuses and says so",
+                  code == 2 and "no orcamon TUI is running" in err, f"{code} {out!r} {err!r}")
+
+            fake = {"schema": 1, "pid": os.getpid(), "host": steer.host_name(),
+                    "root": str(root.resolve()), "updated_unix_s": _time.time(),
+                    "job": None, "geometry": None, "mode": None, "selection": [],
+                    "measurement": None, "as_xyz": None, "focus": None}
+            taken = []
+
+            def ack(ok, message):
+                # A fake TUI: take the request when it appears and publish the
+                # answer through the view file, as MonitorApp will.
+                def run():
+                    deadline = _time.monotonic() + 3
+                    while (not steer.focus_path(os.getpid()).exists()
+                           and _time.monotonic() < deadline):
+                        _time.sleep(0.02)
+                    req = steer.take_focus(os.getpid())
+                    taken.append(req)
+                    fake["focus"] = {"id": req["id"], "ok": ok, "message": message}
+                    fake["updated_unix_s"] = _time.time()
+                    steer.write_json(steer.view_path(), fake)
+                threading.Thread(target=run).start()
+
+            steer.write_json(steer.view_path(), fake)
+            ack(True, "showing water (test)")
+            code, out, err = cli("focus", "water", "--atoms", "1,0", "--timeout", "3")
+            req = taken[0] if taken else None
+            check("the TUI takes the checked request and focus reports what it showed",
+                  code == 0
+                  and f"showing water (test) in the TUI (pid {os.getpid()})" in out
+                  and req is not None
+                  and req.get("file") == str((root / "water" / "job.inp").resolve())
+                  and req.get("atoms") == [1, 0]
+                  and req.get("point") is None and req.get("mode") is None,
+                  f"{code} {out!r} {err!r} {req!r}")
+
+            ack(False, "nope")
+            code, out, err = cli("focus", "water", "--timeout", "3")
+            check("a TUI that could not show it exits 2 with its message",
+                  code == 2 and "could not show it: nope" in err, f"{code} {out!r} {err!r}")
+
+            code, out, err = cli("focus", "water", "--timeout", "0.3")
+            check("a TUI that does not take it times out, exit 4, and it stays queued",
+                  code == 4 and "has not taken the request within 0.3 s" in err
+                  and steer.focus_path(os.getpid()).exists(),
+                  f"{code} {out!r} {err!r}")
+
+            code, out, err = cli("focus", "water", "--timeout", "0")
+            check("--timeout 0 queues the request and returns",
+                  code == 0 and "queued for the TUI" in out, f"{code} {out!r} {err!r}")
+
+            code, out, err = cli("focus", "water", "--atoms", "0,9")
+            bad_atoms = code == 2 and "atom 9 is out of range: the geometry has 3 atoms (0-2)" in err
+            code, out, err = cli("focus", "water", "--mode", "3")
+            no_freq = code == 2 and "this job has no frequency block" in err
+            code, out, err = cli("focus", "water", "--step", "1", "--cycle", "1")
+            two_axes = code == 2 and "focus takes one of --point, --step or --cycle" in err
+            code, out, err = cli("focus", "water", "--point", "0")
+            no_path = code == 2 and "--point needs an IRC or NEB job" in err
+            check("the geometry, the atoms and the mode are checked before anything is sent",
+                  bad_atoms and no_freq and two_axes and no_path,
+                  f"{bad_atoms} {no_freq} {two_axes} {no_path}")
+
+            fake["root"] = str(Path(other).resolve())
+            fake["updated_unix_s"] = _time.time()
+            steer.write_json(steer.view_path(), fake)
+            code, out, err = cli("focus", "water", "--timeout", "0")
+            check("a job outside what the TUI watches is refused, not queued",
+                  code == 2 and "outside it" in err, f"{code} {out!r} {err!r}")
+        finally:
+            if saved is None:
+                os.environ.pop("XDG_STATE_HOME", None)
+            else:
+                os.environ["XDG_STATE_HOME"] = saved
+
+
 def test_slurm_names_what_the_login_node_cannot_see():
     print("\nSLURM: squeue's view of a job, and the fallbacks when it has none")
     import stat
@@ -1969,6 +2064,7 @@ if __name__ == "__main__":
     test_the_tui_cycles_real_modes()
     test_the_tui_selects_atoms_by_number()
     test_the_tui_tells_the_agent_what_it_shows()
+    test_focus_waits_for_the_tui_to_take_it()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
     test_liveness_names_the_job_not_only_the_directory()

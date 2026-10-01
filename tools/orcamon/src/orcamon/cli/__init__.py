@@ -8,7 +8,7 @@
 Every command takes `--json` and prints one JSON document; without it, plain
 text of at most `--max-lines` lines. Exit status: 0 success, 1 the job (or,
 for `ls`, any listed job) is failed or stopped, 2 usage error, no such job or
-no running TUI, 4 `wait` timed out, 130 interrupted.
+no running TUI, 4 `wait` timed out or `focus` not taken, 130 interrupted.
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ EXIT_CODES = (
     (EXIT_OK, "success; for show and wait, the job is not failed or stopped"),
     (EXIT_JOB_BAD, "the command worked and the job (for ls: any listed job) is failed or stopped"),
     (EXIT_USAGE, "usage error, a job not found or ambiguous, or (view, focus) no TUI running"),
-    (EXIT_TIMEOUT, "wait timed out"),
+    (EXIT_TIMEOUT, "wait timed out, or focus was not taken by the TUI in time"),
     (EXIT_INTERRUPTED, "interrupted (Ctrl-C)"),
 )
 
@@ -142,6 +142,22 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("view", "what the person's orcamon TUI shows: job, geometry, picked atoms",
             "orcamon view --json", commands.cmd_view)
     _output(p)
+
+    p = add("focus", "show a job in the person's orcamon TUI: a geometry, picked atoms, a mode",
+            "orcamon focus opt/ts --atoms 12,15", commands.cmd_focus)
+    _job(p)
+    p.add_argument("--atoms", metavar="I,J,…",
+                   help="atoms to ring and measure: ORCA's 0-based numbers, comma-separated, up to 4")
+    p.add_argument("--point", type=int, metavar="N",
+                   help="a point on an IRC or NEB path: the signed IRC point (0 is the TS, "
+                        "negative is backward) or the NEB image")
+    p.add_argument("--step", type=int, metavar="S", help="scan step (its last cycle unless --cycle)")
+    p.add_argument("--cycle", type=int, metavar="C", help="optimization cycle (within --step for a scan)")
+    p.add_argument("--mode", type=int, metavar="N", help="animate this normal mode (ORCA's mode number)")
+    p.add_argument("--timeout", type=float, default=5.0, metavar="S",
+                   help="seconds to wait for the TUI to take it; 0 queues it and returns "
+                        "(default: %(default)s)")
+    _output(p, lines=False)
 
     p = add("snapshot", "render a job's geometry to a PNG (needs the images extra)",
             "orcamon snapshot opt/ts -o ts.png", commands.cmd_snapshot)

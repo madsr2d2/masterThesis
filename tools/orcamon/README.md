@@ -77,7 +77,7 @@ An IRC direction that stopped at MaxIter before reaching a minimum raises
 | 0 | success; for `show` and `wait`, the job is not failed or stopped |
 | 1 | the command worked, and the job (for `ls`: any listed job) is failed or stopped |
 | 2 | usage error, a job not found or ambiguous, or (view, focus) no TUI running |
-| 4 | `wait` timed out |
+| 4 | wait timed out, or focus was not taken by the TUI in time |
 | 130 | interrupted |
 
 ## The JSON contract
@@ -176,6 +176,16 @@ ignored) and prints it as text or `--json`; a TUI that exits removes its own
 file. **Nothing written there touches a job**: these files are messages
 between the TUI and the agent, never input to ORCA.
 
+`orcamon focus JOB` goes the other way: it makes that TUI jump to the job,
+with `--atoms` ringed and measured, `--point`, `--step` or `--cycle` for one
+geometry, and `--mode N` animated. A draft input the agent has just written
+can be shown too — the TUI draws a job's input geometry before there is any
+output — and a request it cannot match yet is kept for 10 s and one rescan,
+so a job found a moment later still arrives. `--timeout S` is how long the
+command waits for the TUI to take it (default 5; `0` queues it and returns at
+once). Exit 4 means it was not taken in time and stays queued, exit 2 that it
+could not be shown.
+
 ## Saving a picture
 
 `orcamon snapshot JOB -o view.png` renders a job's latest geometry (or the
@@ -245,7 +255,7 @@ usage: orcamon [-h] [--version] [--root DIR] [--liveness {auto,process,slurm,mti
 Every command takes `--json` and prints one JSON document; without it, plain
 text of at most `--max-lines` lines. Exit status: 0 success, 1 the job (or,
 for `ls`, any listed job) is failed or stopped, 2 usage error, no such job or
-no running TUI, 4 `wait` timed out, 130 interrupted.
+no running TUI, 4 `wait` timed out or `focus` not taken, 130 interrupted.
 
 positional arguments:
   COMMAND
@@ -258,6 +268,8 @@ positional arguments:
     measure             the distance, angle or dihedral between 2 to 4 atoms of a
                         geometry
     view                what the person's orcamon TUI shows: job, geometry, picked atoms
+    focus               show a job in the person's orcamon TUI: a geometry, picked
+                        atoms, a mode
     snapshot            render a job's geometry to a PNG (needs the images extra)
     freqs               imaginary and lowest real vibrational frequencies, or the atoms
                         one mode moves
@@ -525,6 +537,42 @@ options:
                         state cache
   --json                print one JSON document instead of text
   --max-lines N         cap on text output lines (default: 60)
+```
+
+### `orcamon focus`
+
+```
+usage: orcamon focus [-h] [--root DIR] [--liveness {auto,process,slurm,mtime}]
+                     [--quiet-after S] [--no-cache] [--atoms I,J,…] [--point N]
+                     [--step S] [--cycle C] [--mode N] [--timeout S] [--json]
+                     JOB
+
+show a job in the person's orcamon TUI: a geometry, picked atoms, a mode
+
+example: orcamon focus opt/ts --atoms 12,15
+
+positional arguments:
+  JOB                   a job directory, a .inp/.out file, or (part of) a job's label
+
+options:
+  -h, --help            show this help message and exit
+  --root DIR            where jobs are looked for (default: $ORCAMON_ROOT or .)
+  --liveness {auto,process,slurm,mtime}
+                        how a job is known to be running (default: auto)
+  --quiet-after S       seconds without output before a job of unknown liveness is
+                        called quiet (default: 1800)
+  --no-cache            parse every output from scratch; neither read nor write the
+                        state cache
+  --atoms I,J,…         atoms to ring and measure: ORCA's 0-based numbers, comma-
+                        separated, up to 4
+  --point N             a point on an IRC or NEB path: the signed IRC point (0 is the
+                        TS, negative is backward) or the NEB image
+  --step S              scan step (its last cycle unless --cycle)
+  --cycle C             optimization cycle (within --step for a scan)
+  --mode N              animate this normal mode (ORCA's mode number)
+  --timeout S           seconds to wait for the TUI to take it; 0 queues it and returns
+                        (default: 5.0)
+  --json                print one JSON document instead of text
 ```
 
 ### `orcamon snapshot`

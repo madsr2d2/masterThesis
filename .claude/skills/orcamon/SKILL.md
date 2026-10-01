@@ -160,6 +160,15 @@ the `orcamon geom` command that prints exactly that geometry. It exits 2 when
 no TUI is running for this user on this machine: then ask which job and atoms
 they mean; do not guess.
 
+`orcamon focus JOB` puts a job in front of the person: their TUI jumps to it,
+with `--atoms 129,55` ringed and measured, `--point`, `--step` or `--cycle`
+for one geometry, and `--mode N` animated. Use it to show what you are talking
+about, and to show a proposed structure before anything runs: write the draft
+input beside the others and focus it — the TUI draws a job's input geometry
+before there is any output. It waits up to `--timeout` seconds (default 5) for
+the TUI to take the request; exit 4 means it did not, exit 2 that it could not
+show it.
+
 ## Other rules
 
 - Another machine: `ssh HOST orcamon ls --json` works the same way.
@@ -170,7 +179,8 @@ they mean; do not guess.
 - `orcamon tui` is the interactive view for a person. An agent should not
   start it.
 - Never kill, signal, edit or resubmit a running job on your own initiative.
-  orcamon only reads.
+  orcamon never changes a job: it reads, and `orcamon focus` only moves what
+  the person's TUI shows.
 - `orcamon skill --check` says whether this copy of the skill matches the
   installed orcamon; if it is stale, `orcamon skill install` refreshes it.
 
@@ -262,6 +272,19 @@ what the person's orcamon TUI shows: job, geometry, picked atoms
 - `--json`: print one JSON document instead of text
 - `--max-lines N`: cap on text output lines (default: 60)
 
+### orcamon focus
+
+show a job in the person's orcamon TUI: a geometry, picked atoms, a mode
+
+- `JOB`: a job directory, a .inp/.out file, or (part of) a job's label
+- `--atoms I,J,…`: atoms to ring and measure: ORCA's 0-based numbers, comma-separated, up to 4
+- `--point N`: a point on an IRC or NEB path: the signed IRC point (0 is the TS, negative is backward) or the NEB image
+- `--step S`: scan step (its last cycle unless --cycle)
+- `--cycle C`: optimization cycle (within --step for a scan)
+- `--mode N`: animate this normal mode (ORCA's mode number)
+- `--timeout S`: seconds to wait for the TUI to take it; 0 queues it and returns (default: 5.0)
+- `--json`: print one JSON document instead of text
+
 ### orcamon snapshot
 
 render a job's geometry to a PNG (needs the images extra)
@@ -344,5 +367,5 @@ print the agent skill, or install it for Claude Code
 - `0`: success; for show and wait, the job is not failed or stopped
 - `1`: the command worked and the job (for ls: any listed job) is failed or stopped
 - `2`: usage error, a job not found or ambiguous, or (view, focus) no TUI running
-- `4`: wait timed out
+- `4`: wait timed out, or focus was not taken by the TUI in time
 - `130`: interrupted (Ctrl-C)
