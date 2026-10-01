@@ -177,6 +177,17 @@ def _scan(steps):
     return "\n".join(out) + "\n" + _DONE + "\n"
 
 
+def _water_job(root, name="water"):
+    """The water fixture: two cycles of one three-atom structure, the second
+    shifted 0.1 A in x, so `--cycle 1` is a different geometry from the
+    latest. Distance 0-1 is 0.960 A, angle 1-0-2 is 104.4702941 degrees."""
+    d = root / name
+    d.mkdir(parents=True)
+    (d / "job.inp").write_text(_OPT_FREQ)
+    (d / "job.out").write_text(_opt(2, [-80.00, -80.10]) + _CONVERGED + "\n" + _DONE + "\n")
+    return d
+
+
 _OPT_FREQ = "! B97-3c Opt Freq PAL4\n%maxcore 2000\n* xyz 0 1\nO 0 0 0\n*\n"
 _OPTTS_FREQ = "! B97-3c OptTS Freq\n* xyzfile -1 2 start.xyz\n"
 _SCAN_INPUT = "! B97-3c Opt\n%geom\n  Scan\n    B 0 1 = 1.0, 2.0, 3\n  end\nend\n* xyz 0 1\n*\n"
@@ -725,6 +736,48 @@ def test_any_mode_is_drawn_and_described():
         code, out, err = _orcamon([*argv, "freqs", "modes_all"])
         check("plain freqs is unchanged",
               code == 0 and "9 modes (3 zero, 1 imaginary)" in out and "lowest 5 real:" in out, out)
+
+
+def test_measure_names_the_geometry_it_measured():
+    print("\nmeasure: the distance, angle or dihedral on the geometry a flag names")
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _water_job(root)
+        argv = ["--root", str(root), "--liveness", "mtime", "--no-cache"]
+
+        code, out, err = _orcamon([*argv, "measure", "water", "0", "1"])
+        check("a distance prints the atoms, their elements and the cycle",
+              code == 0 and out == "distance 0-1: 0.960 Å (O-H) · water · cycle 2\n",
+              f"{code} {(out + err)!r}")
+
+        code, doc, err = _json([*argv, "measure", "water", "1", "0", "2"])
+        check("--json gives the kind, the value to four decimals and the atoms",
+              doc is not None and doc["kind"] == "angle" and doc["value"] == 104.4703
+              and doc["unit"] == "degree"
+              and doc["atoms"] == [{"atom": 1, "element": "H"}, {"atom": 0, "element": "O"},
+                                   {"atom": 2, "element": "H"}]
+              and doc["point"]["cycle"] == 2 and doc["job"] == "water",
+              f"{code} {doc} {err}")
+
+        code, out, err = _orcamon([*argv, "measure", "water", "0", "1", "--cycle", "1"])
+        check("--cycle measures the geometry that cycle printed",
+              code == 0 and out == "distance 0-1: 0.960 Å (O-H) · water · cycle 1\n",
+              f"{code} {(out + err)!r}")
+
+        code, out, err = _orcamon([*argv, "measure", "water", "0", "5"])
+        check("an atom the geometry does not have is refused with its size",
+              code == 2 and "atom 5 is out of range: the geometry has 3 atoms (0-2)" in err, err)
+
+        code, out, err = _orcamon([*argv, "measure", "water", "0"])
+        check("fewer than two atoms is a usage error",
+              code == 2 and "measure takes 2 to 4 atoms, got 1" in err, err)
+
+        code, out, err = _orcamon([*argv, "measure", "water", "0", "1", "--cycle", "9"])
+        check("a cycle the kept history does not hold is refused",
+              code == 2 and "cycle 9: not in the kept history" in err, err)
 
 
 def test_the_bond_cache_holds_the_geometry_it_answers_for():
@@ -1702,6 +1755,7 @@ if __name__ == "__main__":
     test_a_path_is_listed_and_drawn()
     test_an_neb_is_listed_and_drawn()
     test_any_mode_is_drawn_and_described()
+    test_measure_names_the_geometry_it_measured()
     test_the_bond_cache_holds_the_geometry_it_answers_for()
     test_wait_returns_when_the_job_is_done()
     test_the_other_commands_answer_boundedly()

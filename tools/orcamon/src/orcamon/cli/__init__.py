@@ -126,6 +126,19 @@ def build_parser() -> argparse.ArgumentParser:
                    help="qm: only a multilayer job's high-level (QM1) atoms (default: all)")
     _output(p, lines=False)
 
+    p = add("measure", "the distance, angle or dihedral between 2 to 4 atoms of a geometry",
+            "orcamon measure opt/ts 12 15", commands.cmd_measure)
+    _job(p)
+    p.add_argument("atoms", nargs="+", type=int, metavar="ATOM",
+                   help="ORCA's atom numbers, 0-based as the TUI labels them: 2 give a distance, "
+                        "3 an angle, 4 a dihedral")
+    p.add_argument("--cycle", type=int, metavar="C", help="optimization cycle (within --step for a scan)")
+    p.add_argument("--step", type=int, metavar="S", help="scan step (its last cycle unless --cycle)")
+    p.add_argument("--point", type=int, metavar="N",
+                   help="a point on an IRC or NEB path: the signed IRC point (0 is the TS, "
+                        "negative is backward) or the NEB image")
+    _output(p, lines=False)
+
     p = add("snapshot", "render a job's geometry to a PNG (needs the images extra)",
             "orcamon snapshot opt/ts -o ts.png", commands.cmd_snapshot)
     _job(p)

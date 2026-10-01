@@ -11,6 +11,7 @@ needs no numpy -- anything the text mode uses (camera, colours, radii, the
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,6 +42,11 @@ REPRESENTATIONS = ("ball-and-stick", "licorice", "space-filling", "wireframe")
 # Text cells cannot shade or occlude, so only the two the braille renderer can
 # actually tell apart are offered there.
 TEXT_REPRESENTATIONS = ("ball-and-stick", "wireframe")
+
+# D5: a selection holds 1-4 distinct atoms; 2 measure a distance, 3 an angle
+# and 4 a dihedral. The number is ORCA's 0-based atom number, the one the
+# panes label, `geom` prints in line order and ORCA's own `%geom` takes.
+MAX_PICKED = 4
 
 
 @dataclass
@@ -197,6 +203,111 @@ def view_along(axis) -> tuple[float, float]:
     of `camera_forward`."""
     x, y, z = axis
     return (math.degrees(math.asin(max(-1.0, min(1.0, z)))), math.degrees(math.atan2(y, x)))
+
+
+def _check_in_range(indices, n: int) -> None:
+    """Refuse an atom number the geometry does not have, naming the first
+    one outside `0 <= i < n`. An empty geometry gets its own message rather
+    than the nonsense range `0--1`."""
+    if n == 0:
+        raise ValueError("there is no geometry to pick atoms from")
+    for i in indices:
+        if not 0 <= i < n:
+            raise ValueError(f"atom {i} is out of range: the geometry has {n} atoms (0-{n - 1})")
+
+
+def _dot(a, b) -> float:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _angle_degrees(p0, p1, p2) -> float:
+    """The angle at `p1`, in degrees. The clamp keeps rounding from pushing
+    the cosine outside `acos`'s domain."""
+    u = (p0[0] - p1[0], p0[1] - p1[1], p0[2] - p1[2])
+    v = (p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2])
+    cos = _dot(u, v) / (math.sqrt(_dot(u, u)) * math.sqrt(_dot(v, v)))
+    return math.degrees(math.acos(max(-1.0, min(1.0, cos))))
+
+
+def _dihedral_degrees(p0, p1, p2, p3) -> float:
+    """The IUPAC torsion (D6), in degrees and in (-180, 180]: positive when,
+    looking from `p1` to `p2`, the `p0` end must turn clockwise to eclipse
+    the `p3` end. `x` and `y` are the standard signed pair, `y` scaled by the
+    middle bond's length so a short b2 cannot fake a large torsion."""
+    b1 = (p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2])
+    b2 = (p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2])
+    b3 = (p3[0] - p2[0], p3[1] - p2[1], p3[2] - p2[2])
+    x = _dot(_cross(b1, b2), _cross(b2, b3))
+    y = math.sqrt(_dot(b2, b2)) * _dot(b1, _cross(b2, b3))
+    return math.degrees(math.atan2(y, x))
+
+
+def measure(atoms, indices) -> tuple[str, float]:
+    """The distance (2 atoms, angstrom), angle (3 atoms) or dihedral (4
+    atoms, degrees) between ORCA's 0-based atom numbers -- the numbers the
+    panes label.
+
+    A dihedral is signed by the IUPAC rule (D6); see `_dihedral_degrees`.
+    A count outside 2-4, an atom the geometry does not have and two names for
+    one atom are ValueError, never a quietly wrong number."""
+    if not 2 <= len(indices) <= 4:
+        raise ValueError(f"measure takes 2 to 4 atoms, got {len(indices)}")
+    _check_in_range(indices, len(atoms))
+    if len(set(indices)) != len(indices):
+        raise ValueError("an atom is named twice")
+    points = [atoms[i][1:] for i in indices]
+    if len(indices) == 2:
+        dx = points[0][0] - points[1][0]
+        dy = points[0][1] - points[1][1]
+        dz = points[0][2] - points[1][2]
+        return "distance", math.sqrt(dx * dx + dy * dy + dz * dz)
+    if len(indices) == 3:
+        return "angle", _angle_degrees(*points)
+    return "dihedral", _dihedral_degrees(*points)
+
+
+def measurement_text(kind, indices, value) -> str:
+    """`distance 0-1: 0.960 Å` or `angle 1-0-2: 104.5°`, the one form the
+    pane title and `orcamon measure` share (D6)."""
+    text = f"{kind} {'-'.join(str(i) for i in indices)}: "
+    return text + (f"{value:.3f} Å" if kind == "distance" else f"{value:.1f}°")
+
+
+def describe_measurement(atoms, indices) -> str:
+    """The one line a title can carry for a selection: one atom is its
+    element, 2-4 are measured, and anything the geometry cannot hold is empty
+    so the caller shows nothing rather than something wrong."""
+    if not indices or any(not 0 <= i < len(atoms) for i in indices):
+        return ""
+    if len(indices) == 1:
+        return f"atom {indices[0]} {atoms[indices[0]][0]}"
+    kind, value = measure(atoms, indices)
+    return measurement_text(kind, indices, value)
+
+
+def parse_atom_list(text, n) -> tuple[int, ...]:
+    """The atom numbers in `text`, split on spaces and commas; `()` for an
+    empty entry, which is how a selection is cleared.
+
+    `n` is the geometry's atom count for the in-range check (None skips it).
+    More than MAX_PICKED, a repeated number and anything that is not an
+    integer are ValueError with the words the prompt shows."""
+    tokens = [token for token in re.split(r"[\s,]+", text.strip()) if token]
+    if not tokens:
+        return ()
+    indices = []
+    for token in tokens:
+        try:
+            indices.append(int(token))
+        except ValueError:
+            raise ValueError(f"not an atom number: {token!r}") from None
+    if len(indices) > MAX_PICKED:
+        raise ValueError(f"at most {MAX_PICKED} atoms: 2 measure a distance, 3 an angle, 4 a dihedral")
+    if len(set(indices)) != len(indices):
+        raise ValueError("an atom is named twice")
+    if n is not None:
+        _check_in_range(indices, n)
+    return tuple(indices)
 
 
 @dataclass

@@ -241,6 +241,8 @@ positional arguments:
     conv                the geometry convergence table, one row per cycle
     energies            the energy of every geometry, or of every scan step
     geom                a geometry as XYZ: the latest, or a given cycle or scan step
+    measure             the distance, angle or dihedral between 2 to 4 atoms of a
+                        geometry
     snapshot            render a job's geometry to a PNG (needs the images extra)
     freqs               imaginary and lowest real vibrational frequencies, or the atoms
                         one mode moves
@@ -451,6 +453,39 @@ options:
                         TS, negative is backward) or the NEB image
   --region {all,qm}     qm: only a multilayer job's high-level (QM1) atoms (default:
                         all)
+  --json                print one JSON document instead of text
+```
+
+### `orcamon measure`
+
+```
+usage: orcamon measure [-h] [--root DIR] [--liveness {auto,process,slurm,mtime}]
+                       [--quiet-after S] [--no-cache] [--cycle C] [--step S] [--point N]
+                       [--json]
+                       JOB ATOM [ATOM ...]
+
+the distance, angle or dihedral between 2 to 4 atoms of a geometry
+
+example: orcamon measure opt/ts 12 15
+
+positional arguments:
+  JOB                   a job directory, a .inp/.out file, or (part of) a job's label
+  ATOM                  ORCA's atom numbers, 0-based as the TUI labels them: 2 give a
+                        distance, 3 an angle, 4 a dihedral
+
+options:
+  -h, --help            show this help message and exit
+  --root DIR            where jobs are looked for (default: $ORCAMON_ROOT or .)
+  --liveness {auto,process,slurm,mtime}
+                        how a job is known to be running (default: auto)
+  --quiet-after S       seconds without output before a job of unknown liveness is
+                        called quiet (default: 1800)
+  --no-cache            parse every output from scratch; neither read nor write the
+                        state cache
+  --cycle C             optimization cycle (within --step for a scan)
+  --step S              scan step (its last cycle unless --cycle)
+  --point N             a point on an IRC or NEB path: the signed IRC point (0 is the
+                        TS, negative is backward) or the NEB image
   --json                print one JSON document instead of text
 ```
 

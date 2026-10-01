@@ -20,7 +20,7 @@ from pathlib import Path
 from .. import __version__  # noqa: F401 -- `orcamon --version` reads it here
 from ..core import cache, paths
 from ..core.discovery import JobRef, discover
-from ..core.geometry import View
+from ..core.geometry import View, measure, measurement_text
 from ..core.job import Job
 from ..core.liveness import LivenessProbe, lookup, make_probe
 from ..core.parser import _CRASH_RE, _QM2_ERROR_RE, HISTORY_LEN, READ_CHUNK_BYTES
@@ -469,6 +469,38 @@ def _path_point(job: Job, n: int):
 @_with_job
 def cmd_geom(args, job: Job) -> int:
     state = job.state
+    point = _requested_point(args, job)
+
+    atoms = point.atoms
+    region = "all"
+    if args.region == "qm" and state.qm_atom_indices:
+        atoms = [a for i, a in enumerate(atoms) if i in state.qm_atom_indices]
+        region = "qm"
+    energy = ""
+    if point.energy is not None:
+        label = f" ({point.energy_label})" if point.energy_label else ""
+        energy = f" · E = {point.energy:.9f} Eh{label}"
+    where = describe_point(point)
+    if args.json:
+        _emit_json({
+            "job": job.label, "region": region,
+            "point": _point_doc(point),
+            "atoms": [[el, x, y, z] for el, x, y, z in atoms],
+        })
+        return _job_exit(job)
+    lines = [str(len(atoms)), f"{job.label}{' · ' + where if where else ''}{energy}"
+             + (" · QM1 region" if region == "qm" else "")]
+    lines += [f"{el:<2} {x:15.8f} {y:15.8f} {z:15.8f}" for el, x, y, z in atoms]
+    sys.stdout.write("\n".join(lines) + "\n")
+    return _job_exit(job)
+
+
+def _requested_point(args, job: Job):
+    """The point `geom`'s and `measure`'s flags name: `--point`, the
+    `--step`/`--cycle` pair, or the latest the log printed -- falling back to
+    the geometry file the job wrote or its input, never to another cycle's
+    coordinates. Raises UsageError when there is none."""
+    state = job.state
     if args.point is not None:
         if args.cycle is not None or args.step is not None:
             raise UsageError("--point cannot be combined with --cycle or --step")
@@ -488,30 +520,44 @@ def cmd_geom(args, job: Job) -> int:
         earlier = next((p for p in reversed(history[:i]) if p.atoms), None)
         hint = f"; nearest earlier with coordinates: {describe_point(earlier)}" if earlier else ""
         raise UsageError(f"{describe_point(point) or asked}: coordinates not printed{hint}")
+    return point
 
-    atoms = point.atoms
-    region = "all"
-    if args.region == "qm" and state.qm_atom_indices:
-        atoms = [a for i, a in enumerate(atoms) if i in state.qm_atom_indices]
-        region = "qm"
-    energy = ""
-    if point.energy is not None:
-        label = f" ({point.energy_label})" if point.energy_label else ""
-        energy = f" · E = {point.energy:.9f} Eh{label}"
-    where = describe_point(point)
+
+def _point_doc(point) -> dict:
+    """The JSON `point` block every command that reports a geometry shares."""
+    return {"scan_step": point.scan_step, "cycle": point.cycle,
+            "energy_eh": point.energy, "energy_label": point.energy_label,
+            "source": getattr(point, "source", "output")}
+
+
+# --- measure ----------------------------------------------------------------
+
+
+@_with_job
+def cmd_measure(args, job: Job) -> int:
+    """The distance, angle or dihedral between 2 to 4 atoms of a geometry,
+    by ORCA's 0-based atom numbers."""
+    point = _requested_point(args, job)
+    try:
+        kind, value = measure(point.atoms, args.atoms)
+    except ValueError as exc:
+        raise UsageError(str(exc)) from None
+    elements = [point.atoms[i][0] for i in args.atoms]
     if args.json:
         _emit_json({
-            "job": job.label, "region": region,
-            "point": {"scan_step": point.scan_step, "cycle": point.cycle,
-                      "energy_eh": point.energy, "energy_label": point.energy_label,
-                      "source": getattr(point, "source", "output")},
-            "atoms": [[el, x, y, z] for el, x, y, z in atoms],
+            "job": job.label,
+            "point": _point_doc(point),
+            "atoms": [{"atom": i, "element": element} for i, element in zip(args.atoms, elements)],
+            "kind": kind,
+            "value": round(value, 4),
+            "unit": "angstrom" if kind == "distance" else "degree",
         })
         return _job_exit(job)
-    lines = [str(len(atoms)), f"{job.label}{' · ' + where if where else ''}{energy}"
-             + (" · QM1 region" if region == "qm" else "")]
-    lines += [f"{el:<2} {x:15.8f} {y:15.8f} {z:15.8f}" for el, x, y, z in atoms]
-    sys.stdout.write("\n".join(lines) + "\n")
+    where = describe_point(point)
+    line = f"{measurement_text(kind, args.atoms, value)} ({'-'.join(elements)}) · {job.label}"
+    if where:
+        line += f" · {where}"
+    print(line)
     return _job_exit(job)
 
 

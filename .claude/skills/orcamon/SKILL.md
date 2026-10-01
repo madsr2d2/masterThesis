@@ -95,6 +95,12 @@ largest (`--top K`, default 8). Use it to say in words what a mode does.
 `orcamon snapshot JOB --mode N -o file.png` draws any of those modes for a
 person.
 
+`orcamon measure JOB I J [K [L]]` gives the distance (2 atoms, Å), angle (3)
+or dihedral (4, degrees, IUPAC sign) between atoms by ORCA's 0-based numbers
+— the ones the TUI labels — on the latest geometry or on the one `--cycle`,
+`--step` or `--point` names. Use it rather than computing from `orcamon geom`
+output yourself.
+
 `orcamon geom` takes a cycle, or a scan step and its cycle. ORCA does not
 print coordinates for every cycle. When the one asked for was not printed,
 the command exits 2 and names the nearest earlier cycle that was. Report
@@ -225,6 +231,17 @@ a geometry as XYZ: the latest, or a given cycle or scan step
 - `--step S`: scan step (its last cycle unless --cycle)
 - `--point N`: a point on an IRC or NEB path: the signed IRC point (0 is the TS, negative is backward) or the NEB image
 - `--region all|qm`: qm: only a multilayer job's high-level (QM1) atoms (default: all)
+- `--json`: print one JSON document instead of text
+
+### orcamon measure
+
+the distance, angle or dihedral between 2 to 4 atoms of a geometry
+
+- `JOB`: a job directory, a .inp/.out file, or (part of) a job's label
+- `ATOM`: ORCA's atom numbers, 0-based as the TUI labels them: 2 give a distance, 3 an angle, 4 a dihedral
+- `--cycle C`: optimization cycle (within --step for a scan)
+- `--step S`: scan step (its last cycle unless --cycle)
+- `--point N`: a point on an IRC or NEB path: the signed IRC point (0 is the TS, negative is backward) or the NEB image
 - `--json`: print one JSON document instead of text
 
 ### orcamon snapshot

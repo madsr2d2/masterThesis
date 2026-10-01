@@ -629,6 +629,61 @@ def test_modes_are_found_and_described():
           and vibrations.find_mode(interim, 5) is None)
 
 
+def test_measurements_follow_the_iupac_convention():
+    print("\nmeasure: distances, angles and dihedrals by ORCA's 0-based atom numbers")
+    from orcamon.core.geometry import describe_measurement, measure, parse_atom_list
+
+    check("two atoms give their distance in angstroms",
+          measure([("H", 0.0, 0.0, 0.0), ("H", 3.0, 4.0, 0.0)], (0, 1)) == ("distance", 5.0))
+
+    kind, value = measure([("H", 1.0, 0.0, 0.0), ("H", 0.0, 0.0, 0.0), ("H", 0.0, 1.0, 0.0)], (0, 1, 2))
+    check("three atoms give the angle at the middle one",
+          kind == "angle" and round(value, 4) == 90.0, f"{kind} {value}")
+
+    a, b, c = ("H", 1.0, 0.0, 0.0), ("H", 0.0, 0.0, 0.0), ("H", 0.0, 0.0, 1.0)
+    check("a dihedral of 60 degrees stays positive",
+          round(measure([a, b, c, ("H", 0.5, 0.8660254037844386, 1.0)], (0, 1, 2, 3))[1], 4) == 60.0)
+    check("its eclipsed mirror is -120 degrees",
+          round(measure([a, b, c, ("H", -0.5, -0.8660254037844386, 1.0)], (0, 1, 2, 3))[1], 4) == -120.0)
+    check("measuring the same four atoms backwards leaves the sign",
+          round(measure([a, b, c, ("H", 0.5, 0.8660254037844386, 1.0)], (3, 2, 1, 0))[1], 4) == 60.0)
+
+    w = [("O", 0.2, 0.0, 0.0), ("H", 1.16, 0.0, 0.0), ("H", -0.04, 0.93, 0.0)]
+
+    def refusal(indices):
+        try:
+            measure(w, indices)
+        except ValueError as exc:
+            return str(exc)
+        return "<no error>"
+
+    check("a count outside 2-4, an absent atom and a repeat are refused",
+          refusal([0]) == "measure takes 2 to 4 atoms, got 1"
+          and refusal([0, 5]) == "atom 5 is out of range: the geometry has 3 atoms (0-2)"
+          and refusal([0, 0]) == "an atom is named twice"
+          and refusal([0, 1, 2, 0, 1]) == "measure takes 2 to 4 atoms, got 5")
+
+    check("a description names one atom by element, 2-4 by measurement",
+          describe_measurement(w, [1, 0, 2]) == "angle 1-0-2: 104.5°"
+          and describe_measurement(w, [0, 1]) == "distance 0-1: 0.960 Å"
+          and describe_measurement(w, [2]) == "atom 2 H"
+          and describe_measurement(w, [0, 9]) == "")
+
+    def parse(text, n=None):
+        try:
+            return parse_atom_list(text, n)
+        except ValueError as exc:
+            return str(exc)
+
+    check("an atom list is split on spaces and commas and bounded to four",
+          parse("129, 55", 200) == (129, 55)
+          and parse("  ", 3) == ()
+          and parse("1 2 3 4 5", 200) == "at most 4 atoms: 2 measure a distance, 3 an angle, 4 a dihedral"
+          and parse("a", 3) == "not an atom number: 'a'"
+          and parse("1 1", 3) == "an atom is named twice"
+          and parse("7", 3) == "atom 7 is out of range: the geometry has 3 atoms (0-2)")
+
+
 def test_mode_offsets_fill_the_whole_structure():
     print("\na whole-structure mode moves its largest atom by MODE_AMPLITUDE_ANGSTROM")
     import math
@@ -1936,6 +1991,7 @@ if __name__ == "__main__":
     test_normal_modes_take_the_last_block()
     test_every_mode_of_a_final_block_is_kept()
     test_modes_are_found_and_described()
+    test_measurements_follow_the_iupac_convention()
     test_mode_offsets_fill_the_whole_structure()
     test_mode_offsets_map_onto_the_qm_subset()
     test_mode_offsets_refuse_a_mismatched_mode()

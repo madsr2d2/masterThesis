@@ -93,6 +93,12 @@ largest (`--top K`, default 8). Use it to say in words what a mode does.
 `orcamon snapshot JOB --mode N -o file.png` draws any of those modes for a
 person.
 
+`orcamon measure JOB I J [K [L]]` gives the distance (2 atoms, Å), angle (3)
+or dihedral (4, degrees, IUPAC sign) between atoms by ORCA's 0-based numbers
+— the ones the TUI labels — on the latest geometry or on the one `--cycle`,
+`--step` or `--point` names. Use it rather than computing from `orcamon geom`
+output yourself.
+
 `orcamon geom` takes a cycle, or a scan step and its cycle. ORCA does not
 print coordinates for every cycle. When the one asked for was not printed,
 the command exits 2 and names the nearest earlier cycle that was. Report
