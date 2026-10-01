@@ -86,11 +86,16 @@ def render(
 
     cells = [0] * (width * height)
     bond_style: list[Style | None] = [None] * (width * height)
+    # The nearest depth plotted into each cell, so fog can dim a cell by how
+    # far back it is. A terminal background colour is unknown, so dimming is
+    # the only safe "fade" -- and it is applied to bonds and glyphs alike.
+    cell_depth = [-math.inf] * (width * height)
 
-    def plot(dx: int, dy: int, style: Style) -> None:
+    def plot(dx: int, dy: int, depth: float, style: Style) -> None:
         if 0 <= dx < dots_w and 0 <= dy < dots_h:
             k = (dy // 4) * width + (dx // 2)
             cells[k] |= _BRAILLE_BIT[(dx % 2, dy % 4)]
+            cell_depth[k] = max(cell_depth[k], depth)
             if bond_style[k] is not QM_BOND_STYLE:
                 bond_style[k] = style
 
@@ -98,7 +103,8 @@ def render(
         if not (visible[i] and visible[j]):
             continue
         style = QM_BOND_STYLE if (is_qm[i] and is_qm[j]) else ENV_BOND_STYLE
-        _line(int(projected[i][0]), int(projected[i][1]), int(projected[j][0]), int(projected[j][1]), style, plot)
+        _line(int(projected[i][0]), int(projected[i][1]), int(projected[j][0]), int(projected[j][1]),
+              projected[i][2], projected[j][2], style, plot)
 
     # Atoms over bonds, nearest last so it wins a shared cell.
     glyphs: dict[int, tuple[str, Style]] = {}
@@ -114,6 +120,17 @@ def render(
         for off, ch in enumerate(el[:2] if view.show_labels else ATOM_DOT):
             if 0 <= col + off < width:
                 glyphs[row * width + col + off] = (ch, style)
+                cell_depth[row * width + col + off] = projected[i][2]
+
+    # Fog: the far THIRD of the plotted depth range is dimmed. Guard a flat
+    # scene (every cell the same depth), which a third of zero would put
+    # entirely on the far side.
+    far_depth = None
+    if view.fog:
+        depths = [d for d in cell_depth if d != -math.inf]
+        if depths and max(depths) - min(depths) > 1e-9:
+            far_depth = min(depths) + (max(depths) - min(depths)) / 3.0
+    dim_style = Style(dim=True)
 
     text = Text(no_wrap=True, overflow="crop")
     for row in range(height):
@@ -127,6 +144,8 @@ def render(
                 ch, style = chr(0x2800 + cells[k]), bond_style[k]
             else:
                 ch, style = " ", None
+            if far_depth is not None and ch != " " and cell_depth[k] <= far_depth:
+                style = (style + dim_style) if style is not None else dim_style
             if style is not run_style and run_chars:
                 text.append("".join(run_chars), run_style)
                 run_chars = []
@@ -139,13 +158,17 @@ def render(
     return text
 
 
-def _line(x0: int, y0: int, x1: int, y1: int, style, plot) -> None:
-    """Bresenham, all octants."""
+def _line(x0: int, y0: int, x1: int, y1: int, z0: float, z1: float, style, plot) -> None:
+    """Bresenham, all octants, carrying the depth interpolated between the
+    two atoms so a bond cell knows how far back it is."""
     dx, dy = abs(x1 - x0), -abs(y1 - y0)
     sx, sy = (1 if x0 < x1 else -1), (1 if y0 < y1 else -1)
+    steps = max(abs(x1 - x0), abs(y1 - y0))
     err = dx + dy
+    i = 0
     while True:
-        plot(x0, y0, style)
+        t = i / steps if steps else 0.0
+        plot(x0, y0, z0 + (z1 - z0) * t, style)
         if x0 == x1 and y0 == y1:
             return
         e2 = 2 * err
@@ -155,3 +178,4 @@ def _line(x0: int, y0: int, x1: int, y1: int, style, plot) -> None:
         if e2 <= dx:
             err += dx
             y0 += sy
+        i += 1

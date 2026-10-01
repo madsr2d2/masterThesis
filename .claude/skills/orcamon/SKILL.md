@@ -223,6 +223,7 @@ render a job's geometry to a PNG (needs the images extra)
 - `--elev DEG`: elevation angle (default: 20)
 - `--azim DEG`: azimuth angle (default: -60)
 - `--no-labels`: omit the atom index labels
+- `--no-fog`: do not fade distant atoms
 - `--distances`: label the QM-QM bond distances
 
 ### orcamon freqs

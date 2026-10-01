@@ -133,6 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--azim", type=float, default=-60, metavar="DEG",
                    help="azimuth angle (default: %(default)s)")
     p.add_argument("--no-labels", action="store_true", help="omit the atom index labels")
+    p.add_argument("--no-fog", action="store_true", help="do not fade distant atoms")
     p.add_argument("--distances", action="store_true", help="label the QM-QM bond distances")
 
     p = add("freqs", "imaginary and lowest real vibrational frequencies", "orcamon freqs opt/ts", commands.cmd_freqs)

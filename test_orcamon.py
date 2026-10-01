@@ -706,6 +706,29 @@ def test_the_geometry_pane_degrades_to_text():
     check("300 atoms in under 50 ms", elapsed < 50, f"{elapsed:.1f} ms")
 
 
+def test_text_fog_dims_only_the_far_third():
+    print("\ntext fog dims only the far third of the depth range")
+    from orcamon.core.geometry import View
+    from orcamon.tui import geometry_text
+
+    # Depths (eye on +x) are the x coordinates: -3 far, 0 middle, +3 near.
+    atoms = [("N", -3.0, 0.0, 0.0), ("O", 0.0, 2.0, 0.0), ("S", 3.0, -2.0, 0.0)]
+    text = geometry_text.render(atoms, 30, 15, View(elev=0, azim=0))
+    plain = text.plain
+
+    def style_of(symbol):
+        index = plain.index(symbol)
+        for start, end, style in text.spans:
+            if start <= index < end:
+                return style
+        return None
+
+    far, middle, near = style_of("N"), style_of("O"), style_of("S")
+    check("the farthest atom's glyph is dim, the other two are not",
+          far is not None and far.dim and not (middle and middle.dim) and not (near and near.dim),
+          f"{far} / {middle} / {near}")
+
+
 def test_the_tui_runs_headless():
     print("\nthe TUI, headless: selection, maximize, refresh, a new job, an event")
     import asyncio
@@ -1035,6 +1058,7 @@ if __name__ == "__main__":
     test_events_announce_changes_not_the_first_scan()
     test_notifications_reach_the_terminal_through_tmux()
     test_the_geometry_pane_degrades_to_text()
+    test_text_fog_dims_only_the_far_third()
     test_the_tui_runs_headless()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()

@@ -46,6 +46,9 @@ SAMPLE_SPACING = 1.2                  # bond sample spacing, in bond radii
 MAX_SAMPLES_PER_BOND = 64
 LABEL_RGB = (255, 255, 255)
 DISTANCE_RGB = (255, 224, 102)
+FOG = 0.6                             # how far the farthest pixel fades to BACKGROUND
+OUTLINE_JUMP = 0.35                   # angstrom a nearer neighbour must be to ring
+OUTLINE_DARKEN = 0.25                 # silhouette pixels are multiplied by this
 
 
 def _rgb(element: str) -> np.ndarray:
@@ -272,6 +275,43 @@ def _draw_distances(image, atoms, view, pairs, sx, sy, scale, is_qm, visible, ha
                   stroke_width=1, stroke_fill="black")
 
 
+def _apply_fog(zbuf, color, foreground):
+    """Fade every foreground pixel toward BACKGROUND by its depth: nearest
+    untouched, farthest at FOG. Applied BEFORE labels so the text stays
+    legible, and before the outline pass, which then darkens a faded edge."""
+    zmin = float(zbuf[foreground].min())
+    zmax = float(zbuf[foreground].max())
+    span = max(zmax - zmin, 1e-6)
+    t = (zmax - zbuf[foreground]) / span          # 0 nearest, 1 farthest
+    mix = (FOG * t)[:, None]
+    color[foreground] = color[foreground] * (1.0 - mix) + np.asarray(BACKGROUND, dtype=float) * mix
+
+
+def _apply_outlines(zbuf, foreground, color):
+    """Darken the FAR side of every silhouette.
+
+    A pixel is an edge when any 4-neighbour is background, or is NEARER by
+    more than OUTLINE_JUMP. That second clause is what separates two atoms
+    that overlap on screen: the nearer atom's letter rings where it covers
+    the farther one, so a sphere stops reading as a flat disc. Outlines are
+    always on -- they are a readability fix, not an option."""
+    height, width = zbuf.shape
+    padded_z = np.pad(zbuf, 1, constant_values=-1e30)
+    padded_fg = np.pad(foreground, 1, constant_values=False)
+    edge = np.zeros_like(foreground)
+    for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        neighbour_z = padded_z[1 + dy:1 + dy + height, 1 + dx:1 + dx + width]
+        neighbour_fg = padded_fg[1 + dy:1 + dy + height, 1 + dx:1 + dx + width]
+        edge |= foreground & ~neighbour_fg
+        # Background is -inf, and -inf - -inf is nan (and a warning on every
+        # frame), so the depth test runs only where BOTH pixels are drawn.
+        both = foreground & neighbour_fg
+        jump = np.zeros_like(zbuf)
+        np.subtract(neighbour_z, zbuf, out=jump, where=both)
+        edge |= both & (jump > OUTLINE_JUMP)
+    color[edge] *= OUTLINE_DARKEN
+
+
 def render(atoms: list, view: View | None = None, *,
            qm_atom_indices: set | None = None,
            size_px: tuple[int, int] = (900, 750),
@@ -297,6 +337,10 @@ def render(atoms: list, view: View | None = None, *,
 
     foreground = zbuf != -np.inf
     color[~foreground] = np.asarray(BACKGROUND, dtype=float)
+    if foreground.any():
+        if view.fog:
+            _apply_fog(zbuf, color, foreground)
+        _apply_outlines(zbuf, foreground, color)
     image = Image.fromarray(np.clip(color, 0, 255).astype(np.uint8), "RGB")
 
     if atoms and view.show_labels:

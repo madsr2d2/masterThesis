@@ -9,6 +9,7 @@ from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Header, RichLog, Static
 from textual_plotext import PlotextPlot
@@ -302,6 +303,7 @@ GEOMETRY_BINDINGS = [
     ("down", "rotate_down", "Tilt -"),
     ("d", "toggle_distances", "Distances"),
     ("l", "toggle_labels", "Labels"),
+    ("f", "toggle_fog", "Fog"),
     ("[", "zoom_out", "Zoom -"),
     ("]", "zoom_in", "Zoom +"),
     ("ctrl+left", "pan_left", "Pan -"),
@@ -424,6 +426,12 @@ class RotatableGeometryImage(Widget):
     def action_toggle_labels(self) -> None:
         self.show_labels = not self.show_labels
         self._input.request()
+
+    def action_toggle_fog(self) -> None:
+        self.fog = not self.fog
+        self._input.request()
+        # The pane title names the fog state, so it has to be rebuilt too.
+        self.app.update_detail()
 
     def action_zoom_in(self) -> None:
         self.zoom = min(ZOOM_MAX, self.zoom * ZOOM_STEP)
@@ -997,7 +1005,12 @@ class MonitorApp(App):
 
     def _geometry_title(self) -> str:
         note = f", {self.graphics_note}" if self.graphics_note else ""
-        return f"geometry ({self.graphics}{note})"
+        try:
+            geometry = self.query_one("#geometry")
+        except NoMatches:
+            return f"geometry ({self.graphics}{note})"
+        fog = " · fog" if geometry.fog else ""
+        return f"geometry ({self.graphics}{note} · {geometry.representation}{fog})"
 
     def action_toggle_maximize(self) -> None:
         self.maximized = not self.maximized

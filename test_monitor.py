@@ -439,6 +439,45 @@ def test_spheres_are_shaded():
           sum(upper_left) > sum(lower_right), f"{upper_left} vs {lower_right}")
 
 
+def test_fog_dims_the_far_side():
+    print("\nfog dims the farther atom, and does nothing when off")
+    from orcamon.core.geometry import View
+    from orcamon.tui import raster
+
+    # Eye on +x. The two atoms are side by side on screen (+/-y) and differ
+    # only in depth (+/-x): the left is near, the right far.
+    atoms = [("C", 2.0, -1.0, 0.0), ("C", -2.0, 1.0, 0.0)]
+    view = View(elev=0, azim=0, show_labels=False)
+    sx, sy, _depth, _scale = raster.project(atoms, view, (300, 240))
+    near = (int(round(sx[0])), int(round(sy[0])))
+    far = (int(round(sx[1])), int(round(sy[1])))
+    foggy = raster.render(atoms, view, size_px=(300, 240))
+    check("with fog, the near atom's centre is brighter than the far one",
+          sum(foggy.getpixel(near)) > sum(foggy.getpixel(far)),
+          f"{foggy.getpixel(near)} vs {foggy.getpixel(far)}")
+    clear = raster.render(atoms, View(elev=0, azim=0, fog=False, show_labels=False), size_px=(300, 240))
+    check("without fog they are equal within 2 levels",
+          max(abs(a - b) for a, b in zip(clear.getpixel(near), clear.getpixel(far))) <= 2,
+          f"{clear.getpixel(near)} vs {clear.getpixel(far)}")
+
+
+def test_outlines_separate_overlapping_atoms():
+    print("\nan outline darkens where a near atom overlaps a far one")
+    from orcamon.core.geometry import View
+    from orcamon.tui import raster
+
+    atoms = [("C", 2.0, 0.3, 0.0), ("C", -2.0, -0.3, 0.0)]
+    view = View(elev=0, azim=0, fog=False, show_labels=False)
+    image = raster.render(atoms, view, size_px=(300, 240))
+    sx, sy, _depth, _scale = raster.project(atoms, view, (300, 240))
+    centres = min(sum(image.getpixel((int(round(sx[i])), int(round(sy[i]))))) for i in (0, 1))
+    row = int(round((sy[0] + sy[1]) / 2))
+    lo, hi = sorted((int(round(sx[0])), int(round(sx[1]))))
+    darkest = min(sum(image.getpixel((x, row))) for x in range(lo, hi + 1))
+    check("between the centres there is a pixel under half their brightness",
+          darkest < 0.5 * centres, f"darkest {darkest} vs centres {centres}")
+
+
 def test_labels_follow_occlusion():
     print("\na label does not float over an atom hidden behind another")
     from orcamon.core.geometry import View
@@ -812,6 +851,8 @@ if __name__ == "__main__":
     test_a_frame_is_a_small_faithful_palette_png()
     test_near_atoms_hide_far_ones()
     test_spheres_are_shaded()
+    test_fog_dims_the_far_side()
+    test_outlines_separate_overlapping_atoms()
     test_labels_follow_occlusion()
     test_the_renderer_is_fast_enough()
     test_the_view_is_not_mirrored()
