@@ -8,7 +8,7 @@ Plan: `PLAN_ORCAMON_PATHS.md`. Branch `master` from `master` (`ec5144624628357b3
 | PA2 Build the IRC path | DONE | 6af91fa | 1 | suite: monitor 179/0, orcamon 178/0, curve_metrics 0 failures; reviewer accepted the row-energy and missing-file-cache-key interpretations |
 | PA3 Summary and irc_not_converged | DONE | 7d93dc9 | 1 | suite: monitor 184/0, orcamon 179/0, curve_metrics 0 failures; accepted deviation: test_orcamon imports `_irc_tree` from test_monitor (the duplicate guard reads private functions too, so the plan's "copy it" premise was wrong) |
 | PA4 energies, geom/snapshot --point | DONE | cdd7399 | 1 | suite: monitor 184/0, orcamon 187/0, curve_metrics 0 failures; accepted deviations: private `_energies_path` extraction (output identical), README help blocks pasted at COLUMNS=90 to match the other blocks |
-| PA5 Scrub the path in the TUI | TODO | | | blocked once (step 5 as written leaves the pane on `IRC backward 0`, not `IRC TS`; test_orcamon 191 pass / 1 failure). User authorised amendment (a) on 2026-10-01 — see `## Plan amendments`; re-running from the clean tree at 6132040. |
+| PA5 Scrub the path in the TUI | DONE | 56ef1aa | 1 | suite: monitor 184/0, orcamon 192/0, curve_metrics 0 failures; accepted deviation: user-authorised step-5 amendment (a) (`action_select_latest` calls `_place_selection()` before `update_detail()`). First attempt blocked by a plan defect (step 5 as written left the pane on `IRC backward 0`); no commit was made then. |
 | PB1 Parse the NEB and build its path | TODO | | | |
 | PB2 NEB end to end, every gate | TODO | | | |
 
@@ -23,6 +23,7 @@ Statuses: TODO | DONE | BLOCKED
 | PA2 | 179 | 178 | 0 failure(s) | |
 | PA3 | 184 | 179 | 0 failure(s) | |
 | PA4 | 184 | 187 | 0 failure(s) | |
+| PA5 | 184 | 192 | 0 failure(s) | |
 
 ## Gates
 
@@ -48,7 +49,8 @@ Statuses: TODO | DONE | BLOCKED
 
 - 2026-10-01T14:42Z PA4 DONE (cdd7399); round 1 reviewer PASS. Real `energies irc_bridge --json` prints `irc 101 -50 IRC backward 49 -257.1 IRC TS -1011.288471006717 50 -5.27`; `geom --point -50` prints `137`. No JSON key added (`schema` comes from `_emit_json` for every branch).
 - 2026-10-01T14:52Z PA5 BLOCKED (no commit). Plan stop condition: a hand-derived expected value does not hold when step 5 is implemented as written (`end` leaves the pane on `IRC backward 0`, not `IRC TS`). The implementer's uncommitted changes were discarded and the baseline re-verified (184/187/0). Stopped for a user decision on amending PA5.
-- 2026-10-01T15:05Z PA5 unblocked; user authorised amendment (a) to step 5 (`action_select_latest` calls `_place_selection()` before `update_detail()`), recorded under `## Plan amendments`. Re-running PA5 from the clean tree at 6132040.
+- 2026-10-01T14:55Z PA5 unblocked; user authorised amendment (a) to step 5 (`action_select_latest` calls `_place_selection()` before `update_detail()`), recorded under `## Plan amendments`. Re-running PA5 from the clean tree at 6132040.
+- 2026-10-01T14:57Z PA5 DONE (56ef1aa); round 1 reviewer PASS with all 5 TUI checks. test_orcamon 192/0, test_monitor 184/0, curve_metrics 0 failures. The only deviation is the user-authorised step-5 amendment; the reviewer confirmed `_following_latest` was NOT added to `_signature_of` and the non-path branches are unchanged.
 
 ## Backlog
 
