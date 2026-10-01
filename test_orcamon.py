@@ -778,6 +778,29 @@ def test_the_tui_runs_headless():
             await pilot.press("h")
             await pilot.pause(0.2)
             check("h flips the hydrogen flag", geometry._show_hydrogens() is not hydrogens)
+
+            await pilot.press("up")
+            await pilot.pause(0.1)
+            moved = (geometry.elev, geometry.azim)
+            await pilot.press("0")
+            await pilot.pause(0.1)
+            check("0 resets the camera after a rotation",
+                  moved != (20.0, -60.0) and geometry.elev == 20.0 and geometry.azim == -60.0
+                  and geometry.zoom == 1.0 and geometry.pan == (0.0, 0.0, 0.0),
+                  f"{moved} -> {(geometry.elev, geometry.azim, geometry.zoom, geometry.pan)}")
+            await pilot.press("o")
+            await pilot.pause(0.4)
+            check("o rocks: view()'s azim moves while the stored azim does not",
+                  geometry._rock_timer is not None and geometry.view().azim != geometry.azim
+                  and geometry.azim == -60.0,
+                  f"{geometry.view().azim} vs {geometry.azim}")
+            offset = geometry.view().azim
+            await pilot.pause(0.2)
+            check("and the offset keeps changing", geometry.view().azim != offset)
+            await pilot.press("o")
+            await pilot.pause(0.1)
+            check("o again stops rocking and clears the offset",
+                  geometry._rock_timer is None and geometry._rock_offset == 0.0)
             app.query_one("#job_table").focus()
 
             new = t.root / "submitted_later"

@@ -517,6 +517,43 @@ def test_space_filling_is_framed():
           bool((np.abs(border - background).sum(axis=1) == 0).all()))
 
 
+def test_principal_axes_face_a_plane_on():
+    print("\nprincipal axes: the small one is the plane normal, and views face-on")
+    import math
+    from orcamon.core.geometry import View, principal_axes, view_along
+    from orcamon.tui import raster
+
+    normal = (1 / math.sqrt(3),) * 3
+    u = (1 / math.sqrt(2), -1 / math.sqrt(2), 0.0)
+    w = (1 / math.sqrt(6), 1 / math.sqrt(6), -2 / math.sqrt(6))
+    coords = [tuple(1.4 * (math.cos(t) * u[i] + math.sin(t) * w[i]) for i in range(3))
+              for t in (k * math.pi / 3 for k in range(6))]
+    axes = principal_axes(coords)  # largest variance first
+    smallest = axes[-1][0]
+    dot = abs(sum(smallest[i] * normal[i] for i in range(3)))
+    check("the smallest-variance axis is the plane normal", dot > 0.999, f"dot {dot}")
+
+    n = len(coords)
+    mean = [sum(p[i] for p in coords) / n for i in range(3)]
+    covariance = [[sum((p[i] - mean[i]) * (p[j] - mean[j]) for p in coords) / n
+                   for j in range(3)] for i in range(3)]
+    ok = True
+    for axis, variance in axes:
+        for i in range(3):
+            av = sum(covariance[i][j] * axis[j] for j in range(3))
+            if abs(av - variance * axis[i]) > 1e-9:
+                ok = False
+    check("every axis satisfies A v = lambda v", ok)
+
+    elev, azim = view_along(smallest)
+    atoms = [("C",) + c for c in coords]
+    sx, sy, _depth, _scale = raster.project(atoms, View(elev=elev, azim=azim), (300, 240))
+    extent_x, extent_y = float(max(sx) - min(sx)), float(max(sy) - min(sy))
+    check("viewing along it is face-on: screen extents within 20%",
+          abs(extent_x - extent_y) / max(extent_x, extent_y) < 0.2,
+          f"{extent_x:.1f} vs {extent_y:.1f}")
+
+
 def test_labels_follow_occlusion():
     print("\na label does not float over an atom hidden behind another")
     from orcamon.core.geometry import View
@@ -894,6 +931,7 @@ if __name__ == "__main__":
     test_outlines_separate_overlapping_atoms()
     test_representations_change_what_is_drawn()
     test_space_filling_is_framed()
+    test_principal_axes_face_a_plane_on()
     test_labels_follow_occlusion()
     test_the_renderer_is_fast_enough()
     test_the_view_is_not_mirrored()

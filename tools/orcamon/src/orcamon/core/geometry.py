@@ -133,6 +133,62 @@ def bonds(atoms: list) -> list[tuple[int, int]]:
     return found
 
 
+def principal_axes(coords: list) -> list[tuple[tuple[float, float, float], float]]:
+    """(unit axis, variance) for the three principal axes of `coords`
+    (unweighted), largest variance first.
+
+    A 3x3 symmetric eigenproblem, solved by cyclic Jacobi rotations: the core
+    may not import numpy. The covariance matrix is `A`, the rotations are
+    accumulated into `V`, and the eigenvectors are V's COLUMNS. Each step
+    zeroes the largest off-diagonal pair with
+    `theta = 0.5 * atan2(2 A[p][q], A[q][q] - A[p][p])`, applied as
+    `A <- J^T A J` and `V <- V J`. `test_principal_axes_face_a_plane_on`
+    checks `A v = lambda v` for the result, which pins the sign convention."""
+    n = len(coords)
+    if n == 0:
+        return []
+    mean = [sum(p[i] for p in coords) / n for i in range(3)]
+    a = [[0.0, 0.0, 0.0] for _ in range(3)]
+    for p in coords:
+        d = (p[0] - mean[0], p[1] - mean[1], p[2] - mean[2])
+        for i in range(3):
+            for j in range(3):
+                a[i][j] += d[i] * d[j] / n
+    v = [[1.0 if i == j else 0.0 for j in range(3)] for i in range(3)]
+    for _sweep in range(50):
+        if abs(a[0][1]) + abs(a[0][2]) + abs(a[1][2]) < 1e-12:
+            break
+        for p, q in ((0, 1), (0, 2), (1, 2)):
+            if abs(a[p][q]) < 1e-12:
+                continue
+            theta = 0.5 * math.atan2(2 * a[p][q], a[q][q] - a[p][p])
+            c, s = math.cos(theta), math.sin(theta)
+            for k in range(3):
+                if k != p and k != q:
+                    akp, akq = a[k][p], a[k][q]
+                    a[k][p] = a[p][k] = c * akp - s * akq
+                    a[k][q] = a[q][k] = s * akp + c * akq
+            app, aqq, apq = a[p][p], a[q][q], a[p][q]
+            a[p][p] = c * c * app - 2 * s * c * apq + s * s * aqq
+            a[q][q] = s * s * app + 2 * s * c * apq + c * c * aqq
+            a[p][q] = a[q][p] = 0.0
+            for k in range(3):
+                vkp, vkq = v[k][p], v[k][q]
+                v[k][p] = c * vkp - s * vkq
+                v[k][q] = s * vkp + c * vkq
+    axes = [(tuple(v[k][i] for k in range(3)), a[i][i]) for i in range(3)]
+    axes.sort(key=lambda axis: axis[1], reverse=True)
+    return axes
+
+
+def view_along(axis) -> tuple[float, float]:
+    """(elev, azim) in degrees for an eye on +axis:
+    `elev = degrees(asin(z))`, `azim = degrees(atan2(y, x))` -- the inverse
+    of `camera_forward`."""
+    x, y, z = axis
+    return (math.degrees(math.asin(max(-1.0, min(1.0, z)))), math.degrees(math.atan2(y, x)))
+
+
 @dataclass
 class FileGeometry:
     """A geometry read from a FILE rather than printed in the log, and where

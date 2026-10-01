@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import threading
 import time
 from itertools import islice
@@ -17,7 +18,9 @@ from textual_plotext import PlotextPlot
 from ..core import cache
 from ..core.discovery import discover, short_label
 from ..core.events import events
-from ..core.geometry import REPRESENTATIONS, TEXT_REPRESENTATIONS, View, bonds, camera_basis
+from ..core.geometry import (
+    REPRESENTATIONS, TEXT_REPRESENTATIONS, View, bonds, camera_basis, principal_axes, view_along,
+)
 from ..core.job import Job
 from ..core.liveness import lookup, make_probe
 from ..core.parser import TAIL_LINES, JobState
@@ -306,6 +309,9 @@ GEOMETRY_BINDINGS = [
     ("f", "toggle_fog", "Fog"),
     ("v", "next_representation", "View"),
     ("h", "toggle_hydrogens", "Hydrogens"),
+    ("p", "next_axis", "Principal"),
+    ("o", "toggle_rock", "Rock"),
+    ("0", "reset_view", "Reset"),
     ("[", "zoom_out", "Zoom -"),
     ("]", "zoom_in", "Zoom +"),
     ("ctrl+left", "pan_left", "Pan -"),
@@ -317,6 +323,8 @@ ZOOM_STEP = 1.2
 ZOOM_MIN = 0.2
 ZOOM_MAX = 5.0
 PAN_STEP = 0.6  # angstrom, per keypress -- about half a bond length
+ROCK_AMPLITUDE_DEG = 15.0
+ROCK_PERIOD_S = 6.0
 
 
 class RotatableGeometryImage(Widget):
@@ -341,6 +349,9 @@ class RotatableGeometryImage(Widget):
     # None means hydrogens are always shown; an integer means shown up to that
     # many atoms until the person says otherwise.
     HYDROGENS_BY_DEFAULT_UP_TO: int | None = None
+    # Rocking frames per second. Text is cheap cells and can afford more than
+    # the pixel panes, whose frames are tens of KB each.
+    ROCK_FPS = 5
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -356,8 +367,14 @@ class RotatableGeometryImage(Widget):
         self.pan: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._hydrogens: bool | None = None
         # Added to `azim` by `view()` only, so turning rocking off returns to
-        # where the person left the molecule (Phase 5).
+        # where the person left the molecule.
         self._rock_offset = 0.0
+        self._rock_timer = None
+        self._rock_t0 = 0.0
+        # Which principal axis `p` looks along next, and the job it belongs to
+        # so a new selection restarts the cycle.
+        self._axis_step = 0
+        self._axis_job: Job | None = None
         self._job: Job | None = None
         self._point = None
         self._request_seq = 0
@@ -449,6 +466,67 @@ class RotatableGeometryImage(Widget):
         self._hydrogens = not self._show_hydrogens()
         self._input.request()
 
+    def action_next_axis(self) -> None:
+        """Look along the next principal axis: smallest variance first, so the
+        molecule lies face-on, then the middle, then the largest, then wrap.
+
+        Read off the atoms CURRENTLY shown -- the QM region when there is one,
+        else every atom -- so `p` frames what the pane is actually drawing.
+        A new job selection restarts the cycle."""
+        atoms = self._atoms_for(self._job, self._point)
+        qm = self._job.state.qm_atom_indices if self._job is not None else None
+        if self._job is not self._axis_job:
+            self._axis_step = 0
+            self._axis_job = self._job
+        n = len(atoms)
+        multilayer = qm is not None and 0 < len(qm) < n
+        region = [(x, y, z) for i, (_el, x, y, z) in enumerate(atoms) if not multilayer or i in qm]
+        if len(region) < 2:
+            return
+        axes = principal_axes(region)      # largest variance first
+        axis = axes[(2 - self._axis_step % 3) % 3][0]  # 2, 1, 0, wrap
+        self.elev, self.azim = view_along(axis)
+        self.pan = (0.0, 0.0, 0.0)
+        self._axis_step += 1
+        self._input.request()
+        self.app.update_detail()
+
+    def action_reset_view(self) -> None:
+        """Back to the opening view. Representation, fog, labels and hydrogens
+        are left as the person set them; only the camera and the helpers are
+        reset."""
+        self.elev, self.azim, self.zoom = 20.0, -60.0, 1.0
+        self.pan = (0.0, 0.0, 0.0)
+        self._stop_rock()
+        self._axis_step = 0
+        self._input.request()
+        self.app.update_detail()
+
+    def action_toggle_rock(self) -> None:
+        if self._rock_timer is not None:
+            self._stop_rock()
+            self._rock_redraw()
+            return
+        self._rock_t0 = time.monotonic()
+        self._rock_timer = self.set_interval(1.0 / self.ROCK_FPS, self._rock_tick)
+
+    def _rock_tick(self) -> None:
+        self._rock_offset = ROCK_AMPLITUDE_DEG * math.sin(
+            2.0 * math.pi * (time.monotonic() - self._rock_t0) / ROCK_PERIOD_S)
+        self._rock_redraw()
+
+    def _stop_rock(self) -> None:
+        if self._rock_timer is not None:
+            self._rock_timer.stop()
+            self._rock_timer = None
+        self._rock_offset = 0.0
+
+    def _rock_redraw(self) -> None:
+        """The pixel backends push a full frame directly. The preview-then-
+        settle path would never settle here -- every frame differs, so the
+        settle timer would be reset forever and only previews would show."""
+        self._push(self._next_seq(), quality="full")
+
     def action_zoom_in(self) -> None:
         self.zoom = min(ZOOM_MAX, self.zoom * ZOOM_STEP)
         self._input.request()
@@ -533,6 +611,7 @@ class KittyGeometryImage(RotatableGeometryImage):
         self._input.request()
 
     def on_unmount(self) -> None:
+        self._stop_rock()
         self._input.cancel()
         if self._settle_timer is not None:
             self._settle_timer.stop()
@@ -647,11 +726,18 @@ class TextGeometry(RotatableGeometryImage):
 
     SUPPORTED = TEXT_REPRESENTATIONS
     HYDROGENS_BY_DEFAULT_UP_TO = geometry_text.SHOW_HYDROGENS_UP_TO
+    ROCK_FPS = 10  # a text frame is a few KB, not tens
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._atoms: list = []
         self._qm: set | None = None
+
+    def on_unmount(self) -> None:
+        self._stop_rock()
+
+    def _rock_redraw(self) -> None:
+        self.refresh()
 
     def show_job(self, job: Job | None, point=None) -> None:
         if job is not self._job:
@@ -713,6 +799,7 @@ class HerdrGeometryImage(RotatableGeometryImage):
         self._input.request()
 
     def on_unmount(self) -> None:
+        self._stop_rock()
         self._input.cancel()
         if self._settle_timer is not None:
             self._settle_timer.stop()
