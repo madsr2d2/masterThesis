@@ -497,6 +497,93 @@ Thus, these vectors are normalized but *not* orthogonal
           f"{state.modes}")
 
 
+def test_mode_offsets_fill_the_whole_structure():
+    print("\na whole-structure mode moves its largest atom by MODE_AMPLITUDE_ANGSTROM")
+    import math
+    from orcamon.core import vibrations
+    from orcamon.core.parser import NormalMode
+
+    mode = NormalMode(index=0, cm1=-100.0, vector=[0.0, 0.0, 0.0, 3.0, 4.0, 0.0])
+    atoms = [("H", 0.0, 0.0, 0.0), ("H", 1.0, 0.0, 0.0)]
+    offs = vibrations.offsets(atoms, None, mode)
+    check("a mode over two atoms maps directly onto the two displayed atoms",
+          offs is not None)
+    length = math.sqrt(sum(c * c for c in offs[1])) if offs else 0.0
+    check("the 3-4-0 atom travels MODE_AMPLITUDE_ANGSTROM",
+          abs(length - vibrations.MODE_AMPLITUDE_ANGSTROM) < 1e-12, f"{length}")
+    check("and the atom the mode does not move stays at zero",
+          offs is not None and offs[0] == (0.0, 0.0, 0.0),
+          f"{offs[0] if offs else None}")
+
+
+def test_mode_offsets_map_onto_the_qm_subset():
+    print("\na QM-layer mode lands on the displayed QM atoms, not the environment")
+    import math
+    from orcamon.core import vibrations
+    from orcamon.core.parser import NormalMode
+
+    atoms = [("H", 0.0, 0.0, 0.0), ("H", 1.0, 0.0, 0.0),
+             ("H", 2.0, 0.0, 0.0), ("H", 3.0, 0.0, 0.0)]
+    mode = NormalMode(index=0, cm1=-100.0, vector=[3.0, 4.0, 0.0, 0.0, 0.0, 2.5])
+    offs = vibrations.offsets(atoms, {1, 3}, mode)
+    check("a two-atom mode maps through the two QM atoms of four",
+          offs is not None)
+    first = math.sqrt(sum(c * c for c in offs[1])) if offs else 0.0
+    second = math.sqrt(sum(c * c for c in offs[3])) if offs else 0.0
+    check("atom 1 carries the largest row at the amplitude and atom 3 the smaller one",
+          abs(first - vibrations.MODE_AMPLITUDE_ANGSTROM) < 1e-12
+          and 0.0 < second < vibrations.MODE_AMPLITUDE_ANGSTROM,
+          f"{first} {second}")
+    check("and the two environment atoms are unmoved",
+          offs is not None and offs[0] == (0.0, 0.0, 0.0) and offs[2] == (0.0, 0.0, 0.0),
+          f"{offs}")
+
+
+def test_mode_offsets_refuse_a_mismatched_mode():
+    print("\na mode matching neither the structure nor its QM subset is refused")
+    from orcamon.core import vibrations
+    from orcamon.core.parser import NormalMode
+
+    mode = NormalMode(index=0, cm1=-100.0, vector=[1.0, 0.0, 0.0, 0.0, 1.0, 0.0])
+    atoms = [("H", 0.0, 0.0, 0.0), ("H", 1.0, 0.0, 0.0), ("H", 2.0, 0.0, 0.0)]
+    check("three displayed atoms, no QM set, a two-atom mode: None",
+          vibrations.offsets(atoms, None, mode) is None)
+
+
+def test_the_sine_phase_displaces_atoms():
+    print("\nthe sine phase starts at zero and displaces the atoms by the offsets")
+    from orcamon.core import vibrations
+
+    atoms = [("O", 0.0, 0.0, 0.0), ("H", 0.5, 0.0, 0.0)]
+    offs = [(0.0, 0.0, 0.0), (0.25, -0.5, 0.0)]
+    check("sin at t=0 is zero", vibrations.phase_sine(0.0) == 0.0)
+    check("at sine 1 the atoms land on atoms + offsets",
+          vibrations.displaced(atoms, offs, 1.0)
+          == [("O", 0.0, 0.0, 0.0), ("H", 0.75, -0.5, 0.0)],
+          f"{vibrations.displaced(atoms, offs, 1.0)}")
+
+
+def test_the_mode_geometry_falls_back_to_an_alternate():
+    print("\na mode that misses the pane's geometry is drawn on the alternate")
+    from orcamon.core import vibrations
+    from orcamon.core.parser import NormalMode
+
+    pane = [("H", 0.0, 0.0, 0.0), ("H", 1.0, 0.0, 0.0)]
+    alternate = [("H", 0.0, 0.0, 0.0), ("H", 1.0, 0.0, 0.0),
+                 ("H", 2.0, 0.0, 0.0), ("H", 3.0, 0.0, 0.0)]
+    mode4 = NormalMode(index=0, cm1=-100.0, vector=[3.0, 4.0, 0.0, 0.0, 0.0, 2.5,
+                                                     0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+    mode2 = NormalMode(index=0, cm1=-100.0, vector=[3.0, 4.0, 0.0, 0.0, 0.0, 2.5])
+    check("a four-atom mode takes the four-atom alternate over the two-atom pane",
+          vibrations.mode_geometry([pane, alternate], None, mode4) == (alternate, None),
+          f"{vibrations.mode_geometry([pane, alternate], None, mode4)}")
+    check("with only the pane it is refused",
+          vibrations.mode_geometry([pane], None, mode4) is None)
+    check("and a two-atom mode still takes the pane",
+          vibrations.mode_geometry([pane, alternate], None, mode2) == (pane, None),
+          f"{vibrations.mode_geometry([pane, alternate], None, mode2)}")
+
+
 def test_a_frame_is_a_small_faithful_palette_png():
     print("\na frame goes out as a palette PNG, rendered without matplotlib")
     import io
@@ -1368,6 +1455,11 @@ if __name__ == "__main__":
     test_normal_modes_are_parsed()
     test_normal_modes_keep_only_imaginary()
     test_normal_modes_take_the_last_block()
+    test_mode_offsets_fill_the_whole_structure()
+    test_mode_offsets_map_onto_the_qm_subset()
+    test_mode_offsets_refuse_a_mismatched_mode()
+    test_the_sine_phase_displaces_atoms()
+    test_the_mode_geometry_falls_back_to_an_alternate()
     test_a_frame_is_a_small_faithful_palette_png()
     test_near_atoms_hide_far_ones()
     test_spheres_are_shaded()
