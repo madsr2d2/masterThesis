@@ -29,6 +29,8 @@ class Job:
         # and the file stamp it was read at.
         self.file_geometry: FileGeometry | None = None
         self._file_stamp: tuple | None = None
+        # `paths.reaction_path`'s cache: (signature, PathView).
+        self.path_view: tuple | None = None
         # False until the first read of job.out has finished: until then the
         # state is partial, and "not run" would be a lie about the job.
         self.parsed = False

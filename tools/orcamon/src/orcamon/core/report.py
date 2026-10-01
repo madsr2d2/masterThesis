@@ -19,6 +19,7 @@ from .geometry import FileGeometry
 from .job import Job
 from .orca_input import describe_spin
 from .parser import JobState
+from .paths import PathPoint
 from .status import TS_RUN_TYPES, Status
 from .units import EH_TO_KJ_PER_MOL, format_age, format_wall_time
 
@@ -458,6 +459,10 @@ def geometry_shown(job: Job | None, point) -> tuple[list, object]:
     passing one cycle's structure off as another's."""
     if job is None:
         return [], None
+    if isinstance(point, PathPoint):
+        # A path point's geometry comes with it or not at all -- there is no
+        # earlier point on the path to borrow one from.
+        return (point.atoms, point) if point.atoms else ([], None)
     state = job.state
     if point is None:
         for p in reversed(state.points):
@@ -487,6 +492,8 @@ def geometry_shown(job: Job | None, point) -> tuple[list, object]:
 def describe_point(point) -> str:
     if point is None:
         return ""
+    if isinstance(point, PathPoint):
+        return point.label
     if isinstance(point, FileGeometry):
         return point.source
     if point.scan_step is not None:

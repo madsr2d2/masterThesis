@@ -1226,6 +1226,26 @@ Convergence thresholds                0.002000  0.000500
 """
 
 
+def _irc_frame(z):
+    """One frame of the synthetic tree, identified by the O atom's z."""
+    lines = ["3", "Coordinates from ORCA-job job E -100.000000"]
+    for el, x, y in (("O", 0.0, 0.0), ("H", 0.96, 0.0), ("H", -0.24, 0.93)):
+        lines.append(f"{el} {x:.6f} {y:.6f} {z:.6f}")
+    return "\n".join(lines) + "\n"
+
+
+def _irc_tree(d: Path):
+    """§ Facts' synthetic IRC tree: the finished output and four trajectories
+    whose frame order is read off the O atom's z."""
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "job.inp").write_text("! B97-3c IRC\n%irc MaxIter 3 end\n* xyzfile 0 1 start.xyz\n")
+    (d / "job.out").write_text(_IRC_OUT.strip("\n") + "\n")
+    (d / "start.xyz").write_text(_irc_frame(2.0))
+    (d / "job_IRC_Full_trj.xyz").write_text("".join(_irc_frame(z) for z in range(6)))
+    (d / "job_IRC_F_trj.xyz").write_text("".join(_irc_frame(z) for z in (3, 4, 5)))
+    (d / "job_IRC_B_trj.xyz").write_text("".join(_irc_frame(z) for z in (1, 0)))
+
+
 def test_irc_rows_are_parsed():
     print("\nan IRC's rows, monitors and trajectory files are read")
     state = JobState(path=Path("/nonexistent"), stem="job")
@@ -1259,6 +1279,71 @@ def test_irc_rows_are_parsed():
     check("a direction still being written holds only what has been read",
           len(partial.irc_rows["backward"]) == 1 and partial._in_block())
 
+
+def test_the_irc_path_is_built():
+    print("\nan IRC's path is built from its rows and trajectories, once")
+    import tempfile
+
+    from orcamon.core.geometry import read_xyz_frames
+    from orcamon.core.paths import PathPoint, reaction_path
+    from orcamon.core.report import describe_point
+
+    gone = Liveness(False, "process")
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        _irc_tree(d)
+        job = Job(d, "job", d.parent, label="irc")
+        job.refresh(gone)
+        view = reaction_path(job)
+
+        check("the path is an IRC, in signed point order",
+              view is not None and view.kind == "irc"
+              and [p.index for p in view.points] == [-2, -1, 0, 1, 2, 3])
+        check("labelled as ORCA numbers the iterations",
+              [p.label for p in view.points] == [
+                  "IRC backward 1", "IRC backward 0", "IRC TS",
+                  "IRC forward 0", "IRC forward 1", "IRC forward 2"])
+        check("with ORCA's own dE, converted from kcal/mol",
+              [round(p.de_kj_mol, 3) for p in view.points]
+              == [-6.276, -2.092, 0.0, -4.184, -8.368, -12.552])
+        check("and each point's geometry from the full trajectory, in path order",
+              [p.atoms[0][3] for p in view.points] == [0, 1, 2, 3, 4, 5])
+        check("the TS carries the job's energy and is the focus of a finished job",
+              view.focus == 2 and view.points[2].energy == -100.0)
+        check("the last point's monitors are the row's, named by the header",
+              view.points[-1].monitors == {"B(O 0,H 1)": 0.99, "B(O 0,H 2)": 0.94})
+        check("a second build with nothing changed is the same object",
+              reaction_path(job) is view)
+
+        (d / "job_IRC_Full_trj.xyz").unlink()
+        per_direction = reaction_path(job)
+        check("without the full trajectory, the per-direction files and the input's TS",
+              per_direction is not view and per_direction is not None
+              and [p.atoms[0][3] for p in per_direction.points] == [0, 1, 2, 3, 4, 5])
+
+        partial = d / "partial.xyz"
+        partial.write_text(_irc_frame(0.0) + _irc_frame(1.0) + "3\ncomment\nO 0 0\n")
+        check("a half-written frame is dropped, not read as atoms",
+              len(read_xyz_frames(partial)) == 2)
+
+        p = view.points[2]
+        check("the panes take a path point's own geometry and label",
+              geometry_shown(job, p) == (p.atoms, p) and describe_point(p) == "IRC TS"
+              and geometry_shown(job, PathPoint("irc", 9, "IRC forward 8", None, 0.0, []))
+              == ([], None))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        lines = _IRC_OUT.strip("\n").split("\n")
+        end = next(i for i, line in enumerate(lines)
+                   if line.startswith("    2     -100.004781")) + 1
+        (d / "job.inp").write_text("! B97-3c IRC\n%irc MaxIter 3 end\n* xyzfile 0 1 start.xyz\n")
+        (d / "job.out").write_text("\n".join(lines[:end]) + "\n")
+        job = Job(d, "job", d.parent, label="irc")
+        job.refresh(gone)
+        running = reaction_path(job)
+        check("an unfinished IRC follows its newest point, not the TS",
+              running is not None and len(running.points) == 4 and running.focus == 3)
 
 
 _TERMINATED = "                 ****ORCA TERMINATED NORMALLY****"
@@ -1613,6 +1698,7 @@ if __name__ == "__main__":
     test_text_mode_draws_the_right_enantiomer()
     test_every_marker_reaches_its_parser()
     test_irc_rows_are_parsed()
+    test_the_irc_path_is_built()
     test_status_names_the_outcome()
     test_attention_flags()
     test_orca_says_why_it_converged()

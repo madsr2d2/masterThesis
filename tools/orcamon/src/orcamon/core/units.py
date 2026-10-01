@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 EH_TO_KJ_PER_MOL = 2625.4996394799
+# The thermochemical calorie; ORCA prints an IRC's dE column in kcal/mol.
+KCAL_TO_KJ = 4.184
 
 
 def format_wall_time(seconds: float | None) -> str:

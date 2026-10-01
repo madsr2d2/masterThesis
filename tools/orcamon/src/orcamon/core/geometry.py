@@ -233,3 +233,42 @@ def read_xyz(path: Path) -> list | None:
     except (OSError, ValueError, IndexError):
         return None
     return atoms or None
+
+
+def read_xyz_frames(path: Path) -> list[tuple[str, list]]:
+    """Every COMPLETE frame of an XYZ trajectory as (comment, atoms), atoms
+    as `read_xyz` makes them.
+
+    ORCA rewrites a trajectory file while the job runs, so its last frame is
+    regularly half-written: the walk stops at the first frame without every
+    atom line after it and drops it. A blank line between frames is skipped;
+    a line where an atom count belongs that is not one ends the walk. A
+    missing file gives []."""
+    try:
+        with open(path, errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return []
+    frames = []
+    i = 0
+    while i < len(lines):
+        if not lines[i].strip():
+            i += 1
+            continue
+        try:
+            n = int(lines[i].split()[0])
+        except (ValueError, IndexError):
+            break
+        if n < 0 or i + 2 + n > len(lines):
+            break
+        try:
+            atoms = []
+            for j in range(i + 2, i + 2 + n):
+                parts = lines[j].split()
+                element = "".join(ch for ch in parts[0] if ch.isalpha())
+                atoms.append((element.capitalize(), float(parts[1]), float(parts[2]), float(parts[3])))
+        except (ValueError, IndexError):
+            break
+        frames.append((lines[i + 1], atoms))
+        i += 2 + n
+    return frames
