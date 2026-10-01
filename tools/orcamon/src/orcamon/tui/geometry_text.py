@@ -33,6 +33,10 @@ from ..core.geometry import (
 TEXT_ELEMENT_COLORS = {**ELEMENT_COLORS, "C": "#a8a8a8"}
 QM_BOND_STYLE = Style(color="#cccccc")
 ENV_BOND_STYLE = Style(color="#6a6a6a")
+# D7: a picked atom is drawn as its number in reverse video, whatever
+# `show_hydrogens` or the layers say -- the person must be able to find a
+# hidden hydrogen or an environment atom among 137 symbols.
+SELECTED_STYLE = Style(reverse=True, bold=True)
 SHOW_HYDROGENS_UP_TO = 60  # atoms; above this, hydrogens start hidden
 ATOM_DOT = "●"  # an atom with its label off
 
@@ -138,6 +142,19 @@ def render(
             if 0 <= col + off < width:
                 glyphs[row * width + col + off] = (ch, style)
                 cell_depth[row * width + col + off] = projected[i][2]
+
+    # Picked atoms last, so a selection wins a cell shared with the glyph it
+    # is written over, and with `cell_depth` infinite so fog never dims it.
+    for i in view.selected:
+        if not 0 <= i < n:
+            continue
+        col, row = int(projected[i][0]) // 2, int(projected[i][1]) // 4
+        if not 0 <= row < height:
+            continue
+        for off, ch in enumerate(str(i)):
+            if 0 <= col + off < width:
+                glyphs[row * width + col + off] = (ch, SELECTED_STYLE)
+                cell_depth[row * width + col + off] = math.inf
 
     # Fog: the far THIRD of the framing sphere is dimmed -- the sphere around
     # the mean of radius `radius`, whose centre sits at depth -pan . forward.

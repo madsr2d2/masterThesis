@@ -68,6 +68,9 @@ class View:
     show_distances: bool = False
     show_hydrogens: bool = True
     see_through: bool = False
+    # ORCA's numbers of the atoms the person picked; ringed and labelled
+    # whatever the other options say (D7).
+    selected: tuple = ()
 
 
 def camera_forward(elev_deg: float, azim_deg: float) -> tuple[float, float, float]:

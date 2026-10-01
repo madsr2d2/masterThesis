@@ -1373,6 +1373,60 @@ def test_text_mode_draws_the_right_enantiomer():
           o is not None and s is not None and s[0] < o[0], f"O {o} S {s}")
 
 
+def test_the_selection_is_ringed_and_labelled():
+    print("\npicked atoms are ringed and labelled in both renderers, whatever the options say")
+    import numpy as np
+    from orcamon.core.geometry import View
+    from orcamon.tui import geometry_text, raster
+
+    w = [("O", 0.2, 0.0, 0.0), ("H", 1.16, 0.0, 0.0), ("H", -0.04, 0.93, 0.0)]
+    size = (300, 240)
+
+    def ring(image):
+        return int((np.asarray(image) == (0, 229, 255)).all(axis=-1).sum())
+
+    def box(a, b, i, view):
+        sx, sy, _depth, _scale = raster.project(w, view, size)
+        cx, cy = int(round(float(sx[i]))), int(round(float(sy[i])))
+        return any(a.getpixel((x, y)) != b.getpixel((x, y))
+                   for x in range(cx - 4, cx + 5) for y in range(cy - 4, cy + 5))
+
+    check("a picked atom's cyan ring is drawn and an unpicked render has none",
+          ring(raster.render(w, View(selected=(1,)), size_px=size)) > 0
+          and ring(raster.render(w, View(), size_px=size)) == 0)
+
+    check("an environment atom gets the label the QM layer alone never draws",
+          box(raster.render(w, View(), qm_atom_indices={0}, size_px=size),
+              raster.render(w, View(selected=(2,)), qm_atom_indices={0}, size_px=size),
+              2, View()))
+
+    hidden = View(show_labels=False)
+    check("show_labels=False still labels a picked atom",
+          box(raster.render(w, hidden, size_px=size),
+              raster.render(w, View(show_labels=False, selected=(1,)), size_px=size),
+              1, hidden))
+
+    check("show_hydrogens=False still rings a picked hydrogen",
+          ring(raster.render(w, View(show_hydrogens=False, selected=(1,)), size_px=size)) > 0)
+
+    check("a selection outside the geometry renders and draws nothing",
+          ring(raster.render(w, View(selected=(7,)), size_px=size)) == 0)
+
+    def reverse_spans(text):
+        for span in text.spans:
+            if span.style is not None and span.style.reverse:
+                yield text.plain[span.start:span.end]
+
+    check("text mode writes a picked atom as a number in reverse video",
+          any("2" in span for span in
+              reverse_spans(geometry_text.render(w, 40, 12, View(selected=(2,))))))
+
+    check("and it does so for a hidden hydrogen",
+          any("2" in span for span in
+              reverse_spans(geometry_text.render(w, 40, 12,
+                                                 View(show_hydrogens=False, selected=(2,))))))
+
+
 def test_every_marker_reaches_its_parser():
     print("\nevery marker line reaches its parser past the prefilter")
     check("validate.MARKER_CASES all read", validate.check_markers() == 0)
@@ -2104,6 +2158,7 @@ if __name__ == "__main__":
     test_the_renderer_is_fast_enough()
     test_the_view_is_not_mirrored()
     test_text_mode_draws_the_right_enantiomer()
+    test_the_selection_is_ringed_and_labelled()
     test_every_marker_reaches_its_parser()
     test_irc_rows_are_parsed()
     test_the_irc_path_is_built()

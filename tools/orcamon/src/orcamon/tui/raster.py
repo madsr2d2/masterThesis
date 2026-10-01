@@ -51,6 +51,13 @@ SAMPLE_SPACING = 1.2                  # bond sample spacing, in bond radii
 MAX_SAMPLES_PER_BOND = 64
 LABEL_RGB = (255, 255, 255)
 DISTANCE_RGB = (255, 224, 102)
+# D7: a picked atom is always ringed cyan and labelled with its number, so it
+# can be found in a 137-atom structure -- environment atoms and hidden
+# hydrogens included, whatever `l`, the layers or the occluders say.
+SELECTION_RGB = (0, 229, 255)
+SELECTION_RING_SCALE = 1.4            # the ring, as a multiple of the ball radius
+SELECTION_RING_MIN_PX = 8
+SELECTION_RING_WIDTH = 3
 FOG = 0.6                             # how far the farthest pixel fades to BACKGROUND
 HOST_FOG = 0.85                       # how far the farthest host pixel fades to BACKGROUND
 HOST_FOG_POWER = 2.0                  # the host fade grows as t**2, so the near host stays bright
@@ -355,8 +362,9 @@ def _font(size_px):
 def _draw_labels(image, atoms, view, sx, sy, scale, is_qm, visible, has_bond, owner, size_px):
     draw = ImageDraw.Draw(image)
     font = _font(size_px)
+    picked = set(view.selected)
     for i, (element, *_rest) in enumerate(atoms):
-        if not visible[i] or not is_qm[i]:
+        if not visible[i] or not is_qm[i] or i in picked:
             continue
         if not _is_visible(owner, atoms, i, view, has_bond, sx, sy, scale, size_px):
             continue
@@ -377,6 +385,27 @@ def _draw_distances(image, atoms, view, pairs, sx, sy, scale, is_qm, visible, ha
         distance = float(np.linalg.norm(coords[j] - coords[i]))
         draw.text(((sx[i] + sx[j]) / 2, (sy[i] + sy[j]) / 2), f"{distance:.2f}",
                   font=font, fill=DISTANCE_RGB, anchor="mm",
+                  stroke_width=1, stroke_fill="black")
+
+
+def _draw_selection(image, atoms, view, sx, sy, scale, size_px):
+    """A cyan ring and the atom's number for every picked atom (D7), drawn
+    with no visibility, layer or occlusion test: the person is looking for
+    that atom, and one hidden behind the host or by `show_hydrogens=False`
+    must still be findable. `_draw_labels` leaves these atoms to this pass,
+    so a picked atom is labelled exactly once."""
+    draw = ImageDraw.Draw(image)
+    font = _font(size_px)
+    for i in view.selected:
+        if not 0 <= i < len(atoms):
+            continue
+        element = atoms[i][0]
+        r = max(SELECTION_RING_MIN_PX,
+                int(round(SELECTION_RING_SCALE * BALL_SCALE
+                          * VDW_RADII.get(element, DEFAULT_VDW_RADIUS) * scale)))
+        draw.ellipse((sx[i] - r, sy[i] - r, sx[i] + r, sy[i] + r),
+                     outline=SELECTION_RGB, width=SELECTION_RING_WIDTH)
+        draw.text((sx[i], sy[i]), str(i), font=font, fill=LABEL_RGB, anchor="mm",
                   stroke_width=1, stroke_fill="black")
 
 
@@ -515,4 +544,6 @@ def render(atoms: list, view: View | None = None, *,
     if atoms and view.show_distances:
         _draw_distances(image, atoms, view, pairs, sx, sy, scale, is_qm, visible,
                         has_bond, frame.owner, (width, height))
+    if atoms and view.selected:
+        _draw_selection(image, atoms, view, sx, sy, scale, (width, height))
     return image
