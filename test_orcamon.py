@@ -614,6 +614,61 @@ def test_a_path_is_listed_and_drawn():
         check("snapshot --point refuses --mode", code == 2, f"{code} {out} {err}")
 
 
+def test_an_neb_is_listed_and_drawn():
+    print("\nan NEB path is listed by energies and drawn by geom, show and the TUI")
+    import asyncio
+    import tempfile
+    import time as _time
+    from pathlib import Path
+    # One NEB fixture, not two: the duplicate guard reads functions even when
+    # they are private, and its rule is to import the other copy, not clone it.
+    from test_monitor import _neb_tree
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _neb_tree(root / "neb")
+        argv = ["--root", str(root), "--liveness", "mtime", "--no-cache"]
+
+        code, doc, err = _json([*argv, "energies", "neb"])
+        rows = doc["rows"] if doc else []
+        check("energies --json lists one row per image, in path order, "
+              "dE from image 0 and CI on the latest row's image",
+              doc is not None and doc["mode"] == "neb" and len(rows) == 4
+              and [round(r["dE_kj_mol"], 4) for r in rows] == [0.0, 13.1275, 21.004, 5.251]
+              and rows[2]["label"] == "NEB image 2 (CI)", f"{doc} {err}")
+
+        code, out, err = _orcamon([*argv, "geom", "neb", "--point", "2"])
+        lines = out.split("\n")
+        check("geom --point gives the image's own geometry",
+              code == 0 and len(lines) > 2 and lines[2].split()[-1] == "2.00000000",
+              f"{code} {out} {err}")
+
+        code, out, err = _orcamon([*argv, "show", "neb"])
+        check("`show` prints where the NEB is and what barrier it has",
+              "NEB        iteration 2 · climbing image 2 · E(CI)-E(0) +21.0 kJ/mol" in out,
+              f"{code} {out} {err}")
+
+        code, out, err = _orcamon([*argv, "ls"])
+        row = next((line for line in out.split("\n") if "neb" in line), "")
+        check("the ls row carries the NEB's progress", "neb 2 CI2" in row, f"{code} {out} {err}")
+
+        async def drive():
+            from orcamon.tui.app import MonitorApp
+            app = MonitorApp(root, liveness="mtime", graphics="text", notify_mode="off")
+            async with app.run_test(size=(180, 50)) as pilot:
+                chart = app.query_one("#chart")
+                deadline = _time.monotonic() + 5
+                while not (app.jobs and all(j.parsed for j in app.jobs)
+                           and chart._points) and _time.monotonic() < deadline:
+                    await pilot.pause(0.05)
+                title = app.query_one("#geometry").border_title
+                check("the chart is the NEB path and the pane follows the climbing image",
+                      chart._mode == "neb" and title.endswith("· NEB image 2 (CI)"),
+                      f"{chart._mode} {title!r}")
+
+        asyncio.run(drive())
+
+
 def test_the_bond_cache_holds_the_geometry_it_answers_for():
     print("\nthe geometry pane's bond cache is keyed by the atom list itself, not its id")
     from types import SimpleNamespace
@@ -1513,6 +1568,7 @@ if __name__ == "__main__":
     test_geom_never_substitutes_a_geometry()
     test_snapshot_writes_a_png()
     test_a_path_is_listed_and_drawn()
+    test_an_neb_is_listed_and_drawn()
     test_the_bond_cache_holds_the_geometry_it_answers_for()
     test_wait_returns_when_the_job_is_done()
     test_the_other_commands_answer_boundedly()
