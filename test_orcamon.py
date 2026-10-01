@@ -416,6 +416,12 @@ def test_snapshot_writes_a_png():
         code, out, err = t.run("snapshot", "opt_done", "-o", str(target), "--size", "12")
         check("a bad --size is a usage error", code == 2 and "--size" in err, err)
 
+        space = t.root.parent / "space.png"
+        code, out, err = t.run("snapshot", "opt_done", "-o", str(space), "--size", "120x100",
+                               "--representation", "space-filling")
+        check("--representation space-filling renders too",
+              code == 0 and space.read_bytes()[:4] == b"\x89PNG", f"{code} {out} {err}")
+
 
 def test_wait_returns_when_the_job_is_done():
     print("\nwait: returns on the condition, times out with 4")
@@ -759,6 +765,19 @@ def test_the_tui_runs_headless():
             await pilot.pause(0.2)
             check("l on the geometry pane turns the atom labels off", geometry.show_labels is False)
             await pilot.press("l")
+            await pilot.press("v")
+            await pilot.pause(0.2)
+            check("v cycles the text pane to wireframe, and the title says so",
+                  geometry.representation == "wireframe" and "wireframe" in geometry.border_title,
+                  f"{geometry.representation} {geometry.border_title!r}")
+            await pilot.press("v")
+            await pilot.pause(0.2)
+            check("and again wraps back to ball-and-stick",
+                  geometry.representation == "ball-and-stick", geometry.representation)
+            hydrogens = geometry._show_hydrogens()
+            await pilot.press("h")
+            await pilot.pause(0.2)
+            check("h flips the hydrogen flag", geometry._show_hydrogens() is not hydrogens)
             app.query_one("#job_table").focus()
 
             new = t.root / "submitted_later"

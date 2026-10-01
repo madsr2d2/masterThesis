@@ -484,7 +484,8 @@ def cmd_snapshot(args, job: Job) -> int:
     except ImportError:
         print("snapshot needs the images extra: pip install 'orcamon[images]'", file=sys.stderr)
         return EXIT_USAGE
-    view = View(elev=args.elev, azim=args.azim, fog=not args.no_fog,
+    view = View(elev=args.elev, azim=args.azim, representation=args.representation,
+                fog=not args.no_fog,
                 show_distances=args.distances, show_labels=not args.no_labels)
     image = geometry_render.render(
         point.atoms, view, qm_atom_indices=state.qm_atom_indices, size_px=size,

@@ -17,6 +17,7 @@ import os
 import sys
 
 from ..core import liveness
+from ..core.geometry import REPRESENTATIONS
 from ..core.status import QUIET_AFTER_S
 from . import commands, skill
 
@@ -126,6 +127,8 @@ def build_parser() -> argparse.ArgumentParser:
             "orcamon snapshot opt/ts -o ts.png", commands.cmd_snapshot)
     _job(p)
     p.add_argument("-o", "--output", required=True, metavar="FILE", help="where to write the PNG")
+    p.add_argument("--representation", choices=REPRESENTATIONS, default="ball-and-stick",
+                   help="how to draw the high-level region (default: %(default)s)")
     p.add_argument("--size", default="900x750", metavar="WxH",
                    help="image size in pixels (default: %(default)s)")
     p.add_argument("--elev", type=float, default=20, metavar="DEG",

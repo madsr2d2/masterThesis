@@ -219,6 +219,7 @@ render a job's geometry to a PNG (needs the images extra)
 
 - `JOB`: a job directory, a .inp/.out file, or (part of) a job's label
 - `-o, --output FILE`: where to write the PNG
+- `--representation ball-and-stick|licorice|space-filling|wireframe`: how to draw the high-level region (default: ball-and-stick)
 - `--size WxH`: image size in pixels (default: 900x750)
 - `--elev DEG`: elevation angle (default: 20)
 - `--azim DEG`: azimuth angle (default: -60)

@@ -23,7 +23,8 @@ from rich.style import Style
 from rich.text import Text
 
 from ..core.geometry import (
-    DEFAULT_ELEMENT_COLOR, ELEMENT_COLORS, View, bonds, camera_basis, camera_forward,
+    DEFAULT_ELEMENT_COLOR, ELEMENT_COLORS, TEXT_REPRESENTATIONS, View, bonds,
+    camera_basis, camera_forward,
 )
 
 # The pixel renderer draws carbon dark grey on its own dark background, where
@@ -99,17 +100,32 @@ def render(
             if bond_style[k] is not QM_BOND_STYLE:
                 bond_style[k] = style
 
-    for i, j in (bond_list if bond_list is not None else bonds(atoms)):
+    pairs = bond_list if bond_list is not None else bonds(atoms)
+    has_bond = [False] * n
+    for i, j in pairs:
+        if visible[i] and visible[j]:
+            has_bond[i] = True
+            has_bond[j] = True
+    for i, j in pairs:
         if not (visible[i] and visible[j]):
             continue
         style = QM_BOND_STYLE if (is_qm[i] and is_qm[j]) else ENV_BOND_STYLE
         _line(int(projected[i][0]), int(projected[i][1]), int(projected[j][0]), int(projected[j][1]),
               projected[i][2], projected[j][2], style, plot)
 
+    # Text can tell only two representations apart: ball-and-stick (symbols or
+    # dots over bonds) and wireframe (bonds only, an unbonded atom as a dot).
+    # A caller that sends licorice or space-filling gets ball-and-stick.
+    representation = view.representation
+    if representation not in TEXT_REPRESENTATIONS:
+        representation = "ball-and-stick"
+
     # Atoms over bonds, nearest last so it wins a shared cell.
     glyphs: dict[int, tuple[str, Style]] = {}
     for i in sorted(range(n), key=lambda k: projected[k][2]):
         if not visible[i]:
+            continue
+        if representation == "wireframe" and has_bond[i]:
             continue
         el = atoms[i][0]
         col, row = int(projected[i][0]) // 2, int(projected[i][1]) // 4
@@ -117,7 +133,8 @@ def render(
             continue
         color = TEXT_ELEMENT_COLORS.get(el, DEFAULT_ELEMENT_COLOR)
         style = Style(color=color, bold=is_qm[i], dim=not is_qm[i])
-        for off, ch in enumerate(el[:2] if view.show_labels else ATOM_DOT):
+        chars = ATOM_DOT if representation == "wireframe" or not view.show_labels else el[:2]
+        for off, ch in enumerate(chars):
             if 0 <= col + off < width:
                 glyphs[row * width + col + off] = (ch, style)
                 cell_depth[row * width + col + off] = projected[i][2]

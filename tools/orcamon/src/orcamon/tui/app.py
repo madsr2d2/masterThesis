@@ -304,6 +304,8 @@ GEOMETRY_BINDINGS = [
     ("d", "toggle_distances", "Distances"),
     ("l", "toggle_labels", "Labels"),
     ("f", "toggle_fog", "Fog"),
+    ("v", "next_representation", "View"),
+    ("h", "toggle_hydrogens", "Hydrogens"),
     ("[", "zoom_out", "Zoom -"),
     ("]", "zoom_in", "Zoom +"),
     ("ctrl+left", "pan_left", "Pan -"),
@@ -432,6 +434,20 @@ class RotatableGeometryImage(Widget):
         self._input.request()
         # The pane title names the fog state, so it has to be rebuilt too.
         self.app.update_detail()
+
+    def action_next_representation(self) -> None:
+        options = self.SUPPORTED
+        try:
+            index = options.index(self.representation)
+        except ValueError:
+            index = -1
+        self.representation = options[(index + 1) % len(options)]
+        self._input.request()
+        self.app.update_detail()
+
+    def action_toggle_hydrogens(self) -> None:
+        self._hydrogens = not self._show_hydrogens()
+        self._input.request()
 
     def action_zoom_in(self) -> None:
         self.zoom = min(ZOOM_MAX, self.zoom * ZOOM_STEP)
@@ -629,7 +645,6 @@ class TextGeometry(RotatableGeometryImage):
     rather than read in `render`, which Textual calls whenever it likes --
     iterating a job's history while the scan thread appends to it raises."""
 
-    BINDINGS = [*GEOMETRY_BINDINGS, ("h", "toggle_hydrogens", "Hydrogens")]
     SUPPORTED = TEXT_REPRESENTATIONS
     HYDROGENS_BY_DEFAULT_UP_TO = geometry_text.SHOW_HYDROGENS_UP_TO
 
@@ -650,10 +665,6 @@ class TextGeometry(RotatableGeometryImage):
 
     def _on_change(self) -> None:
         self.refresh()
-
-    def action_toggle_hydrogens(self) -> None:
-        self._hydrogens = not self._show_hydrogens()
-        self._input.request()
 
     def render(self):
         size = self.content_size

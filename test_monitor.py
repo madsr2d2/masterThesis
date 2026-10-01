@@ -478,6 +478,45 @@ def test_outlines_separate_overlapping_atoms():
           darkest < 0.5 * centres, f"darkest {darkest} vs centres {centres}")
 
 
+def test_representations_change_what_is_drawn():
+    print("\nthe four representations draw different amounts of ink")
+    import numpy as np
+    from orcamon.core.geometry import View
+    from orcamon.tui import raster
+
+    water = [("O", 0.0, 0.0, 0.0), ("H", 0.96, 0.0, 0.0), ("H", -0.24, 0.93, 0.0)]
+    background = np.asarray(raster.BACKGROUND)
+
+    def ink(representation):
+        image = np.asarray(raster.render(
+            water, View(elev=20, azim=-60, representation=representation, show_labels=False),
+            size_px=(300, 240)))
+        return int((np.abs(image - background).sum(axis=2) > 0).sum())
+
+    space, ball, wire, licorice = (ink(r) for r in
+                                   ("space-filling", "ball-and-stick", "wireframe", "licorice"))
+    check("space-filling covers more than ball-and-stick, which covers more than wireframe",
+          space > ball > wire, f"space {space} ball {ball} wire {wire}")
+    check("licorice differs from ball-and-stick", licorice != ball, f"{licorice} vs {ball}")
+
+
+def test_space_filling_is_framed():
+    print("\nspace-filling is framed so its spheres do not touch the border")
+    import numpy as np
+    from orcamon.core.geometry import View
+    from orcamon.tui import raster
+
+    atoms = [("O", 0.0, 0.0, 0.0), ("H", 1.4, 0.0, 0.0), ("H", -1.4, 0.0, 0.0),
+             ("H", 0.0, 1.4, 0.0), ("H", 0.0, -1.4, 0.0)]
+    image = np.asarray(raster.render(
+        atoms, View(representation="space-filling", show_labels=False), size_px=(200, 160)))
+    background = np.asarray(raster.BACKGROUND)
+    border = np.concatenate([image[0].reshape(-1, 3), image[-1].reshape(-1, 3),
+                             image[:, 0].reshape(-1, 3), image[:, -1].reshape(-1, 3)])
+    check("no foreground pixel on any edge",
+          bool((np.abs(border - background).sum(axis=1) == 0).all()))
+
+
 def test_labels_follow_occlusion():
     print("\na label does not float over an atom hidden behind another")
     from orcamon.core.geometry import View
@@ -853,6 +892,8 @@ if __name__ == "__main__":
     test_spheres_are_shaded()
     test_fog_dims_the_far_side()
     test_outlines_separate_overlapping_atoms()
+    test_representations_change_what_is_drawn()
+    test_space_filling_is_framed()
     test_labels_follow_occlusion()
     test_the_renderer_is_fast_enough()
     test_the_view_is_not_mirrored()

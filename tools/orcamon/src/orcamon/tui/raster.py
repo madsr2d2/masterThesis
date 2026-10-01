@@ -61,13 +61,21 @@ def _desaturate(rgb: np.ndarray) -> np.ndarray:
     return rgb * (1.0 - ENV_DESATURATE) + grey * ENV_DESATURATE
 
 
-def _framing_pad(atoms: list, view: View) -> float:
-    """The largest radius the CURRENT representation draws, so space-filling
-    never clips at the frame edge; the smaller representations need only half
-    an angstrom of slack."""
+def _framing_pad(atoms: list, centered: np.ndarray, view: View) -> float:
+    """How much to add to the molecule's own radius so nothing clips.
+
+    Space-filling draws each atom at its full vdW radius, so the pad is
+    `max(|p_i| + r_i) - max(|p_i|)` over the atoms -- the ACTUAL extent, not
+    merely the largest radius: an atom at the frame edge is what clips, and
+    the largest atom is not always the one there. (The plan's step 3 said
+    "the largest radius", which for a structure whose extreme atom is small
+    leaves the pad too small and clips.) Every other representation needs
+    only half an angstrom of slack."""
+    distances = np.linalg.norm(centered, axis=1)
+    radius = float(distances.max())
     if view.representation == "space-filling":
-        return max((VDW_RADII.get(el, DEFAULT_VDW_RADIUS) for el, *_ in atoms),
-                   default=DEFAULT_VDW_RADIUS)
+        radii = np.array([VDW_RADII.get(el, DEFAULT_VDW_RADIUS) for el, *_ in atoms])
+        return float((distances + radii).max() - radius)
     return 0.5
 
 
@@ -83,9 +91,9 @@ def project(atoms: list, view: View, size_px: tuple[int, int]):
     forward = camera_forward(view.elev, view.azim)
     right, up, forward = np.array(right), np.array(up), np.array(forward)
     mean = coords.mean(axis=0)
-    radius = float(np.linalg.norm(coords - mean, axis=1).max())
+    centered = coords - mean
     center = mean + np.asarray(view.pan, dtype=float)
-    span = (radius + _framing_pad(atoms, view)) / view.zoom
+    span = (float(np.linalg.norm(centered, axis=1).max()) + _framing_pad(atoms, centered, view)) / view.zoom
     width, height = size_px
     scale = min(width, height) / (2 * span) if span > 0 else 1.0
     p = coords - center
