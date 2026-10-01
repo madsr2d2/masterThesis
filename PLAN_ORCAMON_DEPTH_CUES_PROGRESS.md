@@ -1,0 +1,28 @@
+# orcamon — depth cues for multilayer structures — Progress
+
+Plan: `PLAN_ORCAMON_DEPTH_CUES.md`. Branch `master` from `master` (`3f799f4`).
+
+| Task | Status | Commits | Rounds | Note |
+|---|---|---|---|---|
+| DC1 Two layers, composited | TODO | | | |
+| DC2 Per-layer depth fog | TODO | | | |
+| DC3 Depth-gap halos | TODO | | | |
+| DC4 Boundary host balls | TODO | | | |
+| DC5 See-through toggle | TODO | | | |
+| DC6 Docs, gates, pictures | TODO | | | |
+
+Statuses: TODO | DONE | BLOCKED
+
+## Suite status
+
+| After | test_monitor pass | test_orcamon pass | test_curve_metrics | run_gates |
+|---|---|---|---|---|
+| baseline | 119 | 154 | 0 failure(s) | 38 gates, 0 failed |
+
+## Gates
+
+## Deviations (plan said → evidence → what was done)
+
+## Log
+
+## Backlog
