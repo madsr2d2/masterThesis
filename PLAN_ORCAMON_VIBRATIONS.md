@@ -225,8 +225,7 @@ The same file's `VIBRATIONAL FREQUENCIES` block (`job.out` line 2851) has mode `
        """Structures to try when the pane's own does not hold the mode.
 
        A multilayer `.out` can print only the QM block while the Hessian covers
-       the whole model -- `verify_exact_hessian` prints 22 atoms and its mode
-       covers 140 -- so the mode's own structure is read from the file the
+       the whole model, so the mode's own structure is read from the file the
        input names. `job.file_geometry` is only ever set when the log printed
        nothing, so it is tried first but is usually None here."""
        candidates = []
@@ -280,7 +279,7 @@ The same file's `VIBRATIONAL FREQUENCIES` block (`job.out` line 2851) has mode `
    - `test_mode_offsets_refuse_a_mismatched_mode()` — 3 displayed atoms, `qm_atom_indices=None`, a mode with 2 mode atoms. Exactly 1 check: `offsets(...) is None`.
    - `test_the_sine_phase_displaces_atoms()` — two atoms and known offsets. Exactly 2 checks: `phase_sine(0.0) == 0.0` and `displaced(atoms, offs, 1.0)` equals `atoms + offs`.
    - `test_the_mode_geometry_falls_back_to_an_alternate()` — a 2-atom pane, a 4-atom alternate, a 4-atom `NormalMode` and a 2-atom `NormalMode`. Exactly 3 checks: `mode_geometry([pane, alternate], None, mode4) == (alternate, None)`; `mode_geometry([pane], None, mode4) is None`; `mode_geometry([pane, alternate], None, mode2) == (pane, None)`.
-3. Write the ground-truth probe below to `/tmp/orcamon_mode_parity.py` (outside the repository) and run it from the repository root with `XDG_CACHE_HOME=/tmp/orcamon_depth_cues/xdg .venv/bin/python /tmp/orcamon_mode_parity.py`. It must print four lines: `verify_exact_hessian: N=<n>, imaginary modes <list>`; `parity: |d/(2*printed) - 1| max <dev> over <n> components`; `optts_freq_tight: N=<n>, qm=<n>, atoms=<n>`; `qm map: coordinates match <True|False>`.
+3. Write the ground-truth probe below to `/tmp/orcamon_mode_parity.py` (outside the repository) and run it from the repository root with `XDG_CACHE_HOME=/tmp/orcamon_depth_cues/xdg .venv/bin/python /tmp/orcamon_mode_parity.py`. It must print four lines: `verify_exact_hessian: N=<n>, imaginary modes <list>`; `parity: max |d - 2*printed| <dev> over <n> components`; `optts_freq_tight: N=<n>, qm=<n>, atoms=<n>`; `qm map: coordinates match <True|False>`.
    ```python
    """Ground-truth check of the parsed normal modes against orca_pltvib's own xyz."""
    from pathlib import Path
@@ -304,15 +303,13 @@ The same file's `VIBRATIONAL FREQUENCIES` block (`job.out` line 2851) has mode `
                                      state.qm_atom_indices, mode)
    atoms, qm = chosen
    frame = (REPO / C / "geometry_r2scan3c-xtb/ts/verify_exact_hessian/job.hess.v006.xyz").read_text().splitlines()
-   ratios = []
+   diffs = []
    for i, line in enumerate(frame[2:2 + len(atoms)]):
        dx, dy, dz = (float(t) for t in line.split()[-3:])
        printed = mode.vector[3 * i:3 * i + 3]
-       for d, p in zip((dx, dy, dz), printed):
-           if abs(p) >= 1e-3:
-               ratios.append(d / (2.0 * p))
+       diffs.extend(d - 2.0 * p for d, p in zip((dx, dy, dz), printed))
    print(f"verify_exact_hessian: N={len(mode.vector) // 3}, imaginary modes {[m.index for m in modes]}")
-   print(f"parity: |d/(2*printed) - 1| max {max(abs(r - 1.0) for r in ratios):.6g} over {len(ratios)} components")
+   print(f"parity: max |d - 2*printed| {max(abs(x) for x in diffs):.3g} over {len(diffs)} components")
 
    # 2. The 17-atom Hessian: sorted(qm) applied to the FULL structure must be the
    #    activeRegion xyz ORCA wrote.
@@ -331,11 +328,11 @@ The same file's `VIBRATIONAL FREQUENCIES` block (`job.out` line 2851) has mode `
    ```
    Adjust only the `commands._load`/`build_parser` call names if the real API differs (read `commands.py` first); the four printed quantities are the check.
 
-**If unsure:** If `commands._load(args, path)` is not the loader the CLI uses, read `commands.py` and use the real one — that is not a deviation, but say which you used. The parity statistic is `d / (2 * printed)` restricted to `|printed| >= 1e-3`, because six-decimal rounding makes the ratio over tiny components meaningless; if its max deviation is not below `1e-4`, STOP and report NEEDS_USER: the convention in D3 is then wrong, and it is the user's call.
+**If unsure:** If `commands._load(args, path)` is not the loader the CLI uses, read `commands.py` and use the real one — that is not a deviation, but say which you used. The check is the convention itself, `d == 2 * printed`; both files are written to six decimals, so the only tolerance is `|d - 2*printed| <= 1.5e-6`. If `max |d - 2*printed|` exceeds `2e-6`, STOP and report NEEDS_USER: the convention in D3 is then wrong, and it is the user's call.
 
 **Acceptance:**
 - The five new tests pass, with 12 new `check` calls in total.
-- The probe prints `verify_exact_hessian: N=140, imaginary modes [6]`, a `parity: |d/(2*printed) - 1| max` below `1e-4`, `optts_freq_tight: N=17, qm=17, atoms=137`, and `qm map: coordinates match True`.
+- The probe prints `verify_exact_hessian: N=140, imaginary modes [6]`, a `parity: max |d - 2*printed|` at or below `2e-6` (six-decimal printing is the only tolerance), `optts_freq_tight: N=17, qm=17, atoms=137`, and `qm map: coordinates match True`.
 - `test_monitor.py`: 153 `pass`, `0 failure(s)`. `test_orcamon.py`: 157 `pass`. `data/test_curve_metrics.py`: `0 failure(s)`.
 - The diff touches `core/vibrations.py` and `test_monitor.py` only.
 
