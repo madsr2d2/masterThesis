@@ -8,7 +8,7 @@ Plan: `PLAN_ORCAMON_PATHS.md`. Branch `master` from `master` (`ec5144624628357b3
 | PA2 Build the IRC path | DONE | 6af91fa | 1 | suite: monitor 179/0, orcamon 178/0, curve_metrics 0 failures; reviewer accepted the row-energy and missing-file-cache-key interpretations |
 | PA3 Summary and irc_not_converged | DONE | 7d93dc9 | 1 | suite: monitor 184/0, orcamon 179/0, curve_metrics 0 failures; accepted deviation: test_orcamon imports `_irc_tree` from test_monitor (the duplicate guard reads private functions too, so the plan's "copy it" premise was wrong) |
 | PA4 energies, geom/snapshot --point | DONE | cdd7399 | 1 | suite: monitor 184/0, orcamon 187/0, curve_metrics 0 failures; accepted deviations: private `_energies_path` extraction (output identical), README help blocks pasted at COLUMNS=90 to match the other blocks |
-| PA5 Scrub the path in the TUI | BLOCKED | none (uncommitted changes discarded) | 1 | `end` does not re-place the focus: with step 5 as written `_following_latest` toggles but `_signature_of` is unchanged, so `show_job` early-returns and `_place_selection` is never called; the geometry pane stays on `IRC backward 0` where the plan's 5th check expects `IRC TS` (test_orcamon 191 pass / 1 failure). Baseline restored (187/0). |
+| PA5 Scrub the path in the TUI | TODO | | | blocked once (step 5 as written leaves the pane on `IRC backward 0`, not `IRC TS`; test_orcamon 191 pass / 1 failure). User authorised amendment (a) on 2026-10-01 — see `## Plan amendments`; re-running from the clean tree at 6132040. |
 | PB1 Parse the NEB and build its path | TODO | | | |
 | PB2 NEB end to end, every gate | TODO | | | |
 
@@ -26,14 +26,21 @@ Statuses: TODO | DONE | BLOCKED
 
 ## Gates
 
+## Plan amendments (user-authorised)
+
+- **PA5 step 5, `action_select_latest` bullet — authorised 2026-10-01.** User's decision, verbatim: "go with the recomendation" (the orchestrator's recommendation, option (a) below).
+  - Plan text said: "`action_select_latest` (`end`): set `self._following_latest = True`, then `self.app.update_detail()` (the focus is re-placed by `_place_selection`)."
+  - Amended text (in force for PA5): "`action_select_latest` (`end`): set `self._following_latest = True`, then `self._place_selection()` — the focus must be re-placed HERE, because `update_detail()`/`show_job` early-returns when `_signature_of` is unchanged and `_following_latest` is not part of it — then `self.app.update_detail()`."
+  - The plan file itself was NOT edited: the orchestrator may write only the progress file and `.git/claude-review/` messages. The amended step is passed verbatim to the PA5 implementer and reviewer with this authorisation.
+  - Rejected alternatives: (b) adding `_following_latest` to `_signature_of` (changes step 3's pinned tuple; indirect); relaxing PA5's 5th check to accept `IRC backward 0` (contradicts the plan's intent and the stop condition forbidding changed expected values).
+
 ## Blocked
 
-- **PA5** — implementing plan step 5 exactly as written, the plan's own hand-derived expected value does not hold: after `end` the geometry pane still shows `IRC backward 0`, not `IRC TS`. Cause: `action_select_latest` (path mode) sets `_following_latest = True` and calls `update_detail()`, but `_render_detail` → `show_job` early-returns because `_signature_of(job)` does not include `_following_latest`, so `_place_selection` is never reached and `selected_index` stays where `left,left` put it. Checks 1–4 pass; check 5 fails (test_orcamon 191/187+... see row). No commit was made; the uncommitted changes were discarded and the baseline re-verified (test_monitor 184/0, test_orcamon 187/0, curve_metrics 0 failures). Needs a user decision on how to amend PLAN_ORCAMON_PATHS.md PA5 (see the question in the orchestrator's report).
+- **PA5** — implementing plan step 5 exactly as written, the plan's own hand-derived expected value does not hold: after `end` the geometry pane still shows `IRC backward 0`, not `IRC TS`. Cause: `action_select_latest` (path mode) sets `_following_latest = True` and calls `update_detail()`, but `_render_detail` → `show_job` early-returns because `_signature_of(job)` does not include `_following_latest`, so `_place_selection` is never reached and `selected_index` stays where `left,left` put it. Checks 1–4 pass; check 5 fails (test_orcamon 191 pass / 1 failure). No commit was made; the uncommitted changes were discarded and the baseline re-verified (test_monitor 184/0, test_orcamon 187/0, curve_metrics 0 failures). **RESOLVED 2026-10-01** — the user authorised amendment (a) to PA5 step 5; see `## Plan amendments`. PA5 is re-running.
 
 ## Deviations (plan said → evidence → what was done)
 
 ## Log
-
 
 - 2026-10-01T14:21Z PA1 DONE (f99dc53); round 1 reviewer PASS. Real-tree prototype matched the plan exactly (irc_bridge forwards/backwards 50/50, last backward dE -61.448643; r2scan 20/20, -17.416051).
 - 2026-10-01T14:27Z PA2 DONE (6af91fa); round 1 reviewer PASS. Real irc_bridge builds 101 points, 137 atoms each, focus 50; summary matches § Facts. Reviewer accepted `energy = row.energy` on the row points (consistent with D4/§ Facts) and the missing-file cache key.
@@ -41,6 +48,7 @@ Statuses: TODO | DONE | BLOCKED
 
 - 2026-10-01T14:42Z PA4 DONE (cdd7399); round 1 reviewer PASS. Real `energies irc_bridge --json` prints `irc 101 -50 IRC backward 49 -257.1 IRC TS -1011.288471006717 50 -5.27`; `geom --point -50` prints `137`. No JSON key added (`schema` comes from `_emit_json` for every branch).
 - 2026-10-01T14:52Z PA5 BLOCKED (no commit). Plan stop condition: a hand-derived expected value does not hold when step 5 is implemented as written (`end` leaves the pane on `IRC backward 0`, not `IRC TS`). The implementer's uncommitted changes were discarded and the baseline re-verified (184/187/0). Stopped for a user decision on amending PA5.
+- 2026-10-01T15:05Z PA5 unblocked; user authorised amendment (a) to step 5 (`action_select_latest` calls `_place_selection()` before `update_detail()`), recorded under `## Plan amendments`. Re-running PA5 from the clean tree at 6132040.
 
 ## Backlog
 
