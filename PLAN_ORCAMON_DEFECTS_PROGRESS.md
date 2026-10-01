@@ -6,7 +6,7 @@ Plan: `PLAN_ORCAMON_DEFECTS.md`. Branch `master` from `master` (`4a6f7bee83d077b
 |---|---|---|---|---|
 | FX1 Liveness per job, orcamon is not ORCA | DONE | 3c422bc | 1 | reviewer: test_orcamon 170 pass / test_monitor 155 pass / curve_metrics 0 failure(s); accepted deviation: test uses the file's `_json(...)` helper (= `_orcamon([... "--json"])` + `json.loads`), same argv and assertions |
 | FX2 Full labels in ls | DONE | 2b01c07 | 1 | reviewer: test_orcamon 173 pass / test_monitor 155 pass / curve_metrics 0 failure(s); no deviations |
-| FX3 No matplotlib for the pixel panes | TODO | | | |
+| FX3 No matplotlib for the pixel panes | DONE | a6f9e1f | 1 | reviewer: test_orcamon 175 pass / test_monitor 155 pass / curve_metrics 0 failure(s); no deviations |
 | FX4 Only ORCA inputs are jobs | TODO | | | |
 | FX5 Convergence reason, every gate | TODO | | | |
 
@@ -19,6 +19,7 @@ Statuses: TODO | DONE | BLOCKED
 | baseline | 155 | 164 | 0 failure(s) | 38 gates, 0 failed |
 | after FX1 | 155 | 170 | 0 failure(s) | not run |
 | after FX2 | 155 | 173 | 0 failure(s) | not run |
+| after FX3 | 155 | 175 | 0 failure(s) | not run |
 
 ## Gates
 
@@ -28,8 +29,10 @@ Statuses: TODO | DONE | BLOCKED
 
 - 2026-10-01T13:24Z FX1 DONE at 3c422bc (round 1, reviewer PASS). Liveness is now per-job via the `orca` driver's named input, and `orcamon`'s own console script no longer counts as ORCA. Suites: test_orcamon 170 pass, test_monitor 155 pass, data/test_curve_metrics 0 failure(s); run_gates.py not run (reserved for FX5).
 - 2026-10-01T13:29Z FX2 DONE at 2b01c07 (round 1, reviewer PASS). `ls` now prints every label whole; the real tree `ls` emits no `…` (74 before) and `show` of the full label exits 0. Suites: test_orcamon 173 pass, test_monitor 155 pass, data/test_curve_metrics 0 failure(s); run_gates.py not run (reserved for FX5). Reviewer backlog: test_monitor timing flake, FX2 round-trip guard.
+- 2026-10-01T13:32Z FX3 DONE at a6f9e1f (round 1, reviewer PASS). `images_available` now checks numpy and PIL only, so a clean `[tui,images]` install keeps the pixel panes. Suites: test_orcamon 175 pass, test_monitor 155 pass, data/test_curve_metrics 0 failure(s); run_gates.py not run (reserved for FX5). Reviewer backlog: stale matplotlib in generated `PKG-INFO`.
 
 ## Backlog
 
 - `test_monitor.py:1143` wall-clock check ("140 atoms at 940x900 in under 250 ms") flaked once under parallel load, passed 4/4 sequential and in the reviewer's sequential run. Possible timing flake; not fixed.
 - The new FX2 test's third check (`show` with the full label) already passed at base; it is a round-trip guard, and the first two checks are the ones that fail at base. Noted, not changed.
+- `tools/orcamon/src/orcamon.egg-info/PKG-INFO:48` still lists matplotlib for the `images` extra (generated metadata). Check whether it is tracked and regenerate it if so.
