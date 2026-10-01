@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from array import array
 from collections import deque
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -243,7 +244,11 @@ class GeometryPoint:
 class NormalMode:
     """One normal mode of one Hessian: ORCA's mode number, its signed
     frequency in cm**-1 and the 3N printed displacements, coordinate-major
-    -- the mass-weighted pattern `orca_pltvib` scales, not a Cartesian one."""
+    -- the mass-weighted pattern `orca_pltvib` scales, not a Cartesian one.
+
+    `vector` is a list for `JobState.modes` (the imaginary modes) and an
+    `array('d')` for `JobState.normal_modes`, where a 420-mode Hessian's
+    vectors are kept compactly."""
 
     index: int
     cm1: float
@@ -338,6 +343,12 @@ class JobState:
     # NormalMode per imaginary mode of that Hessian, in printed order; None
     # until a block has been read.
     modes: list | None = None
+    # Every mode with a non-zero frequency of that block, one NormalMode per
+    # such mode in printed order, kept ONLY when the block is the job's final
+    # Hessian (`freqs_final`); None until a final block has been read. The
+    # vectors are `array('d')`: a 420-mode Hessian is 174k numbers, 1.4 MB
+    # packed against about 5.6 MB as a list of float objects.
+    normal_modes: list | None = None
     # Whether that block is the job's FINAL answer: read with no optimization
     # under way (a plain Freq job) or after it ended. An OptTS with
     # Calc_Hess/Recalc_Hess prints a full frequency block for every Hessian it
@@ -389,6 +400,16 @@ class JobState:
     # mode index -> {coordinate index: printed value}, filled column by column
     _modes_values: dict = field(default_factory=dict)
     _modes_seen_row: bool = False
+    # The imaginary mode indices of the Hessian this block belongs to, fixed
+    # when the block opens: rebuilding the set per printed row cost a set
+    # comprehension over every frequency of a 420-mode block 28,980 times.
+    _modes_imaginary: frozenset = frozenset()
+    # Whether this block is the final Hessian's, and so keeps EVERY non-zero
+    # mode -- as `array('d')` packed vectors plus the count of coordinates
+    # filled in each, so a partly printed block stores nothing.
+    _modes_keep_all: bool = False
+    _modes_all: dict = field(default_factory=dict)
+    _modes_filled: dict = field(default_factory=dict)
 
     _IDENTITY_FIELDS = frozenset({"path", "stem", "has_out", "offset", "inode", "mtime"})
 
@@ -698,6 +719,7 @@ class JobState:
             # A later Hessian replaces the earlier one's modes; a job whose
             # second Hessian has no NORMAL MODES must not keep the first's.
             self.modes = None
+            self.normal_modes = None
         elif self._in_freq_block:
             m = _FREQ_LINE_RE.match(line)
             if m:
@@ -758,6 +780,11 @@ class JobState:
             self._modes_columns = []
             self._modes_values = {}
             self._modes_seen_row = False
+            self._modes_imaginary = frozenset(
+                i for i, f in enumerate(self.frequencies or []) if f < 0)
+            self._modes_keep_all = bool(self.freqs_final)
+            self._modes_all = {}
+            self._modes_filled = {}
         elif self._in_modes_block:
             m = _MODE_COLUMNS_RE.match(stripped)
             if m:
@@ -768,10 +795,18 @@ class JobState:
                 if m:
                     coord = int(m.group(1))
                     values = [float(tok) for tok in m.group(2).split()]
-                    imaginary = {i for i, f in enumerate(self.frequencies or []) if f < 0}
+                    freqs = self.frequencies or []
+                    n3 = len(freqs)
                     for column, mode_index in enumerate(self._modes_columns):
-                        if mode_index in imaginary:
+                        if mode_index in self._modes_imaginary:
                             self._modes_values.setdefault(mode_index, {})[coord] = values[column]
+                        if (self._modes_keep_all and coord < n3 and mode_index < n3
+                                and freqs[mode_index] != 0.0):
+                            if mode_index not in self._modes_all:
+                                self._modes_all[mode_index] = array("d", bytes(8 * n3))
+                                self._modes_filled[mode_index] = 0
+                            self._modes_all[mode_index][coord] = values[column]
+                            self._modes_filled[mode_index] += 1
                     self._modes_seen_row = True
                 elif not self._modes_seen_row:
                     pass                     # the block's own preamble
@@ -781,9 +816,12 @@ class JobState:
     def _finish_modes(self) -> None:
         """Close the `NORMAL MODES` block and keep its imaginary modes.
 
-        The rows are incomplete until the blank line after them closes the
-        block, so nothing partial is stored: a mode whose every coordinate
-        has not been printed is dropped rather than kept half-read."""
+        The imaginary modes go to `modes` as lists; when this block is the
+        final Hessian's, EVERY mode with a non-zero frequency goes to
+        `normal_modes` as packed arrays. The rows are incomplete until the
+        blank line after them closes the block, so nothing partial is stored:
+        a mode whose every coordinate has not been printed is dropped rather
+        than kept half-read -- from both fields."""
         self._in_modes_block = False
         coords = len(self.frequencies) // 3 if self.frequencies else 0
         modes = []
@@ -793,6 +831,14 @@ class JobState:
                 modes.append(NormalMode(index=index, cm1=self.frequencies[index],
                                         vector=[row[c] for c in range(3 * coords)]))
         self.modes = modes or None
+        normal = [
+            NormalMode(index=i, cm1=self.frequencies[i], vector=self._modes_all[i])
+            for i in sorted(self._modes_all)
+            if coords and self._modes_filled[i] == 3 * coords
+        ]
+        self.normal_modes = normal or None
+        self._modes_all = {}
+        self._modes_filled = {}
         self._modes_columns = []
         self._modes_values = {}
         self._modes_seen_row = False

@@ -23,6 +23,7 @@ not a job in the tree. Each is a way the viewer showed the wrong thing:
 """
 import os
 import sys
+from array import array
 from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -495,6 +496,91 @@ Thus, these vectors are normalized but *not* orthogonal
     check("only the second Hessian's mode 2 survives",
           state.modes is not None and state.modes[0].index == 2 and state.modes[0].cm1 == -200.0,
           f"{state.modes}")
+
+
+_MODE_FREQS = [0.0, 0.0, 0.0, -150.0, 100.0, 50.0, 300.0, 200.0, 400.0]
+_MODE_VECTORS = {
+    0: [0.0] * 9, 1: [0.0] * 9, 2: [0.0] * 9,
+    3: [0.1, 0.0, 0.0, 0.0, -0.2, 0.0, 0.0, 0.0, 0.3],
+    4: [0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0],
+    5: [0.0, 0.0, 0.4, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0],
+    6: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.0],
+    7: [0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    8: [0.0, 0.1, 0.0, 0.0, 0.1, 0.0, 0.0, 0.1, 0.0],
+}
+
+
+def _modes_block(freqs, vectors):
+    """A VIBRATIONAL FREQUENCIES block and its NORMAL MODES block as ORCA
+    prints them: six mode columns per sub-block, every coordinate repeated."""
+    lines = ["VIBRATIONAL FREQUENCIES", "-----------------------", "",
+             "Scaling factor for frequencies =  1.000000000  (already applied!)", ""]
+    for i, f in enumerate(freqs):
+        lines.append(f"{i:5d}:  {f:8.2f} cm**-1" + ("  ***imaginary mode***" if f < 0 else ""))
+    lines += ["", "NORMAL MODES", "------------", "",
+              "These modes are the Cartesian displacements weighted by the diagonal matrix",
+              "M(i,i)=1/sqrt(m[i]) where m[i] is the mass of the displaced atom",
+              "Thus, these vectors are normalized but *not* orthogonal", ""]
+    n = len(freqs)
+    for start in range(0, n, 6):
+        cols = list(range(start, min(start + 6, n)))
+        lines.append("            " + "".join(f"{c:11d}" for c in cols))
+        for coord in range(n):
+            lines.append(f"{coord:6d}     " + "".join(f"{vectors[c][coord]:11.6f}" for c in cols))
+    lines += ["", ""]
+    return "\n".join(lines) + "\n"
+
+
+def test_every_mode_of_a_final_block_is_kept():
+    print("\nevery non-zero mode of a final Hessian is kept, packed")
+    state = JobState(path=Path("/nonexistent"))
+    _feed(state, _modes_block(_MODE_FREQS, _MODE_VECTORS))
+    state.feed_line("")  # `_feed` strips the fixture's trailing blank line
+    check("every non-zero mode of the final block, by ORCA's index",
+          state.normal_modes is not None
+          and [m.index for m in state.normal_modes] == [3, 4, 5, 6, 7, 8],
+          f"{state.normal_modes}")
+    check("mode 5's printed vector, in a packed array",
+          state.normal_modes is not None
+          and state.normal_modes[2].vector
+          == array("d", [0.0, 0.0, 0.4, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0])
+          and state.normal_modes[2].vector.typecode == "d")
+    check("while the imaginary mode stays a list in `modes`",
+          state.modes is not None and [m.index for m in state.modes] == [3]
+          and isinstance(state.modes[0].vector, list))
+
+    interim = JobState(path=Path("/nonexistent"))
+    _feed(interim, "         *                GEOMETRY OPTIMIZATION CYCLE   3            *")
+    _feed(interim, _modes_block(_MODE_FREQS, _MODE_VECTORS))
+    interim.feed_line("")
+    check("an intermediate Hessian's block keeps only the imaginary modes",
+          interim.freqs_final is False and interim.normal_modes is None
+          and interim.modes is not None and [m.index for m in interim.modes] == [3])
+
+    second = dict(_MODE_VECTORS)
+    second[4] = [0.0, 0.0, 0.0, 0.0, 0.7, 0.0, 0.0, 0.0, 0.0]
+    replaced = JobState(path=Path("/nonexistent"))
+    _feed(replaced, _modes_block(_MODE_FREQS, _MODE_VECTORS))
+    _feed(replaced, _modes_block(_MODE_FREQS, second))
+    replaced.feed_line("")
+    check("a later final block replaces the earlier one's modes",
+          replaced.normal_modes is not None and replaced.normal_modes[1].vector[4] == 0.7)
+
+    whole = JobState(path=Path("/nonexistent"))
+    whole.feed_text(_modes_block(_MODE_FREQS, _MODE_VECTORS))
+    check("feed_text keeps the same modes as feeding the lines",
+          whole.normal_modes is not None and state.normal_modes is not None
+          and [m.index for m in whole.normal_modes] == [m.index for m in state.normal_modes]
+          and all(a.vector == b.vector for a, b in zip(whole.normal_modes, state.normal_modes)))
+
+    lines = _modes_block(_MODE_FREQS, _MODE_VECTORS).split("\n")
+    after = lines.index("NORMAL MODES")
+    row4 = next(i for i, ln in enumerate(lines) if i > after and ln[:6].strip() == "4")
+    partial = JobState(path=Path("/nonexistent"))
+    _feed(partial, "\n".join(lines[: row4 + 1]))
+    partial.feed_line("")
+    check("a block cut off mid-print stores no modes",
+          partial.normal_modes is None)
 
 
 def test_mode_offsets_fill_the_whole_structure():
@@ -1802,6 +1888,7 @@ if __name__ == "__main__":
     test_normal_modes_are_parsed()
     test_normal_modes_keep_only_imaginary()
     test_normal_modes_take_the_last_block()
+    test_every_mode_of_a_final_block_is_kept()
     test_mode_offsets_fill_the_whole_structure()
     test_mode_offsets_map_onto_the_qm_subset()
     test_mode_offsets_refuse_a_mismatched_mode()
