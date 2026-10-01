@@ -426,6 +426,12 @@ def test_snapshot_writes_a_png():
         check("--representation space-filling renders too",
               code == 0 and space.read_bytes()[:4] == b"\x89PNG", f"{code} {out} {err}")
 
+        see = t.root.parent / "see.png"
+        code, out, err = t.run("snapshot", "opt_done", "-o", str(see), "--size", "120x100",
+                               "--see-through")
+        check("--see-through renders too", code == 0 and see.read_bytes()[:4] == b"\x89PNG",
+              f"{code} {out} {err}")
+
 
 def test_the_bond_cache_holds_the_geometry_it_answers_for():
     print("\nthe geometry pane's bond cache is keyed by the atom list itself, not its id")
@@ -826,6 +832,16 @@ def test_the_tui_runs_headless():
             await pilot.press("h")
             await pilot.pause(0.2)
             check("h flips the hydrogen flag", geometry._show_hydrogens() is not hydrogens)
+            await pilot.press("x")
+            await pilot.pause(0.2)
+            check("x turns see-through on, and the title says so",
+                  geometry.see_through is True and "see-through" in geometry.border_title,
+                  f"{geometry.see_through} {geometry.border_title!r}")
+            await pilot.press("x")
+            await pilot.pause(0.2)
+            check("and x again turns it off, title and all",
+                  geometry.see_through is False and "see-through" not in geometry.border_title,
+                  f"{geometry.see_through} {geometry.border_title!r}")
 
             await pilot.press("up")
             await pilot.pause(0.1)

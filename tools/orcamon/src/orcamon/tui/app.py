@@ -307,6 +307,7 @@ GEOMETRY_BINDINGS = [
     ("d", "toggle_distances", "Distances"),
     ("l", "toggle_labels", "Labels"),
     ("f", "toggle_fog", "Fog"),
+    ("x", "toggle_see_through", "See-through"),
     ("v", "next_representation", "View"),
     ("h", "toggle_hydrogens", "Hydrogens"),
     ("p", "next_axis", "Principal"),
@@ -363,6 +364,7 @@ class RotatableGeometryImage(Widget):
         self.show_labels = True
         self.representation = "ball-and-stick"
         self.fog = True
+        self.see_through = False
         self.zoom = 1.0
         self.pan: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._hydrogens: bool | None = None
@@ -391,7 +393,7 @@ class RotatableGeometryImage(Widget):
             elev=self.elev, azim=self.azim + self._rock_offset, zoom=self.zoom,
             pan=self.pan, representation=self.representation, fog=self.fog,
             show_labels=self.show_labels, show_distances=self.show_distances,
-            show_hydrogens=self._show_hydrogens(),
+            show_hydrogens=self._show_hydrogens(), see_through=self.see_through,
         )
 
     def _show_hydrogens(self) -> bool:
@@ -461,6 +463,13 @@ class RotatableGeometryImage(Widget):
         self.fog = not self.fog
         self._input.request()
         # The pane title names the fog state, so it has to be rebuilt too.
+        self.app.update_detail()
+
+    def action_toggle_see_through(self) -> None:
+        self.see_through = not self.see_through
+        self._input.request()
+        # The pane title names the see-through state, so it has to be rebuilt
+        # too.
         self.app.update_detail()
 
     def action_next_representation(self) -> None:
@@ -1119,7 +1128,8 @@ class MonitorApp(App):
         except NoMatches:
             return f"geometry ({self.graphics}{note})"
         fog = " · fog" if geometry.fog else ""
-        return f"geometry ({self.graphics}{note} · {geometry.representation}{fog})"
+        see_through = " · see-through" if geometry.see_through else ""
+        return f"geometry ({self.graphics}{note} · {geometry.representation}{fog}{see_through})"
 
     def action_toggle_maximize(self) -> None:
         self.maximized = not self.maximized

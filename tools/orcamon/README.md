@@ -428,7 +428,7 @@ usage: orcamon snapshot [-h] [--root DIR] [--liveness {auto,process,slurm,mtime}
                         [--quiet-after S] [--no-cache] -o FILE
                         [--representation {ball-and-stick,licorice,space-filling,wireframe}]
                         [--size WxH] [--elev DEG] [--azim DEG] [--no-labels] [--no-fog]
-                        [--distances]
+                        [--see-through] [--distances]
                         JOB
 
 render a job's geometry to a PNG (needs the images extra)
@@ -456,6 +456,8 @@ options:
   --azim DEG            azimuth angle (default: -60)
   --no-labels           omit the atom index labels
   --no-fog              do not fade distant atoms
+  --see-through         show the QM region through the environment where the environment
+                        covers it
   --distances           label the QM-QM bond distances
 ```
 

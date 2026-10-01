@@ -225,6 +225,7 @@ render a job's geometry to a PNG (needs the images extra)
 - `--azim DEG`: azimuth angle (default: -60)
 - `--no-labels`: omit the atom index labels
 - `--no-fog`: do not fade distant atoms
+- `--see-through`: show the QM region through the environment where the environment covers it
 - `--distances`: label the QM-QM bond distances
 
 ### orcamon freqs

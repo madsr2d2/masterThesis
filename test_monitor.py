@@ -766,6 +766,41 @@ def test_boundary_host_atoms_get_a_ball():
           11 <= column_rows(licorice, 1) <= 15, f"{column_rows(licorice, 1)}")
 
 
+def test_see_through_shows_the_guest_behind_the_host():
+    print("\nsee-through blends the covered guest through the host in front of it")
+    import numpy as np
+    from orcamon.core.geometry import View
+    from orcamon.tui import raster
+
+    # A guest oxygen with a host C-C stick 2 A in front of it, and the same
+    # stick 2 A behind it. The two structures have the same mean distance, so
+    # the same framing: same scale, and the oxygen at the same pixel. Without
+    # see-through the first shows only the grey stick there and the second
+    # only the red oxygen; with see-through the first shows the oxygen
+    # through the stick. The prototype measured (76, 76, 76) for the stick,
+    # (212, 16, 16) for the oxygen and (171, 34, 34) blended.
+    front = [("O", 0.0, 0.0, 0.0), ("C", 2.0, -0.7, 0.0), ("C", 2.0, 0.7, 0.0)]
+    back = [("O", 0.0, 0.0, 0.0), ("C", -2.0, -0.7, 0.0), ("C", -2.0, 0.7, 0.0)]
+    view = View(elev=0, azim=0, fog=False, show_labels=False)
+    size = (400, 300)
+    sx, sy, _depth, _scale = raster.project(front, view, size)
+    px, py = int(round(sx[0])), int(round(sy[0]))
+
+    def pixel(atoms, see_through=False):
+        image = raster.render(atoms, View(elev=0, azim=0, fog=False, show_labels=False,
+                                          see_through=see_through),
+                              qm_atom_indices={0}, size_px=size)
+        return np.asarray(image, float)[py, px]
+
+    c_env, c_qm = pixel(front), pixel(back)
+    c_x = pixel(front, see_through=True)
+    expected = 0.3 * c_env + 0.7 * c_qm
+    check("the covered QM oxygen shows through at 0.3 host + 0.7 guest",
+          all(abs(a - b) <= 2.0 for a, b in zip(c_x, expected)), f"{c_x} vs {expected}")
+    check("and the blend is visibly red, not the grey stick",
+          c_x[0] > c_env[0] + 50, f"{c_x[0]} vs {c_env[0]}")
+
+
 def test_the_camera_tumbles_over_the_pole():
     print("\nthe camera turns smoothly over the pole instead of snapping upside down")
     from orcamon.core.geometry import camera_basis, camera_forward
@@ -1159,6 +1194,7 @@ if __name__ == "__main__":
     test_host_fog_keeps_near_host_bright()
     test_halos_widen_with_the_depth_gap()
     test_boundary_host_atoms_get_a_ball()
+    test_see_through_shows_the_guest_behind_the_host()
     test_the_camera_tumbles_over_the_pole()
     test_the_renderer_is_fast_enough()
     test_the_view_is_not_mirrored()

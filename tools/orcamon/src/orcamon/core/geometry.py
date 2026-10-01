@@ -61,6 +61,7 @@ class View:
     show_labels: bool = True
     show_distances: bool = False
     show_hydrogens: bool = True
+    see_through: bool = False
 
 
 def camera_forward(elev_deg: float, azim_deg: float) -> tuple[float, float, float]:

@@ -58,6 +58,7 @@ OUTLINE_JUMP = 0.35                   # angstrom a nearer neighbour must be to r
 OUTLINE_DARKEN = 0.25                 # silhouette pixels are multiplied by this
 HALO_MAX_PX = 5                       # the widest halo, in pixels, on a frame whose short side is 750 px
 HALO_FULL_GAP = 2.5                   # the depth gap, angstrom, that earns the widest halo
+SEE_THROUGH_ALPHA = 0.3               # how much of the host shows where it covers the QM region in see-through
 
 
 @dataclass
@@ -484,7 +485,17 @@ def render(atoms: list, view: View | None = None, *,
             _apply_fog(qm, near, far, FOG, 1.0)
             _apply_fog(env, near, far, HOST_FOG, HOST_FOG_POWER)
 
-    frame, _env_wins = _composite(env, qm)
+    frame, env_wins = _composite(env, qm)
+    if view.see_through:
+        # A host stick in front of a QM ball hides most of it from some
+        # angles, so where the two overlap the pixel becomes a blend towards
+        # the QM layer's colour. The owner changes with the colour, so a
+        # covered QM atom keeps its label; the depth stays the HOST's, so the
+        # halo still rings the host that is in front.
+        blend = env_wins & (qm.zbuf != -np.inf)
+        frame.color[blend] = (SEE_THROUGH_ALPHA * env.color[blend]
+                              + (1.0 - SEE_THROUGH_ALPHA) * qm.color[blend])
+        frame.owner[blend] = qm.owner[blend]
     foreground = frame.zbuf != -np.inf
     frame.color[~foreground] = np.asarray(BACKGROUND, dtype=float)
     if foreground.any():

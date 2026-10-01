@@ -137,6 +137,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="azimuth angle (default: %(default)s)")
     p.add_argument("--no-labels", action="store_true", help="omit the atom index labels")
     p.add_argument("--no-fog", action="store_true", help="do not fade distant atoms")
+    p.add_argument("--see-through", action="store_true",
+                   help="show the QM region through the environment where the environment covers it")
     p.add_argument("--distances", action="store_true", help="label the QM-QM bond distances")
 
     p = add("freqs", "imaginary and lowest real vibrational frequencies", "orcamon freqs opt/ts", commands.cmd_freqs)
