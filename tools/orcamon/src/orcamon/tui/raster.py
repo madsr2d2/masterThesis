@@ -51,6 +51,8 @@ MAX_SAMPLES_PER_BOND = 64
 LABEL_RGB = (255, 255, 255)
 DISTANCE_RGB = (255, 224, 102)
 FOG = 0.6                             # how far the farthest pixel fades to BACKGROUND
+HOST_FOG = 0.85                       # how far the farthest host pixel fades to BACKGROUND
+HOST_FOG_POWER = 2.0                  # the host fade grows as t**2, so the near host stays bright
 OUTLINE_JUMP = 0.35                   # angstrom a nearer neighbour must be to ring
 OUTLINE_DARKEN = 0.25                 # silhouette pixels are multiplied by this
 
@@ -371,15 +373,27 @@ def _fog_depths(atoms: list, view: View) -> tuple[float, float]:
     return mid + extent, mid - extent
 
 
-def _apply_fog(zbuf, color, foreground, near, far):
-    """Fade every foreground pixel toward BACKGROUND by its depth: `near`
-    untouched, `far` at FOG (see `_fog_depths`). Applied BEFORE labels so the
-    text stays legible, and before the outline pass, which then darkens a
-    faded edge."""
+def _apply_fog(layer: _Layer, near: float, far: float, amount: float, power: float) -> None:
+    """Fade a layer's foreground toward BACKGROUND between `near` and `far`:
+    `near` untouched, `far` at `amount`, the fade growing as `t ** power`.
+
+    The layers are fogged separately, not the composited frame, because the
+    host is drawn in uniform desaturated colours the eye already reads as
+    "far" everywhere -- and one linear fog for both layers left a host stick
+    in front of the guest faded by about a tenth and one behind it by about a
+    half, so a host in front did not read as nearer. The host therefore gets
+    its own harder amount (HOST_FOG) on a `t ** power` curve
+    (HOST_FOG_POWER), which keeps its near end bright; the guest keeps FOG,
+    linear. Applied before compositing, so the outline pass and the labels
+    see the final colours."""
+    foreground = layer.zbuf != -np.inf
+    if not foreground.any():
+        return
     span = max(near - far, 1e-6)
-    t = np.clip((near - zbuf[foreground]) / span, 0.0, 1.0)  # 0 nearest, 1 farthest
-    mix = (FOG * t)[:, None]
-    color[foreground] = color[foreground] * (1.0 - mix) + np.asarray(BACKGROUND, dtype=float) * mix
+    t = np.clip((near - layer.zbuf[foreground]) / span, 0.0, 1.0) ** power
+    mix = (amount * t)[:, None]
+    layer.color[foreground] = (layer.color[foreground] * (1.0 - mix)
+                               + np.asarray(BACKGROUND, dtype=float) * mix)
 
 
 def _apply_outlines(zbuf, foreground, color):
@@ -428,13 +442,15 @@ def render(atoms: list, view: View | None = None, *,
         has_bond = _bonded_mask(pairs, visible, n)
         _draw_geometry(atoms, view, pairs, has_bond, sx, sy, depth, scale,
                        is_qm, visible, env, qm)
+        if view.fog:
+            near, far = _fog_depths(atoms, view)
+            _apply_fog(qm, near, far, FOG, 1.0)
+            _apply_fog(env, near, far, HOST_FOG, HOST_FOG_POWER)
 
     frame, _env_wins = _composite(env, qm)
     foreground = frame.zbuf != -np.inf
     frame.color[~foreground] = np.asarray(BACKGROUND, dtype=float)
     if foreground.any():
-        if view.fog:
-            _apply_fog(frame.zbuf, frame.color, foreground, *_fog_depths(atoms, view))
         _apply_outlines(frame.zbuf, foreground, frame.color)
     image = Image.fromarray(np.clip(frame.color, 0, 255).astype(np.uint8), "RGB")
 

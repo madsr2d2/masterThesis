@@ -644,6 +644,46 @@ def test_fog_holds_still_under_rotation():
           max(abs(a - b) for a, b in zip(*colours)) <= 2, f"{colours[0]} vs {colours[1]}")
 
 
+def test_host_fog_keeps_near_host_bright():
+    print("\nthe host is fogged on its own: near host bright, far host faded hard")
+    import numpy as np
+    from orcamon.core.geometry import View
+    from orcamon.tui import raster
+
+    # Two host C-C sticks, one 3 A in front of the guest's plane and one 3 A
+    # behind it, and a lone QM oxygen at the centroid. The framing sphere of
+    # `_frame_sphere` has extent |(3, -3, -0.5)| + 0.5 = 4.772, so near =
+    # 4.772 and far = -4.772.
+    #
+    # The near stick's surface sits at depth about 3.06 (its ENV_BOND_RADIUS
+    # toward the eye): t = (4.772 - 3.06) / 9.544 = 0.179 and the host fog
+    # 0.85 * t**2 = 0.027. The old single linear fog gave 0.6 * t = 0.108,
+    # which is why a host in front read no nearer than one behind.
+    # The far stick at -2.94: t = 0.808 and 0.85 * t**2 = 0.555.
+    # The QM oxygen's ball, radius 0.28 * 1.52 = 0.426, gives t = 0.455 and
+    # the guest's unchanged 0.6 * t = 0.273.
+    atoms = [("C", 3.0, -3.0, 0.0), ("C", 3.0, -1.6, 0.0),
+             ("C", -3.0, 1.6, 0.0), ("C", -3.0, 3.0, 0.0), ("O", 0.0, 0.0, 2.5)]
+    view = View(elev=0, azim=0, show_labels=False)
+    sx, sy, _depth, _scale = raster.project(atoms, view, (400, 300))
+    on = np.asarray(raster.render(atoms, view, qm_atom_indices={4}, size_px=(400, 300)), float)
+    off = np.asarray(raster.render(atoms, View(elev=0, azim=0, fog=False, show_labels=False),
+                                   qm_atom_indices={4}, size_px=(400, 300)), float)
+
+    def fade(x, y):
+        x, y = int(round(x)), int(round(y))
+        return (off[y, x, 0] - on[y, x, 0]) / (off[y, x, 0] - 30.0)
+
+    near_mid = ((sx[0] + sx[1]) / 2, (sy[0] + sy[1]) / 2)
+    far_mid = ((sx[2] + sx[3]) / 2, (sy[2] + sy[3]) / 2)
+    check("the near host stick stays bright: 0.85 * 0.179**2 = 0.027",
+          abs(fade(*near_mid) - 0.027) < 0.02, f"{fade(*near_mid):.3f}")
+    check("the far host stick fades hard: 0.85 * 0.808**2 = 0.555",
+          abs(fade(*far_mid) - 0.555) < 0.02, f"{fade(*far_mid):.3f}")
+    check("the guest keeps the old linear fog: 0.6 * 0.455 = 0.273",
+          abs(fade(sx[4], sy[4]) - 0.273) < 0.02, f"{fade(sx[4], sy[4]):.3f}")
+
+
 def test_the_camera_tumbles_over_the_pole():
     print("\nthe camera turns smoothly over the pole instead of snapping upside down")
     from orcamon.core.geometry import camera_basis, camera_forward
@@ -1034,6 +1074,7 @@ if __name__ == "__main__":
     test_wireframe_keeps_labels_and_distances()
     test_wireframe_draws_the_qm_layer_thicker()
     test_fog_holds_still_under_rotation()
+    test_host_fog_keeps_near_host_bright()
     test_the_camera_tumbles_over_the_pole()
     test_the_renderer_is_fast_enough()
     test_the_view_is_not_mirrored()
