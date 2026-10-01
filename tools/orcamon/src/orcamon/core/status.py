@@ -100,7 +100,7 @@ class Flag:
 # they are reported.
 FLAG_CODES = (
     "failed", "stopped", "stalled", "quiet", "opt_not_converged", "scan_incomplete",
-    "ts_hessian", "ts_imaginary", "minimum_imaginary", "qm2_errors",
+    "irc_not_converged", "ts_hessian", "ts_imaginary", "minimum_imaginary", "qm2_errors",
 )
 
 
@@ -152,6 +152,12 @@ def attention(
             and (state.scan_step or 0) < state.scan_total):
         flags.append(Flag("scan_incomplete",
                           f"scan ended at step {state.scan_step or 0} of {state.scan_total}"))
+
+    # ORCA stops an IRC direction at MaxIter without an error; the run says
+    # FINISHED and only this banner tells a person the path stopped short.
+    if state.irc_maxiter:
+        flags.append(Flag("irc_not_converged",
+                          f"IRC {' and '.join(state.irc_maxiter)} hit MaxIter{maxiter} before a minimum"))
 
     if is_ts and hessian_speaks and state.eigen_history:
         n = state.eigen_history[-1][1]

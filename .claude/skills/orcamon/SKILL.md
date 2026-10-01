@@ -60,6 +60,7 @@ the key names (`_eh`, `_kj_mol`, `_s`), and `attention` is a list of
 | `quiet` | no output for a long time | `orcamon tail JOB` |
 | `opt_not_converged` | hit MaxIter (a scan names the step) | `orcamon conv JOB`, `orcamon energies JOB` |
 | `scan_incomplete` | a relaxed scan terminated normally before its last step | `orcamon energies JOB`, `orcamon tail JOB` |
+| `irc_not_converged` | an IRC direction hit MaxIter before reaching a minimum | `orcamon energies JOB` |
 | `ts_hessian` | a TS search whose Hessian does not have exactly one negative eigenvalue | `orcamon conv JOB` (neg eig column) |
 | `ts_imaginary` | final frequencies of a TS with other than one imaginary mode | `orcamon freqs JOB` |
 | `minimum_imaginary` | final frequencies of a minimum search with an imaginary mode | `orcamon freqs JOB` |

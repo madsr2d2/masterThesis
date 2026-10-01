@@ -62,10 +62,13 @@ upgrade that was not followed by a reinstall.
 | `stopped` | gone without a termination line: killed, a time limit, a lost node |
 
 Flag codes are part of the JSON contract: `failed`, `stopped`, `stalled`,
-`quiet`, `opt_not_converged`, `scan_incomplete`, `ts_hessian`, `ts_imaginary`,
-`minimum_imaginary`, `qm2_errors`. Imaginary modes are counted without a
-cutoff. Frequencies from a Hessian computed mid-optimization are shown with
-their cycle and raise no flag.
+`quiet`, `opt_not_converged`, `scan_incomplete`, `irc_not_converged`,
+`ts_hessian`, `ts_imaginary`, `minimum_imaginary`, `qm2_errors`. Imaginary
+modes are counted without a cutoff. Frequencies from a Hessian computed
+mid-optimization are shown with their cycle and raise no flag.
+
+An IRC direction that stopped at MaxIter before reaching a minimum raises
+`irc_not_converged`.
 
 ## Exit codes
 

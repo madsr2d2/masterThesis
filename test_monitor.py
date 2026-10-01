@@ -1346,6 +1346,42 @@ def test_the_irc_path_is_built():
               running is not None and len(running.points) == 4 and running.focus == 3)
 
 
+def test_the_irc_is_summarised_and_flagged():
+    print("\nan IRC says where it is, and a direction that hit MaxIter is flagged")
+    from orcamon.core.paths import path_summary
+    from orcamon.core.status import FLAG_CODES
+
+    state = JobState(path=Path("/nonexistent"), stem="job")
+    _feed(state, _IRC_OUT)
+
+    summary = ("IRC        backward 2 points, end -6.3 kJ/mol · "
+               "forward 3 points (MaxIter), end -12.6 kJ/mol (from the TS)", "irc B2/F3")
+    check("the summary names each direction, its size and its end",
+          path_summary(state) == summary)
+
+    inp = "! B97-3c IRC\n%irc MaxIter 3 end\n* xyzfile 0 1 start.xyz\n"
+    report = build_report(_report_job(state, inp, Liveness(False, "process")))
+    check("`show` prints the summary line", summary[0] in render_plain(report))
+    check("a direction that hit MaxIter raises irc_not_converged",
+          {"code": "irc_not_converged", "message": "IRC forward hit MaxIter (3) before a minimum"}
+          in report.attention, f"{report.attention}")
+
+    # ORCA's own MaxIter banner is the only evidence a direction stopped
+    # short; without it a finished IRC raises nothing.
+    lines = _IRC_OUT.strip("\n").split("\n")
+    start = next(i for i, line in enumerate(lines)
+                 if "MAXIMUM NUMBER OF ITERATIONS REACHED" in line) - 1
+    clean = JobState(path=Path("/nonexistent"), stem="job")
+    _feed(clean, "\n".join(lines[:start] + lines[start + 3:]))
+    clean_report = build_report(_report_job(clean, inp, Liveness(False, "process")))
+    check("without the banner the direction is not called unconverged",
+          "irc_not_converged" not in [f["code"] for f in clean_report.attention],
+          f"{clean_report.attention}")
+
+    check("and the code sits beside scan_incomplete in the contract",
+          FLAG_CODES.index("irc_not_converged") == FLAG_CODES.index("scan_incomplete") + 1)
+
+
 _TERMINATED = "                 ****ORCA TERMINATED NORMALLY****"
 _MAXITER = ("       The optimization did not converge but reached the maximum \n"
             "       number of optimization cycles.")
@@ -1699,6 +1735,7 @@ if __name__ == "__main__":
     test_every_marker_reaches_its_parser()
     test_irc_rows_are_parsed()
     test_the_irc_path_is_built()
+    test_the_irc_is_summarised_and_flagged()
     test_status_names_the_outcome()
     test_attention_flags()
     test_orca_says_why_it_converged()

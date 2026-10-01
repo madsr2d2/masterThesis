@@ -19,7 +19,7 @@ from .geometry import FileGeometry
 from .job import Job
 from .orca_input import describe_spin
 from .parser import JobState
-from .paths import PathPoint
+from .paths import PathPoint, path_summary
 from .status import TS_RUN_TYPES, Status
 from .units import EH_TO_KJ_PER_MOL, format_age, format_wall_time
 
@@ -107,6 +107,8 @@ class JobReport:
     _input_read: bool = field(default=True, repr=False)
     _liveness_note: str | None = field(default=None, repr=False)
     _converged_reason: str | None = field(default=None, repr=False)
+    _path_summary: str | None = field(default=None, repr=False)
+    _path_progress: str | None = field(default=None, repr=False)
 
     def to_dict(self) -> dict:
         return {k: v for k, v in asdict(self).items() if not k.startswith("_")}
@@ -149,6 +151,10 @@ def build_report(job: Job, now: float | None = None) -> JobReport:
     layers = {}
     if inp is not None:
         layers = {name: {"charge": c, "mult": m} for name, (c, m) in inp.layers.items()}
+
+    # An IRC path's one-line description and progress, from the parsed rows
+    # alone: `ls` builds a report for every job and may not read a trajectory.
+    summary = path_summary(state)
 
     return JobReport(
         schema=REPORT_SCHEMA,
@@ -194,6 +200,8 @@ def build_report(job: Job, now: float | None = None) -> JobReport:
         _input_read=inp is not None,
         _liveness_note=liveness.note if liveness else None,
         _converged_reason=state.opt_converged_reason,
+        _path_summary=summary[0] if summary else None,
+        _path_progress=summary[1] if summary else None,
     )
 
 
@@ -325,6 +333,9 @@ def report_lines(report: JobReport) -> list[Line]:
         if report.freq_cycle is not None:
             segs.append((f" (Hessian at cycle {report.freq_cycle}, not the result)", "dim"))
         lines.append(("imaginary", segs))
+
+    if report._path_summary is not None:
+        lines.append(("path", [(report._path_summary, None)]))
 
     if report.energy_eh is not None:
         label = f" ({report.energy_label})" if report.energy_label else ""

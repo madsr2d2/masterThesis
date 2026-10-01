@@ -180,6 +180,10 @@ def cmd_tui(args) -> int:
 
 
 def _progress(r: JobReport) -> str:
+    # An IRC's progress is its two directions, in points, and lives in the
+    # parsed rows rather than in the job's cycle.
+    if r._path_progress is not None:
+        return r._path_progress
     if r.scan_step is not None:
         total = f"/{r.scan_total}" if r.scan_total else ""
         return f"step {r.scan_step}{total}·{r.cycle or 0}"

@@ -418,6 +418,23 @@ def test_ls_prints_labels_an_agent_can_pass_back():
             os.environ["COLUMNS"] = saved
 
 
+def test_ls_says_where_an_irc_is():
+    print("\nls says where an IRC is and that a direction hit MaxIter")
+    import tempfile
+    from pathlib import Path
+    # One IRC fixture, not two: the duplicate guard reads functions even when
+    # they are private, and its rule is to import the other copy, not clone it.
+    from test_monitor import _irc_tree
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _irc_tree(root / "irc")
+        code, out, err = _orcamon(["--root", str(root), "--liveness", "mtime", "--no-cache", "ls"])
+        row = next((line for line in out.split("\n") if "irc" in line), "")
+        check("the IRC row carries its progress and its flag",
+              "irc B2/F3" in row and "irc_not_converged" in row, f"{code} {out} {err}")
+
+
 def test_show_and_ls_agree():
     print("\nshow and ls report the same numbers for the same job")
     with _Tree() as t:
@@ -1386,6 +1403,7 @@ if __name__ == "__main__":
     test_only_orca_inputs_are_jobs()
     test_ls_lists_every_job_boundedly()
     test_ls_prints_labels_an_agent_can_pass_back()
+    test_ls_says_where_an_irc_is()
     test_show_and_ls_agree()
     test_geom_never_substitutes_a_geometry()
     test_snapshot_writes_a_png()
