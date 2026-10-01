@@ -1429,6 +1429,85 @@ def test_the_tui_cycles_real_modes():
         asyncio.run(drive(root))
 
 
+def test_the_tui_selects_atoms_by_number():
+    print("\nthe TUI's s picks atoms by number and the geometry title measures them")
+    import asyncio
+    import tempfile
+    import time as _time
+    from pathlib import Path
+
+    from orcamon.tui.app import MonitorApp
+
+    async def drive(root):
+        app = MonitorApp(root, liveness="mtime", graphics="text", notify_mode="off")
+        async with app.run_test(size=(180, 50)) as pilot:
+            geometry = app.query_one("#geometry")
+            deadline = _time.monotonic() + 5
+            while not (app.jobs and all(j.parsed for j in app.jobs)
+                       and geometry._job is not None
+                       and geometry._job.label == "water") and _time.monotonic() < deadline:
+                await pilot.pause(0.05)
+            geometry.focus()
+            title = lambda: geometry.border_title
+
+            await pilot.press("s")
+            await pilot.press(*"1 0 2")
+            await pilot.press("enter")
+            await pilot.pause(0.2)
+            check("s and the numbers pick the three atoms and the title measures them",
+                  geometry.selection == (1, 0, 2) and "angle 1-0-2: 104.5°" in title(),
+                  f"{geometry.selection} {title()!r}")
+
+            chart = app.query_one("#chart")
+            chart.focus()
+            await pilot.press("left")
+            await pilot.pause(0.2)
+            check("scrubbing the chart keeps the selection and measures it there",
+                  "cycle 1" in title() and "angle 1-0-2: 104.5°" in title()
+                  and geometry.selection == (1, 0, 2),
+                  f"{geometry.selection} {title()!r}")
+
+            geometry.focus()
+            await pilot.press("s")
+            for _ in range(5):
+                await pilot.press("backspace")
+            await pilot.press("7")
+            await pilot.press("enter")
+            await pilot.pause(0.2)
+            check("an atom number the geometry does not have is refused, changing nothing",
+                  geometry.selection == (1, 0, 2),
+                  f"{geometry.selection} {title()!r}")
+
+            await pilot.press("s")
+            for _ in range(5):
+                await pilot.press("backspace")
+            await pilot.press("enter")
+            await pilot.pause(0.2)
+            check("an empty entry clears the selection and the title",
+                  geometry.selection == () and "angle" not in title(),
+                  f"{geometry.selection} {title()!r}")
+
+            await pilot.press("s")
+            await pilot.press(*"0 1")
+            await pilot.press("enter")
+            await pilot.pause(0.2)
+            check("two atoms give the distance in the title",
+                  "distance 0-1: 0.960 Å" in title(), f"{title()!r}")
+
+            app.query_one("#job_table").focus()
+            await pilot.press("down")
+            await pilot.pause(0.4)
+            check("moving to another job clears the selection",
+                  app.selected_label == "water2" and geometry.selection == (),
+                  f"{app.selected_label} {geometry.selection}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _water_job(root, "water")
+        _water_job(root, "water2")
+        asyncio.run(drive(root))
+
+
 def test_slurm_names_what_the_login_node_cannot_see():
     print("\nSLURM: squeue's view of a job, and the fallbacks when it has none")
     import stat
@@ -1777,6 +1856,7 @@ if __name__ == "__main__":
     test_the_tui_runs_headless()
     test_the_tui_scrubs_a_path()
     test_the_tui_cycles_real_modes()
+    test_the_tui_selects_atoms_by_number()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
     test_liveness_names_the_job_not_only_the_directory()

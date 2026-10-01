@@ -11,15 +11,17 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
+from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import DataTable, Footer, Header, RichLog, Static
+from textual.widgets import DataTable, Footer, Header, Input, RichLog, Static
 from textual_plotext import PlotextPlot
 
 from ..core import cache, paths, vibrations
 from ..core.discovery import discover, short_label
 from ..core.events import events
 from ..core.geometry import (
-    REPRESENTATIONS, TEXT_REPRESENTATIONS, View, bonds, camera_basis, principal_axes, view_along,
+    REPRESENTATIONS, TEXT_REPRESENTATIONS, View, bonds, camera_basis,
+    describe_measurement, parse_atom_list, principal_axes, view_along,
 )
 from ..core.job import Job
 from ..core.liveness import lookup, make_probe
@@ -368,6 +370,7 @@ GEOMETRY_BINDINGS = [
     ("x", "toggle_see_through", "See-through"),
     ("i", "cycle_modes", "Modes"),
     ("I", "cycle_real_modes", "Real modes"),
+    ("s", "select_atoms", "Select atoms"),
     ("v", "next_representation", "View"),
     ("h", "toggle_hydrogens", "Hydrogens"),
     ("p", "next_axis", "Principal"),
@@ -386,6 +389,40 @@ ZOOM_MAX = 5.0
 PAN_STEP = 0.6  # angstrom, per keypress -- about half a bond length
 ROCK_AMPLITUDE_DEG = 15.0
 ROCK_PERIOD_S = 6.0
+
+
+class AtomPrompt(ModalScreen):
+    """`s` in the geometry pane: up to four atom numbers."""
+
+    DEFAULT_CSS = """
+    AtomPrompt {
+        align: center middle;
+    }
+    AtomPrompt > Vertical {
+        width: 64;
+        height: auto;
+        border: round $accent;
+        padding: 1 2;
+    }
+    """
+
+    def __init__(self, value: str) -> None:
+        super().__init__()
+        self._value = value
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Static(
+                "atom numbers as the labels show them: 2 give a distance, "
+                "3 an angle, 4 a dihedral; empty clears"
+            )
+            yield Input(value=self._value, id="atoms")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.dismiss(event.value)
+
+    def key_escape(self) -> None:
+        self.dismiss(None)
 
 
 class RotatableGeometryImage(Widget):
@@ -447,6 +484,10 @@ class RotatableGeometryImage(Widget):
         # so a new selection restarts the cycle.
         self._axis_step = 0
         self._axis_job: Job | None = None
+        # ORCA's 0-based numbers of the atoms the person picked (D5): kept
+        # while the job stays the same -- a scrub re-measures them on the new
+        # geometry -- and cleared when the pane changes job.
+        self.selection: tuple = ()
         self._job: Job | None = None
         self._point = None
         self._request_seq = 0
@@ -464,6 +505,7 @@ class RotatableGeometryImage(Widget):
             pan=self.pan, representation=self.representation, fog=self.fog,
             show_labels=self.show_labels, show_distances=self.show_distances,
             show_hydrogens=self._show_hydrogens(), see_through=self.see_through,
+            selected=self.selection,
         )
 
     def _show_hydrogens(self) -> bool:
@@ -711,6 +753,32 @@ class RotatableGeometryImage(Widget):
             return atoms
         return vibrations.displaced(drawn, offs, self._mode_s)
 
+    def action_select_atoms(self) -> None:
+        """`s`: type up to four atom numbers to ring and measure (D8)."""
+        self.app.push_screen(AtomPrompt(" ".join(str(i) for i in self.selection)),
+                             self._atoms_entered)
+
+    def _atoms_entered(self, value: str | None) -> None:
+        # Escape dismisses with None: the person changed their mind, and the
+        # selection stays as it was.
+        if value is None:
+            return
+        n = len(self._atoms_for(self._job, self._point))
+        try:
+            chosen = parse_atom_list(value, n)
+        except ValueError as exc:
+            # D8: a bad entry is refused and changes nothing.
+            self.notify(str(exc), severity="error")
+            return
+        self.set_selection(chosen)
+
+    def set_selection(self, atoms) -> None:
+        """Show `atoms` as picked: ringed and labelled, and measured in the
+        pane title (D5, D7)."""
+        self.selection = tuple(atoms)
+        self._input.request()
+        self.app.update_detail()
+
     def action_zoom_in(self) -> None:
         self.zoom = min(ZOOM_MAX, self.zoom * ZOOM_STEP)
         self._input.request()
@@ -810,6 +878,9 @@ class KittyGeometryImage(RotatableGeometryImage):
         is_new_selection = job is not self._job or point is not self._point
         if job is not self._job:
             self._stop_modes()
+            # D5: a new job starts with nothing picked; a new geometry of the
+            # same job keeps the selection, re-measured on its atoms.
+            self.selection = ()
         self._job = job
         self._point = point
         if is_new_selection:
@@ -932,6 +1003,8 @@ class TextGeometry(RotatableGeometryImage):
         if job is not self._job:
             self._hydrogens = None
             self._stop_modes()
+            # D5: a new job starts with nothing picked.
+            self.selection = ()
         self._job, self._point = job, point
         atoms = self._atoms_for(job, point)
         qm = job.state.qm_atom_indices if job is not None else None
@@ -1014,6 +1087,8 @@ class HerdrGeometryImage(RotatableGeometryImage):
         is_new_selection = job is not self._job or point is not self._point
         if job is not self._job:
             self._stop_modes()
+            # D5: a new job starts with nothing picked.
+            self.selection = ()
         self._job = job
         self._point = point
         if is_new_selection:
@@ -1562,8 +1637,9 @@ class MonitorApp(App):
 
     def _title_geometry(self, geometry, job: Job | None, point) -> None:
         """Say WHICH geometry the pane is drawing -- and, when the requested
-        one had no coordinates printed, that it is drawing another."""
-        _atoms, shown = geometry_shown(job, point)
+        one had no coordinates printed, that it is drawing another -- and what
+        the atoms the person picked measure on it."""
+        atoms, shown = geometry_shown(job, point)
         title = self._geometry_title()
         where = describe_point(shown)
         if point is not None and shown is not point:
@@ -1571,6 +1647,9 @@ class MonitorApp(App):
             where = f"{asked}: not printed, showing {where or 'none'}"
         if where:
             title += f" · {where}"
+        picked = describe_measurement(atoms, geometry.selection)
+        if picked:
+            title += f" · {picked}"
         if geometry.border_title != title:
             geometry.border_title = title
 
