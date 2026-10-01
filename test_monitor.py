@@ -383,6 +383,70 @@ def test_a_frame_is_a_small_faithful_palette_png():
           0 < changed < 0.05, f"{changed:.3%} of pixels differ")
 
 
+def test_the_view_is_not_mirrored():
+    print("\nthe camera basis is right-handed: screen right really is right")
+    from orcamon.core.geometry import camera_basis, camera_forward
+
+    def cross(a, b):
+        return (a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0])
+
+    angles = [(0, 0), (20, -60), (35, 110), (-40, 200)]
+    for elev, azim in angles:
+        right, up = camera_basis(elev, azim)
+        forward = camera_forward(elev, azim)
+        normal = cross(right, up)
+        check(f"cross(right, up) == forward at ({elev}, {azim})",
+              max(abs(normal[i] - forward[i]) for i in range(3)) < 1e-9,
+              f"{normal} vs {forward}")
+
+    # A matplotlib cross-check, because matplotlib is still installed in
+    # Phase 0 -- DELETED in Phase 2 along with matplotlib. Projecting a unit
+    # step along `right` must move the projected x in +x, the way mplot3d
+    # itself places screen right.
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+    from mpl_toolkits.mplot3d import proj3d
+    for elev, azim in angles:
+        fig = Figure()
+        FigureCanvasAgg(fig)
+        ax = fig.add_subplot(111, projection="3d")
+        ax.set_proj_type("ortho")
+        ax.view_init(elev=elev, azim=azim)
+        ax.set_xlim(-2, 2)
+        ax.set_ylim(-2, 2)
+        ax.set_zlim(-2, 2)
+        projection = ax.get_proj()
+        right, _up = camera_basis(elev, azim)
+        ox, _, _ = proj3d.proj_transform(0.0, 0.0, 0.0, projection)
+        rx, _, _ = proj3d.proj_transform(right[0], right[1], right[2], projection)
+        check(f"matplotlib agrees screen right is +x at ({elev}, {azim})", rx > ox,
+              f"{rx} vs {ox}")
+
+
+def test_text_mode_draws_the_right_enantiomer():
+    print("\ntext mode draws the molecule's own enantiomer, not its mirror")
+    from orcamon.tui import geometry_text
+
+    atoms = [("O", 0.0, 0.0, 0.0), ("N", 0.0, 1.0, 0.0), ("S", 0.0, 0.0, 1.0)]
+    text = geometry_text.render(atoms, 21, 11, geometry_text.View(elev=0, azim=0)).plain
+    rows = text.split("\n")
+
+    def cell(symbol):
+        for row, line in enumerate(rows):
+            col = line.find(symbol)
+            if col >= 0:
+                return row, col
+        return None
+
+    o, n, s = cell("O"), cell("N"), cell("S")
+    check("with the eye on +x, +y is screen right: the N glyph is right of the O",
+          o is not None and n is not None and n[1] > o[1], f"O {o} N {n}")
+    check("and +z is screen up: the S glyph is above the O",
+          o is not None and s is not None and s[0] < o[0], f"O {o} S {s}")
+
+
 def test_every_marker_reaches_its_parser():
     print("\nevery marker line reaches its parser past the prefilter")
     check("validate.MARKER_CASES all read", validate.check_markers() == 0)
@@ -667,6 +731,8 @@ if __name__ == "__main__":
     test_the_basis_is_the_one_orca_reports()
     test_the_fast_path_reads_what_the_line_path_reads()
     test_a_frame_is_a_small_faithful_palette_png()
+    test_the_view_is_not_mirrored()
+    test_text_mode_draws_the_right_enantiomer()
     test_every_marker_reaches_its_parser()
     test_status_names_the_outcome()
     test_attention_flags()

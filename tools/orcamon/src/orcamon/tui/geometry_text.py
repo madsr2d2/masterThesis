@@ -23,7 +23,9 @@ from dataclasses import dataclass
 from rich.style import Style
 from rich.text import Text
 
-from ..core.geometry import BOND_CUTOFF, DEFAULT_ELEMENT_COLOR, ELEMENT_COLORS, camera_basis
+from ..core.geometry import (
+    BOND_CUTOFF, DEFAULT_ELEMENT_COLOR, ELEMENT_COLORS, camera_basis, camera_forward,
+)
 
 # The pixel renderer draws carbon dark grey on its own dark background, where
 # it reads through the sphere's shading and black edge. A bare letter in that
@@ -100,9 +102,7 @@ def render(
     visible = [view.show_hydrogens or el != "H" for el, *_ in atoms]
 
     right, up = camera_basis(view.elev, view.azim)
-    forward = (up[1] * right[2] - up[2] * right[1],
-               up[2] * right[0] - up[0] * right[2],
-               up[0] * right[1] - up[1] * right[0])
+    forward = camera_forward(view.elev, view.azim)
     cx = sum(a[1] for a in atoms) / n + view.pan[0]
     cy = sum(a[2] for a in atoms) / n + view.pan[1]
     cz = sum(a[3] for a in atoms) / n + view.pan[2]

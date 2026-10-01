@@ -16,9 +16,25 @@ DEFAULT_ELEMENT_COLOR = "#c060c0"
 BOND_CUTOFF = 1.7  # angstrom, generous single-bond distance cutoff
 
 
+def camera_forward(elev_deg: float, azim_deg: float) -> tuple[float, float, float]:
+    """The unit vector from the molecule's centre TO the eye, for
+    `(elev, azim)` in degrees (matplotlib's `view_init` convention):
+    `f = (cos e cos a, cos e sin a, sin e)` for elevation e, azimuth a.
+    A larger `p . f` is nearer the viewer."""
+    elev, azim = math.radians(elev_deg), math.radians(azim_deg)
+    return (math.cos(elev) * math.cos(azim), math.cos(elev) * math.sin(azim), math.sin(elev))
+
+
 def camera_basis(elev_deg: float, azim_deg: float) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
-    """Screen-space right/up unit vectors for matplotlib's
+    """Screen-space (right, up) unit vectors for matplotlib's
     `view_init(elev_deg, azim_deg)`.
+
+    `right = normalize(cross(z_hat, forward))` and `up = cross(forward,
+    right)`, so `cross(right, up) == forward`: the screen's right-handed
+    normal points AT the viewer. This returned `cross(forward, z_hat)`,
+    which is `-right`, until 2026-09-30 -- and the text renderer uses it as
+    screen +x, so text mode drew the molecule's mirror image. The six-pair
+    check in `test_monitor.test_the_view_is_not_mirrored` pins the sign.
 
     Panning applies a step along these at the moment a pan key is pressed,
     then stores the result as a fixed WORLD-space offset (see
@@ -26,14 +42,12 @@ def camera_basis(elev_deg: float, azim_deg: float) -> tuple[tuple[float, float, 
     before turning it, so a later rotation swings the view around the
     panned-to point rather than re-deriving "screen right" from the new angle
     and drifting the pan with it."""
-    elev, azim = math.radians(elev_deg), math.radians(azim_deg)
-    forward = (math.cos(elev) * math.cos(azim), math.cos(elev) * math.sin(azim), math.sin(elev))
-    right = _cross(forward, (0.0, 0.0, 1.0))
+    forward = camera_forward(elev_deg, azim_deg)
+    right = _cross((0.0, 0.0, 1.0), forward)
     norm = math.sqrt(sum(c * c for c in right))
     right = tuple(c / norm for c in right) if norm > 1e-6 else (1.0, 0.0, 0.0)
-    up = _cross(right, forward)
-    norm = math.sqrt(sum(c * c for c in up))
-    return right, tuple(c / norm for c in up)
+    up = _cross(forward, right)
+    return right, up
 
 
 def _cross(a, b) -> tuple[float, float, float]:

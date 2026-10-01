@@ -410,12 +410,16 @@ class RotatableGeometryImage(Widget):
         self._pan_by(0.0, -PAN_STEP)
 
     def _pan_by(self, dx: float, dy: float) -> None:
+        # `pan` shifts the camera TARGET, and the picture moves the opposite
+        # way -- so to move the molecule in the arrow's direction the step has
+        # to be SUBTRACTED. Adding it (the old form, on the old -right basis)
+        # sent every pan key backwards.
         right, up = camera_basis(self.elev, self.azim)
         px, py, pz = self.pan
         self.pan = (
-            px + right[0] * dx + up[0] * dy,
-            py + right[1] * dx + up[1] * dy,
-            pz + right[2] * dx + up[2] * dy,
+            px - right[0] * dx - up[0] * dy,
+            py - right[1] * dx - up[1] * dy,
+            pz - right[2] * dx - up[2] * dy,
         )
         self._input.request()
 
