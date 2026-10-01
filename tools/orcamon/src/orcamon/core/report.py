@@ -105,6 +105,7 @@ class JobReport:
     # does not carry.
     _input_read: bool = field(default=True, repr=False)
     _liveness_note: str | None = field(default=None, repr=False)
+    _converged_reason: str | None = field(default=None, repr=False)
 
     def to_dict(self) -> dict:
         return {k: v for k, v in asdict(self).items() if not k.startswith("_")}
@@ -191,6 +192,7 @@ def build_report(job: Job, now: float | None = None) -> JobReport:
         attention=[f.to_dict() for f in job.flags],
         _input_read=inp is not None,
         _liveness_note=liveness.note if liveness else None,
+        _converged_reason=state.opt_converged_reason,
     )
 
 
@@ -278,6 +280,8 @@ def report_lines(report: JobReport) -> list[Line]:
         segs.append((f" · last output {format_age(report.last_output_age_s)} ago", None))
     if report.opt_converged:
         segs += [(" · ", None), ("optimization converged", "green")]
+        if report._converged_reason is not None:
+            segs.append((f" (on ORCA's relaxed rule: {report._converged_reason})", "dim"))
     lines.append(("status", segs))
 
     # Once a job has ended, how it was known to be running no longer matters,

@@ -34,6 +34,15 @@ _OPT_DONE_RE = re.compile(r"OPTIMIZATION HAS CONVERGED|OPTIMIZATION RUN DONE")
 # matched. The run then goes on -- to the next scan step, or to a requested
 # frequency calculation -- and can still end "ORCA TERMINATED NORMALLY".
 _OPT_MAXITER_RE = re.compile(r"The optimization did not converge but reached the maximum")
+# Why ORCA called an optimization converged without all five criteria met,
+# printed between the cycle's convergence table and the HURRAY banner:
+#     The gradient convergence is overachieved with
+#     The step convergence is overachieved with
+#     Everything but the energy has converged. However, the energy
+# All five met prints none of them.
+_CONVERGED_REASON_RE = re.compile(
+    r"The (gradient|step) convergence is overachieved|Everything but the energy has converged"
+)
 # A geometry the job writes to a FILE instead of printing it. ORCA's SOLVATOR
 # prints no coordinate block at all -- the solvated cluster exists only as
 # `job.solvator.xyz` -- and names the file on this line, typo included:
@@ -115,6 +124,7 @@ _RARE_MARKERS_RE = re.compile(
     r"|constrained geometry optimizations|to be scanned|Max\. no of cycles"
     r"|basis set information|utilizes the basis:"
     r"|did not converge but reached the maximum|saved to"
+    r"|convergence is overachieved|Everything but the energy has converged"
 )
 _CONV_HINT_RE = re.compile(r"gradient|step|Energy change")
 
@@ -246,6 +256,9 @@ class JobState:
     # cycles". A scan says it per step and carries on, so the steps it was
     # said for are kept too.
     opt_maxiter_reached: bool = False
+    # ORCA's reason when it converged without all five criteria; None when all
+    # five were met.
+    opt_converged_reason: str | None = None
     maxiter_scan_steps: list = field(default_factory=list)
     # A geometry file the job announced it wrote (relative to the job's
     # directory), for jobs that print no coordinates -- see _RESULT_FILE_RE.
@@ -302,6 +315,7 @@ class JobState:
     _freq_imaginary: list = field(default_factory=list)
     _freq_all: list = field(default_factory=list)
     _pending_eig: int | None = None
+    _pending_converged_reason: str | None = None
     _in_modes_block: bool = False
     _modes_columns: list = field(default_factory=list)
     # mode index -> {coordinate index: printed value}, filled column by column
@@ -426,6 +440,7 @@ class JobState:
         if m:
             self.cycle = int(m.group(1))
             self._pending_eig = None
+            self._pending_converged_reason = None
 
         m = _EIGEN_RE.search(line)
         if m:
@@ -442,8 +457,18 @@ class JobState:
         if _NORMAL_DONE_RE.search(line):
             self.normal_completion = True
 
+        m = _CONVERGED_REASON_RE.search(line)
+        if m:
+            if m.group(1) == "gradient":
+                self._pending_converged_reason = "gradient overachieved"
+            elif m.group(1) == "step":
+                self._pending_converged_reason = "step overachieved"
+            else:
+                self._pending_converged_reason = "energy nearly converged"
+
         if _OPT_DONE_RE.search(line):
             self.opt_converged = True
+            self.opt_converged_reason = self._pending_converged_reason
 
         m = _RESULT_FILE_RE.search(line)
         if m:

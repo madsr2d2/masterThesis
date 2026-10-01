@@ -1349,6 +1349,49 @@ def test_attention_flags():
                  opt, gone) == [])
 
 
+def test_orca_says_why_it_converged():
+    print("\nwhen ORCA converges on its relaxed rule, the report names which one")
+    B = "         *              GEOMETRY OPTIMIZATION CYCLE   5            *"
+    B6 = "         *              GEOMETRY OPTIMIZATION CYCLE   6            *"
+    H = "      ***        THE OPTIMIZATION HAS CONVERGED     ***"
+
+    first = JobState(path=Path("/nonexistent"), stem="job")
+    _feed(first, B)
+    _feed(first, "       The step convergence is overachieved with ")
+    _feed(first, H)
+    check("the step overachievement is named",
+          first.opt_converged_reason == "step overachieved", f"{first.opt_converged_reason}")
+
+    state = JobState(path=Path("/nonexistent"), stem="job")
+    _feed(state, B)
+    _feed(state, "       Everything but the energy has converged. However, the energy")
+    _feed(state, H)
+    check("the energy-only convergence is named",
+          state.opt_converged_reason == "energy nearly converged", f"{state.opt_converged_reason}")
+
+    state = JobState(path=Path("/nonexistent"), stem="job")
+    _feed(state, B)
+    _feed(state, "       The gradient convergence is overachieved with ")
+    _feed(state, H)
+    check("the gradient overachievement is named",
+          state.opt_converged_reason == "gradient overachieved", f"{state.opt_converged_reason}")
+
+    state = JobState(path=Path("/nonexistent"), stem="job")
+    _feed(state, B)
+    _feed(state, "       The step convergence is overachieved with ")
+    _feed(state, B6)
+    _feed(state, H)
+    check("a reason from an earlier cycle is not carried over",
+          state.opt_converged is True and state.opt_converged_reason is None,
+          f"{state.opt_converged} {state.opt_converged_reason}")
+
+    report = build_report(_report_job(first, "! B97-3c Opt\n* xyz 0 1\n*\n",
+                                      Liveness(False, "process")))
+    check("the text report names the rule",
+          "optimization converged (on ORCA's relaxed rule: step overachieved)" in render_plain(report))
+    check("and the JSON contract does not change", not any("reason" in k for k in report.to_dict()))
+
+
 _MULTILAYER_INPUT = """
 ! QM/XTB r2SCAN-3c OptTS Freq PAL8
 %maxcore 4000
@@ -1502,6 +1545,7 @@ if __name__ == "__main__":
     test_every_marker_reaches_its_parser()
     test_status_names_the_outcome()
     test_attention_flags()
+    test_orca_says_why_it_converged()
     test_plain_and_markup_say_the_same_thing()
     test_report_keys_are_stable()
     test_a_job_that_prints_no_geometry_shows_the_one_it_wrote()

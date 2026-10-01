@@ -112,6 +112,12 @@ MARKER_CASES = [
     ("          MAX step            0.0192646101            0.0040000000      YES",
      lambda s: s._pending_step.get("max_step") == (0.0192646101, 0.004, True)),
     ("NORMAL MODES", lambda s: s._in_modes_block),
+    ("       The gradient convergence is overachieved with ",
+     lambda s: s._pending_converged_reason == "gradient overachieved"),
+    ("       The step convergence is overachieved with ",
+     lambda s: s._pending_converged_reason == "step overachieved"),
+    ("       Everything but the energy has converged. However, the energy",
+     lambda s: s._pending_converged_reason == "energy nearly converged"),
 ]
 
 
