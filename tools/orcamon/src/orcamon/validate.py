@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"discover found {len(jobs)} jobs under {root}\n")
     for ref in jobs:
         job = Job(ref.path, ref.stem, root, label=ref.label)
-        job.refresh(lookup(snapshot, probe, ref.path))
+        job.refresh(lookup(snapshot, probe, ref.path, ref.stem))
         state = job.state
         print(f"--- {ref.label} ({ref.stem}) ---")
         print(f"  status: {job.status.value}  (liveness: {job.liveness.source})")

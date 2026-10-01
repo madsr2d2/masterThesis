@@ -96,7 +96,7 @@ def _load_ref(ref: JobRef, root: Path, probe: LivenessProbe, snapshot, args, now
     use_cache = not args.no_cache
     restored = use_cache and cache.restore(job.state)
     offset = job.state.offset
-    job.refresh(lookup(snapshot, probe, ref.path), now=now, quiet_after=args.quiet_after)
+    job.refresh(lookup(snapshot, probe, ref.path, ref.stem), now=now, quiet_after=args.quiet_after)
     # Saved only when this call read something: an unchanged finished job
     # costs one stat and one small unpickle, and writes nothing.
     if use_cache and (not restored or job.state.offset != offset):
@@ -806,7 +806,8 @@ def cmd_wait(args) -> int:
         now = time.time()
         reports = []
         for i, job in enumerate(jobs):
-            job.refresh(lookup(snapshot, probe, job.state.path), now=now, quiet_after=args.quiet_after)
+            job.refresh(lookup(snapshot, probe, job.state.path, job.state.stem), now=now,
+                        quiet_after=args.quiet_after)
             r = build_report(job, now=now)
             first.setdefault(i, r)
             reports.append(r)

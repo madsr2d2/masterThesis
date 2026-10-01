@@ -104,8 +104,10 @@ without `crash_lines` and `criteria`. Changing the key set bumps
 `squeue` is on PATH, `process` elsewhere).
 
 - `process`: this machine's process table, read from `/proc` (psutil
-  where there is none). A job directory with no `orca*` process is not
-  running.
+  where there is none). A job is running when an `orca` driver or an
+  `orca_*` module runs in its directory; where the driver names its input
+  (`orca job.inp`), only that job is, and the directory's other jobs are
+  not.
 - `slurm`: `squeue --me`, matched to a job directory by working
   directory, exactly or as the ancestor of exactly one unfinished job. An
   ambiguous match is left unmatched and says so. A job squeue does not

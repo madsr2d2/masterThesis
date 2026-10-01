@@ -19,6 +19,21 @@ from pathlib import Path
 _PROC = Path("/proc")
 
 
+def is_orca_process(name: str) -> bool:
+    """The ORCA driver (`orca`) or one of its modules (`orca_scf_mpi`, ...).
+    Not `orcamon`, whose console script would otherwise count itself."""
+    return name == "orca" or name.startswith("orca_")
+
+
+def input_stem(args: list[str]) -> str | None:
+    """The job an `orca` driver was started on: its first argument that is
+    an input file, as a stem (`/a/b/job.inp` -> `job`); None when none is."""
+    for arg in args[1:]:
+        if arg and not arg.startswith("-") and arg.endswith(".inp"):
+            return Path(arg).name[:-4]
+    return None
+
+
 def running_orca_cwds() -> dict[Path, float]:
     """Working directory -> start time (epoch s) of the ORCA run there.
 
@@ -26,13 +41,8 @@ def running_orca_cwds() -> dict[Path, float]:
     `orca_leanscf`, ...), all in the job's directory. The driver's start time
     is the run's; when it cannot be seen (another user's, or already reaped),
     the oldest `orca*` process in the directory stands in for it."""
-    if _PROC.is_dir():
-        entries = _proc_entries()
-    else:
-        entries = _psutil_entries()
-
     by_cwd: dict[Path, list[tuple[str, float]]] = {}
-    for name, cwd, started in entries:
+    for name, cwd, started, _args in _orca_entries():
         by_cwd.setdefault(cwd, []).append((name, started))
 
     result: dict[Path, float] = {}
@@ -40,6 +50,23 @@ def running_orca_cwds() -> dict[Path, float]:
         main = [t for name, t in found if name == "orca"]
         result[cwd] = min(main) if main else min(t for _, t in found)
     return result
+
+
+def running_orca_stems() -> dict[Path, frozenset[str]]:
+    """Working directory -> the job stems an `orca` driver there names.
+
+    Only the driver's own command line says which of a directory's several
+    jobs it runs; a module (`orca_scf_mpi`) does not name one. A directory
+    left out of the dict is one where no driver names its input, so its
+    liveness stays directory-level."""
+    by_cwd: dict[Path, set[str]] = {}
+    for name, cwd, _started, args in _orca_entries():
+        if name != "orca":
+            continue
+        stem = input_stem(args)
+        if stem is not None:
+            by_cwd.setdefault(cwd, set()).add(stem)
+    return {cwd: frozenset(stems) for cwd, stems in by_cwd.items()}
 
 
 def _boot_time() -> float:
@@ -50,7 +77,11 @@ def _boot_time() -> float:
     raise OSError("no btime in /proc/stat")
 
 
-def _proc_entries() -> list[tuple[str, Path, float]]:
+def _orca_entries() -> list[tuple[str, Path, float, list[str]]]:
+    return _proc_entries() if _PROC.is_dir() else _psutil_entries()
+
+
+def _proc_entries() -> list[tuple[str, Path, float, list[str]]]:
     ticks = os.sysconf("SC_CLK_TCK")
     boot = _boot_time()
     found = []
@@ -63,11 +94,15 @@ def _proc_entries() -> list[tuple[str, Path, float]]:
             # like `orca_scf_mpi` survives but only the prefix is reliable.
             with open(f"{base}/comm") as f:
                 name = f.read().strip()
-            if not name.startswith("orca"):
+            if not is_orca_process(name):
                 continue
             cwd = Path(os.readlink(f"{base}/cwd"))
             with open(f"{base}/stat") as f:
                 stat = f.read()
+            try:
+                args = open(f"{base}/cmdline", "rb").read().decode("utf-8", "replace").split("\0")
+            except OSError:
+                args = []
         except (FileNotFoundError, PermissionError, ProcessLookupError):
             continue
         # Field 22 is the start time in clock ticks since boot. The command
@@ -75,23 +110,24 @@ def _proc_entries() -> list[tuple[str, Path, float]]:
         # so count fields from the LAST ')'.
         rest = stat[stat.rfind(")") + 2 :].split()
         started = boot + int(rest[19]) / ticks
-        found.append((name, _resolve(cwd), started))
+        found.append((name, _resolve(cwd), started, args))
     return found
 
 
-def _psutil_entries() -> list[tuple[str, Path, float]]:
+def _psutil_entries() -> list[tuple[str, Path, float, list[str]]]:
     try:
         import psutil
     except ImportError:
         return []
     found = []
-    for proc in psutil.process_iter(["name", "cwd", "create_time"]):
+    for proc in psutil.process_iter(["name", "cwd", "create_time", "cmdline"]):
         try:
             name = proc.info["name"] or ""
             cwd = proc.info["cwd"]
-            if not name.startswith("orca") or cwd is None:
+            if not is_orca_process(name) or cwd is None:
                 continue
-            found.append((name, _resolve(Path(cwd)), proc.info["create_time"]))
+            found.append((name, _resolve(Path(cwd)), proc.info["create_time"],
+                          proc.info["cmdline"] or []))
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             continue
     return found
@@ -119,6 +155,7 @@ class Liveness:
     queued: bool = False        # the scheduler has it pending
     sched_id: str | None = None
     note: str | None = None     # why the source could not decide, if it could not
+    stems: frozenset | None = None  # the jobs (stems) known to run in this directory; None = cannot tell which
 
 
 class LivenessProbe:
@@ -141,7 +178,9 @@ class ProcessProbe(LivenessProbe):
     name = "process"
 
     def snapshot(self, job_dirs=None):
-        return {cwd: Liveness(True, self.name, since=t) for cwd, t in running_orca_cwds().items()}
+        stems = running_orca_stems()
+        return {cwd: Liveness(True, self.name, since=t, stems=stems.get(cwd))
+                for cwd, t in running_orca_cwds().items()}
 
     def default(self, job_dir):
         return Liveness(False, self.name)
@@ -246,9 +285,10 @@ class SlurmProbe(LivenessProbe):
         # this probe wherever squeue exists, and without this a job started
         # by hand read as stopped once it had been quiet for --quiet-after,
         # with its process alive.
+        stems = running_orca_stems()
         for cwd, started in running_orca_cwds().items():
             if cwd not in live:
-                live[cwd] = Liveness(True, "process", since=started)
+                live[cwd] = Liveness(True, "process", since=started, stems=stems.get(cwd))
                 self._ambiguous.pop(cwd, None)
         return live
 
@@ -341,5 +381,12 @@ def make_probe(mode: str = "auto", quiet_after: float | None = None) -> Liveness
     return cls(quiet_after=quiet_after) if cls is SlurmProbe else cls()
 
 
-def lookup(snapshot: dict[Path, Liveness], probe: LivenessProbe, job_dir: Path) -> Liveness:
-    return snapshot.get(_resolve(job_dir)) or probe.default(job_dir)
+def lookup(snapshot: dict[Path, Liveness], probe: LivenessProbe, job_dir: Path,
+           stem: str | None = None) -> Liveness:
+    entry = snapshot.get(_resolve(job_dir))
+    if entry is None:
+        return probe.default(job_dir)
+    # A driver named the job it runs: this directory's other jobs are not it.
+    if stem is not None and entry.stems is not None and stem not in entry.stems:
+        return Liveness(False, entry.source)
+    return entry

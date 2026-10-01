@@ -1081,6 +1081,67 @@ def test_squeue_lines_parse():
     check("a start time is read, N/A is None", rows[0][3] is not None and rows[1][3] is None)
 
 
+def test_liveness_names_the_job_not_only_the_directory():
+    print("\nliveness names the job, not only the directory, and orcamon is not ORCA")
+    import json
+    import shutil
+    import tempfile
+    from pathlib import Path
+    from orcamon.core.liveness import input_stem, is_orca_process
+
+    check("only the driver and its modules count as ORCA",
+          is_orca_process("orca") and is_orca_process("orca_scf_mpi")
+          and not is_orca_process("orcamon") and not is_orca_process("orcabox"))
+    check("the driver's first input file names the job it runs",
+          input_stem(["./orca", "-f", "opt.inp", ""]) == "opt"
+          and input_stem(["/x/orca", "/a/b/job.inp"]) == "job"
+          and input_stem(["orca_scf_mpi", "job.scfinp", "job"]) is None)
+
+    inp = "! B97-3c Opt\n* xyz 0 1\nH 0 0 0\n*\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        j = root / "j"
+        j.mkdir()
+        for stem in ("opt", "freq", "old"):
+            (j / f"{stem}.inp").write_text(inp)
+        for stem in ("opt", "old"):
+            (j / f"{stem}.out").write_text("partial output\n")
+        # A copy of tail is an `orca` driver that names opt.inp and stays
+        # up: the same argument vector `orca opt.inp` has.
+        fake = j / "orca"
+        shutil.copy("/bin/tail", fake)
+        os.chmod(fake, 0o755)
+        proc = subprocess.Popen([str(fake), "-f", "opt.inp"], cwd=j,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            _code, doc, err = _json(["--root", str(root), "--liveness", "process",
+                                     "--no-cache", "ls"])
+            status = {r["label"]: r["status"] for r in (doc or {}).get("jobs", [])}
+            check("the driver's own job is running", status.get("j/opt") == "running", f"{status} {err}")
+            check("a job the driver does not name is not running",
+                  status.get("j/freq") == "not run", f"{status}")
+            check("a stopped sibling stays stopped", status.get("j/old") == "stopped", f"{status}")
+        finally:
+            proc.kill()
+            proc.wait()
+
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as cache:
+        d = Path(tmp)
+        (d / "job.inp").write_text(inp)
+        (d / "job.out").write_text("partial output\n")
+        # Run the console script FROM the job directory: its own `comm` is
+        # `orcamon`, which is not an ORCA process.
+        done = subprocess.run(
+            [str(Path(sys.executable).with_name("orcamon")), "--liveness", "process",
+             "--no-cache", "ls", "--json"],
+            cwd=d, capture_output=True, text=True, timeout=60,
+            env={**os.environ, "XDG_CACHE_HOME": cache, "HERDR_ENV": "0"})
+        jobs = json.loads(done.stdout)["jobs"] if done.stdout else []
+        check("orcamon does not count itself as the job's ORCA process",
+              len(jobs) == 1 and jobs[0]["status"] == "stopped",
+              f"{done.returncode} {done.stdout[:200]} {done.stderr[:200]}")
+
+
 # --- the shipped skill -------------------------------------------------------
 
 _SKILL_PLACEHOLDERS = {"JOB": "opt_done", "REGEX": "FINAL", "COND": "done"}
@@ -1254,6 +1315,7 @@ if __name__ == "__main__":
     test_the_tui_runs_headless()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
+    test_liveness_names_the_job_not_only_the_directory()
     test_the_skill_names_every_command()
     test_the_skill_examples_run()
     test_the_skill_reference_matches_the_parser()

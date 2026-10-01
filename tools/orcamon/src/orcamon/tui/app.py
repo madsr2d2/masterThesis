@@ -1280,7 +1280,8 @@ class MonitorApp(App):
                 # is next read -- so between rediscoveries it is not stat'ed.
                 if not full and job.parsed and job.status in TERMINAL:
                     continue
-                job.refresh(lookup(snapshot, self.probe, job.state.path), quiet_after=self.quiet_after)
+                job.refresh(lookup(snapshot, self.probe, job.state.path, job.state.stem),
+                            quiet_after=self.quiet_after)
                 report = build_report(job)
                 raised += events(self._reports.get(id(job)), report)
                 self._reports[id(job)] = report
