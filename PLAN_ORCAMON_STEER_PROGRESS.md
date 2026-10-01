@@ -9,7 +9,7 @@ Plan: `PLAN_ORCAMON_STEER.md`. Branch `master` from `master` (`9b4abeae965da1706
 | ST3 renderers draw the selection | DONE | 04027ae | 1 | reviewer PASS r1: 231/218 pass, 0 failures |
 | ST4 s picks atoms | DONE | 56fe103 | 1 | reviewer PASS r1: 231/224 pass, 0 failures |
 | ST5 the TUI publishes; orcamon view | DONE | c908f4e | 1 | reviewer PASS r1: 231/231 pass, 0 failures |
-| ST6 orcamon focus | TODO | | | |
+| ST6 orcamon focus | DONE | 37750b5 | 1 | reviewer PASS r1: 231/238 pass, 0 failures |
 | ST7 the TUI takes focus; b | TODO | | | |
 | ST8 click picking, every gate | TODO | | | |
 
@@ -25,6 +25,7 @@ Statuses: TODO | DONE | BLOCKED
 | ST3 | 231 | 218 | 0 failure(s) | (not run; ST8 only) |
 | ST4 | 231 | 224 | 0 failure(s) | (not run; ST8 only) |
 | ST5 | 231 | 231 | 0 failure(s) | (not run; ST8 only) |
+| ST6 | 231 | 238 | 0 failure(s) | (not run; ST8 only) |
 
 ## Gates
 
@@ -37,6 +38,7 @@ Statuses: TODO | DONE | BLOCKED
 - 2026-10-01T18:21Z ST3 DONE (04027ae). Reviewer PASS round 1, no findings. 231/218 pass, 0 failures.
 - 2026-10-01T18:26Z ST4 DONE (56fe103). Reviewer PASS round 1, no findings. 231/224 pass, 0 failures.
 - 2026-10-01T18:36Z ST5 DONE (c908f4e). Reviewer PASS round 1, no findings. 231/231 pass, 0 failures.
+- 2026-10-01T18:43Z ST6 DONE (37750b5). Reviewer PASS round 1, no findings. 231/238 pass, 0 failures.
 
 ## Backlog
 
@@ -45,3 +47,4 @@ Statuses: TODO | DONE | BLOCKED
 - The ST3 selection test does not check that a picked atom is labelled exactly once (that `_draw_labels` skips it); pixel-level double-drawing is hard to see (reviewer, ST3 r1).
 - ST4's commit carries a Co-Authored-By line naming DeepSeek rather than the harness attribution; cosmetic (reviewer, ST4 r1). Same trailer on ST5's commit.
 - ST5's commit message c908f4e lost its backticked identifiers to shell substitution (amending was denied); it reads awkwardly but contains `Task: ST5` (reviewer, ST5 r1).
+- `orcamon skill --check` reports no user-level skill at `~/.claude/skills`; the project-level copy is current and is what the tests require (reviewer, ST6 r1).
