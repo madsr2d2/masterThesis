@@ -89,6 +89,12 @@ labelled `QM/QM2`, never the high-level region alone.
 to look at (needs the `images` extra). It is for showing someone a structure,
 not for answering a question about it.
 
+`orcamon freqs JOB --mode N` names the atoms that move most in mode N — ORCA's
+mode number, imaginary or real — each with its displacement relative to the
+largest (`--top K`, default 8). Use it to say in words what a mode does.
+`orcamon snapshot JOB --mode N -o file.png` draws any of those modes for a
+person.
+
 `orcamon geom` takes a cycle, or a scan step and its cycle. ORCA does not
 print coordinates for every cycle. When the one asked for was not printed,
 the command exits 2 and names the nearest earlier cycle that was. Report
@@ -235,16 +241,18 @@ render a job's geometry to a PNG (needs the images extra)
 - `--no-fog`: do not fade distant atoms
 - `--see-through`: show the QM region through the environment where the environment covers it
 - `--point N`: a point on an IRC or NEB path: the signed IRC point (0 is the TS, negative is backward) or the NEB image
-- `--mode N`: animate an imaginary normal mode: ORCA's mode number (the one `orcamon freqs` prints)
+- `--mode N`: animate a normal mode, imaginary or real: ORCA's mode number (the one `orcamon freqs` prints)
 - `--phase DEG`: where in the oscillation to draw, 0-360 degrees (default: 90.0)
 - `--distances`: label the QM-QM bond distances
 
 ### orcamon freqs
 
-imaginary and lowest real vibrational frequencies
+imaginary and lowest real vibrational frequencies, or the atoms one mode moves
 
 - `JOB`: a job directory, a .inp/.out file, or (part of) a job's label
 - `--lowest K`: real modes to list (default: 6)
+- `--mode N`: describe one mode, imaginary or real: the atoms it moves most, by ORCA's atom number
+- `--top K`: atoms to list with --mode (default: 8)
 - `--json`: print one JSON document instead of text
 - `--max-lines N`: cap on text output lines (default: 60)
 

@@ -527,7 +527,7 @@ SNAPSHOT_MAX_SIDE = 4096
 def cmd_snapshot(args, job: Job) -> int:
     """Render a job's latest geometry (or the geometry file it wrote) to a
     PNG, using the same renderer the TUI's pixel panes use. With --mode, the
-    geometry is displaced along one imaginary mode's own pattern instead."""
+    geometry is displaced along one mode's own pattern instead."""
     state = job.state
     if args.point is not None:
         if args.mode is not None:
@@ -552,11 +552,9 @@ def cmd_snapshot(args, job: Job) -> int:
 
         if state.frequencies is None:
             raise UsageError("this job has no frequency block (no Freq or NumFreq step)")
-        modes = vibrations.imaginary_modes(state)
-        available = [m.index for m in modes]
-        if args.mode not in available:
-            raise UsageError(f"no imaginary mode {args.mode} in this job; available: {available or 'none'}")
-        mode = next(m for m in modes if m.index == args.mode)
+        mode = vibrations.find_mode(state, args.mode)
+        if mode is None:
+            raise UsageError(f"no mode {args.mode} in this job; {vibrations.available_text(state)}")
         # The pane's geometry may not be the Hessian's -- a multilayer `.out`
         # prints only its QM block -- so the mode is drawn on the structure
         # that holds it, or refused rather than moved against the wrong atoms.
@@ -601,6 +599,50 @@ def cmd_snapshot(args, job: Job) -> int:
 @_with_job
 def cmd_freqs(args, job: Job) -> int:
     freqs = job.state.frequencies
+    if args.mode is not None:
+        from ..core import vibrations
+
+        if freqs is None:
+            raise UsageError("this job has no frequency block (no Freq or NumFreq step)")
+        mode = vibrations.find_mode(job.state, args.mode)
+        if mode is None:
+            raise UsageError(f"no mode {args.mode} in this job; {vibrations.available_text(job.state)}")
+        top = 8 if args.top is None else args.top
+        # The same geometry choice as `snapshot --mode`: the pane's structure
+        # may not be the Hessian's (a multilayer `.out` prints only its QM
+        # block), so the mode is described on the one that holds it, or
+        # refused rather than ranked against the wrong atoms.
+        point, _asked = _find_point(job.state, None, None)
+        if point is None and job.file_geometry is not None:
+            point = job.file_geometry
+        candidates = ([point.atoms] if point is not None else []) + vibrations.alternate_geometries(job)
+        chosen = vibrations.mode_geometry(candidates, job.state.qm_atom_indices, mode)
+        if chosen is None:
+            raise UsageError(f"no geometry in this job holds mode {args.mode} "
+                             f"({len(mode.vector) // 3} atoms)")
+        atoms, qm_atom_indices = chosen
+        rows = vibrations.participation(atoms, qm_atom_indices, mode, top)
+        if rows is None:
+            raise UsageError(f"no geometry in this job holds mode {args.mode} "
+                             f"({len(mode.vector) // 3} atoms)")
+        if args.json:
+            _emit_json({"job": job.label, "mode": {
+                "index": mode.index, "cm1": mode.cm1,
+                "atoms": [{"atom": atom, "element": element, "relative": round(relative, 4)}
+                          for atom, element, relative in rows],
+            }})
+            return _job_exit(job)
+        out = Out(args.max_lines)
+        out(f"mode {mode.index}  {mode.cm1:.2f} cm-1 "
+            f"({'imaginary' if mode.cm1 < 0 else 'real'}), drawn on {len(atoms)} atoms")
+        out(f"{'atom':>6}  {'el':<2}  {'relative':>8}")
+        for atom, element, relative in rows:
+            out(f"{atom:>6}  {element:<2}  {relative:>8.2f}")
+        out("relative: each atom's displacement in this mode over the largest one's")
+        out.flush()
+        return _job_exit(job)
+    if args.top is not None:
+        raise UsageError("--top needs --mode")
     if freqs is None:
         if args.json:
             _emit_json({"job": job.label, "n_modes": None, "imaginary": None, "lowest_real": None})

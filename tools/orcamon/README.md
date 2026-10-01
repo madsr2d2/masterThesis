@@ -167,9 +167,12 @@ file it wrote, when the log prints none) to a PNG -- the same renderer the
 pixel panes use, with the same `--representation`, `--no-fog`,
 `--see-through`, `--no-labels` and `--distances` options, the
 `--elev`/`--azim` view, and `--mode N`/`--phase DEG` to draw one phase of
-an imaginary normal mode. It needs the
+any normal mode, imaginary or real. It needs the
 `images` extra, and is how a person shares a structure or checks the pane
 without a terminal.
+
+`orcamon freqs JOB --mode N` lists the atoms mode N moves most, by ORCA's
+atom number, with `--json`.
 
 ## Reaction paths
 
@@ -237,7 +240,8 @@ positional arguments:
     energies            the energy of every geometry, or of every scan step
     geom                a geometry as XYZ: the latest, or a given cycle or scan step
     snapshot            render a job's geometry to a PNG (needs the images extra)
-    freqs               imaginary and lowest real vibrational frequencies
+    freqs               imaginary and lowest real vibrational frequencies, or the atoms
+                        one mode moves
     input               what the input asks for: run types, method, charge and
                         multiplicity
     errors              ORCA error and QM2-error lines with context
@@ -488,8 +492,8 @@ options:
                         covers it
   --point N             a point on an IRC or NEB path: the signed IRC point (0 is the
                         TS, negative is backward) or the NEB image
-  --mode N              animate an imaginary normal mode: ORCA's mode number (the one
-                        `orcamon freqs` prints)
+  --mode N              animate a normal mode, imaginary or real: ORCA's mode number
+                        (the one `orcamon freqs` prints)
   --phase DEG           where in the oscillation to draw, 0-360 degrees (default: 90.0)
   --distances           label the QM-QM bond distances
 ```
@@ -498,11 +502,11 @@ options:
 
 ```
 usage: orcamon freqs [-h] [--root DIR] [--liveness {auto,process,slurm,mtime}]
-                     [--quiet-after S] [--no-cache] [--lowest K] [--json]
-                     [--max-lines N]
+                     [--quiet-after S] [--no-cache] [--lowest K] [--mode N] [--top K]
+                     [--json] [--max-lines N]
                      JOB
 
-imaginary and lowest real vibrational frequencies
+imaginary and lowest real vibrational frequencies, or the atoms one mode moves
 
 example: orcamon freqs opt/ts
 
@@ -519,6 +523,9 @@ options:
   --no-cache            parse every output from scratch; neither read nor write the
                         state cache
   --lowest K            real modes to list (default: 6)
+  --mode N              describe one mode, imaginary or real: the atoms it moves most,
+                        by ORCA's atom number
+  --top K               atoms to list with --mode (default: 8)
   --json                print one JSON document instead of text
   --max-lines N         cap on text output lines (default: 60)
 ```

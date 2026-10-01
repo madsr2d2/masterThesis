@@ -669,6 +669,64 @@ def test_an_neb_is_listed_and_drawn():
         asyncio.run(drive())
 
 
+def test_any_mode_is_drawn_and_described():
+    print("\nsnapshot --mode draws any mode; freqs --mode names the atoms it moves")
+    import tempfile
+    from pathlib import Path
+    from test_monitor import _MODE_FREQS, _MODE_VECTORS
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        job_dir = root / "modes_all"
+        job_dir.mkdir()
+        (job_dir / "job.inp").write_text(_OPT_FREQ)
+        (job_dir / "job.out").write_text(
+            _opt(2, [-80.00, -80.10]) + _CONVERGED + "\n"
+            + _freqs(_MODE_FREQS) + _normal_modes(_MODE_VECTORS) + _DONE + "\n")
+        argv = ["--root", str(root), "--liveness", "mtime", "--no-cache"]
+
+        png = root / "p.png"
+        code, out, err = _orcamon([*argv, "snapshot", "modes_all", "--mode", "5",
+                                   "-o", str(png), "--size", "120x100"])
+        check("a real mode is drawn like an imaginary one, and named",
+              code == 0 and png.read_bytes()[:4] == b"\x89PNG"
+              and out.strip().endswith("3 atoms, cycle 2, mode 5 at 90 deg"),
+              f"{code} {out} {err}")
+        code, out, err = _orcamon([*argv, "snapshot", "modes_all", "--mode", "0",
+                                   "-o", str(root / "q.png")])
+        check("a zero-frequency mode is refused, with what the job does have",
+              code == 2 and "available: [3] imaginary; real: 5 modes, 4-8" in err, err)
+
+        code, out, err = _orcamon([*argv, "freqs", "modes_all", "--mode", "3"])
+        lines = out.strip().split("\n")
+        check("freqs --mode heads with the mode, then its atoms largest first",
+              code == 0 and lines[0] == "mode 3  -150.00 cm-1 (imaginary), drawn on 3 atoms"
+              and lines[1] == "  atom  el  relative"
+              and lines[2:5] == ["     2  H       1.00", "     1  H       0.67", "     0  O       0.33"],
+              f"{code} {out} {err}")
+        code, doc, err = _json([*argv, "freqs", "modes_all", "--mode", "3"])
+        check("--json gives the same ranking to four decimals",
+              doc is not None and doc["mode"] == {
+                  "index": 3, "cm1": -150.0,
+                  "atoms": [{"atom": 2, "element": "H", "relative": 1.0},
+                            {"atom": 1, "element": "H", "relative": 0.6667},
+                            {"atom": 0, "element": "O", "relative": 0.3333}]},
+              f"{code} {doc} {err}")
+        code, out, err = _orcamon([*argv, "freqs", "modes_all", "--mode", "5", "--top", "1"])
+        lines = out.strip().split("\n")
+        check("--top bounds the ranking",
+              code == 0 and lines[2] == "     0  O       1.00" and lines[3].startswith("relative:"),
+              f"{code} {out} {err}")
+        code, out, err = _orcamon([*argv, "freqs", "modes_all", "--mode", "0"])
+        check("a mode the job does not have is refused naming the ones it does",
+              code == 2 and "available: [3] imaginary" in err, err)
+        code, out, err = _orcamon([*argv, "freqs", "modes_all", "--top", "3"])
+        check("--top without --mode is a usage error", code == 2 and "--top needs --mode" in err, err)
+        code, out, err = _orcamon([*argv, "freqs", "modes_all"])
+        check("plain freqs is unchanged",
+              code == 0 and "9 modes (3 zero, 1 imaginary)" in out and "lowest 5 real:" in out, out)
+
+
 def test_the_bond_cache_holds_the_geometry_it_answers_for():
     print("\nthe geometry pane's bond cache is keyed by the atom list itself, not its id")
     from types import SimpleNamespace
@@ -1569,6 +1627,7 @@ if __name__ == "__main__":
     test_snapshot_writes_a_png()
     test_a_path_is_listed_and_drawn()
     test_an_neb_is_listed_and_drawn()
+    test_any_mode_is_drawn_and_described()
     test_the_bond_cache_holds_the_geometry_it_answers_for()
     test_wait_returns_when_the_job_is_done()
     test_the_other_commands_answer_boundedly()

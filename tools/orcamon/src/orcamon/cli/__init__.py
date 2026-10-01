@@ -146,14 +146,21 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a point on an IRC or NEB path: the signed IRC point (0 is the TS, "
                         "negative is backward) or the NEB image")
     p.add_argument("--mode", type=int, metavar="N",
-                   help="animate an imaginary normal mode: ORCA's mode number (the one `orcamon freqs` prints)")
+                   help="animate a normal mode, imaginary or real: ORCA's mode number "
+                        "(the one `orcamon freqs` prints)")
     p.add_argument("--phase", type=float, default=90.0, metavar="DEG",
                    help="where in the oscillation to draw, 0-360 degrees (default: %(default)s)")
     p.add_argument("--distances", action="store_true", help="label the QM-QM bond distances")
 
-    p = add("freqs", "imaginary and lowest real vibrational frequencies", "orcamon freqs opt/ts", commands.cmd_freqs)
+    p = add("freqs", "imaginary and lowest real vibrational frequencies, or the atoms one mode moves",
+            "orcamon freqs opt/ts", commands.cmd_freqs)
     _job(p)
     p.add_argument("--lowest", type=int, default=6, metavar="K", help="real modes to list (default: %(default)s)")
+    p.add_argument("--mode", type=int, metavar="N",
+                   help="describe one mode, imaginary or real: the atoms it moves most, "
+                        "by ORCA's atom number")
+    p.add_argument("--top", type=int, default=None, metavar="K",
+                   help="atoms to list with --mode (default: 8)")
     _output(p)
 
     p = add("input", "what the input asks for: run types, method, charge and multiplicity", "orcamon input opt/ts", commands.cmd_input)

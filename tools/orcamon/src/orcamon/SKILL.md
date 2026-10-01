@@ -87,6 +87,12 @@ labelled `QM/QM2`, never the high-level region alone.
 to look at (needs the `images` extra). It is for showing someone a structure,
 not for answering a question about it.
 
+`orcamon freqs JOB --mode N` names the atoms that move most in mode N — ORCA's
+mode number, imaginary or real — each with its displacement relative to the
+largest (`--top K`, default 8). Use it to say in words what a mode does.
+`orcamon snapshot JOB --mode N -o file.png` draws any of those modes for a
+person.
+
 `orcamon geom` takes a cycle, or a scan step and its cycle. ORCA does not
 print coordinates for every cycle. When the one asked for was not printed,
 the command exits 2 and names the nearest earlier cycle that was. Report
