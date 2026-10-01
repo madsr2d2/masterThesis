@@ -15,7 +15,7 @@ from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Header, RichLog, Static
 from textual_plotext import PlotextPlot
 
-from ..core import cache
+from ..core import cache, vibrations
 from ..core.discovery import discover, short_label
 from ..core.events import events
 from ..core.geometry import (
@@ -308,6 +308,7 @@ GEOMETRY_BINDINGS = [
     ("l", "toggle_labels", "Labels"),
     ("f", "toggle_fog", "Fog"),
     ("x", "toggle_see_through", "See-through"),
+    ("i", "cycle_modes", "Modes"),
     ("v", "next_representation", "View"),
     ("h", "toggle_hydrogens", "Hydrogens"),
     ("p", "next_axis", "Principal"),
@@ -373,6 +374,16 @@ class RotatableGeometryImage(Widget):
         self._rock_offset = 0.0
         self._rock_timer = None
         self._rock_t0 = 0.0
+        # The imaginary mode `i` is animating: ORCA's own mode index (None
+        # when off), the structures tried when the pane's own geometry does
+        # not hold it, and the title mark. `_mode_s` is the phase, a sine of
+        # the elapsed time.
+        self.mode_index = None
+        self._mode_alternates: list = []
+        self.mode_label = ""
+        self._mode_s = 0.0
+        self._mode_t0 = 0.0
+        self._mode_timer = None
         # Which principal axis `p` looks along next, and the job it belongs to
         # so a new selection restarts the cycle.
         self._axis_step = 0
@@ -547,6 +558,78 @@ class RotatableGeometryImage(Widget):
         settle timer would be reset forever and only previews would show."""
         self._push(self._next_seq(), quality="full")
 
+    def action_cycle_modes(self) -> None:
+        """`i`: off -> the most negative imaginary mode -> ... -> off.
+
+        The whole set comes from the job's own `NORMAL MODES` block, so a job
+        with no Hessian (or one whose only Hessian printed no modes) shows
+        nothing and says so rather than animating something else."""
+        modes = vibrations.imaginary_modes(self._job.state) if self._job is not None else []
+        if not modes:
+            self.notify("no imaginary mode in this job")
+            return
+        indices = [mode.index for mode in modes]
+        if self.mode_index is None:
+            position = 0
+        else:
+            position = indices.index(self.mode_index) + 1 if self.mode_index in indices else 0
+        if position >= len(indices):
+            self._stop_modes()
+            self._mode_alternates = []
+        else:
+            self.mode_index = indices[position]
+            self._start_modes()
+            self._mode_alternates = vibrations.alternate_geometries(self._job)
+            self.mode_label = (f"mode {indices[position]} {modes[position].cm1:.1f} cm-1 "
+                               f"({position + 1}/{len(indices)})")
+        self._input.request()
+        self.app.update_detail()
+
+    def _start_modes(self) -> None:
+        # A cycle from one mode straight to the next must not leave the
+        # previous mode's timer running: two ticks per frame, and only the
+        # newest timer is the one `_stop_modes` can stop.
+        if self._mode_timer is not None:
+            self._mode_timer.stop()
+        self._mode_t0 = time.monotonic()
+        self._mode_timer = self.set_interval(1.0 / self.ROCK_FPS, self._mode_tick)
+
+    def _mode_tick(self) -> None:
+        self._mode_s = vibrations.phase_sine(time.monotonic() - self._mode_t0)
+        self._rock_redraw()
+
+    def _stop_modes(self) -> None:
+        if self._mode_timer is not None:
+            self._mode_timer.stop()
+            self._mode_timer = None
+        self.mode_index = None
+        self.mode_label = ""
+        self._mode_s = 0.0
+
+    def _apply_mode(self, atoms: list, job: Job | None) -> list:
+        """The atoms to draw: displaced along the current mode's own pattern
+        at the current phase, or unchanged when there is no mode, the job has
+        none, or none maps onto these atoms.
+
+        A mode drawn on a fallback structure replaces `atoms` whole; the
+        renderer keeps `job.state.qm_atom_indices` for the host/guest split,
+        which is the same global index set on either structure."""
+        if self.mode_index is None or job is None:
+            return atoms
+        mode = next((m for m in vibrations.imaginary_modes(job.state)
+                     if m.index == self.mode_index), None)
+        if mode is None:
+            return atoms
+        chosen = vibrations.mode_geometry([atoms] + self._mode_alternates,
+                                          job.state.qm_atom_indices, mode)
+        if chosen is None:
+            return atoms
+        drawn, qm = chosen
+        offs = vibrations.offsets(drawn, qm, mode)
+        if offs is None:
+            return atoms
+        return vibrations.displaced(drawn, offs, self._mode_s)
+
     def action_zoom_in(self) -> None:
         self.zoom = min(ZOOM_MAX, self.zoom * ZOOM_STEP)
         self._input.request()
@@ -631,6 +714,7 @@ class KittyGeometryImage(RotatableGeometryImage):
         self._input.request()
 
     def on_unmount(self) -> None:
+        self._stop_modes()
         self._stop_rock()
         self._input.cancel()
         if self._settle_timer is not None:
@@ -643,6 +727,8 @@ class KittyGeometryImage(RotatableGeometryImage):
 
     def show_job(self, job: Job | None, point=None) -> None:
         is_new_selection = job is not self._job or point is not self._point
+        if job is not self._job:
+            self._stop_modes()
         self._job = job
         self._point = point
         if is_new_selection:
@@ -710,6 +796,7 @@ class KittyGeometryImage(RotatableGeometryImage):
         region = self.content_region
         if region.width <= 0 or region.height <= 0:
             return
+        atoms = self._apply_mode(atoms, job)
 
         from . import geometry_render
 
@@ -754,6 +841,7 @@ class TextGeometry(RotatableGeometryImage):
         self._qm: set | None = None
 
     def on_unmount(self) -> None:
+        self._stop_modes()
         self._stop_rock()
 
     def _rock_redraw(self) -> None:
@@ -762,6 +850,7 @@ class TextGeometry(RotatableGeometryImage):
     def show_job(self, job: Job | None, point=None) -> None:
         if job is not self._job:
             self._hydrogens = None
+            self._stop_modes()
         self._job, self._point = job, point
         atoms = self._atoms_for(job, point)
         qm = job.state.qm_atom_indices if job is not None else None
@@ -777,6 +866,7 @@ class TextGeometry(RotatableGeometryImage):
         atoms = self._atoms
         if not atoms:
             return ""
+        atoms = self._apply_mode(atoms, self._job)
         return geometry_text.render(atoms, size.width, size.height, self.view(),
                                     self._qm, self._bonds_for(atoms))
 
@@ -819,6 +909,7 @@ class HerdrGeometryImage(RotatableGeometryImage):
         self._input.request()
 
     def on_unmount(self) -> None:
+        self._stop_modes()
         self._stop_rock()
         self._input.cancel()
         if self._settle_timer is not None:
@@ -840,6 +931,8 @@ class HerdrGeometryImage(RotatableGeometryImage):
         # (the chart scrubbing to a different geometry) is exactly as much a
         # "new selection" as a different job, interaction-wise.
         is_new_selection = job is not self._job or point is not self._point
+        if job is not self._job:
+            self._stop_modes()
         self._job = job
         self._point = point
         if is_new_selection:
@@ -897,6 +990,7 @@ class HerdrGeometryImage(RotatableGeometryImage):
         cells = herdr_graphics.cell_size()
         if cells is None:
             return
+        atoms = self._apply_mode(atoms, job)
         # Render straight to the size that will actually be sent, which for a
         # full-quality frame is now simply the pane's own pixel extent. It
         # used to be whatever a 480 KB raw-RGBA budget allowed -- about
@@ -1129,7 +1223,8 @@ class MonitorApp(App):
             return f"geometry ({self.graphics}{note})"
         fog = " · fog" if geometry.fog else ""
         see_through = " · see-through" if geometry.see_through else ""
-        return f"geometry ({self.graphics}{note} · {geometry.representation}{fog}{see_through})"
+        mode = f" · {geometry.mode_label}" if geometry.mode_label else ""
+        return f"geometry ({self.graphics}{note} · {geometry.representation}{fog}{see_through}{mode})"
 
     def action_toggle_maximize(self) -> None:
         self.maximized = not self.maximized

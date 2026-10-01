@@ -835,6 +835,18 @@ def test_the_tui_runs_headless():
     from orcamon.tui.app import MonitorApp
 
     async def drive(t, hook_file):
+        # The `i` checks need a job whose `NORMAL MODES` block holds an
+        # imaginary mode; the tree's own frequency jobs carry none (and
+        # adding one to the tree would change ls's row count).
+        mode_dir = t.root / "mode_ts"
+        mode_dir.mkdir()
+        (mode_dir / "job.inp").write_text(_OPT_FREQ)
+        vectors = {0: [0.1, 0.0, 0.0, 0.0, -0.2, 0.0, 0.0, 0.0, 0.3]}
+        vectors.update({i: [0.0] * 9 for i in range(1, 9)})
+        (mode_dir / "job.out").write_text(
+            _opt(2, [-80.00, -80.10]) + _CONVERGED + "\n"
+            + _freqs([-100.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0])
+            + _normal_modes(vectors) + _DONE + "\n")
         app = MonitorApp(t.root, liveness="test", graphics="text", notify_mode="off",
                          on_event=f'echo "$ORCAMON_JOB $ORCAMON_STATUS" >> "{hook_file}"')
         async with app.run_test(size=(180, 50)) as pilot:
@@ -871,6 +883,35 @@ def test_the_tui_runs_headless():
             await pilot.press("h")
             await pilot.pause(0.2)
             check("h flips the hydrogen flag", geometry._show_hydrogens() is not hydrogens)
+
+            # `i` cycles the imaginary modes: on with the title naming the
+            # mode, off again, and nothing at all on a job with no Hessian.
+            table = app.query_one("#job_table")
+            mode_job = next(j for j in app.jobs if j.label == "mode_ts")
+            table.move_cursor(row=app.jobs.index(mode_job))
+            deadline = _time.monotonic() + 2
+            while geometry._job is not mode_job and _time.monotonic() < deadline:
+                await pilot.pause(0.05)
+            await pilot.press("i")
+            await pilot.pause(0.2)
+            check("i starts the imaginary mode and the title names it",
+                  geometry.mode_index == 0 and "cm-1" in geometry.border_title,
+                  f"{geometry.mode_index} {geometry.border_title!r}")
+            await pilot.press("i")
+            await pilot.pause(0.2)
+            check("and i again turns it off, title and all",
+                  geometry.mode_index is None and "cm-1" not in geometry.border_title,
+                  f"{geometry.mode_index} {geometry.border_title!r}")
+            no_freq = next(j for j in app.jobs if j.label == "opt_maxiter")
+            table.move_cursor(row=app.jobs.index(no_freq))
+            deadline = _time.monotonic() + 2
+            while geometry._job is not no_freq and _time.monotonic() < deadline:
+                await pilot.pause(0.05)
+            await pilot.press("i")
+            await pilot.pause(0.2)
+            check("i on a job with no frequencies changes nothing",
+                  geometry.mode_index is None, f"{geometry.mode_index}")
+
             await pilot.press("x")
             await pilot.pause(0.2)
             check("x turns see-through on, and the title says so",
