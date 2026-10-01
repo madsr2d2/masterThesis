@@ -15,7 +15,7 @@ dependencies = []
 
 [project.optional-dependencies]
 tui = ["textual>=8", "textual-plotext>=1", "plotext>=5"]
-images = ["matplotlib>=3.8", "numpy>=1.26", "pillow>=10"]
+images = ["numpy>=1.26", "pillow>=10.1"]
 procs = ["psutil>=5"]
 
 [project.scripts]
