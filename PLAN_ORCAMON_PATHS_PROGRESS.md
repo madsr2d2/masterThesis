@@ -8,7 +8,7 @@ Plan: `PLAN_ORCAMON_PATHS.md`. Branch `master` from `master` (`ec5144624628357b3
 | PA2 Build the IRC path | DONE | 6af91fa | 1 | suite: monitor 179/0, orcamon 178/0, curve_metrics 0 failures; reviewer accepted the row-energy and missing-file-cache-key interpretations |
 | PA3 Summary and irc_not_converged | DONE | 7d93dc9 | 1 | suite: monitor 184/0, orcamon 179/0, curve_metrics 0 failures; accepted deviation: test_orcamon imports `_irc_tree` from test_monitor (the duplicate guard reads private functions too, so the plan's "copy it" premise was wrong) |
 | PA4 energies, geom/snapshot --point | DONE | cdd7399 | 1 | suite: monitor 184/0, orcamon 187/0, curve_metrics 0 failures; accepted deviations: private `_energies_path` extraction (output identical), README help blocks pasted at COLUMNS=90 to match the other blocks |
-| PA5 Scrub the path in the TUI | TODO | | | |
+| PA5 Scrub the path in the TUI | BLOCKED | none (uncommitted changes discarded) | 1 | `end` does not re-place the focus: with step 5 as written `_following_latest` toggles but `_signature_of` is unchanged, so `show_job` early-returns and `_place_selection` is never called; the geometry pane stays on `IRC backward 0` where the plan's 5th check expects `IRC TS` (test_orcamon 191 pass / 1 failure). Baseline restored (187/0). |
 | PB1 Parse the NEB and build its path | TODO | | | |
 | PB2 NEB end to end, every gate | TODO | | | |
 
@@ -26,6 +26,10 @@ Statuses: TODO | DONE | BLOCKED
 
 ## Gates
 
+## Blocked
+
+- **PA5** — implementing plan step 5 exactly as written, the plan's own hand-derived expected value does not hold: after `end` the geometry pane still shows `IRC backward 0`, not `IRC TS`. Cause: `action_select_latest` (path mode) sets `_following_latest = True` and calls `update_detail()`, but `_render_detail` → `show_job` early-returns because `_signature_of(job)` does not include `_following_latest`, so `_place_selection` is never reached and `selected_index` stays where `left,left` put it. Checks 1–4 pass; check 5 fails (test_orcamon 191/187+... see row). No commit was made; the uncommitted changes were discarded and the baseline re-verified (test_monitor 184/0, test_orcamon 187/0, curve_metrics 0 failures). Needs a user decision on how to amend PLAN_ORCAMON_PATHS.md PA5 (see the question in the orchestrator's report).
+
 ## Deviations (plan said → evidence → what was done)
 
 ## Log
@@ -36,6 +40,7 @@ Statuses: TODO | DONE | BLOCKED
 - 2026-10-01T14:33Z PA3 DONE (7d93dc9); round 1 reviewer PASS. Real `show irc_bridge` prints the 50/50 (MaxIter) summary and the `! IRC forward and backward hit MaxIter (50)` flag; `ls` row shows `irc B50/F50`.
 
 - 2026-10-01T14:42Z PA4 DONE (cdd7399); round 1 reviewer PASS. Real `energies irc_bridge --json` prints `irc 101 -50 IRC backward 49 -257.1 IRC TS -1011.288471006717 50 -5.27`; `geom --point -50` prints `137`. No JSON key added (`schema` comes from `_emit_json` for every branch).
+- 2026-10-01T14:52Z PA5 BLOCKED (no commit). Plan stop condition: a hand-derived expected value does not hold when step 5 is implemented as written (`end` leaves the pane on `IRC backward 0`, not `IRC TS`). The implementer's uncommitted changes were discarded and the baseline re-verified (184/187/0). Stopped for a user decision on amending PA5.
 
 ## Backlog
 
