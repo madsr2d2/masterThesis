@@ -1295,6 +1295,80 @@ def test_the_tui_scrubs_a_path():
         asyncio.run(drive(root))
 
 
+def test_the_tui_cycles_real_modes():
+    print("\nthe TUI's I cycles the real modes, lowest frequency first; i keeps the imaginary ones")
+    import asyncio
+    import tempfile
+    import time as _time
+    from pathlib import Path
+
+    from orcamon.tui.app import MonitorApp
+    from test_monitor import _MODE_FREQS, _MODE_VECTORS
+
+    async def drive(root):
+        app = MonitorApp(root, liveness="mtime", graphics="text", notify_mode="off")
+        async with app.run_test(size=(180, 50)) as pilot:
+            geometry = app.query_one("#geometry")
+            deadline = _time.monotonic() + 5
+            while not (app.jobs and all(j.parsed for j in app.jobs)
+                       and geometry._job is app.jobs[0]) and _time.monotonic() < deadline:
+                await pilot.pause(0.05)
+            geometry.focus()
+            title = lambda: geometry.border_title
+
+            await pilot.press("I")
+            await pilot.pause(0.2)
+            check("I starts the real cycle at its lowest mode and the title names it",
+                  geometry.mode_index == 5 and "mode 5 50.0 cm-1 (real 1/5)" in title(),
+                  f"{geometry.mode_index} {title()!r}")
+            await pilot.press("I")
+            await pilot.pause(0.2)
+            check("I steps on to the next real mode and counts the position",
+                  geometry.mode_index == 4 and "(real 2/5)" in title(),
+                  f"{geometry.mode_index} {title()!r}")
+            await pilot.press("i")
+            await pilot.pause(0.2)
+            check("i on a real mode starts the imaginary cycle at its first",
+                  geometry.mode_index == 3 and "mode 3 -150.0 cm-1 (1/1)" in title(),
+                  f"{geometry.mode_index} {title()!r}")
+            await pilot.press("I")
+            await pilot.pause(0.2)
+            check("I on an imaginary mode starts the real cycle at its lowest again",
+                  geometry.mode_index == 5, f"{geometry.mode_index} {title()!r}")
+            for _ in range(4):
+                await pilot.press("I")
+                await pilot.pause(0.2)
+            check("the real cycle reaches the highest mode and says so",
+                  geometry.mode_index == 8 and "mode 8 400.0 cm-1 (real 5/5)" in title(),
+                  f"{geometry.mode_index} {title()!r}")
+            await pilot.press("I")
+            await pilot.pause(0.2)
+            check("and I past the last turns the animation off, title and all",
+                  geometry.mode_index is None and "cm-1" not in title(),
+                  f"{geometry.mode_index} {title()!r}")
+
+            await pilot.press("I")
+            geometry._mode_s = 1.0
+            drawn = geometry._apply_mode(list(app.selected_job().state.atoms),
+                                         app.selected_job())
+            rounded = lambda atom: (atom[0], round(atom[1], 6), round(atom[2], 6),
+                                    round(atom[3], 6))
+            check("the real mode displaces the cycle-2 geometry at full amplitude",
+                  rounded(drawn[0]) == ("O", 0.2, 0.0, 0.2)
+                  and rounded(drawn[1]) == ("H", 1.31, 0.0, 0.0),
+                  f"{drawn[:2]}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        job_dir = root / "modes_all"
+        job_dir.mkdir()
+        (job_dir / "job.inp").write_text(_OPT_FREQ)
+        (job_dir / "job.out").write_text(
+            _opt(2, [-80.00, -80.10]) + _CONVERGED + "\n"
+            + _freqs(_MODE_FREQS) + _normal_modes(_MODE_VECTORS) + _DONE + "\n")
+        asyncio.run(drive(root))
+
+
 def test_slurm_names_what_the_login_node_cannot_see():
     print("\nSLURM: squeue's view of a job, and the fallbacks when it has none")
     import stat
@@ -1641,6 +1715,7 @@ if __name__ == "__main__":
     test_text_fog_holds_still_under_rotation()
     test_the_tui_runs_headless()
     test_the_tui_scrubs_a_path()
+    test_the_tui_cycles_real_modes()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
     test_liveness_names_the_job_not_only_the_directory()

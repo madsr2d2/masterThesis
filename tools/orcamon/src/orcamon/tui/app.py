@@ -367,6 +367,7 @@ GEOMETRY_BINDINGS = [
     ("f", "toggle_fog", "Fog"),
     ("x", "toggle_see_through", "See-through"),
     ("i", "cycle_modes", "Modes"),
+    ("I", "cycle_real_modes", "Real modes"),
     ("v", "next_representation", "View"),
     ("h", "toggle_hydrogens", "Hydrogens"),
     ("p", "next_axis", "Principal"),
@@ -629,6 +630,26 @@ class RotatableGeometryImage(Widget):
             else:
                 self.notify("no imaginary mode in this job")
             return
+        self._cycle_through(modes, "")
+
+    def action_cycle_real_modes(self) -> None:
+        """`I`: off -> the lowest real mode -> ... -> the highest -> off.
+
+        Real modes come from the FINAL Hessian only, lowest frequency first;
+        a job whose Hessian printed no displacement patterns (or printed
+        them mid-optimization) has none to show and says so."""
+        modes = vibrations.real_modes(self._job.state) if self._job is not None else []
+        if not modes:
+            if self._job is not None and self._job.state.frequencies is None:
+                self.notify("this job computes no frequencies (no Freq or NumFreq step)")
+            else:
+                self.notify("no real mode with a displacement pattern in this job")
+            return
+        self._cycle_through(modes, "real ")
+
+    def _cycle_through(self, modes: list, kind: str) -> None:
+        """Step `position` through `modes`, off after the last, naming the
+        cycle in the label: `kind` is `""` for imaginary, `"real "` for real."""
         indices = [mode.index for mode in modes]
         if self.mode_index is None:
             position = 0
@@ -642,7 +663,7 @@ class RotatableGeometryImage(Widget):
             self._start_modes()
             self._mode_alternates = vibrations.alternate_geometries(self._job)
             self.mode_label = (f"mode {indices[position]} {modes[position].cm1:.1f} cm-1 "
-                               f"({position + 1}/{len(indices)})")
+                               f"({kind}{position + 1}/{len(indices)})")
         self._input.request()
         self.app.update_detail()
 
@@ -677,8 +698,7 @@ class RotatableGeometryImage(Widget):
         which is the same global index set on either structure."""
         if self.mode_index is None or job is None:
             return atoms
-        mode = next((m for m in vibrations.imaginary_modes(job.state)
-                     if m.index == self.mode_index), None)
+        mode = vibrations.find_mode(job.state, self.mode_index)
         if mode is None:
             return atoms
         chosen = vibrations.mode_geometry([atoms] + self._mode_alternates,

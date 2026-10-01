@@ -133,8 +133,9 @@ without `crash_lines` and `criteria`. Changing the key set bumps
   small balls in ball-and-stick, and `x` shows the QM region through the
   environment. `v` cycles the representation -- ball-and-stick,
   licorice, space-filling and wireframe -- and `h` hides hydrogens. `i`
-  animates the job's imaginary normal modes, most negative first, in the
-  text pane as well as the pixel ones. The text pane draws bonds in braille
+  animates the job's imaginary normal modes, most negative first, and `I`
+  steps through its real modes, lowest frequency first, in the text pane as
+  well as the pixel ones. The text pane draws bonds in braille
   and atoms as element symbols; it cannot shade
   or occlude, so it offers ball-and-stick and wireframe only, works in any
   terminal, and costs a few KB a frame.
@@ -154,7 +155,8 @@ without `crash_lines` and `criteria`. Changing the key set bumps
   labels (the index numbers in pixel mode; in text mode atoms become dots),
   `v` cycles the representation, `f` toggles fog, `x` shows the QM region
   through the environment (pixel panes), `i` animates the job's imaginary
-  normal modes, `h` toggles hydrogens,
+  normal modes, `I` steps through its real modes, lowest frequency first,
+  `h` toggles hydrogens,
   `p` steps through face-on principal-axis views, and `0` resets the camera.
   `o` rocks the molecule gently (+/-15 degrees over 6 s) to show it in the
   round; it is off by default, because a steady 5 frames a second at up to
