@@ -415,12 +415,38 @@ def test_snapshot_writes_a_png():
 
         code, out, err = t.run("snapshot", "opt_done", "-o", str(target), "--size", "12")
         check("a bad --size is a usage error", code == 2 and "--size" in err, err)
+        for too_big in ("100000x100000", "0x100"):
+            code, out, err = t.run("snapshot", "opt_done", "-o", str(target), "--size", too_big)
+            check(f"--size {too_big} is a usage error, not a MemoryError",
+                  code == 2 and "--size" in err and "Traceback" not in err, err)
 
         space = t.root.parent / "space.png"
         code, out, err = t.run("snapshot", "opt_done", "-o", str(space), "--size", "120x100",
                                "--representation", "space-filling")
         check("--representation space-filling renders too",
               code == 0 and space.read_bytes()[:4] == b"\x89PNG", f"{code} {out} {err}")
+
+
+def test_the_bond_cache_holds_the_geometry_it_answers_for():
+    print("\nthe geometry pane's bond cache is keyed by the atom list itself, not its id")
+    from types import SimpleNamespace
+
+    from orcamon.tui.app import RotatableGeometryImage
+
+    # An id is an address CPython reuses as soon as a list is freed, so a
+    # cache keyed by `id(atoms)` could serve a superseded geometry's bonds to
+    # a new one. Holding the list keeps its address from being reused.
+    pane = SimpleNamespace(_bond_cache=None)
+    water = [("O", 0.0, 0.0, 0.0), ("H", 0.96, 0.0, 0.0), ("H", -0.24, 0.93, 0.0)]
+    first = RotatableGeometryImage._bonds_for(pane, water)
+    check("the cache holds the list it was computed for",
+          pane._bond_cache[0] is water and sorted(first) == [(0, 1), (0, 2)], f"{pane._bond_cache}")
+    check("the same list is answered from the cache",
+          RotatableGeometryImage._bonds_for(pane, water) is first)
+    pair = [("C", 0.0, 0.0, 0.0), ("C", 1.5, 0.0, 0.0)]
+    check("a different list is bonded afresh",
+          RotatableGeometryImage._bonds_for(pane, pair) == [(0, 1)] and pane._bond_cache[0] is pair,
+          f"{pane._bond_cache}")
 
 
 def test_wait_returns_when_the_job_is_done():
@@ -733,6 +759,28 @@ def test_text_fog_dims_only_the_far_third():
     check("the farthest atom's glyph is dim, the other two are not",
           far is not None and far.dim and not (middle and middle.dim) and not (near and near.dim),
           f"{far} / {middle} / {near}")
+
+
+def test_text_fog_holds_still_under_rotation():
+    print("\ntext fog dims a cell by its depth, not by the frame's own depth range")
+    from orcamon.core.geometry import View
+    from orcamon.tui import geometry_text
+
+    # The sulfur sits at depth 0 from both views (eye on +x, then on -x).
+    # The carbons put the frame's own depth range at [-1, 3] from the first
+    # and [-3, 1] from the second, whose far thirds start at +0.33 and -1.67:
+    # read off those, the sulfur was dimmed from one side and not the other.
+    atoms = [("S", 0.0, 0.0, 2.0), ("C", 3.0, 2.5, 0.0), ("C", -1.0, -2.5, 0.0),
+             ("C", -1.0, 2.5, -1.0), ("C", -1.0, -2.5, -1.0)]
+
+    def sulfur_is_dim(azim):
+        text = geometry_text.render(atoms, 40, 20, View(elev=0, azim=azim))
+        index = text.plain.index("S")
+        return any(start <= index < end and style is not None and bool(style.dim)
+                   for start, end, style in text.spans)
+
+    front, back = sulfur_is_dim(0), sulfur_is_dim(180)
+    check("the sulfur is dimmed the same from both sides", front == back, f"{front} vs {back}")
 
 
 def test_the_tui_runs_headless():
@@ -1093,6 +1141,7 @@ if __name__ == "__main__":
     test_show_and_ls_agree()
     test_geom_never_substitutes_a_geometry()
     test_snapshot_writes_a_png()
+    test_the_bond_cache_holds_the_geometry_it_answers_for()
     test_wait_returns_when_the_job_is_done()
     test_the_other_commands_answer_boundedly()
     test_a_cached_state_equals_a_fresh_parse()
@@ -1101,6 +1150,7 @@ if __name__ == "__main__":
     test_notifications_reach_the_terminal_through_tmux()
     test_the_geometry_pane_degrades_to_text()
     test_text_fog_dims_only_the_far_third()
+    test_text_fog_holds_still_under_rotation()
     test_the_tui_runs_headless()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()

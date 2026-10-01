@@ -36,7 +36,10 @@ BACKGROUND = (30, 30, 30)             # "#1e1e1e", as today
 LIGHT = _normalize((-0.4, 0.55, 0.73))  # camera space: upper left, in front
 AMBIENT, DIFFUSE, SPECULAR, SHININESS = 0.28, 0.72, 0.45, 40.0
 BALL_SCALE = 0.28                     # ball radius = BALL_SCALE * vdW radius
-BOND_RADIUS = {"ball-and-stick": 0.10, "licorice": 0.16, "wireframe": 0.04}
+# Wireframe's QM sticks must stay THICKER than ENV_BOND_RADIUS. They were
+# 0.04 against the environment's 0.06, so wireframe drew the reactive centre
+# as the faintest thing in the pane -- the reverse of what the layer is for.
+BOND_RADIUS = {"ball-and-stick": 0.10, "licorice": 0.16, "wireframe": 0.09}
 LICORICE_RADIUS = 0.16                # licorice atom cap
 WIREFRAME_ATOM_RADIUS = 0.12          # the dot an unbonded atom keeps
 ENV_BOND_RADIUS = 0.06                # the environment layer's thin sticks
@@ -79,6 +82,20 @@ def _framing_pad(atoms: list, centered: np.ndarray, view: View) -> float:
     return 0.5
 
 
+def _frame_sphere(atoms: list, view: View):
+    """`(coords, center, extent)`: the atoms as an array, the point the camera
+    looks at (`mean + pan`) and the radius, in angstrom and before zoom, of
+    the sphere around the MEAN that holds everything drawn. Neither the
+    sphere nor its radius changes with rotation, which is what both the
+    framing and the fog need from it."""
+    coords = np.array([(x, y, z) for _el, x, y, z in atoms], dtype=float)
+    mean = coords.mean(axis=0)
+    centered = coords - mean
+    center = mean + np.asarray(view.pan, dtype=float)
+    extent = float(np.linalg.norm(centered, axis=1).max()) + _framing_pad(atoms, centered, view)
+    return coords, center, extent
+
+
 def project(atoms: list, view: View, size_px: tuple[int, int]):
     """Screen x, screen y, depth (angstrom, larger is NEARER) and pixels per
     angstrom for every atom. Public because the tests read it.
@@ -86,14 +103,11 @@ def project(atoms: list, view: View, size_px: tuple[int, int]):
     The frame is the CIRCUMSCRIBED sphere -- centre `mean + pan`, radius the
     farthest atom -- so no rotation can push an atom out of the pane, and
     neither changes with rotation."""
-    coords = np.array([(x, y, z) for _el, x, y, z in atoms], dtype=float)
+    coords, center, extent = _frame_sphere(atoms, view)
     right, up = camera_basis(view.elev, view.azim)
     forward = camera_forward(view.elev, view.azim)
     right, up, forward = np.array(right), np.array(up), np.array(forward)
-    mean = coords.mean(axis=0)
-    centered = coords - mean
-    center = mean + np.asarray(view.pan, dtype=float)
-    span = (float(np.linalg.norm(centered, axis=1).max()) + _framing_pad(atoms, centered, view)) / view.zoom
+    span = extent / view.zoom
     width, height = size_px
     scale = min(width, height) / (2 * span) if span > 0 else 1.0
     p = coords - center
@@ -145,21 +159,34 @@ def _draw_sphere(zbuf, color, owner, cx, cy, z0, radius, scale, rgb, atom_index)
     o_view[near] = atom_index
 
 
-def _draw_bond(zbuf, color, owner, a, b, length, radius, scale, rgb_a, rgb_b):
+def _draw_bond(zbuf, color, owner, a, b, length, radius, scale, rgb_a, rgb_b,
+               owner_a, owner_b):
     """A bond is a row of spheres of `radius` from screen point `a` to `b`
     (`(x, y, depth)`), spaced SAMPLE_SPACING * radius apart along its true 3D
     length, with the depth interpolated between the two ends. One loop, one
-    stamp, radius shared."""
+    stamp, radius shared.
+
+    Each half is owned by the atom it touches (`owner_a`, `owner_b`, see
+    `_bond_owner`), so an atom drawn with no sphere of its own -- a bonded
+    atom in wireframe -- can still be asked whether it is visible."""
     count = int(length / (SAMPLE_SPACING * radius)) + 1
     count = min(max(count, 2), MAX_SAMPLES_PER_BOND)
     ax, ay, az = a
     bx, by, bz = b
     for s in range(count):
         t = s / (count - 1)
-        rgb = rgb_a if t <= 0.5 else rgb_b
+        rgb, k = (rgb_a, owner_a) if t <= 0.5 else (rgb_b, owner_b)
         _draw_sphere(zbuf, color, owner,
                      ax + (bx - ax) * t, ay + (by - ay) * t, az + (bz - az) * t,
-                     radius, scale, rgb, -1)
+                     radius, scale, rgb, k)
+
+
+def _bond_owner(atom_index: int, n: int) -> int:
+    """The `owner` value of a bond half touching `atom_index`: offset by the
+    atom count so it never reads as the atom's own sphere. A ball whose own
+    sprite is hidden must not be labelled because a bond stub poking out from
+    behind its occluder happens to lie inside its box."""
+    return n + atom_index
 
 
 def _atom_radius(element: str, representation: str, bonded: bool):
@@ -210,7 +237,8 @@ def _draw_geometry(atoms, view, pairs, has_bond, sx, sy, depth, scale,
             length = float(np.linalg.norm(coords[j] - coords[i]))
             _draw_bond(zbuf, color, owner,
                        (sx[i], sy[i], depth[i]), (sx[j], sy[j], depth[j]),
-                       length, radius, scale, rgb_a, rgb_b)
+                       length, radius, scale, rgb_a, rgb_b,
+                       _bond_owner(i, len(atoms)), _bond_owner(j, len(atoms)))
     # The environment never gets a ball: on space-filling the host would bury
     # the QM region the pane exists to show, and on the other representations
     # its thin desaturated sticks are what marks it as the lower layer.
@@ -235,14 +263,26 @@ def _sprite_box(cx, cy, radius, scale, size_px):
     return bx0, by0, bx1, by1
 
 
-def _is_visible(owner, atom_index, cx, cy, radius, scale, size_px) -> bool:
+def _is_visible(owner, atoms, atom_index, view, has_bond, sx, sy, scale, size_px) -> bool:
     """At least one pixel of this atom's own sprite survived occlusion. A
-    label must not float over an atom hidden behind another."""
-    box = _sprite_box(cx, cy, radius, scale, size_px)
+    label must not float over an atom hidden behind another.
+
+    An atom drawn with no sphere -- a bonded atom in wireframe -- has no
+    sprite to ask, and this returned False for every one of them, so `l` and
+    `d` silently drew nothing in wireframe. There the question goes to the
+    bond halves that meet at the atom, inside a box one stick wide around
+    its centre: the junction the label sits on."""
+    element = atoms[atom_index][0]
+    radius = _atom_radius(element, view.representation, has_bond[atom_index])
+    target = atom_index
+    if radius is None:
+        radius = max(BOND_RADIUS.get(view.representation, 0.0), ENV_BOND_RADIUS)
+        target = _bond_owner(atom_index, len(atoms))
+    box = _sprite_box(sx[atom_index], sy[atom_index], radius, scale, size_px)
     if box is None:
         return False
     bx0, by0, bx1, by1 = box
-    return bool((owner[by0:by1, bx0:bx1] == atom_index).any())
+    return bool((owner[by0:by1, bx0:bx1] == target).any())
 
 
 def _font(size_px):
@@ -255,8 +295,7 @@ def _draw_labels(image, atoms, view, sx, sy, scale, is_qm, visible, has_bond, ow
     for i, (element, *_rest) in enumerate(atoms):
         if not visible[i] or not is_qm[i]:
             continue
-        radius = _atom_radius(element, view.representation, has_bond[i])
-        if radius is None or not _is_visible(owner, i, sx[i], sy[i], radius, scale, size_px):
+        if not _is_visible(owner, atoms, i, view, has_bond, sx, sy, scale, size_px):
             continue
         draw.text((sx[i], sy[i]), str(i), font=font, fill=LABEL_RGB, anchor="mm",
                   stroke_width=1, stroke_fill="black")
@@ -269,13 +308,8 @@ def _draw_distances(image, atoms, view, pairs, sx, sy, scale, is_qm, visible, ha
     for i, j in pairs:
         if not (visible[i] and visible[j] and is_qm[i] and is_qm[j]):
             continue
-        radius_i = _atom_radius(atoms[i][0], view.representation, has_bond[i])
-        radius_j = _atom_radius(atoms[j][0], view.representation, has_bond[j])
-        shown = (radius_i is not None
-                 and _is_visible(owner, i, sx[i], sy[i], radius_i, scale, size_px)) or (
-                 radius_j is not None
-                 and _is_visible(owner, j, sx[j], sy[j], radius_j, scale, size_px))
-        if not shown:
+        if not (_is_visible(owner, atoms, i, view, has_bond, sx, sy, scale, size_px)
+                or _is_visible(owner, atoms, j, view, has_bond, sx, sy, scale, size_px)):
             continue
         distance = float(np.linalg.norm(coords[j] - coords[i]))
         draw.text(((sx[i] + sx[j]) / 2, (sy[i] + sy[j]) / 2), f"{distance:.2f}",
@@ -283,14 +317,30 @@ def _draw_distances(image, atoms, view, pairs, sx, sy, scale, is_qm, visible, ha
                   stroke_width=1, stroke_fill="black")
 
 
-def _apply_fog(zbuf, color, foreground):
-    """Fade every foreground pixel toward BACKGROUND by its depth: nearest
-    untouched, farthest at FOG. Applied BEFORE labels so the text stays
-    legible, and before the outline pass, which then darkens a faded edge."""
-    zmin = float(zbuf[foreground].min())
-    zmax = float(zbuf[foreground].max())
-    span = max(zmax - zmin, 1e-6)
-    t = (zmax - zbuf[foreground]) / span          # 0 nearest, 1 farthest
+def _fog_depths(atoms: list, view: View) -> tuple[float, float]:
+    """`(near, far)`: the depths fog runs between -- the front and back of
+    the framing sphere (`_frame_sphere`), whose centre sits at depth
+    `-pan . forward`.
+
+    This was the frame's own nearest and farthest pixel, which moves every
+    time the view turns: the same atom at the same depth faded by a
+    different amount at each angle, so the whole picture pulsed in
+    brightness under rotation and visibly under `o`. The sphere does not
+    turn, so an atom's fade now changes only when its depth does. Zoom is
+    left out on purpose: it changes the picture's scale, not the depths."""
+    _coords, _center, extent = _frame_sphere(atoms, view)
+    forward = np.array(camera_forward(view.elev, view.azim))
+    mid = -float(np.asarray(view.pan, dtype=float) @ forward)
+    return mid + extent, mid - extent
+
+
+def _apply_fog(zbuf, color, foreground, near, far):
+    """Fade every foreground pixel toward BACKGROUND by its depth: `near`
+    untouched, `far` at FOG (see `_fog_depths`). Applied BEFORE labels so the
+    text stays legible, and before the outline pass, which then darkens a
+    faded edge."""
+    span = max(near - far, 1e-6)
+    t = np.clip((near - zbuf[foreground]) / span, 0.0, 1.0)  # 0 nearest, 1 farthest
     mix = (FOG * t)[:, None]
     color[foreground] = color[foreground] * (1.0 - mix) + np.asarray(BACKGROUND, dtype=float) * mix
 
@@ -347,7 +397,7 @@ def render(atoms: list, view: View | None = None, *,
     color[~foreground] = np.asarray(BACKGROUND, dtype=float)
     if foreground.any():
         if view.fog:
-            _apply_fog(zbuf, color, foreground)
+            _apply_fog(zbuf, color, foreground, *_fog_depths(atoms, view))
         _apply_outlines(zbuf, foreground, color)
     image = Image.fromarray(np.clip(color, 0, 255).astype(np.uint8), "RGB")
 

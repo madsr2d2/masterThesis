@@ -76,12 +76,22 @@ def camera_basis(elev_deg: float, azim_deg: float) -> tuple[tuple[float, float, 
     """Screen-space (right, up) unit vectors for matplotlib's
     `view_init(elev_deg, azim_deg)`.
 
-    `right = normalize(cross(z_hat, forward))` and `up = cross(forward,
-    right)`, so `cross(right, up) == forward`: the screen's right-handed
-    normal points AT the viewer. This returned `cross(forward, z_hat)`,
-    which is `-right`, until 2026-09-30 -- and the text renderer uses it as
-    screen +x, so text mode drew the molecule's mirror image. The six-pair
-    check in `test_monitor.test_the_view_is_not_mirrored` pins the sign.
+    `right = (-sin a, cos a, 0)` and `up = cross(forward, right)`, so
+    `cross(right, up) == forward`: the screen's right-handed normal points AT
+    the viewer. This returned `cross(forward, z_hat)`, which is `-right`,
+    until 2026-09-30 -- and the text renderer uses it as screen +x, so text
+    mode drew the molecule's mirror image. The six-pair check in
+    `test_monitor.test_the_view_is_not_mirrored` pins the sign.
+
+    `right` is NOT `normalize(cross(z_hat, forward))`, though it equals it
+    for |elev| < 90. That cross product is `cos(e) * (-sin a, cos a, 0)`, so
+    normalising it flips the sign the moment the elevation passes a pole --
+    and the elevation keys run through 360 degrees, so holding one tumbled the
+    molecule smoothly to 89 degrees and then snapped it upside down at 91. It
+    also vanished AT the pole, where the old fallback `(1, 0, 0)` was a jump
+    of its own for every azimuth but -90. The un-normalised direction is
+    continuous everywhere, and is already a unit vector perpendicular to
+    `forward`. `test_the_camera_tumbles_over_the_pole` holds it.
 
     Panning applies a step along these at the moment a pan key is pressed,
     then stores the result as a fixed WORLD-space offset (see
@@ -90,9 +100,8 @@ def camera_basis(elev_deg: float, azim_deg: float) -> tuple[tuple[float, float, 
     panned-to point rather than re-deriving "screen right" from the new angle
     and drifting the pan with it."""
     forward = camera_forward(elev_deg, azim_deg)
-    right = _cross((0.0, 0.0, 1.0), forward)
-    norm = math.sqrt(sum(c * c for c in right))
-    right = tuple(c / norm for c in right) if norm > 1e-6 else (1.0, 0.0, 0.0)
+    azim = math.radians(azim_deg)
+    right = (-math.sin(azim), math.cos(azim), 0.0)
     up = _cross(forward, right)
     return right, up
 
@@ -139,8 +148,8 @@ def principal_axes(coords: list) -> list[tuple[tuple[float, float, float], float
 
     A 3x3 symmetric eigenproblem, solved by cyclic Jacobi rotations: the core
     may not import numpy. The covariance matrix is `A`, the rotations are
-    accumulated into `V`, and the eigenvectors are V's COLUMNS. Each step
-    zeroes the largest off-diagonal pair with
+    accumulated into `V`, and the eigenvectors are V's COLUMNS. Each sweep
+    visits the three off-diagonal pairs in turn and zeroes each with
     `theta = 0.5 * atan2(2 A[p][q], A[q][q] - A[p][p])`, applied as
     `A <- J^T A J` and `V <- V J`. `test_principal_axes_face_a_plane_on`
     checks `A v = lambda v` for the result, which pins the sign convention."""

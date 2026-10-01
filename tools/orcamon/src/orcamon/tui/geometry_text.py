@@ -139,14 +139,17 @@ def render(
                 glyphs[row * width + col + off] = (ch, style)
                 cell_depth[row * width + col + off] = projected[i][2]
 
-    # Fog: the far THIRD of the plotted depth range is dimmed. Guard a flat
-    # scene (every cell the same depth), which a third of zero would put
-    # entirely on the far side.
+    # Fog: the far THIRD of the framing sphere is dimmed -- the sphere around
+    # the mean of radius `radius`, whose centre sits at depth -pan . forward.
+    # It was the far third of the cells' OWN depth range, which changes as
+    # the view turns, so a cell at a fixed depth crossed in and out of the
+    # dimmed band under rotation and flickered under rocking; the sphere does
+    # not turn (the pixel renderer's `raster._fog_depths` is the same rule).
+    # A single atom has no sphere to divide, and would sit on the boundary.
     far_depth = None
-    if view.fog:
-        depths = [d for d in cell_depth if d != -math.inf]
-        if depths and max(depths) - min(depths) > 1e-9:
-            far_depth = min(depths) + (max(depths) - min(depths)) / 3.0
+    if view.fog and radius > 1e-9:
+        mid = -(view.pan[0] * forward[0] + view.pan[1] * forward[1] + view.pan[2] * forward[2])
+        far_depth = mid - radius / 3.0
     dim_style = Style(dim=True)
 
     text = Text(no_wrap=True, overflow="crop")

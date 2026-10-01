@@ -379,7 +379,7 @@ class RotatableGeometryImage(Widget):
         self._point = None
         self._request_seq = 0
         self._write_lock = threading.Lock()
-        self._bond_cache: tuple[int, list] | None = None
+        self._bond_cache: tuple[list, list] | None = None  # (atoms, bonds)
         self._input = Coalescer(self, COALESCE_S, self._on_change)
 
     def render(self) -> str:
@@ -403,10 +403,20 @@ class RotatableGeometryImage(Widget):
 
     def _bonds_for(self, atoms: list) -> list:
         """The bond list, cached by atom-list identity -- a geometry's bonds
-        do not change as it is rotated."""
-        if self._bond_cache is None or self._bond_cache[0] != id(atoms):
-            self._bond_cache = (id(atoms), bonds(atoms))
-        return self._bond_cache[1]
+        do not change as it is rotated.
+
+        The cache holds the LIST, not `id(atoms)`. An id is an address, and
+        CPython hands a freed list's address to the next list it makes, so a
+        superseded geometry's id can come back on a new one and be served the
+        old bonds -- out of range, if the new structure is smaller, which
+        kills the render worker. Holding the list keeps its address taken.
+        The tuple is read and replaced whole because the pixel panes call
+        this from worker threads."""
+        cached = self._bond_cache
+        if cached is None or cached[0] is not atoms:
+            cached = (atoms, bonds(atoms))
+            self._bond_cache = cached
+        return cached[1]
 
     def _next_seq(self) -> int:
         self._request_seq += 1
@@ -429,8 +439,9 @@ class RotatableGeometryImage(Widget):
 
     def action_rotate_up(self) -> None:
         # No clamp, same as azim: elev just keeps turning past the pole
-        # rather than stopping there (matplotlib's view_init renders that
-        # fine -- it's a full tumble, not a fixed "top/bottom" limit).
+        # rather than stopping there -- a full tumble, not a fixed
+        # "top/bottom" limit. `camera_basis` keeps it continuous through the
+        # pole; it snapped the picture upside down there until 2026-10-01.
         self.elev = (self.elev + ROTATE_STEP_DEG) % 360
         self._input.request()
 

@@ -573,6 +573,104 @@ def test_labels_follow_occlusion():
     check("the fully hidden atom gets no label", same, f"around {(cx, cy)}")
 
 
+def test_wireframe_keeps_labels_and_distances():
+    print("\nwireframe still draws the labels and distances it was asked for")
+    from orcamon.core.geometry import View
+    from orcamon.tui import raster
+
+    # Water: every atom is bonded, so in wireframe NONE has a sphere -- which
+    # is what made `_is_visible` refuse all of them and `l`/`d` draw nothing.
+    atoms = [("O", 0.0, 0.0, 0.0), ("H", 0.0, 0.96, 0.0), ("H", 0.0, -0.24, 0.93)]
+    size = (300, 240)
+    sx, sy, _depth, _scale = raster.project(atoms, View(elev=0, azim=0, representation="wireframe"), size)
+
+    def differs(a, b, cx, cy):
+        cx, cy = int(round(cx)), int(round(cy))
+        return any(a.getpixel((x, y)) != b.getpixel((x, y))
+                   for x in range(cx - 4, cx + 5) for y in range(cy - 4, cy + 5))
+
+    def wire(**kwargs):
+        return raster.render(atoms, View(elev=0, azim=0, representation="wireframe", fog=False,
+                                         **kwargs), size_px=size)
+
+    bare = wire(show_labels=False)
+    check("the oxygen's label is drawn", differs(wire(), bare, sx[0], sy[0]))
+    measured = wire(show_labels=False, show_distances=True)
+    check("the O-H distance is drawn",
+          differs(measured, bare, (sx[0] + sx[1]) / 2, (sy[0] + sy[1]) / 2))
+
+
+def test_wireframe_draws_the_qm_layer_thicker():
+    print("\nwireframe draws the QM layer's sticks thicker than the environment's")
+    from orcamon.core.geometry import View
+    from orcamon.tui import raster
+
+    # Eye on +x: two equal-length bonds side by side on screen, the left one
+    # QM, the right one environment, 3 A apart so they do not bond each other.
+    atoms = [("C", 0.0, -3.0, 0.0), ("C", 0.0, -1.5, 0.0),
+             ("C", 0.0, 1.5, 0.0), ("C", 0.0, 3.0, 0.0)]
+    size = (400, 200)
+    image = raster.render(atoms, View(elev=0, azim=0, representation="wireframe", fog=False,
+                                      show_labels=False),
+                          qm_atom_indices={0, 1}, size_px=size)
+
+    def ink(x0, x1):
+        return sum(1 for x in range(x0, x1) for y in range(size[1])
+                   if sum(abs(c - b) for c, b in zip(image.getpixel((x, y)), raster.BACKGROUND)) > 6)
+
+    qm, env = ink(0, size[0] // 2), ink(size[0] // 2, size[0])
+    check("the QM bond covers more pixels than the environment bond", qm > env, f"{qm} vs {env}")
+
+
+def test_fog_holds_still_under_rotation():
+    print("\nfog fades an atom by its depth, not by the frame's own depth range")
+    from orcamon.core.geometry import View
+    from orcamon.tui import raster
+
+    # An oxygen at the centroid of a carbon triangle (3 A out, no bonds): its
+    # depth is zero from every angle, but the frame's nearest and farthest
+    # pixels are not -- flat seen from above, +/-2.6 A seen edge-on. Fog read
+    # off those dimmed the oxygen differently at the two angles.
+    atoms = [("O", 0.0, 0.0, 0.0), ("C", 3.0, 0.0, 0.0),
+             ("C", -1.5, 2.6, 0.0), ("C", -1.5, -2.6, 0.0)]
+    size = (300, 240)
+    colours = []
+    for elev, azim in ((90, -60), (0, 90)):
+        view = View(elev=elev, azim=azim, show_labels=False)
+        sx, sy, _depth, _scale = raster.project(atoms, view, size)
+        image = raster.render(atoms, view, size_px=size)
+        colours.append(image.getpixel((int(round(sx[0])), int(round(sy[0])))))
+    check("the oxygen's centre is the same colour from above and edge-on",
+          max(abs(a - b) for a, b in zip(*colours)) <= 2, f"{colours[0]} vs {colours[1]}")
+
+
+def test_the_camera_tumbles_over_the_pole():
+    print("\nthe camera turns smoothly over the pole instead of snapping upside down")
+    from orcamon.core.geometry import camera_basis, camera_forward
+
+    def dot(a, b):
+        return sum(x * y for x, y in zip(a, b))
+
+    def cross(a, b):
+        return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+    worst_step, worst_hand = 1.0, 0.0
+    for azim in (-60, 30, 110):
+        for pole in (90, 270):
+            previous = camera_basis(pole - 10, azim)
+            for elev in range(pole - 9, pole + 11):
+                right, up = camera_basis(elev, azim)
+                worst_step = min(worst_step, dot(right, previous[0]), dot(up, previous[1]))
+                normal = cross(right, up)
+                worst_hand = max(worst_hand, max(abs(n - f) for n, f in
+                                                 zip(normal, camera_forward(elev, azim))))
+                previous = (right, up)
+    # One degree of elevation turns `up` by one degree: cos(1 deg) = 0.99985.
+    check("right and up move by about a degree per degree, through both poles",
+          worst_step > 0.999, f"worst dot {worst_step:.4f}")
+    check("and stay right-handed there", worst_hand < 1e-9, f"{worst_hand:.2e}")
+
+
 def test_the_renderer_is_fast_enough():
     print("\nthe renderer keeps a rotation interactive")
     import time
@@ -933,6 +1031,10 @@ if __name__ == "__main__":
     test_space_filling_is_framed()
     test_principal_axes_face_a_plane_on()
     test_labels_follow_occlusion()
+    test_wireframe_keeps_labels_and_distances()
+    test_wireframe_draws_the_qm_layer_thicker()
+    test_fog_holds_still_under_rotation()
+    test_the_camera_tumbles_over_the_pole()
     test_the_renderer_is_fast_enough()
     test_the_view_is_not_mirrored()
     test_text_mode_draws_the_right_enantiomer()

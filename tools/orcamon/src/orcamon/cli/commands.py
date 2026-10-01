@@ -462,6 +462,11 @@ def cmd_geom(args, job: Job) -> int:
 
 # --- snapshot ---------------------------------------------------------------
 
+# The renderer holds about 40 bytes of buffer per pixel, so an unchecked
+# `--size 100000x100000` asked for some 400 GB and died in a MemoryError
+# traceback instead of a usage error. 4096 a side is ~670 MB at worst.
+SNAPSHOT_MAX_SIDE = 4096
+
 
 @_with_job
 def cmd_snapshot(args, job: Job) -> int:
@@ -477,6 +482,8 @@ def cmd_snapshot(args, job: Job) -> int:
     if not match:
         raise UsageError(f"bad --size {args.size!r}: use WxH (e.g. 900x750)")
     size = (int(match.group(1)), int(match.group(2)))
+    if not all(1 <= side <= SNAPSHOT_MAX_SIDE for side in size):
+        raise UsageError(f"bad --size {args.size!r}: each side must be 1 to {SNAPSHOT_MAX_SIDE} pixels")
     # The renderer is the `images` extra, and the CLI must run without it, so
     # the import is here and not at module level.
     try:
