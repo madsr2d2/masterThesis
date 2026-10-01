@@ -126,6 +126,10 @@ MARKER_CASES = [
      lambda s: len(s.irc_maxiter) == 1),
     ("Storing forward trajectory in       .... job_IRC_F_trj.xyz",
      lambda s: s.irc_files == {"forward": "job_IRC_F_trj.xyz"}),
+    ("Optim.  Iteration  CI   E(CI)-E(0)   max(|Fp|)   RMS(Fp)    dS",
+     lambda s: s._in_neb_rows and s._neb_phase == "CI"),
+    ("Current trajectory will be written to    ....  job_MEP_trj.xyz",
+     lambda s: s.neb_file == "job_MEP_trj.xyz"),
 ]
 
 

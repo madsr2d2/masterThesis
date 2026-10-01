@@ -1,19 +1,21 @@
-"""An IRC reaction path: its points in path order, built once.
+"""An IRC or NEB reaction path: its points in path order, built once.
 
 A reaction path here is the sequence of geometries ORCA computed along an
-IRC, each with the energy it printed for it -- the transition state between
-the two directions. The energies come from the iteration ROWS in the log and
-the geometries from the trajectory files the log names; D2-D6 of
-`PLAN_ORCAMON_PATHS.md` hold. `reaction_path` is the one builder, cached on
-the job, so the CLI and the TUI cannot be shown different lists.
+IRC or an NEB, each with the energy it printed for it -- the transition state
+between the two IRC directions, or image 0 of an NEB. The energies come from
+the iteration ROWS in the log and the geometries from the trajectory files
+the log names; D2-D6 of `PLAN_ORCAMON_PATHS.md` hold. `reaction_path` is the
+one builder, cached on the job, so the CLI and the TUI cannot be shown
+different lists.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .geometry import read_xyz, read_xyz_frames
-from .units import KCAL_TO_KJ
+from .units import EH_TO_KJ_PER_MOL, KCAL_TO_KJ
 
 
 @dataclass(eq=False)
@@ -75,7 +77,7 @@ def _stamp(path: Path) -> tuple | None:
 
 
 def reaction_path(job) -> PathView | None:
-    """The job's IRC path, or None when it has no IRC rows (NEB is later).
+    """The job's IRC or NEB path, or None when it has neither.
 
     Built once and cached on `job.path_view`, keyed by the signature of what
     the path is made from: the row counts, whether the job ended, and the
@@ -87,7 +89,7 @@ def reaction_path(job) -> PathView | None:
     backward = state.irc_rows.get("backward", [])
     forward = state.irc_rows.get("forward", [])
     if not backward and not forward:
-        return None
+        return _neb_reaction_path(job)
     names = (
         state.irc_files.get("full"),
         state.irc_files.get("forward"),
@@ -179,14 +181,72 @@ def _irc_points(job, backward: list, forward: list) -> list:
     return points
 
 
+def _neb_reaction_path(job) -> PathView | None:
+    """The CURRENT NEB path: ORCA rewrites `job_MEP_trj.xyz` every iteration,
+    so this is what it held when it was last stamped. None while the file has
+    not been written yet, or when it has no complete frame."""
+    state = job.state
+    if not state.neb_file:
+        return None
+    trj = state.path / state.neb_file
+    frames = _frames(trj)
+    if not frames:
+        return None
+    signature = (len(state.neb_rows), _stamp(trj))
+    cached = getattr(job, "path_view", None)
+    if cached is not None and cached[0] == signature:
+        return cached[1]
+    view = _neb_view(state, frames, state.neb_file)
+    if view is None:
+        return None
+    job.path_view = (signature, view)
+    return view
+
+
+def _neb_view(state, frames: list, name: str) -> PathView | None:
+    """The NEB's points, one per frame of the MEP trajectory: each image's
+    energy is the float after `E` in its comment, and the dE is measured from
+    image 0 (D4). A frame whose comment carries no energy ends the path --
+    ORCA writes the file while it runs, so the read never runs past what is
+    there -- and image 0 without one leaves nothing to measure from."""
+    energies = []
+    for comment, _atoms in frames:
+        m = re.search(r"\bE\s+(-?\d+\.\d+)", comment)
+        if m is None:
+            break
+        energies.append(float(m.group(1)))
+    if not energies:
+        return None
+    first = energies[0]
+    latest = state.neb_rows[-1] if state.neb_rows else None
+    points = []
+    for i, (_comment, atoms) in enumerate(frames[: len(energies)]):
+        label = f"NEB image {i}"
+        if latest is not None and i == latest.image:
+            label += f" ({latest.phase})"
+        points.append(PathPoint(
+            kind="neb", index=i, label=label, energy=energies[i],
+            de_kj_mol=(energies[i] - first) * EH_TO_KJ_PER_MOL, atoms=atoms,
+            energy_label=state.final_energy_label, source=name,
+        ))
+    focus = latest.image if latest is not None and latest.image < len(points) else 0
+    return PathView("neb", points, focus)
+
+
 def path_summary(state) -> tuple[str, str] | None:
-    """The one-line `show`/`ls` description of an IRC and its progress
+    """The one-line `show`/`ls` description of an IRC or NEB and its progress
     fraction, read from the parsed state alone -- `ls` calls it for every job,
-    so it may not touch a file. None when the job has no IRC rows."""
+    so it may not touch a file. None when the job has no path rows."""
     backward = state.irc_rows.get("backward", [])
     forward = state.irc_rows.get("forward", [])
     if not backward and not forward:
-        return None
+        if not state.neb_rows:
+            return None
+        r = state.neb_rows[-1]
+        return (f"NEB        iteration {r.iteration} · "
+                f"{'climbing' if r.phase == 'CI' else 'highest'} image {r.image} · "
+                f"E({r.phase})-E(0) {r.barrier_eh * EH_TO_KJ_PER_MOL:+.1f} kJ/mol",
+                f"neb {r.iteration} {r.phase}{r.image}")
     parts = []
     for direction, rows in (("backward", backward), ("forward", forward)):
         if not rows:

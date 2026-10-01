@@ -56,6 +56,19 @@ _IRC_ROW_RE = re.compile(r"^\s*(\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(\d+\.\d+)\
 _IRC_MONITOR_RE = re.compile(r"[A-Za-z]+\([^)]*\)")
 _IRC_MAXITER_RE = re.compile(r"MAXIMUM NUMBER OF ITERATIONS REACHED - STOPPING IRC RUN")
 _IRC_TRAJECTORY_RE = re.compile(r"Storing (full|forward|backward) (?:IRC )?trajectory in\s+\.+\s+(\S+)")
+# An NEB prints one block per phase -- a header naming the phase, one row per
+# iteration -- and names the MEP trajectory it rewrites each iteration. A real
+# header and row (b973c-xtb/neb_anion/job.out):
+#     Optim.  Iteration  CI   E(CI)-E(0)   max(|Fp|)   RMS(Fp)    dS     max(|FCI|)   RMS(FCI)
+#        LBFGS    14      4    0.064973    0.020692   0.001725  24.0491    0.017823    0.002398
+_NEB_HEADER_RE = re.compile(r"^Optim\.\s+Iteration\s+(HEI|CI)\s+E\((?:HEI|CI)\)-E\(0\)")
+# The first four columns are fixed; a climbing image's rows carry two more
+# force columns than the highest image's.
+_NEB_ROW_RE = re.compile(
+    r"^\s*([A-Za-z][A-Za-z-]*)\s+(\d+)\s+(\d+)\s+(-?\d+\.\d+)\s+(\d+\.\d+)"
+    r"\s+(\d+\.\d+)\s+(\d+\.\d+)(?:\s+(\d+\.\d+)\s+(\d+\.\d+))?\s*$"
+)
+_NEB_TRAJECTORY_RE = re.compile(r"Current trajectory will be written to\s+\.+\s+(\S+)")
 # A geometry the job writes to a FILE instead of printing it. ORCA's SOLVATOR
 # prints no coordinate block at all -- the solvated cluster exists only as
 # `job.solvator.xyz` -- and names the file on this line, typo included:
@@ -139,6 +152,7 @@ _RARE_MARKERS_RE = re.compile(
     r"|did not converge but reached the maximum|saved to"
     r"|convergence is overachieved|Everything but the energy has converged"
     r"|FORWARD IRC|BACKWARD IRC|STOPPING IRC RUN|trajectory in|dE\(kcal/mol\)"
+    r"|E\(0\)|Current trajectory will be written"
 )
 _CONV_HINT_RE = re.compile(r"gradient|step|Energy change")
 
@@ -247,6 +261,18 @@ class IrcRow:
 
 
 @dataclass
+class NebRow:
+    """One NEB iteration: the highest (HEI) or climbing (CI) image, its energy
+    above image 0 in Eh, and the perpendicular forces."""
+    iteration: int
+    phase: str          # "HEI" | "CI"
+    image: int
+    barrier_eh: float
+    max_fp: float
+    rms_fp: float
+
+
+@dataclass
 class JobState:
     path: Path
     stem: str = "job"
@@ -292,6 +318,10 @@ class JobState:
     irc_monitors: list = field(default_factory=list)
     irc_maxiter: list = field(default_factory=list)
     irc_files: dict = field(default_factory=dict)
+    # An NEB, read from the block ORCA prints per phase: that phase's rows
+    # ("HEI" or "CI") and the MEP trajectory file the current path lives in.
+    neb_rows: list = field(default_factory=list)
+    neb_file: str | None = None
     maxiter_scan_steps: list = field(default_factory=list)
     # A geometry file the job announced it wrote (relative to the job's
     # directory), for jobs that print no coordinates -- see _RESULT_FILE_RE.
@@ -351,6 +381,9 @@ class JobState:
     _pending_converged_reason: str | None = None
     _in_irc_rows: bool = False
     _irc_seen_row: bool = False
+    _in_neb_rows: bool = False
+    _neb_phase: str | None = None
+    _neb_seen_row: bool = False
     _in_modes_block: bool = False
     _modes_columns: list = field(default_factory=list)
     # mode index -> {coordinate index: printed value}, filled column by column
@@ -434,6 +467,7 @@ class JobState:
             self._in_geom_block or self._in_freq_block
             or self._in_qm1_composition or self._in_scan_banner
             or self._in_modes_block or self._in_irc_rows
+            or self._in_neb_rows
         )
 
     def _process(self, line: str) -> None:
@@ -450,6 +484,9 @@ class JobState:
         # skipped as "no row yet" rather than closing it again.
         if self._in_irc_rows:
             self._feed_irc_row(line)
+
+        if self._in_neb_rows:
+            self._feed_neb_row(line)
 
         if self._in_scan_banner:
             self._feed_scan_banner(line)
@@ -578,6 +615,16 @@ class JobState:
         if m:
             self.irc_files[m.group(1)] = m.group(2)
 
+        m = _NEB_HEADER_RE.match(line.strip())
+        if m:
+            self._neb_phase = m.group(1)
+            self._in_neb_rows = True
+            self._neb_seen_row = False
+
+        m = _NEB_TRAJECTORY_RE.search(line)
+        if m:
+            self.neb_file = m.group(1)
+
     def _feed_irc_row(self, line: str) -> None:
         """An open IRC row block: one row per iteration until a line that is
         not one -- a blank line, the MaxIter banner, the next direction's
@@ -594,6 +641,23 @@ class JobState:
             pass
         else:
             self._in_irc_rows = False
+
+    def _feed_neb_row(self, line: str) -> None:
+        """An open NEB row block: one row per iteration until a line that is
+        not one -- a blank line, the next phase's conversion banner or header
+        -- closes it. Preamble before the first row (`Switch-on CI threshold`,
+        `Convergence thresholds`) is stepped over without closing."""
+        m = _NEB_ROW_RE.match(line)
+        if m:
+            self.neb_rows.append(NebRow(
+                int(m.group(2)), self._neb_phase, int(m.group(3)),
+                float(m.group(4)), float(m.group(5)), float(m.group(6)),
+            ))
+            self._neb_seen_row = True
+        elif not self._neb_seen_row:
+            pass
+        else:
+            self._in_neb_rows = False
 
     def _feed_scan_banner(self, line: str) -> None:
         """The lines of a scan step's banner after its title: the scanned

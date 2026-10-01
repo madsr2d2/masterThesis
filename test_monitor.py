@@ -30,7 +30,7 @@ sys.path.insert(0, HERE)
 
 from orcamon import validate  # noqa: E402
 from orcamon.core.orca_input import describe_spin, parse_input  # noqa: E402
-from orcamon.core.parser import IrcRow, JobState  # noqa: E402
+from orcamon.core.parser import IrcRow, JobState, NebRow  # noqa: E402
 from orcamon.core.report import (  # noqa: E402
     REPORT_SCHEMA, STEP_ROWS, build_report, geometry_shown, render_markup, render_plain,
     render_steps_markup, render_steps_plain, steps_rows,
@@ -1382,6 +1382,103 @@ def test_the_irc_is_summarised_and_flagged():
           FLAG_CODES.index("irc_not_converged") == FLAG_CODES.index("scan_incomplete") + 1)
 
 
+_NEB_OUT = """
+Current trajectory will be written to    ....  job_MEP_trj.xyz
+
+Starting iterations:
+
+Optim.  Iteration  HEI  E(HEI)-E(0)  max(|Fp|)   RMS(Fp)    dS
+Switch-on CI threshold               0.020000
+   LBFGS     0      2    0.010000    0.050000   0.005000  2.0000
+   LBFGS     1      2    0.009000    0.030000   0.004000  1.9000
+
+Image  2 will be converted to a climbing image in the next iteration (max(|Fp|) < 0.0200)
+
+Optim.  Iteration  CI   E(CI)-E(0)   max(|Fp|)   RMS(Fp)    dS     max(|FCI|)   RMS(FCI)
+Convergence thresholds               0.020000   0.010000            0.002000    0.001000
+   LBFGS     2      2    0.008000    0.015000   0.003000  1.8000    0.010000    0.002000
+"""
+
+_NEB_ENERGIES = ("-100.000000000000", "-99.995000000000",
+                 "-99.992000000000", "-99.998000000000")
+
+
+def _neb_frame(z, energy):
+    """One frame of the synthetic NEB tree, identified by the O atom's z and
+    carrying the image's energy in the comment."""
+    lines = ["3", f"Coordinates from ORCA-job job_MEP E {energy}"]
+    for el, x, y in (("O", 0.0, 0.0), ("H", 0.96, 0.0), ("H", -0.24, 0.93)):
+        lines.append(f"{el} {x:.6f} {y:.6f} {z:.6f}")
+    return "\n".join(lines) + "\n"
+
+
+def _neb_tree(d: Path):
+    """§ Facts' synthetic NEB tree: a running NEB-CI whose current MEP
+    trajectory holds four images, the O atom's z identifying each."""
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "job.inp").write_text(
+        '! B97-3c NEB-CI\n%neb NEB_End_XYZFile "product.xyz" end\n* xyzfile 0 1 start.xyz\n')
+    (d / "job.out").write_text(_NEB_OUT.strip("\n") + "\n")
+    (d / "start.xyz").write_text(_neb_frame(0.0, _NEB_ENERGIES[0]))
+    (d / "job_MEP_trj.xyz").write_text(
+        "".join(_neb_frame(z, e) for z, e in enumerate(_NEB_ENERGIES)))
+
+
+def test_the_neb_is_parsed_and_built():
+    print("\nan NEB's iteration rows and its current path are read")
+    import tempfile
+
+    from orcamon.core.paths import path_summary, reaction_path
+
+    state = JobState(path=Path("/nonexistent"), stem="job")
+    _feed(state, _NEB_OUT)
+
+    check("the three iteration rows, the last with its image, barrier and forces",
+          len(state.neb_rows) == 3
+          and state.neb_rows[-1] == NebRow(2, "CI", 2, 0.008, 0.015, 0.003),
+          f"{state.neb_rows}")
+    check("each row carries the phase its block's header named",
+          [r.phase for r in state.neb_rows] == ["HEI", "HEI", "CI"])
+    check("and the MEP trajectory the log names",
+          state.neb_file == "job_MEP_trj.xyz", f"{state.neb_file}")
+
+    summary = ("NEB        iteration 2 · climbing image 2 · E(CI)-E(0) +21.0 kJ/mol",
+               "neb 2 CI2")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        _neb_tree(d)
+        job = Job(d, "job", d.parent, label="neb")
+        job.refresh(Liveness(False, "process"))
+        view = reaction_path(job)
+
+        check("the current path is an NEB, one point per image, CI on the latest row's",
+              view is not None and view.kind == "neb"
+              and [p.index for p in view.points] == [0, 1, 2, 3]
+              and [p.label for p in view.points] == [
+                  "NEB image 0", "NEB image 1", "NEB image 2 (CI)", "NEB image 3"])
+        check("its dE is measured from image 0",
+              view is not None
+              and [round(p.de_kj_mol, 4) for p in view.points]
+              == [0.0, 13.1275, 21.004, 5.251])
+        check("the image the latest row names is the focus",
+              view is not None and view.focus == 2)
+        check("the summary says which image and what barrier it has",
+              path_summary(state) == summary)
+
+        trj = d / "job_MEP_trj.xyz"
+        trj.write_text("".join(_neb_frame(z, e) for z, e in enumerate(_NEB_ENERGIES[:3]))
+                       + "3\nCoordinates from ORCA-job job_MEP E -99.998000000000\n"
+                         "O 0.000000 0.000000 3.000000\n")
+        cut = reaction_path(job)
+        check("a half-written frame ends the path there",
+              cut is not None and [p.index for p in cut.points] == [0, 1, 2])
+
+        trj.unlink()
+        check("without the MEP file there is no path, but the summary still says where it is",
+              reaction_path(job) is None and path_summary(state) == summary)
+
+
 _TERMINATED = "                 ****ORCA TERMINATED NORMALLY****"
 _MAXITER = ("       The optimization did not converge but reached the maximum \n"
             "       number of optimization cycles.")
@@ -1736,6 +1833,7 @@ if __name__ == "__main__":
     test_irc_rows_are_parsed()
     test_the_irc_path_is_built()
     test_the_irc_is_summarised_and_flagged()
+    test_the_neb_is_parsed_and_built()
     test_status_names_the_outcome()
     test_attention_flags()
     test_orca_says_why_it_converged()
