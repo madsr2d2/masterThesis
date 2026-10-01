@@ -63,12 +63,13 @@ A different name or path for the same thing is not a stop: adapt, and report it 
 | D1 | The mode data comes from the `NORMAL MODES` block already in the `.out`, not from `orca_pltvib` or the `.hess` (orcamon must work on copied trees, live jobs and hosts with no ORCA install, and parsing gives every mode). | user (chose the source), 2026-10-01 |
 | D2 | Only modes with `frequency < 0` are kept — the same rule `cmd_freqs` uses, with no cutoff. | user, 2026-10-01 |
 | D3 | The displacement is the printed vector scaled so its largest atom moves `MODE_AMPLITUDE_ANGSTROM = 0.20` Å. **No mass factor**: `orca_pltvib` writes `2.0 ×` the printed vector for both C and H (measured, MO2 probe), i.e. it scales the printed pattern, it does not un-weight it. | planner, 2026-10-01 (measured) |
-| D4 | A mode maps to the displayed atoms directly when `len(vector)//3 == len(atoms)`, and through `sorted(qm_atom_indices)` when it equals `len(qm_atom_indices)`; otherwise it is refused (`None`), never guessed. | planner, 2026-10-01 (verified on two real jobs) |
+| D4 | A mode maps to the displayed atoms directly when `len(vector)//3 == len(atoms)`, and through `sorted(qm_atom_indices)` when it equals `len(qm_atom_indices)`. When the pane's geometry matches neither, the mode is drawn on the job's own structure instead — `job.file_geometry` if set, else the coordinate file the input names, read with `core.geometry.read_xyz` — with the same `qm_atom_indices` split; otherwise it is refused (`None`), never guessed. | user (chose the fallback), 2026-10-01 (verified on two real jobs; MO2 found the pane's geometry is not the Hessian's) |
 | D5 | Animation is `sin(2π (t − t0) / MODE_PERIOD_S)` with `MODE_PERIOD_S = 2.5`, at the pane's own `ROCK_FPS`; it runs in the text/braille pane as well, because that renderer is cheap and a mode that "does nothing" in text would repeat the see-through complaint. `0` (reset view) leaves the mode running. | planner, 2026-10-01 |
 | D6 | `i` cycles: off → most-negative imaginary mode → next → … → off. The pane title carries `mode <index> <cm-1> cm⁻¹ (<j>/<n>)`. With no imaginary mode, `i` shows a Textual notification and changes nothing. | user (key) and planner (cycle), 2026-10-01 |
 | D7 | `snapshot --mode N [--phase DEG]` renders one frame; `--phase` is degrees, default 90 (the `+` extreme). `N` is ORCA's own mode index, the one `orcamon freqs` prints. | planner, 2026-10-01 |
 | D8 | The three fast verification commands per task; `run_gates.py` only in MO5. | planner, 2026-10-01 |
 | D9 | Commit messages start with `orcamon:`; one commit per task. | planner, 2026-10-01 |
+| D10 | Because the fallback can draw `job.xyz` instead of the parsed block, the pane's structure may change while a mode is on and the chart's scrub selection is ignored until the mode is turned off. | planner, 2026-10-01 |
 
 ## Facts (verified 2026-10-01)
 
@@ -95,8 +96,8 @@ The same file's `VIBRATIONAL FREQUENCIES` block (`job.out` line 2851) has mode `
 **The convention, measured.** `verify_exact_hessian/job.hess.v006.xyz` is `orca_pltvib`'s 20-frame trajectory of mode 6: 2840 lines = 20 frames of (2 header + 140 atom) lines, each atom line `element x y z dx dy dz`. Frame 1's `(dx,dy,dz)` equals **2.000 ×** the printed mode-6 vector for every atom checked, **for both C and H** (C coordinate 0: printed `-0.004219`, frame `-0.008437`; H atom 66 coordinate 198: printed `0.002789`, frame `0.005578`). So the printed vector is the Cartesian pattern and `orca_pltvib` scales it globally; there is no `sqrt(m)` factor to apply. The equilibrium in that file equals `job.xyz` (140 atoms) to 6 decimals.
 
 **The mapping, measured.** The Hessian covers the ACTIVE region, which may differ from the displayed structure:
-- `geometry_r2scan3c-xtb/ts/verify_exact_hessian`: `job.out` line 325 `optimized atoms = activeRegion ... 140`, line 328 `QM1 Subsystem ... 61 64 120 … 139` (20 atoms). Hessian N = 140 = `len(job.xyz)` = 140, so the direct map applies.
-- `geometry_b973c-xtb/ts/optts_freq_tight`: `job.out` line 340 `optimized atoms = activeRegion ... 17`, line 343 `QM1 Subsystem ... 61 64 120 … 136` (17 atoms), Hessian N = 17 = `len(state.qm_atom_indices)`, while `job.xyz` is 137 atoms. `job.activeRegion.xyz` is the 17-atom geometry the Hessian belongs to, so `sorted(qm_atom_indices)` applied to `job.xyz` must reproduce it elementwise.
+- `geometry_r2scan3c-xtb/ts/verify_exact_hessian`: `job.out` line 325 `optimized atoms = activeRegion ... 140`, line 328 `QM1 Subsystem ... 61 64 120 … 139` (20 atoms), Hessian N = 140. The `.out` prints exactly ONE `CARTESIAN COORDINATES (ANGSTROEM)` block (line 359) and it is 22 atoms, so `state.atoms` is 22 (measured); the 140-atom structure the Hessian belongs to is in `job.xyz`, which the input's `* xyzfile` names. The mode therefore maps through the fallback, and `qm_atom_indices` (20) still gives the host/guest split on the 140-atom render.
+- `geometry_b973c-xtb/ts/optts_freq_tight`: `job.out` line 340 `optimized atoms = activeRegion ... 17`, line 343 `QM1 Subsystem ... 61 64 120 … 136` (17 atoms), Hessian N = 17 = `len(state.qm_atom_indices)`, while `state.atoms` and `job.xyz` are both 137. `job.activeRegion.xyz` is the 17-atom geometry the Hessian belongs to: `sorted(qm_atom_indices)` applied to `job.xyz` reproduces it exactly, and applied to `state.atoms` it is 1.79e-4 A off (the pane is one optimiser step behind).
 
 **Parser architecture** (`tools/orcamon/src/orcamon/core/parser.py`):
 - `feed_line` is the reference path; `feed_text` is the fast one and bounces whole lines past `_LINE_OF_INTEREST_RE` unless `_in_block()`. So a new block needs its start marker added to `_LINE_OF_INTEREST_PARTS` (line 126) and its open flag added to `_in_block()` (line 354).
@@ -201,7 +202,7 @@ The same file's `VIBRATIONAL FREQUENCIES` block (`job.out` line 2851) has mode `
 **Files:** `tools/orcamon/src/orcamon/core/vibrations.py` (new), `test_monitor.py`.
 
 **Do:**
-1. Create `core/vibrations.py`, standard library only, with a module docstring naming the printed-mass-weighted/`orca_pltvib` convention and why the mapping is needed. Contents:
+1. Create `core/vibrations.py`, standard library only, with a module docstring naming the `orca_pltvib` convention (it writes `2.0 *` the printed vector for C and H alike, so the printed vector is the Cartesian pattern and no mass factor is applied) and why the mapping is needed. Import `math` at module level and `from .geometry import read_xyz`. Contents:
    ```python
    MODE_AMPLITUDE_ANGSTROM = 0.20   # how far the largest-moving atom travels
    MODE_PERIOD_S = 2.5              # one full oscillation, seconds
@@ -218,6 +219,33 @@ The same file's `VIBRATIONAL FREQUENCIES` block (`job.out` line 2851) has mode `
            return list(range(n_atoms))
        if qm_atom_indices and len(qm_atom_indices) == n_mode_atoms:
            return sorted(qm_atom_indices)
+       return None
+
+   def alternate_geometries(job) -> list:
+       """Structures to try when the pane's own does not hold the mode.
+
+       A multilayer `.out` can print only the QM block while the Hessian covers
+       the whole model -- `verify_exact_hessian` prints 22 atoms and its mode
+       covers 140 -- so the mode's own structure is read from the file the
+       input names. `job.file_geometry` is only ever set when the log printed
+       nothing, so it is tried first but is usually None here."""
+       candidates = []
+       if getattr(job, "file_geometry", None) is not None:
+           candidates.append(job.file_geometry.atoms)
+       coords_file = getattr(getattr(job, "input", None), "coords_file", None)
+       if coords_file:
+           atoms = read_xyz(job.state.path / coords_file)
+           if atoms:
+               candidates.append(atoms)
+       return candidates
+
+   def mode_geometry(candidates: list, qm_atom_indices, mode) -> tuple | None:
+       """The `(atoms, qm_atom_indices)` to draw `mode` on, from the candidates
+       in order, or None when none of them holds the mode."""
+       n_mode_atoms = len(mode.vector) // 3
+       for atoms in candidates:
+           if atoms and target_indices(len(atoms), n_mode_atoms, qm_atom_indices) is not None:
+               return list(atoms), qm_atom_indices
        return None
 
    def offsets(atoms: list, qm_atom_indices, mode, amplitude=MODE_AMPLITUDE_ANGSTROM) -> list | None:
@@ -246,65 +274,69 @@ The same file's `VIBRATIONAL FREQUENCIES` block (`job.out` line 2851) has mode `
    def phase_sine(elapsed_s: float, period_s: float = MODE_PERIOD_S) -> float:
        return math.sin(2.0 * math.pi * elapsed_s / period_s)
    ```
-   Import `math` at module level. Do not import numpy or any TUI module.
-2. Add four tests to `test_monitor.py` (after MO1's tests), each added to the `__main__` list:
+2. Add five tests to `test_monitor.py` (after MO1's tests), each added to the `__main__` list:
    - `test_mode_offsets_fill_the_whole_structure()` — a `NormalMode(index=0, cm1=-100.0, vector=[0.0,0.0,0.0, 3.0,4.0,0.0])` (two atoms, the second's vector length 5) mapped onto two atoms with `qm_atom_indices=None`. Exactly 3 checks: `offsets(...)` is not None; the second atom's offset has length `MODE_AMPLITUDE_ANGSTROM`; the first atom's offset is `(0.0, 0.0, 0.0)`.
    - `test_mode_offsets_map_onto_the_qm_subset()` — a 4-atom structure, `qm_atom_indices={1, 3}`, a `NormalMode` whose `vector` has 6 entries (2 mode atoms) with a nonzero first atom. Exactly 3 checks: the offsets are not None; atoms 1 and 3 carry the vector (atom 1's length is `MODE_AMPLITUDE_ANGSTROM`); atoms 0 and 2 are exactly `(0.0, 0.0, 0.0)`.
    - `test_mode_offsets_refuse_a_mismatched_mode()` — 3 displayed atoms, `qm_atom_indices=None`, a mode with 2 mode atoms. Exactly 1 check: `offsets(...) is None`.
    - `test_the_sine_phase_displaces_atoms()` — two atoms and known offsets. Exactly 2 checks: `phase_sine(0.0) == 0.0` and `displaced(atoms, offs, 1.0)` equals `atoms + offs`.
-3. Write the ground-truth probe below to `/tmp/orcamon_mode_parity.py` (outside the repository) and run it from the repository root with `XDG_CACHE_HOME=/tmp/orcamon_depth_cues/xdg .venv/bin/python /tmp/orcamon_mode_parity.py`. It must print four lines: `verify_exact_hessian: N=<n>, imaginary modes <list>`; `parity: max ratio spread <spread>`; `optts_freq_tight: N=<n>, qm=<n>, atoms=<n>`; `qm map: coordinates match <True|False>`.
+   - `test_the_mode_geometry_falls_back_to_an_alternate()` — a 2-atom pane, a 4-atom alternate, a 4-atom `NormalMode` and a 2-atom `NormalMode`. Exactly 3 checks: `mode_geometry([pane, alternate], None, mode4) == (alternate, None)`; `mode_geometry([pane], None, mode4) is None`; `mode_geometry([pane, alternate], None, mode2) == (pane, None)`.
+3. Write the ground-truth probe below to `/tmp/orcamon_mode_parity.py` (outside the repository) and run it from the repository root with `XDG_CACHE_HOME=/tmp/orcamon_depth_cues/xdg .venv/bin/python /tmp/orcamon_mode_parity.py`. It must print four lines: `verify_exact_hessian: N=<n>, imaginary modes <list>`; `parity: |d/(2*printed) - 1| max <dev> over <n> components`; `optts_freq_tight: N=<n>, qm=<n>, atoms=<n>`; `qm map: coordinates match <True|False>`.
    ```python
    """Ground-truth check of the parsed normal modes against orca_pltvib's own xyz."""
    from pathlib import Path
-   from orcamon.core import parser, vibrations
+   from orcamon.cli import build_parser, commands
+   from orcamon.core import vibrations
 
    REPO = Path("/home/madsr2d2/masterThesis")
-   C = REPO / "computational/C8_perhydrate_trap/K+H2O2_water-relay_to_KP"
+   C = "computational/C8_perhydrate_trap/K+H2O2_water-relay_to_KP/"
 
-   def job_state(path):
-       state = parser.new_state(path, "job")
-       parser.update_job(state)
-       return state
+   def load(job):
+       args = build_parser().parse_args(["snapshot", C + job, "-o", "/dev/null", "--root", str(REPO)])
+       return commands._load(args, C + job)
 
-   # 1. The 140-atom Hessian: the modes map directly onto job.xyz, and mode 6's
-   #    direction must match orca_pltvib's own frame 1 (it writes 2.0 * printed).
-   state = job_state(C / "geometry_r2scan3c-xtb/ts/verify_exact_hessian")
+   # 1. The 140-atom Hessian: the `.out` prints only a 22-atom QM block, so the
+   #    mode is drawn on job.xyz; orca_pltvib's own frame 1 writes 2.0 * printed.
+   job = load("geometry_r2scan3c-xtb/ts/verify_exact_hessian")
+   state = job.state
    modes = vibrations.imaginary_modes(state)
    mode = modes[0]
-   atoms = state.atoms
-   offs = vibrations.offsets(atoms, state.qm_atom_indices, mode)
-   frame = (C / "geometry_r2scan3c-xtb/ts/verify_exact_hessian/job.hess.v006.xyz").read_text().splitlines()
+   chosen = vibrations.mode_geometry([state.atoms] + vibrations.alternate_geometries(job),
+                                     state.qm_atom_indices, mode)
+   atoms, qm = chosen
+   frame = (REPO / C / "geometry_r2scan3c-xtb/ts/verify_exact_hessian/job.hess.v006.xyz").read_text().splitlines()
    ratios = []
    for i, line in enumerate(frame[2:2 + len(atoms)]):
        dx, dy, dz = (float(t) for t in line.split()[-3:])
-       for d, o in zip((dx, dy, dz), offs[i]):
-           if abs(o) > 1e-9:
-               ratios.append(d / o)
-   print(f"verify_exact_hessian: N={len(mode.vector) // 3}, imaginary modes "
-         f"{[m.index for m in modes]}")
-   print(f"parity: max ratio spread {max(ratios) - min(ratios):.6g} over {len(ratios)} components")
+       printed = mode.vector[3 * i:3 * i + 3]
+       for d, p in zip((dx, dy, dz), printed):
+           if abs(p) >= 1e-3:
+               ratios.append(d / (2.0 * p))
+   print(f"verify_exact_hessian: N={len(mode.vector) // 3}, imaginary modes {[m.index for m in modes]}")
+   print(f"parity: |d/(2*printed) - 1| max {max(abs(r - 1.0) for r in ratios):.6g} over {len(ratios)} components")
 
-   # 2. The 17-atom Hessian: the mode maps through sorted(qm); those atoms, taken
-   #    from the full geometry, must be the activeRegion xyz ORCA wrote.
-   state = job_state(C / "geometry_b973c-xtb/ts/optts_freq_tight")
+   # 2. The 17-atom Hessian: sorted(qm) applied to the FULL structure must be the
+   #    activeRegion xyz ORCA wrote.
+   job = load("geometry_b973c-xtb/ts/optts_freq_tight")
+   state = job.state
    mode = vibrations.imaginary_modes(state)[0]
+   full = next((a for a in vibrations.alternate_geometries(job) if len(a) == 137), state.atoms)
    qm = sorted(state.qm_atom_indices)
-   picked = [state.atoms[i] for i in qm]
-   ref = (C / "geometry_b973c-xtb/ts/optts_freq_tight/job.activeRegion.xyz").read_text().splitlines()
+   picked = [full[i] for i in qm]
+   ref = (REPO / C / "geometry_b973c-xtb/ts/optts_freq_tight/job.activeRegion.xyz").read_text().splitlines()
    same = len(ref) - 2 == len(picked) and all(
        line.split()[0] == el and max(abs(float(a) - b) for a, b in zip(line.split()[1:4], (x, y, z))) < 1e-4
        for line, (el, x, y, z) in zip(ref[2:], picked))
-   print(f"optts_freq_tight: N={len(mode.vector) // 3}, qm={len(qm)}, atoms={len(state.atoms)}")
+   print(f"optts_freq_tight: N={len(mode.vector) // 3}, qm={len(qm)}, atoms={len(full)}")
    print(f"qm map: coordinates match {same}")
    ```
-   Adjust only the `new_state`/`update_job` call names if the module's actual API differs (read `parser.py` and `cache.py` first); the four printed quantities are the check.
+   Adjust only the `commands._load`/`build_parser` call names if the real API differs (read `commands.py` first); the four printed quantities are the check.
 
-**If unsure:** If `parser.new_state(state.path, stem)` is not the right constructor, read `parser.py` and `update_job` and use their real names — that is not a deviation, but say which you used. If the ratio spread is not near zero (it should be at the 1e-6 level, the printed precision), STOP and report NEEDS_USER: the convention in D3 is then wrong, and it is the user's call.
+**If unsure:** If `commands._load(args, path)` is not the loader the CLI uses, read `commands.py` and use the real one — that is not a deviation, but say which you used. The parity statistic is `d / (2 * printed)` restricted to `|printed| >= 1e-3`, because six-decimal rounding makes the ratio over tiny components meaningless; if its max deviation is not below `1e-4`, STOP and report NEEDS_USER: the convention in D3 is then wrong, and it is the user's call.
 
 **Acceptance:**
-- The four new tests pass, with 9 new `check` calls in total.
-- The probe prints `verify_exact_hessian: N=140, imaginary modes [6]`, a `parity: max ratio spread` below `1e-5`, `optts_freq_tight: N=17, qm=17, atoms=137`, and `qm map: coordinates match True`.
-- `test_monitor.py`: 150 `pass`, `0 failure(s)`. `test_orcamon.py`: 157 `pass`. `data/test_curve_metrics.py`: `0 failure(s)`.
+- The five new tests pass, with 12 new `check` calls in total.
+- The probe prints `verify_exact_hessian: N=140, imaginary modes [6]`, a `parity: |d/(2*printed) - 1| max` below `1e-4`, `optts_freq_tight: N=17, qm=17, atoms=137`, and `qm map: coordinates match True`.
+- `test_monitor.py`: 153 `pass`, `0 failure(s)`. `test_orcamon.py`: 157 `pass`. `data/test_curve_metrics.py`: `0 failure(s)`.
 - The diff touches `core/vibrations.py` and `test_monitor.py` only.
 
 # Phase 2 — the surfaces
@@ -323,7 +355,7 @@ The same file's `VIBRATIONAL FREQUENCIES` block (`job.out` line 2851) has mode `
    p.add_argument("--phase", type=float, default=90.0, metavar="DEG",
                   help="where in the oscillation to draw, 0-360 degrees (default: %(default)s)")
    ```
-2. In `cmd_snapshot`, after `point` is chosen and before `geometry_render.render`, when `args.mode is not None`: import `from ..core import vibrations`; take `modes = vibrations.imaginary_modes(state)`; if `args.mode` is not in `[m.index for m in modes]`, raise `UsageError(f"no imaginary mode {args.mode} in this job; available: {[m.index for m in modes] or 'none'}")`; compute `offs = vibrations.offsets(point.atoms, state.qm_atom_indices, mode)`; if `offs is None`, raise `UsageError(f"mode {args.mode} covers {len(mode.vector) // 3} atoms and does not match the {len(point.atoms)}-atom geometry")`; else `atoms = vibrations.displaced(point.atoms, offs, math.sin(math.radians(args.phase)))`. Import `math` at module level if it is not already imported. Pass the displaced `atoms` to `geometry_render.render` instead of `point.atoms`, and append `f", mode {args.mode} at {args.phase:g} deg"` to the printed line.
+2. In `cmd_snapshot`, after `point` is chosen and before `geometry_render.render`, when `args.mode is not None`: import `from ..core import vibrations`; take `modes = vibrations.imaginary_modes(state)`; if `args.mode` is not in `[m.index for m in modes]`, raise `UsageError(f"no imaginary mode {args.mode} in this job; available: {[m.index for m in modes] or 'none'}")`; else choose the drawn structure first: `candidates = [point.atoms] + vibrations.alternate_geometries(job)`, `chosen = vibrations.mode_geometry(candidates, state.qm_atom_indices, mode)`; if `chosen is None` raise `UsageError(f"no geometry in this job holds mode {args.mode} ({len(mode.vector) // 3} atoms)")`; then `atoms, qm = chosen`, `offs = vibrations.offsets(atoms, qm, mode)`, and if `offs is None` raise `UsageError(...)` as above, else `atoms = vibrations.displaced(atoms, offs, math.sin(math.radians(args.phase)))`. Import `math` at module level if it is not already imported. Pass `atoms` and `qm_atom_indices=qm` to `geometry_render.render` instead of `point.atoms` and `state.qm_atom_indices`, and append `f", mode {args.mode} at {args.phase:g} deg"` to the printed line.
 3. Run `.venv/bin/orcamon skill install --project .` from the repository root. Then regenerate the fenced block under `### \`orcamon snapshot\`` in `tools/orcamon/README.md` with the exact output of `COLUMNS=90 XDG_CACHE_HOME=/tmp/orcamon_depth_cues/xdg .venv/bin/orcamon snapshot --help`. Change no other help block.
 4. Add to `test_orcamon.py`, in the snapshot test (the one that already writes a PNG), 3 checks using a synthetic job whose output carries a frequency block and a `NORMAL MODES` block (add such a job to the synthetic tree; reuse `test_monitor.SYNTHETIC_OUTPUT` plus the mode block, or a small helper in `test_orcamon.py`):
    - `snapshot <job> -o <tmp>/mode.png --mode <imaginary index> --size 120x100` exits 0 and the file starts with `b"\x89PNG"`;
@@ -335,7 +367,7 @@ The same file's `VIBRATIONAL FREQUENCIES` block (`job.out` line 2851) has mode `
 **Acceptance:**
 - `test_orcamon.py`: 160 `pass`, `0 failure(s)`; the skill check passes against the reinstalled skill.
 - `COLUMNS=90 … orcamon snapshot --help` equals the README's fenced snapshot block byte for byte, and the README diff touches no other block.
-- `test_monitor.py`: 150 `pass`. `data/test_curve_metrics.py`: `0 failure(s)`.
+- `test_monitor.py`: 153 `pass`. `data/test_curve_metrics.py`: `0 failure(s)`.
 
 ### MO4 — The TUI `i` key: cycle the imaginary modes and animate
 
@@ -345,11 +377,11 @@ The same file's `VIBRATIONAL FREQUENCIES` block (`job.out` line 2851) has mode `
 
 **Do:**
 1. In `GEOMETRY_BINDINGS`, add `("i", "cycle_modes", "Modes")` immediately after the `"x"` entry.
-2. In `RotatableGeometryImage.__init__`, add `self.mode_index = None`, `self.mode_label = ""`, `self._mode_s = 0.0`, `self._mode_t0 = 0.0`, `self._mode_timer = None`.
+2. In `RotatableGeometryImage.__init__`, add `self.mode_index = None`, `self._mode_alternates = []`, `self.mode_label = ""`, `self._mode_s = 0.0`, `self._mode_t0 = 0.0`, `self._mode_timer = None`.
 3. Add the methods, mirroring rock:
-   - `action_cycle_modes`: `modes = vibrations.imaginary_modes(self._job.state) if self._job is not None else []`; if empty, `self.notify("no imaginary mode in this job")` and return. Otherwise let `indices = [m.index for m in modes]`; if `self.mode_index is None` take `indices[0]`, else take the next one or `None` past the end. When it becomes `None` call `_stop_modes()`; otherwise call `_start_modes()`, and set `self.mode_label` to `f"mode {index} {cm1:.1f} cm-1 ({k + 1}/{len(indices)})"`. Finish with `self._input.request()` and `self.app.update_detail()`.
+   - `action_cycle_modes`: `modes = vibrations.imaginary_modes(self._job.state) if self._job is not None else []`; if empty, `self.notify("no imaginary mode in this job")` and return. Otherwise let `indices = [m.index for m in modes]`; if `self.mode_index is None` take `indices[0]`, else take the next one or `None` past the end. When it becomes `None` call `_stop_modes()` and set `self._mode_alternates = []`; otherwise call `_start_modes()`, set `self._mode_alternates = vibrations.alternate_geometries(self._job)`, and set `self.mode_label` to `f"mode {index} {cm1:.1f} cm-1 ({k + 1}/{len(indices)})"`. Finish with `self._input.request()` and `self.app.update_detail()`.
    - `_start_modes` resets `_mode_t0 = time.monotonic()` and starts `self.set_interval(1.0 / self.ROCK_FPS, self._mode_tick)`; `_mode_tick` sets `self._mode_s = vibrations.phase_sine(time.monotonic() - self._mode_t0)` and calls `_rock_redraw()`; `_stop_modes` stops the timer, sets `_mode_timer = None`, `mode_index = None`, `mode_label = ""` and `_mode_s = 0.0`. Add `vibrations` to the module imports (`from ..core import vibrations`) — `app.py` is TUI code and may import it.
-   - `_apply_mode(self, atoms, job)`: return `atoms` when `self.mode_index is None` or `job is None`; find the `NormalMode` with that index in `vibrations.imaginary_modes(job.state)`; return `atoms` if it is None; `offs = vibrations.offsets(atoms, job.state.qm_atom_indices, mode)`; return `atoms` if `offs is None`; else `vibrations.displaced(atoms, offs, self._mode_s)`.
+   - `_apply_mode(self, atoms, job)`: return `atoms` when `self.mode_index is None` or `job is None`; find the `NormalMode` with that index in `vibrations.imaginary_modes(job.state)`; return `atoms` if it is None; `chosen = vibrations.mode_geometry([atoms] + self._mode_alternates, job.state.qm_atom_indices, mode)`; return `atoms` if `chosen is None`; `drawn, qm = chosen`; `offs = vibrations.offsets(drawn, qm, mode)`; return `atoms` if `offs is None`; else `vibrations.displaced(drawn, offs, self._mode_s)`. The renderer keeps `job.state.qm_atom_indices` for the host/guest split, which is the same global index set on either structure.
 4. Call `_apply_mode` on the atoms right before each render: in Kitty `_push` and Herdr `_push`, wrap the `self._atoms_for(job, point)` result; in `TextGeometry.render`, wrap `self._atoms`. In `show_job`, when the job actually changed (`job is not self._job`), call `_stop_modes()` first. `on_unmount` calls `_stop_modes()` as well as `_stop_rock()`. `action_reset_view` must NOT touch the mode.
 5. In `MonitorApp._geometry_title()`, after the see-through mark, add `mode = f" · {geometry.mode_label}" if geometry.mode_label else ""` and include it in the returned string.
 6. In `test_orcamon.py`'s headless TUI test (`test_the_tui_runs_headless`), after the hydrogen check, add 3 checks on the synthetic frequency job: press `i`, `await pilot.pause(0.2)`, and check `geometry.mode_index == <imaginary index> and "cm-1" in geometry.border_title`; press `i` again and check `geometry.mode_index is None and "cm-1" not in geometry.border_title`; select a job with no frequencies, press `i`, and check `geometry.mode_index is None`.
@@ -359,7 +391,7 @@ The same file's `VIBRATIONAL FREQUENCIES` block (`job.out` line 2851) has mode `
 **Acceptance:**
 - The 3 new checks pass and `test_orcamon.py` is 163 `pass`, `0 failure(s)`.
 - The TUI test proves the title carries the mode when on and not when off.
-- `test_monitor.py`: 150 `pass`. `data/test_curve_metrics.py`: `0 failure(s)`.
+- `test_monitor.py`: 153 `pass`. `data/test_curve_metrics.py`: `0 failure(s)`.
 - The diff touches `tui/app.py` and `test_orcamon.py` only.
 
 # Phase 3 — documentation, gates, pictures
@@ -382,7 +414,7 @@ The same file's `VIBRATIONAL FREQUENCIES` block (`job.out` line 2851) has mode `
 
 **Acceptance:**
 - `run_gates.py`: `38 gates`, `0 failed`.
-- `test_monitor.py`: 150 `pass`. `test_orcamon.py`: 163 `pass`.
+- `test_monitor.py`: 153 `pass`. `test_orcamon.py`: 163 `pass`.
 - The two PNGs exist in `/tmp/orcamon_depth_cues/modes/` and differ; give their sizes.
 - The README diff touches only the three places named in **Do**.
 
