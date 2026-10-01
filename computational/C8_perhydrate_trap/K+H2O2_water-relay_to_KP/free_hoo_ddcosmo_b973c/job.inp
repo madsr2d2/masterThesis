@@ -1,0 +1,20 @@
+# C8 anion addition: FREE HOO- reference, ddCOSMO(water) to MATCH the complex.
+#
+# The binding energy subtracts this species from the embedded QM/MM complex, so
+# the two must share a solvation model. The complex (rs_anion) is QM/XTB and can
+# only use ddCOSMO (plain CPCM is not implemented for QM/XTB), so the free HOO-
+# is redone here with ddCOSMO too. ../free_hoo_b973c used CPCM(Water) and is kept
+# only to show the solvation-model difference.
+#
+# Bare anion (no counter-ion): the reaction cat + HOO- -> [cat...HOO-]- is
+# balanced on the anion, cat being neutral. Isolated 3-atom species, no host.
+# Opt + Freq in ONE job.
+! B97-3c ddCOSMO(Water) Opt Freq TightOpt TightSCF
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile -1 1 job.xyz

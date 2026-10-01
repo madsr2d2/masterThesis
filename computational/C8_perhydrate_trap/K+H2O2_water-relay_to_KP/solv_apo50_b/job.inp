@@ -1,0 +1,12 @@
+! XTB ALPB(Water) SOLVATOR
+
+%SOLVATOR
+  NSOLVENTMOL 50
+  CLUSTERMODE STOCHASTIC
+END
+
+%pal
+  nprocs 8
+end
+
+* xyzfile 0 1 ../solv_apo6/job.xyz

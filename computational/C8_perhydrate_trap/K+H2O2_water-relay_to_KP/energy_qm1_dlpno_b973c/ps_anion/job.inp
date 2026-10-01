@@ -1,0 +1,33 @@
+# C8 anion addition: embedded DLPNO single point on the PRODUCT STATE (adduct).
+#
+# Geometry: geometry_b973c-xtb/ps_anion/job.xyz (B97-3c minimum, E=-934.481754;
+# the un-H-bonded conformer, H132...O129 = 3.845 A). ANION model (133 atoms,
+# charge -1), QM1 = the 17-atom region {55 58 61 64 120...132}.
+#
+# QM1 = DLPNO-CCSD(T)/def2-TZVPP (def2-TZVPP/C), NormalPNO; QM2 = 116 host atoms
+# at GFN2-xTB with GFN-FF topology, Hirshfeld embedding; whole system
+# ddCOSMO(water). Single point; the composite uses the B97-3c geometry tier's G:
+# orca_io.composite_free_energy_eh(geom, T, this, geom).
+#
+# Charge convention: QM region charge on the *xyzfile line; Charge_total = whole
+# system. QM -1, host 0, total -1.
+! QM/XTB DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C ddCOSMO(Water) TightSCF
+
+%QMMM
+QMATOMS
+	{55 58 61 64 120 121 122 123 124 125 126 127 128 129 130 131 132}
+END
+Charge_total -1
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile -1 1 job.xyz

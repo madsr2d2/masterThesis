@@ -1,0 +1,40 @@
+# C8 anion binding cycle, part 1: APO CATALYST + 2 cavity waters  (XTB waters).
+#
+# Species: cat.(H2O)2  (136 atoms). Host = free_cat; the 2 waters are the ones
+# ORCA SOLVATOR placed INSIDE the cavity (solv_apo6, XTB/ALPB, NSOLVENTMOL 6).
+#
+# WHY THE WATERS ARE QM2 (XTB), NOT QM1: the cavity that solvates the ion is
+# itself treated at XTB (QM2). Putting the waters at B97-3c would solvate the
+# ion at two different levels at once and stop the cycle isolating the host's
+# own contribution. Keeping them in QM2 makes the solvation consistent with the
+# cavity, and since the same waters sit on both sides of
+#   cat.(H2O)2 + HOO-.(H2O)n  <=>  cat.HOO-.(H2O)2 + (H2O)n
+# the water treatment cancels. Cost: XTB-quality H-bonds -- a stated limitation.
+#
+# Level: QM/XTB B97-3c ddCOSMO(Water), TightOpt. QM1 = ONLY the 14-atom
+# ketone/ring core {55 58 61 64 120..129}; the 2 waters are QM2/XTB with the
+# host. Charge_total 0. Opt + Freq in ONE job.
+! QM/XTB B97-3c ddCOSMO(Water) Opt Freq TightOpt TightSCF
+
+%QMMM
+QMATOMS
+	{55 58 61 64 120 121 122 123 124 125 126 127 128 129}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  MaxIter 500
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

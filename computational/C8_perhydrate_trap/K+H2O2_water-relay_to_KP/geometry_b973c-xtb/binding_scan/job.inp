@@ -1,0 +1,53 @@
+# C8 anion addition: BINDING ENERGY of HOO- in the cavity (within-model).
+#
+# Goal: is the HOO- bound in the catalyst cavity relative to HOO- free in water?
+# The DIRECT subtraction complex - free_cat - free_HOO failed badly (+/-hundreds
+# of kJ/mol) because the complex's HOO- is embedded in the 116 MM host and no
+# free 3-atom reference reproduces that embedding; changing the free reference
+# from CPCM to ddCOSMO alone moved it by 343 kJ/mol.
+#
+# So take the difference WITHIN the same 133-atom QM/MM model: hold C128...O130
+# at increasing separation and relax; the host, its point charges and the
+# solvation model are identical at every point, so they cancel and the plateau
+# energy IS the separated reference.
+#
+#   dE_bind = E(rs_anion, C...O 2.93 A) - E(plateau, C...O ~8-10 A)
+#
+# Seed = rs_anion with the HOO- rigidly pulled to C128...O130 = 4.0 A, so step 1
+# is close to the seed. Scan 4 -> 10 A in 1 A steps; steps past ~8 A should
+# plateau (HOO- out of contact) -- that plateau is the reference.
+#
+# NOTE dE_bind is electronic + host relaxation ONLY. The free anion's
+# translational entropy is not in the model (the HOO- is boxed in both states),
+# so a standard-state term (~+20-30 kJ/mol) is added on top for a solution
+# binding free energy.
+#
+# NO Calc_Hess (scan Hessian bug). Charge convention: QM region charge on the
+# *xyzfile line; Charge_total = whole system. QM -1, host 0, total -1.
+! QM/XTB B97-3c ddCOSMO(Water) Opt TightOpt TightSCF
+
+%QMMM
+QMATOMS
+	{55 58 61 64 120 121 122 123 124 125 126 127 128 129 130 131 132}
+END
+Charge_total -1
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  Scan
+    B 128 130 = 4.0, 10.0, 6
+  end
+  MaxIter 500
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile -1 1 job.xyz

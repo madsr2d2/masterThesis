@@ -1,0 +1,35 @@
+# C8 anion addition: free catalyst, displaced along its imaginary mode.
+#
+# free_cat_b973c/ optimised to ORCA's gradient criteria but has ONE imaginary
+# mode at -64.5 cm-1 (with a +64.6 twin): a soft coordinate 97% localised on the
+# QM region, dominated by the C124H2 methylene (H125/H126/C124). So the previous
+# point is a shallow saddle, not a minimum, and its G is not usable.
+#
+# Standard fix: displace 0.15 A (max atomic) along that mode and re-optimise.
+# This is the +/- pair; whichever lands as a true minimum (no imaginary modes)
+# is the free-cat reference. Same level as the complex: QM/XTB B97-3c, 14-atom
+# QM1 {55 58 61 64 120...129}, Charge_total 0.
+! QM/XTB B97-3c ddCOSMO(Water) Opt Freq TightOpt TightSCF
+
+%QMMM
+QMATOMS
+	{55 58 61 64 120 121 122 123 124 125 126 127 128 129}
+END
+Charge_total 0
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  MaxIter 500
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile 0 1 job.xyz

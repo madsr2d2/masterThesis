@@ -1,0 +1,24 @@
+# C8 anion addition: FREE HOO- reference (bare anion, no counter-ion).
+#
+# Binding-energy reference for cat + HOO- -> [cat...HOO-]- (Rs = rs_anion).
+# BARE anion on BOTH sides: the counter-cation is deliberately excluded so the
+# reaction balances on the anion (cat is neutral). Carrying a counter-ion onto
+# only this reference would make the reaction cat + [M+ HOO-] -> [cat...HOO-]- +
+# M+, which is not the intrinsic cat<->HOO- binding. A cation is a diagnostic
+# only if charged-species solvation looks pathological.
+#
+# Geometry = atoms {130,131,132} of rs_anion/job.xyz (the HOO- fragment). It is
+# relaxed here, so the perturbed input geometry is only a seed.
+#
+# Isolated species: no host, no QM/MM. Isolated-species convention is
+# CPCM(Water) (the geometry tier of the complex uses ddCOSMO only because plain
+# CPCM is not implemented for QM/XTB). B97-3c. Opt + Freq in ONE job.
+! B97-3c CPCM(Water) Opt Freq TightOpt TightSCF
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile -1 1 job.xyz

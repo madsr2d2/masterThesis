@@ -1,0 +1,40 @@
+# C8 anion addition: relax the H-BONDED PS rotamer to a true minimum.
+#
+# Seed = ps_rotamer_dih/job.017.xyz: the shortest O129...H132 on the C128-O130
+# torsion scan (1.701 A, vs 3.845 A in ps_anion/). That scan located the
+# five-membered O129...H132-O131-O130-C128 ring, but on the CONSTRAINED surface
+# the H-bonded basin (D120 ~ +54 deg) sat ~28 kJ/mol ABOVE the un-H-bonded
+# global minimum (-934.48106 at D120 -61.4, essentially ps_anion -934.48175).
+#
+# This job releases the torsion constraint and relaxes to a minimum, which is
+# the decisive test: if O129...H132 is a real stabilising contact the geometry
+# stays bonded and lands BELOW ps_anion; if not it falls back to the ps_anion
+# conformer (H132...O129 ~3.8 A).
+#
+# Locked-composition optimised geometry + its own frequency in ONE job.
+# Charge convention: QM region charge on the *xyzfile line; Charge_total = whole
+# system. QM -1, host 0, total -1.
+! QM/XTB B97-3c ddCOSMO(Water) Opt Freq TightOpt TightSCF
+
+%QMMM
+QMATOMS
+	{55 58 61 64 120 121 122 123 124 125 126 127 128 129 130 131 132}
+END
+Charge_total -1
+Mult_total 1
+AutoFF_QM2_Method GFNFF
+END
+
+%geom
+  MaxIter 500
+end
+
+%output jsonpropfile true end
+
+%maxcore 4000
+
+%pal
+   nprocs 8
+end
+
+* xyzfile -1 1 job.xyz

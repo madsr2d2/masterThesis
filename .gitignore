@@ -175,6 +175,19 @@ computational/**/*.lastneb
 computational/**/*.res.Converged
 computational/**/*.res.Energies
 computational/**/*_D[0-9][0-9][0-9][0-9][0-9]_S_QM2*
+# CREST scratch: the metadynamics trajectories (crest_nci_apo's
+# crest_dynamics.trj alone is 103 MB, over GitHub's 100 MB file limit),
+# restart state, the per-run MDFILES/ and the working ensembles. What a run
+# is READ for stays tracked -- crest_conformers.xyz, crest_best.xyz,
+# crest.energies, cre_members, the inputs and constraint files (the
+# run-crest-xtb skill's "Reading a run" table); crest.out goes with *.out.
+computational/**/*.trj
+computational/**/*.mdrestart
+computational/**/crest.restart
+computational/**/MDFILES/
+computational/**/.cre_*
+computational/**/crest_rotamers.xyz
+computational/**/crestopt.log
 
 # OPI (`orca-pi`) builds these next to a job by shelling out to `orca_2json`,
 # and they are the STRUCTURED form of the same output -- bigger than the log
