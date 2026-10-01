@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import functools
 import math
+from dataclasses import dataclass
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -52,6 +53,26 @@ DISTANCE_RGB = (255, 224, 102)
 FOG = 0.6                             # how far the farthest pixel fades to BACKGROUND
 OUTLINE_JUMP = 0.35                   # angstrom a nearer neighbour must be to ring
 OUTLINE_DARKEN = 0.25                 # silhouette pixels are multiplied by this
+
+
+@dataclass
+class _Layer:
+    """One layer of the frame, drawn on its own before compositing.
+
+    The two layers shared a single depth buffer, so the guest surface under a
+    host stick was overwritten and lost: nothing could look at a pixel and say
+    which layer won it and what lies behind. Each layer now keeps its own
+    depth, colour and owner; `_composite` decides which one owns a pixel.
+    """
+
+    zbuf: np.ndarray    # (h, w) float, -inf where nothing is drawn
+    color: np.ndarray   # (h, w, 3) float
+    owner: np.ndarray   # (h, w) int, -1 where nothing is drawn
+
+    @classmethod
+    def empty(cls, height: int, width: int) -> "_Layer":
+        return cls(np.full((height, width), -np.inf), np.zeros((height, width, 3)),
+                   np.full((height, width), -1, dtype=int))
 
 
 def _rgb(element: str) -> np.ndarray:
@@ -211,17 +232,16 @@ def _bonded_mask(pairs, visible: list, n: int) -> list:
 
 
 def _draw_geometry(atoms, view, pairs, has_bond, sx, sy, depth, scale,
-                   is_qm, visible, zbuf, color, owner):
+                   is_qm, visible, env: _Layer, qm: _Layer):
     coords = np.array([(x, y, z) for _el, x, y, z in atoms], dtype=float)
     representation = view.representation
-    # Environment first, so when a QM and an environment sample tie on depth
-    # the QM region wins the pixel.
     for qm_bond in (False, True):
         for i, j in pairs:
             if not (visible[i] and visible[j]):
                 continue
             if (is_qm[i] and is_qm[j]) is not qm_bond:
                 continue
+            layer = qm if qm_bond else env
             if qm_bond:
                 radius = BOND_RADIUS.get(representation)
                 if representation == "space-filling" or radius is None:
@@ -235,7 +255,7 @@ def _draw_geometry(atoms, view, pairs, has_bond, sx, sy, depth, scale,
                 rgb_a = _desaturate(_rgb(atoms[i][0]))
                 rgb_b = _desaturate(_rgb(atoms[j][0]))
             length = float(np.linalg.norm(coords[j] - coords[i]))
-            _draw_bond(zbuf, color, owner,
+            _draw_bond(layer.zbuf, layer.color, layer.owner,
                        (sx[i], sy[i], depth[i]), (sx[j], sy[j], depth[j]),
                        length, radius, scale, rgb_a, rgb_b,
                        _bond_owner(i, len(atoms)), _bond_owner(j, len(atoms)))
@@ -248,8 +268,25 @@ def _draw_geometry(atoms, view, pairs, has_bond, sx, sy, depth, scale,
         radius = _atom_radius(element, representation, has_bond[i])
         if radius is None:
             continue
-        _draw_sphere(zbuf, color, owner, sx[i], sy[i], depth[i], radius, scale,
+        _draw_sphere(qm.zbuf, qm.color, qm.owner, sx[i], sy[i], depth[i], radius, scale,
                      _rgb(element), i)
+
+
+def _composite(env: _Layer, qm: _Layer) -> tuple[_Layer, np.ndarray]:
+    """Merge the two layers into one frame, and say which layer won each pixel.
+
+    `env_wins` is strict (`>`), so a depth tie goes to the QM layer: the guest
+    is the subject the pane exists to show, and a host sample exactly on its
+    surface must not paint over it. Where nothing was drawn both depths are
+    -inf, the comparison is False, and the background fill takes the pixel.
+    """
+    env_wins = env.zbuf > qm.zbuf
+    frame = _Layer(
+        zbuf=np.where(env_wins, env.zbuf, qm.zbuf),
+        color=np.where(env_wins[..., None], env.color, qm.color),
+        owner=np.where(env_wins, env.owner, qm.owner),
+    )
+    return frame, env_wins
 
 
 def _sprite_box(cx, cy, radius, scale, size_px):
@@ -378,9 +415,8 @@ def render(atoms: list, view: View | None = None, *,
     gives a background-filled image of `size_px`."""
     view = view or View()
     width, height = max(int(size_px[0]), 1), max(int(size_px[1]), 1)
-    zbuf = np.full((height, width), -np.inf)
-    color = np.zeros((height, width, 3), dtype=float)
-    owner = np.full((height, width), -1, dtype=int)
+    env = _Layer.empty(height, width)
+    qm = _Layer.empty(height, width)
 
     if atoms:
         sx, sy, depth, scale = project(atoms, view, (width, height))
@@ -391,20 +427,21 @@ def render(atoms: list, view: View | None = None, *,
         pairs = bond_list if bond_list is not None else bonds(atoms)
         has_bond = _bonded_mask(pairs, visible, n)
         _draw_geometry(atoms, view, pairs, has_bond, sx, sy, depth, scale,
-                       is_qm, visible, zbuf, color, owner)
+                       is_qm, visible, env, qm)
 
-    foreground = zbuf != -np.inf
-    color[~foreground] = np.asarray(BACKGROUND, dtype=float)
+    frame, _env_wins = _composite(env, qm)
+    foreground = frame.zbuf != -np.inf
+    frame.color[~foreground] = np.asarray(BACKGROUND, dtype=float)
     if foreground.any():
         if view.fog:
-            _apply_fog(zbuf, color, foreground, *_fog_depths(atoms, view))
-        _apply_outlines(zbuf, foreground, color)
-    image = Image.fromarray(np.clip(color, 0, 255).astype(np.uint8), "RGB")
+            _apply_fog(frame.zbuf, frame.color, foreground, *_fog_depths(atoms, view))
+        _apply_outlines(frame.zbuf, foreground, frame.color)
+    image = Image.fromarray(np.clip(frame.color, 0, 255).astype(np.uint8), "RGB")
 
     if atoms and view.show_labels:
         _draw_labels(image, atoms, view, sx, sy, scale, is_qm, visible,
-                     has_bond, owner, (width, height))
+                     has_bond, frame.owner, (width, height))
     if atoms and view.show_distances:
         _draw_distances(image, atoms, view, pairs, sx, sy, scale, is_qm, visible,
-                        has_bond, owner, (width, height))
+                        has_bond, frame.owner, (width, height))
     return image
