@@ -356,6 +356,35 @@ def test_ls_lists_every_job_boundedly():
         check("an unknown status is a usage error", code == 2, err)
 
 
+def test_ls_prints_labels_an_agent_can_pass_back():
+    print("\nls prints labels whole: the label is the handle the other commands take")
+    import tempfile
+    from pathlib import Path
+
+    label = ("reaction_with_a_long_descriptive_name/geometry_b973c-xtb_with_implicit_solvent"
+             "/ts/optts_freq_tight_attempt2")
+    saved = os.environ.get("COLUMNS")
+    try:
+        os.environ["COLUMNS"] = "120"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            job_dir = root / label
+            job_dir.mkdir(parents=True)
+            (job_dir / "job.inp").write_text("! B97-3c Opt\n* xyz 0 1\nH 0 0 0\n*\n")
+            argv = ["--root", str(root), "--liveness", "mtime", "--no-cache"]
+            code, out, err = _orcamon([*argv, "ls"])
+            check("the whole 107-character label is printed", label in out,
+                  f"{code} {out[:300]} {err[:200]}")
+            check("ls shortens nothing", "…" not in out, out[:300])
+            code, out, err = _orcamon([*argv, "show", label])
+            check("show takes the label ls printed", code == 0, f"{code} {out[:200]} {err[:200]}")
+    finally:
+        if saved is None:
+            os.environ.pop("COLUMNS", None)
+        else:
+            os.environ["COLUMNS"] = saved
+
+
 def test_show_and_ls_agree():
     print("\nshow and ls report the same numbers for the same job")
     with _Tree() as t:
@@ -1299,6 +1328,7 @@ if __name__ == "__main__":
     test_the_core_needs_only_the_standard_library()
     test_a_job_argument_names_one_job()
     test_ls_lists_every_job_boundedly()
+    test_ls_prints_labels_an_agent_can_pass_back()
     test_show_and_ls_agree()
     test_geom_never_substitutes_a_geometry()
     test_snapshot_writes_a_png()

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .. import __version__  # noqa: F401 -- `orcamon --version` reads it here
 from ..core import cache
-from ..core.discovery import JobRef, discover, short_label
+from ..core.discovery import JobRef, discover
 from ..core.geometry import View
 from ..core.job import Job
 from ..core.liveness import LivenessProbe, lookup, make_probe
@@ -40,7 +40,6 @@ TAIL_CAP = 400
 TAIL_GREP_WINDOW = 2000
 ERRORS_SHOWN = 20
 ENERGIES_DEFAULT_LAST = 50
-LS_DEFAULT_COLUMNS = 120
 
 
 class UsageError(Exception):
@@ -268,15 +267,11 @@ def cmd_ls(args) -> int:
              r) for r in reports]
     widths = [max(len(h), *(len(row[i]) for row in rows))
               for i, h in enumerate(("STATUS", "PROGRESS", "ENERGY/Eh", "IMAG", "LAST"))]
-    try:
-        columns = int(__import__("os").environ.get("COLUMNS", LS_DEFAULT_COLUMNS))
-    except ValueError:
-        columns = LS_DEFAULT_COLUMNS
-    label_width = max(20, columns - sum(widths) - 2 * len(widths))
     head = "  ".join(h.ljust(w) for h, w in zip(("STATUS", "PROGRESS", "ENERGY/Eh", "IMAG", "LAST"), widths))
     out(f"{head}  JOB")
     for *cells, r in rows:
-        line = "  ".join(c.ljust(w) for c, w in zip(cells, widths)) + "  " + short_label(r.label, label_width)
+        # The label is printed whole: it is the handle the other commands take.
+        line = "  ".join(c.ljust(w) for c, w in zip(cells, widths)) + "  " + r.label
         if r.attention:
             line += "  ! " + " ".join(r.flag_codes)
         out(line)
