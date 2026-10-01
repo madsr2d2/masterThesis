@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import os
+import shlex
 import threading
 import time
 from itertools import islice
@@ -16,12 +18,12 @@ from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Header, Input, RichLog, Static
 from textual_plotext import PlotextPlot
 
-from ..core import cache, paths, vibrations
+from ..core import cache, paths, steer, vibrations
 from ..core.discovery import discover, short_label
 from ..core.events import events
 from ..core.geometry import (
     REPRESENTATIONS, TEXT_REPRESENTATIONS, View, bonds, camera_basis,
-    describe_measurement, parse_atom_list, principal_axes, view_along,
+    describe_measurement, measure, parse_atom_list, principal_axes, view_along,
 )
 from ..core.job import Job
 from ..core.liveness import lookup, make_probe
@@ -316,6 +318,12 @@ class ConvergencePlot(PlotextPlot):
         if self._following_latest or self.selected_index is None:
             return None
         return self._points[self.selected_index]
+
+    @property
+    def following(self) -> bool:
+        """Whether the chart is tracking the newest point, rather than one
+        the person scrubbed back to -- what `orcamon view` reports."""
+        return self._following_latest
 
     def _select(self, index: int) -> None:
         self.selected_index = index
@@ -1310,6 +1318,12 @@ class MonitorApp(App):
         # outlast one on a big tree, and two of them would be mutating the
         # same JobState objects from two threads.
         self._scan_lock = threading.Lock()
+        # What `_publish_view` last wrote, without its timestamp: a tick that
+        # changed nothing must not rewrite the shared state file (D3).
+        self._published: dict | None = None
+        # The agent's last `orcamon focus` (D1), published for the agent to
+        # read back in the view file.
+        self._last_focus: dict | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -1333,6 +1347,12 @@ class MonitorApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        # A TUI that died without cleaning up leaves view and focus files
+        # naming a dead pid; take them before this one publishes its own (D4).
+        try:
+            steer.remove_stale()
+        except OSError:
+            pass
         refs = discover(self.root, self.exclude)
         self.jobs = [Job(ref.path, ref.stem, self.root, label=ref.label) for ref in refs]
 
@@ -1366,6 +1386,15 @@ class MonitorApp(App):
         table.focus()
         self.refresh_all()
         self.set_interval(REFRESH_SECONDS, self.refresh_all)
+
+    def on_unmount(self) -> None:
+        """A TUI that exits takes its own two files with it: a view file still
+        on disk would name a pid that no longer answers (D4)."""
+        for path in (steer.view_path(), steer.focus_path(os.getpid())):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def action_refresh_now(self) -> None:
         self._force_discover = True
@@ -1629,11 +1658,74 @@ class MonitorApp(App):
             self._show_text(summary, placeholder)
             self._show_text(convergence, "")
             self._show_tail(tail, None)
+            self._publish_view(None, None)
             return
 
         self._show_text(summary, render_markup(build_report(job)))
         self._show_text(convergence, render_steps_markup(steps_rows(job.state)))
         self._show_tail(tail, job)
+        self._publish_view(job, point)
+
+    def _publish_view(self, job: Job | None, point) -> None:
+        """Write what the TUI is showing to the shared state file (D3), so an
+        agent's `orcamon view` can read which job, which geometry and which
+        atoms the person means. Called from `_render_detail`, the one path
+        every change on screen goes through.
+
+        The document is compared with the last one written: a tick that
+        changed nothing must not rewrite the file, or the newest live TUI
+        would be the one whose timestamp merely moved."""
+        chart = self.query_one("#chart", ConvergencePlot)
+        geometry = self.query_one("#geometry")
+        doc = {
+            "schema": steer.STEER_SCHEMA,
+            "pid": os.getpid(),
+            "host": steer.host_name(),
+            "root": str(self.root),
+            "job": None,
+            "geometry": None,
+            "mode": None,
+            "selection": [],
+            "measurement": None,
+            "as_xyz": None,
+            "focus": self._last_focus,
+        }
+        if job is not None:
+            atoms, shown = geometry_shown(job, point)
+            following = chart.following
+            args = steer.geometry_address(shown, following)
+            file = str(job.inp_path)
+            doc["job"] = {"label": job.label, "file": file}
+            doc["geometry"] = {
+                "shown": describe_point(shown) or "latest",
+                "following": following,
+                "args": args,
+            }
+            doc["as_xyz"] = shlex.join(["orcamon", "geom", file, *args])
+            if geometry.mode_index is not None:
+                mode = vibrations.find_mode(job.state, geometry.mode_index)
+                if mode is not None:
+                    doc["mode"] = {"index": mode.index, "cm1": mode.cm1}
+            doc["selection"] = list(geometry.selection)
+            if 2 <= len(geometry.selection) <= 4:
+                try:
+                    kind, value = measure(atoms, geometry.selection)
+                except ValueError:
+                    kind = None
+                if kind is not None:
+                    doc["measurement"] = {
+                        "kind": kind,
+                        "value": round(value, 4),
+                        "unit": "angstrom" if kind == "distance" else "degree",
+                    }
+        if doc != self._published:
+            doc["updated_unix_s"] = time.time()
+            try:
+                steer.write_json(steer.view_path(), doc)
+            except OSError:
+                # A read-only state directory must not stop the TUI.
+                pass
+            self._published = {k: v for k, v in doc.items() if k != "updated_unix_s"}
 
     def _title_geometry(self, geometry, job: Job | None, point) -> None:
         """Say WHICH geometry the pane is drawing -- and, when the requested

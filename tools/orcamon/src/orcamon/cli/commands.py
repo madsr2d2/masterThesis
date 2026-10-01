@@ -18,7 +18,7 @@ from collections import deque
 from pathlib import Path
 
 from .. import __version__  # noqa: F401 -- `orcamon --version` reads it here
-from ..core import cache, paths
+from ..core import cache, paths, steer
 from ..core.discovery import JobRef, discover
 from ..core.geometry import View, measure, measurement_text
 from ..core.job import Job
@@ -559,6 +559,59 @@ def cmd_measure(args, job: Job) -> int:
         line += f" · {where}"
     print(line)
     return _job_exit(job)
+
+
+# --- view -------------------------------------------------------------------
+
+
+def _no_tui() -> str:
+    """The refusal `view` (and, later, `focus`) use when no TUI is live on
+    this host (D4)."""
+    return (f"no orcamon TUI is running for this user on {steer.host_name()}; "
+            "ask the person to start `orcamon tui`")
+
+
+def cmd_view(args) -> int:
+    """What the person's orcamon TUI shows: the job, the geometry, the atoms
+    they picked and the measurement between them, and the `orcamon geom`
+    command that prints exactly that geometry."""
+    doc = steer.current_view()
+    if doc is None:
+        return _error(_no_tui())
+    age = max(0.0, time.time() - doc.get("updated_unix_s", time.time()))
+    if args.json:
+        _emit_json({**doc, "age_s": round(age, 1)})
+        return EXIT_OK
+    out = Out(args.max_lines)
+    out(f"TUI pid {doc['pid']} on {doc['host']}, watching {doc['root']}, "
+        f"last change {format_age(age)} ago")
+    job = doc.get("job")
+    if job is None:
+        out("job        none")
+        out.flush()
+        return EXIT_OK
+    out(f"{'job':<11}{job['label']}")
+    out(f"{'file':<11}{job['file']}")
+    geometry = doc.get("geometry") or {}
+    shown = geometry.get("shown", "latest")
+    following = geometry.get("following")
+    out(f"{'geometry':<11}{shown} "
+        f"({'following the newest' if following else 'scrubbed'})")
+    mode = doc.get("mode")
+    if mode is not None:
+        out(f"{'mode':<11}{mode['index']} ({mode['cm1']:.1f} cm-1)")
+    selection = doc.get("selection") or []
+    measurement = doc.get("measurement")
+    if measurement is not None:
+        picked = measurement_text(measurement["kind"], selection, measurement["value"])
+    elif selection:
+        picked = " ".join(str(i) for i in selection)
+    else:
+        picked = "none"
+    out(f"{'selection':<11}{picked}")
+    out(f"{'as XYZ':<11}{doc['as_xyz']}")
+    out.flush()
+    return EXIT_OK
 
 
 # --- snapshot ---------------------------------------------------------------

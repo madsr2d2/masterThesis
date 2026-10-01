@@ -147,6 +147,17 @@ not contain.
 sanctioned way to look at raw lines. Read the `.out` directly only after that
 and only a bounded slice of it, never the whole file.
 
+## Working beside a person
+
+A person may be watching the same jobs in `orcamon tui`, usually in the pane
+beside yours. When they say "this", "these atoms", "the bond I picked" or
+"what I'm looking at", run `orcamon view` first. It says which job and which
+geometry their TUI shows, the atoms they picked — ORCA's 0-based numbers, as
+the TUI labels them — with the distance, angle or dihedral between them, and
+the `orcamon geom` command that prints exactly that geometry. It exits 2 when
+no TUI is running for this user on this machine: then ask which job and atoms
+they mean; do not guess.
+
 ## Other rules
 
 - Another machine: `ssh HOST orcamon ls --json` works the same way.

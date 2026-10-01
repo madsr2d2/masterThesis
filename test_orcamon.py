@@ -1508,6 +1508,117 @@ def test_the_tui_selects_atoms_by_number():
         asyncio.run(drive(root))
 
 
+def test_the_tui_tells_the_agent_what_it_shows():
+    print("\nthe TUI publishes what it shows, and orcamon view reads it")
+    import asyncio
+    import shlex
+    import tempfile
+    import time as _time
+    from pathlib import Path
+
+    from orcamon.core import steer
+    from orcamon.tui.app import MonitorApp
+
+    def view():
+        return steer.read_json(steer.view_path())
+
+    async def drive(root, file):
+        app = MonitorApp(root, liveness="mtime", graphics="text", notify_mode="off")
+        async with app.run_test(size=(180, 50)) as pilot:
+            geometry = app.query_one("#geometry")
+            deadline = _time.monotonic() + 5
+            while not (app.jobs and all(j.parsed for j in app.jobs)
+                       and geometry._job is not None
+                       and geometry._job.label == "water") and _time.monotonic() < deadline:
+                await pilot.pause(0.05)
+
+            check("the TUI clears a dead pid's files when it starts",
+                  not steer.view_path(dead).exists() and not steer.focus_path(dead).exists(),
+                  f"{steer.view_path(dead)} {steer.focus_path(dead)}")
+
+            document = view()
+            check("and publishes the pid, root, job, geometry and as-XYZ command",
+                  document is not None
+                  and document.get("pid") == os.getpid()
+                  and document.get("root") == str(root.resolve())
+                  and document.get("job") == {"label": "water", "file": file}
+                  and document.get("geometry") == {"shown": "cycle 2", "following": True,
+                                                   "args": []}
+                  and document.get("selection") == []
+                  and document.get("measurement") is None
+                  and document.get("mode") is None
+                  and document.get("focus") is None
+                  and document.get("as_xyz") == shlex.join(["orcamon", "geom", file]),
+                  f"{document}")
+
+            geometry.focus()
+            await pilot.press("s")
+            await pilot.press(*"1 0 2")
+            await pilot.press("enter")
+            await pilot.pause(0.2)
+            document = view()
+            check("picking atoms publishes the selection and the measurement",
+                  document is not None and document.get("selection") == [1, 0, 2]
+                  and document.get("measurement") == {"kind": "angle", "value": 104.4703,
+                                                       "unit": "degree"},
+                  f"{document}")
+
+            chart = app.query_one("#chart")
+            chart.focus()
+            await pilot.press("left")
+            await pilot.pause(0.2)
+            document = view()
+            check("scrubbing the chart publishes the geometry and its address",
+                  document is not None
+                  and document.get("geometry") == {"shown": "cycle 1", "following": False,
+                                                   "args": ["--cycle", "1"]}
+                  and document.get("as_xyz") == shlex.join(["orcamon", "geom", file,
+                                                            "--cycle", "1"]),
+                  f"{document}")
+
+            code, out, err = _orcamon(["view"])
+            lines = out.strip().split("\n")
+            check("`orcamon view` prints the job, geometry, picked atoms and the geom command",
+                  code == 0 and lines and lines[0].startswith(f"TUI pid {os.getpid()} on ")
+                  and "job        water" in lines
+                  and "geometry   cycle 1 (scrubbed)" in lines
+                  and "selection  angle 1-0-2: 104.5°" in lines
+                  and lines[-1] == "as XYZ     " + shlex.join(["orcamon", "geom", file,
+                                                               "--cycle", "1"]),
+                  f"{code} {out!r} {err!r}")
+
+            code, doc, err = _json(["view"])
+            check("`orcamon view --json` is a new document with the view and its age",
+                  code == 0 and doc is not None and doc.get("schema") == 1
+                  and doc.get("job", {}).get("label") == "water" and "age_s" in doc,
+                  f"{code} {doc} {err}")
+
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    dead = proc.pid
+    saved = os.environ.get("XDG_STATE_HOME")
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["XDG_STATE_HOME"] = tmp
+        try:
+            root = Path(tmp) / "tree"
+            root.mkdir()
+            _water_job(root, "water")
+            file = str((root / "water" / "job.inp").resolve())
+            steer.write_json(steer.view_path(dead), {"pid": dead, "updated_unix_s": 1.0})
+            steer.write_json(steer.focus_path(dead), {})
+            asyncio.run(drive(root, file))
+            code, out, err = _orcamon(["view"])
+            check("a TUI that exits removes its file, and view then exits 2",
+                  steer.view_path().exists() is False and code == 2
+                  and "no orcamon TUI is running" in err,
+                  f"{steer.view_path().exists()} {code} {out!r} {err!r}")
+        finally:
+            if saved is None:
+                os.environ.pop("XDG_STATE_HOME", None)
+            else:
+                os.environ["XDG_STATE_HOME"] = saved
+
+
 def test_slurm_names_what_the_login_node_cannot_see():
     print("\nSLURM: squeue's view of a job, and the fallbacks when it has none")
     import stat
@@ -1857,6 +1968,7 @@ if __name__ == "__main__":
     test_the_tui_scrubs_a_path()
     test_the_tui_cycles_real_modes()
     test_the_tui_selects_atoms_by_number()
+    test_the_tui_tells_the_agent_what_it_shows()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
     test_liveness_names_the_job_not_only_the_directory()

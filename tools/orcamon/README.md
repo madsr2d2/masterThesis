@@ -76,7 +76,7 @@ An IRC direction that stopped at MaxIter before reaching a minimum raises
 |---|---|
 | 0 | success; for `show` and `wait`, the job is not failed or stopped |
 | 1 | the command worked, and the job (for `ls`: any listed job) is failed or stopped |
-| 2 | usage error, or a job not found or ambiguous |
+| 2 | usage error, a job not found or ambiguous, or (view, focus) no TUI running |
 | 4 | `wait` timed out |
 | 130 | interrupted |
 
@@ -165,6 +165,17 @@ without `crash_lines` and `criteria`. Changing the key set bumps
   round; it is off by default, because a steady 5 frames a second at up to
   35 KB each is noticeable over a slow ssh link.
 
+## Working beside an agent
+
+While the TUI runs it publishes what it shows — the job, the geometry, the
+atoms picked and their measurement — as `view-<host>-<pid>.json` under
+`$XDG_STATE_HOME/orcamon/` (default `~/.local/state/orcamon/`), rewritten
+only when what is on screen changes. `orcamon view` reads the view file of
+the newest live TUI on this machine (a pid that no longer exists is
+ignored) and prints it as text or `--json`; a TUI that exits removes its own
+file. **Nothing written there touches a job**: these files are messages
+between the TUI and the agent, never input to ORCA.
+
 ## Saving a picture
 
 `orcamon snapshot JOB -o view.png` renders a job's latest geometry (or the
@@ -233,8 +244,8 @@ usage: orcamon [-h] [--version] [--root DIR] [--liveness {auto,process,slurm,mti
 
 Every command takes `--json` and prints one JSON document; without it, plain
 text of at most `--max-lines` lines. Exit status: 0 success, 1 the job (or,
-for `ls`, any listed job) is failed or stopped, 2 usage error or no such
-job, 4 `wait` timed out, 130 interrupted.
+for `ls`, any listed job) is failed or stopped, 2 usage error, no such job or
+no running TUI, 4 `wait` timed out, 130 interrupted.
 
 positional arguments:
   COMMAND
@@ -246,6 +257,7 @@ positional arguments:
     geom                a geometry as XYZ: the latest, or a given cycle or scan step
     measure             the distance, angle or dihedral between 2 to 4 atoms of a
                         geometry
+    view                what the person's orcamon TUI shows: job, geometry, picked atoms
     snapshot            render a job's geometry to a PNG (needs the images extra)
     freqs               imaginary and lowest real vibrational frequencies, or the atoms
                         one mode moves
@@ -490,6 +502,29 @@ options:
   --point N             a point on an IRC or NEB path: the signed IRC point (0 is the
                         TS, negative is backward) or the NEB image
   --json                print one JSON document instead of text
+```
+
+### `orcamon view`
+
+```
+usage: orcamon view [-h] [--root DIR] [--liveness {auto,process,slurm,mtime}]
+                    [--quiet-after S] [--no-cache] [--json] [--max-lines N]
+
+what the person's orcamon TUI shows: job, geometry, picked atoms
+
+example: orcamon view --json
+
+options:
+  -h, --help            show this help message and exit
+  --root DIR            where jobs are looked for (default: $ORCAMON_ROOT or .)
+  --liveness {auto,process,slurm,mtime}
+                        how a job is known to be running (default: auto)
+  --quiet-after S       seconds without output before a job of unknown liveness is
+                        called quiet (default: 1800)
+  --no-cache            parse every output from scratch; neither read nor write the
+                        state cache
+  --json                print one JSON document instead of text
+  --max-lines N         cap on text output lines (default: 60)
 ```
 
 ### `orcamon snapshot`

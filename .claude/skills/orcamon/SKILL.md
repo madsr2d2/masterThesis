@@ -149,6 +149,17 @@ not contain.
 sanctioned way to look at raw lines. Read the `.out` directly only after that
 and only a bounded slice of it, never the whole file.
 
+## Working beside a person
+
+A person may be watching the same jobs in `orcamon tui`, usually in the pane
+beside yours. When they say "this", "these atoms", "the bond I picked" or
+"what I'm looking at", run `orcamon view` first. It says which job and which
+geometry their TUI shows, the atoms they picked — ORCA's 0-based numbers, as
+the TUI labels them — with the distance, angle or dihedral between them, and
+the `orcamon geom` command that prints exactly that geometry. It exits 2 when
+no TUI is running for this user on this machine: then ask which job and atoms
+they mean; do not guess.
+
 ## Other rules
 
 - Another machine: `ssh HOST orcamon ls --json` works the same way.
@@ -244,6 +255,13 @@ the distance, angle or dihedral between 2 to 4 atoms of a geometry
 - `--point N`: a point on an IRC or NEB path: the signed IRC point (0 is the TS, negative is backward) or the NEB image
 - `--json`: print one JSON document instead of text
 
+### orcamon view
+
+what the person's orcamon TUI shows: job, geometry, picked atoms
+
+- `--json`: print one JSON document instead of text
+- `--max-lines N`: cap on text output lines (default: 60)
+
 ### orcamon snapshot
 
 render a job's geometry to a PNG (needs the images extra)
@@ -325,6 +343,6 @@ print the agent skill, or install it for Claude Code
 
 - `0`: success; for show and wait, the job is not failed or stopped
 - `1`: the command worked and the job (for ls: any listed job) is failed or stopped
-- `2`: usage error, or a job not found or ambiguous
+- `2`: usage error, a job not found or ambiguous, or (view, focus) no TUI running
 - `4`: wait timed out
 - `130`: interrupted (Ctrl-C)

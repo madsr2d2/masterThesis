@@ -7,8 +7,8 @@
 
 Every command takes `--json` and prints one JSON document; without it, plain
 text of at most `--max-lines` lines. Exit status: 0 success, 1 the job (or,
-for `ls`, any listed job) is failed or stopped, 2 usage error or no such
-job, 4 `wait` timed out, 130 interrupted.
+for `ls`, any listed job) is failed or stopped, 2 usage error, no such job or
+no running TUI, 4 `wait` timed out, 130 interrupted.
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ EXIT_OK, EXIT_JOB_BAD, EXIT_USAGE, EXIT_TIMEOUT, EXIT_INTERRUPTED = 0, 1, 2, 4, 
 EXIT_CODES = (
     (EXIT_OK, "success; for show and wait, the job is not failed or stopped"),
     (EXIT_JOB_BAD, "the command worked and the job (for ls: any listed job) is failed or stopped"),
-    (EXIT_USAGE, "usage error, or a job not found or ambiguous"),
+    (EXIT_USAGE, "usage error, a job not found or ambiguous, or (view, focus) no TUI running"),
     (EXIT_TIMEOUT, "wait timed out"),
     (EXIT_INTERRUPTED, "interrupted (Ctrl-C)"),
 )
@@ -138,6 +138,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a point on an IRC or NEB path: the signed IRC point (0 is the TS, "
                         "negative is backward) or the NEB image")
     _output(p, lines=False)
+
+    p = add("view", "what the person's orcamon TUI shows: job, geometry, picked atoms",
+            "orcamon view --json", commands.cmd_view)
+    _output(p)
 
     p = add("snapshot", "render a job's geometry to a PNG (needs the images extra)",
             "orcamon snapshot opt/ts -o ts.png", commands.cmd_snapshot)
