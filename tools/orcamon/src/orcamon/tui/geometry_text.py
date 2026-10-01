@@ -18,13 +18,12 @@ quadratic -- 300 atoms is ~2,000 distance checks, not 45,000.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
 from rich.style import Style
 from rich.text import Text
 
 from ..core.geometry import (
-    BOND_CUTOFF, DEFAULT_ELEMENT_COLOR, ELEMENT_COLORS, camera_basis, camera_forward,
+    DEFAULT_ELEMENT_COLOR, ELEMENT_COLORS, View, bonds, camera_basis, camera_forward,
 )
 
 # The pixel renderer draws carbon dark grey on its own dark background, where
@@ -41,45 +40,6 @@ _BRAILLE_BIT = {
     (0, 0): 0x01, (0, 1): 0x02, (0, 2): 0x04, (1, 0): 0x08,
     (1, 1): 0x10, (1, 2): 0x20, (0, 3): 0x40, (1, 3): 0x80,
 }
-
-
-@dataclass
-class View:
-    elev: float = 20.0
-    azim: float = -60.0
-    zoom: float = 1.0
-    pan: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    show_hydrogens: bool = True
-    # Off: each atom is a dot in its element colour instead of its symbol,
-    # so a crowded region reads as structure rather than as letters.
-    show_labels: bool = True
-
-
-def bonds(atoms: list) -> list[tuple[int, int]]:
-    """Index pairs closer than BOND_CUTOFF, H-H excluded, by grid binning."""
-    cell = BOND_CUTOFF
-    grid: dict[tuple[int, int, int], list[int]] = {}
-    for i, (_el, x, y, z) in enumerate(atoms):
-        grid.setdefault((int(math.floor(x / cell)), int(math.floor(y / cell)), int(math.floor(z / cell))), []).append(i)
-    cutoff2 = cell * cell
-    found = []
-    for (cx, cy, cz), members in grid.items():
-        near = []
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                for dz in (-1, 0, 1):
-                    near.extend(grid.get((cx + dx, cy + dy, cz + dz), ()))
-        for i in members:
-            el_i, xi, yi, zi = atoms[i]
-            for j in near:
-                if j <= i:
-                    continue
-                el_j, xj, yj, zj = atoms[j]
-                if el_i == "H" and el_j == "H":
-                    continue
-                if (xi - xj) ** 2 + (yi - yj) ** 2 + (zi - zj) ** 2 < cutoff2:
-                    found.append((i, j))
-    return found
 
 
 def render(

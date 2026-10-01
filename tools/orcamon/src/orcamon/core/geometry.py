@@ -1,19 +1,66 @@
 """Molecule-drawing facts both geometry renderers share: which atoms are
-bonded, what colour an element is, and where the camera points.
+bonded, what colour an element is, how big its ball is, and where the camera
+points.
 
-The pixel renderer (`tui/geometry_render.py`, matplotlib) and the text one
-(`tui/geometry_text.py`, braille) must agree on all three, or rotating the
-same molecule in the two modes would show different bonds from different
-angles. Pure Python so the text renderer needs no numpy."""
+The pixel renderer (`tui/raster.py`) and the text one (`tui/geometry_text.py`)
+must agree on all of it, or rotating the same molecule in the two modes would
+show different bonds, colours or angles. Pure Python so the text renderer
+needs no numpy -- anything the text mode uses (camera, colours, radii, the
+`View`) lives here; the z-buffer and the sprites do not.
+"""
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
 from pathlib import Path
 
-ELEMENT_COLORS = {"H": "#f2f2f2", "O": "#e04040", "C": "#4a4a4a", "N": "#4060e0"}
+# Jmol/CPK colours, so a structure drawn here reads the same as in a real
+# viewer. Carbon is mid grey rather than the near-black it used to be: on the
+# fixed dark background a shaded sphere needs its own tone to read through,
+# and the text renderer lifts carbon further still (TEXT_ELEMENT_COLORS).
+ELEMENT_COLORS = {
+    "H": "#FFFFFF", "C": "#909090", "N": "#3050F8", "O": "#FF0D0D",
+    "F": "#90E050", "P": "#FF8000", "S": "#FFFF30", "Cl": "#1FF01F",
+    "Br": "#A62929", "I": "#940094", "B": "#FFB5B5", "Si": "#F0C8A0",
+    "Na": "#AB5CF2", "K": "#8F40D4", "Mg": "#8AFF00", "Ca": "#3DFF00",
+    "Fe": "#E06633", "Cu": "#C88033", "Zn": "#7D80B0",
+}
 DEFAULT_ELEMENT_COLOR = "#c060c0"
 BOND_CUTOFF = 1.7  # angstrom, generous single-bond distance cutoff
+
+# Bondi van der Waals radii (angstrom), the space-filling and ball scale.
+VDW_RADII = {
+    "H": 1.10, "C": 1.70, "N": 1.55, "O": 1.52, "F": 1.47, "P": 1.80,
+    "S": 1.80, "Cl": 1.75, "Br": 1.85, "I": 1.98, "B": 1.92, "Si": 2.10,
+    "Na": 2.27, "K": 2.75, "Mg": 1.73, "Ca": 2.31, "Fe": 2.00, "Cu": 1.40,
+    "Zn": 1.39,
+}
+DEFAULT_VDW_RADIUS = 1.70
+
+REPRESENTATIONS = ("ball-and-stick", "licorice", "space-filling", "wireframe")
+# Text cells cannot shade or occlude, so only the two the braille renderer can
+# actually tell apart are offered there.
+TEXT_REPRESENTATIONS = ("ball-and-stick", "wireframe")
+
+
+@dataclass
+class View:
+    """One view description, shared by both renderers.
+
+    Kept as plain fields (no methods) so the text widget, the two pixel
+    widgets and the `snapshot` command all describe a view the same way, and
+    so a new option is added in one place.
+    """
+
+    elev: float = 20.0
+    azim: float = -60.0
+    zoom: float = 1.0
+    pan: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    representation: str = "ball-and-stick"
+    fog: bool = True
+    show_labels: bool = True
+    show_distances: bool = False
+    show_hydrogens: bool = True
 
 
 def camera_forward(elev_deg: float, azim_deg: float) -> tuple[float, float, float]:
@@ -52,6 +99,38 @@ def camera_basis(elev_deg: float, azim_deg: float) -> tuple[tuple[float, float, 
 
 def _cross(a, b) -> tuple[float, float, float]:
     return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def bonds(atoms: list) -> list[tuple[int, int]]:
+    """Index pairs closer than BOND_CUTOFF, H-H excluded, by grid binning.
+
+    Both renderers and `snapshot` must bond the same pairs, so this is the one
+    implementation; the search bins atoms into BOND_CUTOFF-sized cells, making
+    it linear in the atom count rather than quadratic (300 atoms is ~2,000
+    distance checks, not 45,000)."""
+    cell = BOND_CUTOFF
+    grid: dict[tuple[int, int, int], list[int]] = {}
+    for i, (_el, x, y, z) in enumerate(atoms):
+        grid.setdefault((int(math.floor(x / cell)), int(math.floor(y / cell)), int(math.floor(z / cell))), []).append(i)
+    cutoff2 = cell * cell
+    found = []
+    for (cx, cy, cz), members in grid.items():
+        near = []
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    near.extend(grid.get((cx + dx, cy + dy, cz + dz), ()))
+        for i in members:
+            el_i, xi, yi, zi = atoms[i]
+            for j in near:
+                if j <= i:
+                    continue
+                el_j, xj, yj, zj = atoms[j]
+                if el_i == "H" and el_j == "H":
+                    continue
+                if (xi - xj) ** 2 + (yi - yj) ** 2 + (zi - zj) ** 2 < cutoff2:
+                    found.append((i, j))
+    return found
 
 
 @dataclass

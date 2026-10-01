@@ -19,6 +19,7 @@ from pathlib import Path
 from .. import __version__  # noqa: F401 -- `orcamon --version` reads it here
 from ..core import cache
 from ..core.discovery import JobRef, discover, short_label
+from ..core.geometry import View
 from ..core.job import Job
 from ..core.liveness import LivenessProbe, lookup, make_probe
 from ..core.parser import _CRASH_RE, _QM2_ERROR_RE, HISTORY_LEN, READ_CHUNK_BYTES
@@ -483,10 +484,10 @@ def cmd_snapshot(args, job: Job) -> int:
     except ImportError:
         print("snapshot needs the images extra: pip install 'orcamon[images]'", file=sys.stderr)
         return EXIT_USAGE
+    view = View(elev=args.elev, azim=args.azim,
+                show_distances=args.distances, show_labels=not args.no_labels)
     image = geometry_render.render(
-        point.atoms, elev=args.elev, azim=args.azim,
-        show_distances=args.distances, show_labels=not args.no_labels,
-        qm_atom_indices=state.qm_atom_indices, size_px=size,
+        point.atoms, view, qm_atom_indices=state.qm_atom_indices, size_px=size,
     )
     try:
         with open(args.output, "wb") as f:

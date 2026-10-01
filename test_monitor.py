@@ -355,20 +355,19 @@ def test_the_fast_path_reads_what_the_line_path_reads():
 
 
 def test_a_frame_is_a_small_faithful_palette_png():
-    print("\na frame goes out as a palette PNG, rendered outside pyplot")
+    print("\na frame goes out as a palette PNG, rendered without matplotlib")
     import io
-    import matplotlib.pyplot as plt
+    import subprocess
+    import textwrap
     import numpy as np
     from PIL import Image
+    from orcamon.core.geometry import View
     from orcamon.tui import geometry_render
 
     water = [("O", 0.0, 0.0, 0.0), ("H", 0.96, 0.0, 0.0), ("H", -0.24, 0.93, 0.0)]
-    before = plt.get_fignums()
     image = geometry_render.render(water, size_px=(300, 240))
     check("the render is RGB at the size asked for",
           image.mode == "RGB" and image.size == (300, 240), f"{image.mode} {image.size}")
-    check("and left no figure in pyplot's global registry",
-          plt.get_fignums() == before, f"{plt.get_fignums()}")
 
     sent = Image.open(io.BytesIO(geometry_render.frame_png(image)))
     error = np.abs(np.asarray(sent.convert("RGB"), int) - np.asarray(image, int)).mean()
@@ -376,11 +375,115 @@ def test_a_frame_is_a_small_faithful_palette_png():
           f"{sent.mode} {sent.size}")
     check("within ~1 level in 255 of the render", error < 2.0, f"mean error {error:.2f}")
 
-    bare = np.asarray(geometry_render.render(water, size_px=(300, 240), show_labels=False), int)
+    bare = np.asarray(geometry_render.render(water, View(show_labels=False), size_px=(300, 240)), int)
     labelled = np.asarray(image, int)
     changed = (np.abs(bare - labelled).sum(axis=2) > 0).mean()
     check("show_labels=False drops the index labels and nothing else of the frame",
           0 < changed < 0.05, f"{changed:.3%} of pixels differ")
+
+    # matplotlib is no longer a dependency: the render must work with it made
+    # unimportable, the same technique as test_orcamon._STDLIB_ONLY_PROBE. A
+    # stray top-level import would otherwise only surface on a machine that
+    # installed the images extra without matplotlib.
+    probe = textwrap.dedent("""
+        import sys
+        class Refuse:
+            def find_spec(self, name, path=None, target=None):
+                if name.split(".")[0] == "matplotlib":
+                    raise ImportError("no matplotlib")
+                return None
+        sys.meta_path.insert(0, Refuse())
+        from orcamon.tui import geometry_render
+        img = geometry_render.render([("O", 0., 0., 0.), ("H", .96, 0., 0.)], size_px=(60, 50))
+        print(img.mode, img.size[0], img.size[1])
+    """)
+    done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, cwd=HERE)
+    check("render imports no matplotlib", done.returncode == 0 and done.stdout.strip() == "RGB 60 50",
+          done.stdout + done.stderr)
+
+
+def test_near_atoms_hide_far_ones():
+    print("\nnear atoms hide far ones, and a bond in front wins its pixel")
+    from orcamon.core.geometry import View
+    from orcamon.tui import raster
+
+    # The eye is on +x at (elev, azim) = (0, 0), so screen x carries +y and
+    # screen y carries +z; both atoms below sit ON the view axis, so both
+    # project to the image centre and only depth decides the pixel.
+    image = raster.render([("O", 0.0, 0.0, 0.0), ("C", 2.0, 0.0, 0.0)],
+                          View(elev=0, azim=0), size_px=(300, 240))
+    pixel = image.getpixel((150, 120))
+    check("the nearer carbon hides the farther oxygen: the centre pixel is grey",
+          abs(int(pixel[0]) - int(pixel[2])) < 20 and abs(int(pixel[0]) - int(pixel[1])) < 20,
+          f"{pixel}")
+
+    # The two carbons are 1.6 A apart so they BOND (the cutoff is 1.7); their
+    # midpoint is (2, 0, 0), on the same sight line as the nitrogen at the
+    # origin but 2 A nearer, so the bond's samples must win the centre pixel.
+    image = raster.render([("N", 0.0, 0.0, 0.0), ("C", 2.0, -0.8, 0.0), ("C", 2.0, 0.8, 0.0)],
+                          View(elev=0, azim=0), size_px=(300, 240))
+    pixel = image.getpixel((150, 120))
+    check("a bond passing in front of an atom wins the pixel: grey, not blue",
+          abs(int(pixel[0]) - int(pixel[2])) < 20 and int(pixel[2]) < 220, f"{pixel}")
+
+
+def test_spheres_are_shaded():
+    print("\nspheres are lit: the side toward LIGHT is brighter")
+    from orcamon.core.geometry import View
+    from orcamon.tui import raster
+
+    image = raster.render([("C", 0.0, 0.0, 0.0)], View(elev=0, azim=0), size_px=(300, 240))
+    upper_left = image.getpixel((120, 90))
+    lower_right = image.getpixel((180, 150))
+    check("the upper-left of the disc (toward LIGHT) is brighter than the lower-right",
+          sum(upper_left) > sum(lower_right), f"{upper_left} vs {lower_right}")
+
+
+def test_labels_follow_occlusion():
+    print("\na label does not float over an atom hidden behind another")
+    from orcamon.core.geometry import View
+    from orcamon.tui import raster
+
+    # The big near potassium at x=3 completely covers the small far hydrogen
+    # at the origin (3 A apart, so no bond): the hydrogen's projected centre
+    # is well inside the potassium's disc.
+    atoms = [("K", 3.0, 0.3, 0.0), ("H", 0.0, 0.0, 0.0)]
+    view = View(elev=0, azim=0)
+    sx, sy, _depth, _scale = raster.project(atoms, view, (300, 240))
+    labelled = raster.render(atoms, view, size_px=(300, 240))
+    bare = raster.render(atoms, View(elev=0, azim=0, show_labels=False), size_px=(300, 240))
+    cx, cy = int(round(sx[1])), int(round(sy[1]))
+    same = all(labelled.getpixel((x, y)) == bare.getpixel((x, y))
+               for x in range(cx - 3, cx + 4) for y in range(cy - 3, cy + 4))
+    check("the fully hidden atom gets no label", same, f"around {(cx, cy)}")
+
+
+def test_the_renderer_is_fast_enough():
+    print("\nthe renderer keeps a rotation interactive")
+    import time
+    from orcamon.core.geometry import View
+    from orcamon.tui import geometry_render
+
+    # A compact 5x4x7 cubic lattice at 1.4 A spacings -- 140 atoms, of which
+    # 20 are the QM layer -- so there are many bonds to draw, the slow case.
+    atoms = [("C" if (ix + iy + iz) % 5 else "O", ix * 1.4, iy * 1.4, iz * 1.4)
+             for ix in range(5) for iy in range(4) for iz in range(7)]
+    qm = set(range(20))
+    view = View()
+    image = None
+    runs = []
+    for _ in range(3):
+        started = time.perf_counter()
+        image = geometry_render.render(atoms, view, qm_atom_indices=qm, size_px=(940, 900))
+        runs.append((time.perf_counter() - started) * 1000)
+    # The FASTEST of three: the gate suite runs eight gates in parallel, so an
+    # average measures the machine's load, not the renderer. The bound is
+    # deliberately loose (a real regression is a multiple, not a few percent).
+    elapsed = min(runs)
+    check("140 atoms at 940x900 in under 250 ms (generous; measured below)",
+          elapsed < 250, f"{elapsed:.1f} ms of {[round(r) for r in runs]}")
+    size = len(geometry_render.frame_png(image))
+    check("and its frame_png is under 80 KB", size < 80 * 1024, f"{size} bytes")
 
 
 def test_the_view_is_not_mirrored():
@@ -392,37 +495,13 @@ def test_the_view_is_not_mirrored():
                 a[2] * b[0] - a[0] * b[2],
                 a[0] * b[1] - a[1] * b[0])
 
-    angles = [(0, 0), (20, -60), (35, 110), (-40, 200)]
-    for elev, azim in angles:
+    for elev, azim in [(0, 0), (20, -60), (35, 110), (-40, 200)]:
         right, up = camera_basis(elev, azim)
         forward = camera_forward(elev, azim)
         normal = cross(right, up)
         check(f"cross(right, up) == forward at ({elev}, {azim})",
               max(abs(normal[i] - forward[i]) for i in range(3)) < 1e-9,
               f"{normal} vs {forward}")
-
-    # A matplotlib cross-check, because matplotlib is still installed in
-    # Phase 0 -- DELETED in Phase 2 along with matplotlib. Projecting a unit
-    # step along `right` must move the projected x in +x, the way mplot3d
-    # itself places screen right.
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.figure import Figure
-    from mpl_toolkits.mplot3d import proj3d
-    for elev, azim in angles:
-        fig = Figure()
-        FigureCanvasAgg(fig)
-        ax = fig.add_subplot(111, projection="3d")
-        ax.set_proj_type("ortho")
-        ax.view_init(elev=elev, azim=azim)
-        ax.set_xlim(-2, 2)
-        ax.set_ylim(-2, 2)
-        ax.set_zlim(-2, 2)
-        projection = ax.get_proj()
-        right, _up = camera_basis(elev, azim)
-        ox, _, _ = proj3d.proj_transform(0.0, 0.0, 0.0, projection)
-        rx, _, _ = proj3d.proj_transform(right[0], right[1], right[2], projection)
-        check(f"matplotlib agrees screen right is +x at ({elev}, {azim})", rx > ox,
-              f"{rx} vs {ox}")
 
 
 def test_text_mode_draws_the_right_enantiomer():
@@ -731,6 +810,10 @@ if __name__ == "__main__":
     test_the_basis_is_the_one_orca_reports()
     test_the_fast_path_reads_what_the_line_path_reads()
     test_a_frame_is_a_small_faithful_palette_png()
+    test_near_atoms_hide_far_ones()
+    test_spheres_are_shaded()
+    test_labels_follow_occlusion()
+    test_the_renderer_is_fast_enough()
     test_the_view_is_not_mirrored()
     test_text_mode_draws_the_right_enantiomer()
     test_every_marker_reaches_its_parser()

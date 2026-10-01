@@ -16,7 +16,7 @@ from textual_plotext import PlotextPlot
 from ..core import cache
 from ..core.discovery import discover, short_label
 from ..core.events import events
-from ..core.geometry import camera_basis
+from ..core.geometry import REPRESENTATIONS, TEXT_REPRESENTATIONS, View, bonds, camera_basis
 from ..core.job import Job
 from ..core.liveness import lookup, make_probe
 from ..core.parser import TAIL_LINES, JobState
@@ -331,6 +331,12 @@ class RotatableGeometryImage(Widget):
 
     can_focus = True
     BINDINGS = GEOMETRY_BINDINGS
+    # Which representations this backend can tell apart -- text has no shading
+    # or occlusion, so it offers only two (see `core.geometry`).
+    SUPPORTED = REPRESENTATIONS
+    # None means hydrogens are always shown; an integer means shown up to that
+    # many atoms until the person says otherwise.
+    HYDROGENS_BY_DEFAULT_UP_TO: int | None = None
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -340,16 +346,46 @@ class RotatableGeometryImage(Widget):
         # Atom labels: the index numbers on the pixel render, the element
         # symbols in text mode. Off shows the bare structure.
         self.show_labels = True
+        self.representation = "ball-and-stick"
+        self.fog = True
         self.zoom = 1.0
         self.pan: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self._hydrogens: bool | None = None
+        # Added to `azim` by `view()` only, so turning rocking off returns to
+        # where the person left the molecule (Phase 5).
+        self._rock_offset = 0.0
         self._job: Job | None = None
         self._point = None
         self._request_seq = 0
         self._write_lock = threading.Lock()
+        self._bond_cache: tuple[int, list] | None = None
         self._input = Coalescer(self, COALESCE_S, self._on_change)
 
     def render(self) -> str:
         return ""
+
+    def view(self) -> View:
+        """The shared view description every render call takes."""
+        return View(
+            elev=self.elev, azim=self.azim + self._rock_offset, zoom=self.zoom,
+            pan=self.pan, representation=self.representation, fog=self.fog,
+            show_labels=self.show_labels, show_distances=self.show_distances,
+            show_hydrogens=self._show_hydrogens(),
+        )
+
+    def _show_hydrogens(self) -> bool:
+        if self._hydrogens is not None:
+            return self._hydrogens
+        if self.HYDROGENS_BY_DEFAULT_UP_TO is None:
+            return True
+        return len(self._atoms) <= self.HYDROGENS_BY_DEFAULT_UP_TO
+
+    def _bonds_for(self, atoms: list) -> list:
+        """The bond list, cached by atom-list identity -- a geometry's bonds
+        do not change as it is rotated."""
+        if self._bond_cache is None or self._bond_cache[0] != id(atoms):
+            self._bond_cache = (id(atoms), bonds(atoms))
+        return self._bond_cache[1]
 
     def _next_seq(self) -> int:
         self._request_seq += 1
@@ -558,10 +594,8 @@ class KittyGeometryImage(RotatableGeometryImage):
         if quality == "preview":
             size = (max(1, int(size[0] * PREVIEW_SCALE)), max(1, int(size[1] * PREVIEW_SCALE)))
         image = geometry_render.render(
-            atoms, elev=self.elev, azim=self.azim, show_distances=self.show_distances,
-            show_labels=self.show_labels,
-            zoom=self.zoom, pan=self.pan, qm_atom_indices=job.state.qm_atom_indices,
-            size_px=size,
+            atoms, self.view(), qm_atom_indices=job.state.qm_atom_indices,
+            size_px=size, bond_list=self._bonds_for(atoms),
         )
         sequence = kitty.transmit(
             geometry_render.frame_png(image), self.IMAGE_ID,
@@ -588,13 +622,13 @@ class TextGeometry(RotatableGeometryImage):
     iterating a job's history while the scan thread appends to it raises."""
 
     BINDINGS = [*GEOMETRY_BINDINGS, ("h", "toggle_hydrogens", "Hydrogens")]
+    SUPPORTED = TEXT_REPRESENTATIONS
+    HYDROGENS_BY_DEFAULT_UP_TO = geometry_text.SHOW_HYDROGENS_UP_TO
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._atoms: list = []
         self._qm: set | None = None
-        self._bonds: tuple[int, list] | None = None  # (id(atoms), bonds)
-        self._hydrogens: bool | None = None  # None: by atom count
 
     def show_job(self, job: Job | None, point=None) -> None:
         if job is not self._job:
@@ -609,11 +643,6 @@ class TextGeometry(RotatableGeometryImage):
     def _on_change(self) -> None:
         self.refresh()
 
-    def _show_hydrogens(self) -> bool:
-        if self._hydrogens is not None:
-            return self._hydrogens
-        return len(self._atoms) <= geometry_text.SHOW_HYDROGENS_UP_TO
-
     def action_toggle_hydrogens(self) -> None:
         self._hydrogens = not self._show_hydrogens()
         self._input.request()
@@ -623,14 +652,8 @@ class TextGeometry(RotatableGeometryImage):
         atoms = self._atoms
         if not atoms:
             return ""
-        if self._bonds is None or self._bonds[0] != id(atoms):
-            self._bonds = (id(atoms), geometry_text.bonds(atoms))
-        view = geometry_text.View(
-            elev=self.elev, azim=self.azim, zoom=self.zoom, pan=self.pan,
-            show_hydrogens=self._show_hydrogens(),
-            show_labels=self.show_labels,
-        )
-        return geometry_text.render(atoms, size.width, size.height, view, self._qm, self._bonds[1])
+        return geometry_text.render(atoms, size.width, size.height, self.view(),
+                                    self._qm, self._bonds_for(atoms))
 
 
 class HerdrGeometryImage(RotatableGeometryImage):
@@ -762,10 +785,8 @@ class HerdrGeometryImage(RotatableGeometryImage):
         from . import geometry_render
 
         image = geometry_render.render(
-            atoms, elev=self.elev, azim=self.azim, show_distances=self.show_distances,
-            show_labels=self.show_labels,
-            zoom=self.zoom, pan=self.pan, qm_atom_indices=job.state.qm_atom_indices,
-            size_px=target,
+            atoms, self.view(), qm_atom_indices=job.state.qm_atom_indices,
+            size_px=target, bond_list=self._bonds_for(atoms),
         )
         with self._write_lock:
             if self._is_stale(seq):
