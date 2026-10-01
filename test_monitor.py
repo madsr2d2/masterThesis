@@ -1977,6 +1977,91 @@ def test_a_job_that_prints_no_geometry_shows_the_one_it_wrote():
               and not describe_point(shown).startswith("input"), f"{len(atoms)} {describe_point(shown)!r}")
 
 
+def test_the_steer_files_name_one_live_tui():
+    print("\nthe steer files name the one live TUI on this host")
+    import subprocess
+    import tempfile
+    from orcamon.core import steer
+    from orcamon.core.geometry import FileGeometry
+    from orcamon.core.parser import GeometryPoint
+    from orcamon.core.paths import PathPoint
+
+    saved = {name: os.environ.get(name) for name in ("XDG_STATE_HOME", "HOME")}
+    try:
+        dead = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead.wait()
+        dead = dead.pid
+        me, parent = os.getpid(), os.getppid()
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as home:
+            os.environ["XDG_STATE_HOME"] = tmp
+            under_xdg = steer.state_dir() == Path(tmp) / "orcamon"
+            os.environ["XDG_STATE_HOME"] = ""
+            os.environ["HOME"] = home
+            check("the state directory follows XDG_STATE_HOME, falling back to ~/.local/state",
+                  under_xdg and steer.state_dir() == Path(home) / ".local" / "state" / "orcamon",
+                  f"{under_xdg} {steer.state_dir()}")
+
+            os.environ["XDG_STATE_HOME"] = tmp
+            p = steer.state_dir() / "probe.json"
+            steer.write_json(p, {"a": 1})
+            check("a document round-trips atomically, with no temporary file left",
+                  steer.read_json(p) == {"a": 1} and sorted(os.listdir(p.parent)) == [p.name],
+                  f"{sorted(os.listdir(p.parent))}")
+
+            bad = steer.state_dir() / "bad.json"
+            bad.write_text("not json")
+            array = steer.state_dir() / "array.json"
+            array.write_text("[1]")
+            check("a malformed, non-object or missing file reads as None",
+                  steer.read_json(bad) is None and steer.read_json(array) is None
+                  and steer.read_json(steer.state_dir() / "missing.json") is None)
+
+            check("a live pid answers alive, a finished one does not",
+                  steer.alive(me) is True and steer.alive(dead) is False)
+
+            steer.write_json(steer.view_path(me), {"pid": me, "updated_unix_s": 100.0})
+            steer.write_json(steer.view_path(parent), {"pid": parent, "updated_unix_s": 200.0})
+            steer.write_json(steer.view_path(dead), {"pid": dead, "updated_unix_s": 300.0})
+            otherhost = steer.state_dir() / f"view-otherhost-{me}.json"
+            steer.write_json(otherhost, {"pid": me, "updated_unix_s": 400.0})
+            pids = [doc["pid"] for doc in steer.live_views()]
+            check("only this host's live views count, the newest first",
+                  pids == [parent, me] and steer.current_view()["pid"] == parent, f"{pids}")
+
+            steer.write_json(steer.focus_path(me), {"id": "x"})
+            check("a focus request is claimed by rename, so exactly one reader gets it",
+                  steer.take_focus(me) == {"id": "x"}
+                  and steer.focus_path(me).exists() is False
+                  and steer.take_focus(me) is None)
+
+            steer.write_json(steer.focus_path(dead), {})
+            check("remove_stale takes a dead pid's two files and leaves the live ones",
+                  steer.remove_stale() == 2
+                  and not steer.view_path(dead).exists()
+                  and not steer.focus_path(dead).exists()
+                  and steer.view_path(me).exists()
+                  and steer.view_path(parent).exists()
+                  and otherhost.exists())
+
+            irc = PathPoint(kind="irc", index=-2, label="IRC backward 1",
+                            energy=None, de_kj_mol=0.0, atoms=[])
+            scan = GeometryPoint(scan_step=3, cycle=7)
+            check("geometry_address uses geom's own flags for what the pane shows",
+                  steer.geometry_address(irc, False) == ["--point", "-2"]
+                  and steer.geometry_address(scan, False) == ["--step", "3", "--cycle", "7"]
+                  and steer.geometry_address(scan, True) == []
+                  and steer.geometry_address(GeometryPoint(scan_step=None, cycle=4), False)
+                  == ["--cycle", "4"]
+                  and steer.geometry_address(FileGeometry([], "input geometry"), False) == []
+                  and steer.geometry_address(None, False) == [])
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 if __name__ == "__main__":
     test_a_multilayer_energy_is_the_total()
     test_a_scan_is_keyed_by_step_and_cycle()
@@ -2030,6 +2115,7 @@ if __name__ == "__main__":
     test_plain_and_markup_say_the_same_thing()
     test_report_keys_are_stable()
     test_a_job_that_prints_no_geometry_shows_the_one_it_wrote()
+    test_the_steer_files_name_one_live_tui()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)

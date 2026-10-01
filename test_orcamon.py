@@ -17,6 +17,7 @@ project's jobs would pass or fail on whatever happened to be running.
 import os
 import subprocess
 import sys
+import tempfile
 import textwrap
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -24,6 +25,12 @@ sys.path.insert(0, HERE)
 # The TUI tests run headless. Inheriting a herdr pane would draw the
 # molecule over the pane this runs in.
 os.environ["HERDR_ENV"] = "0"
+
+# The TUI publishes what it shows under $XDG_STATE_HOME/orcamon, and `view`
+# and `focus` read it there: a run must never see -- or steer -- the
+# person's own TUI.
+_STATE_HOME = tempfile.TemporaryDirectory(prefix="orcamon_state_")
+os.environ["XDG_STATE_HOME"] = _STATE_HOME.name
 
 FAILURES = []
 
