@@ -1427,6 +1427,64 @@ def test_the_selection_is_ringed_and_labelled():
                                                  View(show_hydrogens=False, selected=(2,))))))
 
 
+def test_a_click_picks_the_atom_under_it():
+    print("\na click picks the atom its projection is nearest, and toggles it")
+    from orcamon.core.geometry import (
+        REPRESENTATIONS, View, pick_atom, screen_positions, toggle_selection,
+    )
+    from orcamon.tui import raster
+
+    molecules = [("C", 0.1, 0.2, 0.3), ("O", 1.3, -0.4, 0.2), ("H", -0.9, 0.8, -0.5),
+                 ("N", 0.4, 1.5, 1.1), ("K", -1.2, -1.0, 0.6)]
+    # The picking fixture of the plan: one atom on each axis, so the camera's
+    # sign and the cell aspect can both be read off its positions.
+    five = [("C", 0, 0, 0), ("O", 0, 2, 0), ("H", 0, -2, 0), ("N", 1, 0, 0), ("S", -1, 0, 0)]
+
+    def matches(atoms, view):
+        sx, sy, depth, _scale = raster.project(atoms, view, (900, 750))
+        pixels = screen_positions(atoms, view, (900, 750))
+        return all(abs(px - float(sx[i])) <= 1e-9 and abs(py - float(sy[i])) <= 1e-9
+                   and abs(pz - float(depth[i])) <= 1e-9
+                   for i, (px, py, pz) in enumerate(pixels))
+
+    views = [View(), View(elev=35, azim=110, zoom=1.7, pan=(0.3, -0.2, 0.1))]
+    agree = True
+    for representation in REPRESENTATIONS:
+        for view in views:
+            view.representation = representation
+            agree = agree and matches(molecules, view)
+    check("screen_positions is raster.project to 1e-9 in every representation and view",
+          agree)
+
+    positions = [tuple(round(c, 6) for c in p)
+                 for p in screen_positions(five, View(elev=0, azim=0), (100, 100))]
+    check("at (100, 100) the five fixture lands on the frame's own grid",
+          positions == [(50.0, 50.0, 0.0), (90.0, 50.0, 0.0), (10.0, 50.0, 0.0),
+                        (50.0, 50.0, 1.0), (50.0, 50.0, -1.0)], f"{positions}")
+
+    def pick(click, view=None):
+        return pick_atom(five, view if view is not None else View(elev=0, azim=0),
+                         (100, 100), (20, 10), click)
+
+    clicks = [(9, 4), (17, 5), (14, 5), (1, 4)]
+    picked = [pick(click) for click in clicks]
+    check("the nearest projected centre within 1.5 cells wins, ties to the nearest viewer",
+          picked == [3, 1, None, 2], f"{picked}")
+
+    check("a hidden hydrogen cannot be clicked",
+          pick((1, 4), View(elev=0, azim=0, show_hydrogens=False)) is None)
+
+    check("toggle_selection adds, drops, and drops the oldest past MAX_PICKED",
+          toggle_selection((), 3) == (3,)
+          and toggle_selection((3,), 3) == ()
+          and toggle_selection((0, 1, 2, 3), 4) == (1, 2, 3, 4)
+          and toggle_selection((0, 1), 2) == (0, 1, 2))
+
+    check("nothing to pick, or no size to pick in, is None",
+          pick_atom([], View(), (100, 100), (20, 10), (1, 1)) is None
+          and pick_atom(five, View(), (100, 100), (0, 10), (1, 1)) is None)
+
+
 def test_every_marker_reaches_its_parser():
     print("\nevery marker line reaches its parser past the prefilter")
     check("validate.MARKER_CASES all read", validate.check_markers() == 0)
@@ -2159,6 +2217,7 @@ if __name__ == "__main__":
     test_the_view_is_not_mirrored()
     test_text_mode_draws_the_right_enantiomer()
     test_the_selection_is_ringed_and_labelled()
+    test_a_click_picks_the_atom_under_it()
     test_every_marker_reaches_its_parser()
     test_irc_rows_are_parsed()
     test_the_irc_path_is_built()

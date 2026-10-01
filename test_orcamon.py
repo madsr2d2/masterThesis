@@ -1820,6 +1820,68 @@ def test_the_tui_takes_the_agents_focus():
                 os.environ["XDG_STATE_HOME"] = saved
 
 
+def test_the_tui_picks_atoms_by_click():
+    print("\na click in the geometry pane toggles the atom under it")
+    import asyncio
+    import tempfile
+    import time as _time
+    from pathlib import Path
+
+    from orcamon.core.geometry import pick_atom, screen_positions
+    from orcamon.tui.app import MonitorApp
+
+    async def drive(root):
+        app = MonitorApp(root, liveness="mtime", graphics="text", notify_mode="off")
+        async with app.run_test(size=(180, 50)) as pilot:
+            geometry = app.query_one("#geometry")
+            deadline = _time.monotonic() + 5
+            while not (app.jobs and all(j.parsed for j in app.jobs)
+                       and geometry._job is not None
+                       and geometry._job.label == "water") and _time.monotonic() < deadline:
+                await pilot.pause(0.05)
+            title = lambda: geometry.border_title
+            width, height = geometry.content_size.width, geometry.content_size.height
+            atoms = geometry._atoms_for(geometry._job, geometry._point)
+            frame = geometry._pick_frame(width, height)
+            positions = screen_positions(atoms, geometry.view(), frame)
+
+            def cell(i):
+                return (int(positions[i][0] / frame[0] * width),
+                        int(positions[i][1] / frame[1] * height))
+
+            async def click(c):
+                # + 1: the click offset is to the pane's outer region, and the
+                # first content cell sits one cell inside the round border.
+                await pilot.click("#geometry", offset=(c[0] + 1, c[1] + 1))
+                await pilot.pause(0.2)
+
+            await click(cell(2))
+            check("a click on an atom picks it",
+                  geometry.selection == (2,),
+                  f"{geometry.selection} {cell(2)} {width}x{height}")
+
+            await click(cell(2))
+            check("a second click on the same atom drops it",
+                  geometry.selection == (), f"{geometry.selection}")
+
+            await click(cell(0))
+            await click(cell(1))
+            check("clicking a second atom adds it, and the title measures the pair",
+                  geometry.selection == (0, 1) and "distance 0-1: 0.960 Å" in title(),
+                  f"{geometry.selection} {title()!r}")
+
+            empty = pick_atom(atoms, geometry.view(), frame, (width, height), (0, 0))
+            await click((0, 0))
+            check("a click on nothing leaves the selection alone",
+                  empty is None and geometry.selection == (0, 1),
+                  f"{empty} {geometry.selection}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _water_job(root, "water")
+        asyncio.run(drive(root))
+
+
 def test_slurm_names_what_the_login_node_cannot_see():
     print("\nSLURM: squeue's view of a job, and the fallbacks when it has none")
     import stat
@@ -2172,6 +2234,7 @@ if __name__ == "__main__":
     test_the_tui_tells_the_agent_what_it_shows()
     test_focus_waits_for_the_tui_to_take_it()
     test_the_tui_takes_the_agents_focus()
+    test_the_tui_picks_atoms_by_click()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
     test_liveness_names_the_job_not_only_the_directory()

@@ -9,7 +9,7 @@ from itertools import islice
 from pathlib import Path
 
 from rich.text import Text
-from textual import work
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
@@ -24,7 +24,8 @@ from ..core.discovery import discover, short_label
 from ..core.events import events
 from ..core.geometry import (
     REPRESENTATIONS, TEXT_REPRESENTATIONS, View, bonds, camera_basis,
-    describe_measurement, measure, parse_atom_list, principal_axes, view_along,
+    describe_measurement, measure, parse_atom_list, pick_atom, principal_axes,
+    toggle_selection, view_along,
 )
 from ..core.job import Job
 from ..core.liveness import lookup, make_probe
@@ -837,6 +838,25 @@ class RotatableGeometryImage(Widget):
         self._input.request()
         self.app.update_detail()
 
+    def _pick_frame(self, width, height):
+        """The pixel frame a click is picked in: the text pane draws braille
+        dots, 2 across and 4 down per cell."""
+        return (2 * width, 4 * height)
+
+    def on_click(self, event: events.Click) -> None:
+        """A click in the pane toggles the atom under it (D8); one that lands
+        on nothing does nothing."""
+        offset = event.get_content_offset(self)
+        if offset is None:
+            return
+        width, height = self.content_size.width, self.content_size.height
+        atom = pick_atom(self._atoms_for(self._job, self._point), self.view(),
+                         self._pick_frame(width, height), (width, height),
+                         (offset.x, offset.y))
+        if atom is None:
+            return
+        self.set_selection(toggle_selection(self.selection, atom))
+
     def action_zoom_in(self) -> None:
         self.zoom = min(ZOOM_MAX, self.zoom * ZOOM_STEP)
         self._input.request()
@@ -919,6 +939,11 @@ class KittyGeometryImage(RotatableGeometryImage):
 
     def on_resize(self) -> None:
         self._input.request()
+
+    def _pick_frame(self, width, height):
+        # The terminal scales the fixed FULL_PX frame into the pane, so a
+        # click is picked against that frame whatever the pane's cell size.
+        return self.FULL_PX
 
     def on_unmount(self) -> None:
         self._stop_modes()
@@ -1119,6 +1144,14 @@ class HerdrGeometryImage(RotatableGeometryImage):
         # re-probing.
         herdr_graphics.cell_size(refresh=True)
         self._input.request()
+
+    def _pick_frame(self, width, height):
+        # The layer is drawn at the pane's own pixel extent, from the
+        # terminal's reported cell size -- 10x20 before the first probe.
+        cells = herdr_graphics.cell_size()
+        if cells is None:
+            return (width * 10, height * 20)
+        return (width * cells.width_px, height * cells.height_px)
 
     def on_unmount(self) -> None:
         self._stop_modes()

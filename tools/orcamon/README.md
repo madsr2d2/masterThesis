@@ -159,7 +159,8 @@ without `crash_lines` and `criteria`. Changing the key set bumps
   normal modes, `I` steps through its real modes, lowest frequency first,
   `s` picks atoms by number (up to four, as the labels show them; the pane
   title gives their distance, angle or dihedral, and picked atoms are ringed
-  and labelled, environment atoms and hidden hydrogens included),
+  and labelled, environment atoms and hidden hydrogens included); a click on
+  an atom picks it and a second click drops it (a fifth drops the oldest),
   `h` toggles hydrogens,
   `p` steps through face-on principal-axis views, and `0` resets the camera.
   `o` rocks the molecule gently (+/-15 degrees over 6 s) to show it in the

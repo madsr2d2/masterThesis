@@ -48,6 +48,11 @@ TEXT_REPRESENTATIONS = ("ball-and-stick", "wireframe")
 # panes label, `geom` prints in line order and ORCA's own `%geom` takes.
 MAX_PICKED = 4
 
+# D8: a click picks the atom whose projected centre is nearest the clicked
+# cell's centre within this many cell widths. The vertical distance counts
+# double, because a cell is twice as tall as it is wide.
+PICK_RADIUS_CELLS = 1.5
+
 
 @dataclass
 class View:
@@ -311,6 +316,78 @@ def parse_atom_list(text, n) -> tuple[int, ...]:
     if n is not None:
         _check_in_range(indices, n)
     return tuple(indices)
+
+
+def screen_positions(atoms: list, view: View, frame: tuple[int, int]) -> list[tuple[float, float, float]]:
+    """Every atom's screen `(x, y, depth)` in `frame` pixels, the projection
+    `tui.raster.project` draws with, without numpy: a click has to be picked
+    against the same picture the panes draw, and the text pane may not import
+    numpy.
+
+    It must stay equal to `tui.raster.project`, which
+    `test_a_click_picks_the_atom_under_it` holds: the framing sphere is
+    centred on `mean + pan` with radius the farthest atom, space-filling adds
+    each atom's own vdW radius to that extent, and a larger depth is nearer
+    the viewer."""
+    if not atoms:
+        return []
+    n = len(atoms)
+    mean = (sum(a[1] for a in atoms) / n, sum(a[2] for a in atoms) / n,
+            sum(a[3] for a in atoms) / n)
+    radius = max(math.dist((a[1], a[2], a[3]), mean) for a in atoms)
+    if view.representation == "space-filling":
+        pad = max(math.dist((a[1], a[2], a[3]), mean)
+                  + VDW_RADII.get(a[0], DEFAULT_VDW_RADIUS) for a in atoms) - radius
+    else:
+        pad = 0.5
+    center = (mean[0] + view.pan[0], mean[1] + view.pan[1], mean[2] + view.pan[2])
+    right, up = camera_basis(view.elev, view.azim)
+    forward = camera_forward(view.elev, view.azim)
+    span = (radius + pad) / view.zoom
+    width, height = frame
+    scale = min(width, height) / (2 * span) if span > 0 else 1.0
+    positions = []
+    for _el, x, y, z in atoms:
+        p = (x - center[0], y - center[1], z - center[2])
+        positions.append((width / 2 + _dot(p, right) * scale,
+                          height / 2 - _dot(p, up) * scale,
+                          _dot(p, forward)))
+    return positions
+
+
+def pick_atom(atoms: list, view: View, frame: tuple[int, int],
+              cells: tuple[int, int], click: tuple[int, int]) -> int | None:
+    """The atom under a click in a pane, as ORCA's 0-based number (D8), or
+    None: no atoms, a size with no cells or pixels in it, or nothing within
+    PICK_RADIUS_CELLS.
+
+    `click` is the cell the person clicked, `frame` the pane's pixel frame
+    (`screen_positions`) and `cells` its width and height in cells. Ties on
+    distance go to the atom nearest the viewer. A hidden hydrogen cannot be
+    clicked: the panes do not draw it."""
+    width, height = frame
+    cols, rows = cells
+    if not atoms or width <= 0 or height <= 0 or cols <= 0 or rows <= 0:
+        return None
+    px, py = click[0] + 0.5, click[1] + 0.5
+    best: tuple[tuple[float, float], int] | None = None
+    for i, (sx, sy, depth) in enumerate(screen_positions(atoms, view, frame)):
+        if atoms[i][0] == "H" and not view.show_hydrogens:
+            continue
+        d = math.hypot(sx / width * cols - px, 2.0 * (sy / height * rows - py))
+        if d <= PICK_RADIUS_CELLS and (best is None or (d, -depth) < best[0]):
+            best = ((d, -depth), i)
+    return best[1] if best is not None else None
+
+
+def toggle_selection(selection: tuple, atom: int) -> tuple:
+    """The selection after clicking `atom` (D8): a picked atom is dropped;
+    otherwise it is added, and a fifth atom drops the oldest."""
+    if atom in selection:
+        return tuple(a for a in selection if a != atom)
+    if len(selection) >= MAX_PICKED:
+        return selection[1:] + (atom,)
+    return selection + (atom,)
 
 
 @dataclass
