@@ -1,8 +1,9 @@
-"""Which ORCA jobs live under a directory, and what each is called.
+"""Which ORCA jobs live under a directory, and what each is called: a job is
+a `<stem>.inp` that reads as an ORCA input.
 
-A job is a `<stem>.inp`. It used to be a DIRECTORY -- one stem per directory,
-`job` if present, otherwise the first alphabetically -- so a directory holding
-`opt.inp` and `freq.inp` showed one of them and silently hid the other."""
+It used to be a DIRECTORY -- one stem per directory, `job` if present,
+otherwise the first alphabetically -- so a directory holding `opt.inp` and
+`freq.inp` showed one of them and silently hid the other."""
 from __future__ import annotations
 
 import fnmatch
@@ -15,6 +16,24 @@ from pathlib import Path
 # jobs of their own: the numerical Hessian's displaced-geometry gradients
 # (job_D00159.scfgrad.inp) and the plain gradient helper (job.scfgrad.inp).
 _GENERATED_INP_RE = re.compile(r"(?:_D\d+)?\.scfgrad\.inp$")
+
+# How much of an input is read to decide it is ORCA's. The `!` line or the
+# first `%` block is near the top of any real input; this bounds the read.
+ORCA_INPUT_PROBE_BYTES = 256 * 1024
+# An ORCA input has a `!` keyword line, a `%` block or a `*` coordinate line.
+# CREST and xtb inputs (`$constrain ... $end`) have none of them.
+_ORCA_INPUT_LINE_RE = re.compile(rb"^[ \t]*[!%*]", re.M)
+
+
+def looks_like_orca_input(path: Path) -> bool:
+    """Whether `path` reads as an ORCA input. A file that cannot be read is
+    kept: hiding a job is worse than listing one that is not."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(ORCA_INPUT_PROBE_BYTES)
+    except OSError:
+        return True
+    return bool(_ORCA_INPUT_LINE_RE.search(head))
 
 
 @dataclass(frozen=True)
@@ -35,7 +54,9 @@ def stems_in(job_dir: Path) -> list[str]:
         names = os.listdir(job_dir)
     except OSError:
         return []
-    return sorted(n[:-4] for n in names if n.endswith(".inp") and not is_generated_input(n))
+    return sorted(n[:-4] for n in names
+                  if n.endswith(".inp") and not is_generated_input(n)
+                  and looks_like_orca_input(job_dir / n))
 
 
 def discover(root: Path, exclude: tuple[str, ...] | list[str] = ()) -> list[JobRef]:
@@ -55,7 +76,8 @@ def discover(root: Path, exclude: tuple[str, ...] | list[str] = ()) -> list[JobR
             if not d.startswith(".") and not _excluded(_join(rel, d), exclude)
         )
         stems = sorted(
-            f[:-4] for f in filenames if f.endswith(".inp") and not is_generated_input(f)
+            f[:-4] for f in filenames
+            if f.endswith(".inp") and not is_generated_input(f) and looks_like_orca_input(here / f)
         )
         if stems:
             by_dir[here] = stems

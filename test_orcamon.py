@@ -328,6 +328,39 @@ def test_a_job_argument_names_one_job():
               not any("scfgrad" in label for label in labels), f"{labels}")
 
 
+def test_only_orca_inputs_are_jobs():
+    print("\nonly a .inp that reads as ORCA's is a job")
+    import tempfile
+    from pathlib import Path
+    from orcamon.core.discovery import discover, stems_in
+
+    # A `!`/`%`/`*` line is ORCA's; CREST and xtb use `$constrain ... $end`.
+    inputs = {
+        "orca/job.inp": "! B97-3c SP\n* xyz 0 1\nH 0 0 0\n*\n",
+        "indented/job.inp": "   ! B97-3c SP\n",
+        "blockonly/job.inp": "%pal nprocs 4 end\n",
+        "commented/job.inp": "# a comment\n$metadyn\n  atoms: 1-3\n$end\n",
+        "empty/job.inp": "",
+        "crest/fixhost.inp": "$constrain\n  atoms: 1-130\n  force constant=0.05\n$end\n",
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        for rel, text in inputs.items():
+            path = root / rel
+            path.parent.mkdir(parents=True)
+            path.write_text(text)
+        labels = [r.label for r in discover(root)]
+        check("discover keeps only the three inputs that read as ORCA's",
+              labels == ["blockonly", "indented", "orca"], f"{labels}")
+        stems = stems_in(root / "crest")
+        check("a CREST constraint file is not a stem", stems == [], f"{stems}")
+        code, doc, err = _json(["--root", str(root), "--liveness", "mtime", "--no-cache", "ls"])
+        listed = doc["jobs"] if doc else None
+        check("ls lists exactly those three jobs",
+              listed is not None and [j["label"] for j in listed] == ["blockonly", "indented", "orca"],
+              f"{code} {listed if listed is not None else err}")
+
+
 def test_ls_lists_every_job_boundedly():
     print("\nls: one line per job, bounded, with a JSON twin")
     with _Tree() as t:
@@ -1350,6 +1383,7 @@ def test_this_repository_has_the_current_skill():
 if __name__ == "__main__":
     test_the_core_needs_only_the_standard_library()
     test_a_job_argument_names_one_job()
+    test_only_orca_inputs_are_jobs()
     test_ls_lists_every_job_boundedly()
     test_ls_prints_labels_an_agent_can_pass_back()
     test_show_and_ls_agree()
