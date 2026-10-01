@@ -684,6 +684,53 @@ def test_host_fog_keeps_near_host_bright():
           abs(fade(sx[4], sy[4]) - 0.273) < 0.02, f"{fade(sx[4], sy[4]):.3f}")
 
 
+def test_halos_widen_with_the_depth_gap():
+    print("\nthe halo on a far atom widens with the depth gap in front of it")
+    import numpy as np
+    from orcamon.core.geometry import View
+    from orcamon.tui import raster
+
+    # A potassium ball (vdW 2.75 A) faces the eye at (elev, azim) = (0, 0)
+    # with a host C-C stick across its centre `gap` A in front of the ball's
+    # surface. On the committed renderer the single 1-px outline darkened one
+    # row on each side for every gap, so a stick 3 A in front of the ball read
+    # no nearer than one touching it.
+    #
+    # The halo has five levels on a 750-px frame, with thresholds T_d of
+    # 0.35, 0.8875, 1.425, 1.9625 and 2.5 A at d = 1..5, so the ring is as
+    # wide as the number of thresholds below the gap: 1, 2 and 5 here.
+    for gap, width in ((0.6, 1), (1.2, 2), (3.0, 5)):
+        atoms = [("K", 0.0, 0.0, 0.0), ("C", 2.75 + gap, -0.7, 0.0),
+                 ("C", 2.75 + gap, 0.7, 0.0)]
+        view = View(elev=0, azim=0, representation="space-filling", fog=False,
+                    show_labels=False)
+        sx, sy, _depth, _scale = raster.project(atoms, view, (750, 750))
+        cx, cy = int(round(sx[0])), int(round(sy[0]))
+        im = np.asarray(raster.render(atoms, view, qm_atom_indices={0},
+                                      size_px=(750, 750)), float)
+        ref = im[cy - 60, cx].sum()
+
+        def kind(y):
+            r, g, _b = im[y, cx]
+            if g < 0.6 * r:       # K is #8F40D4 (g/r = 0.45), and darkened
+                return "halo" if im[y, cx].sum() < 0.5 * ref else "ball"
+            return "stick"        # K keeps that ratio; the grey stick has g/r = 1
+
+        rows = [kind(y) for y in range(cy - 14, cy + 15)]
+        top = rows.index("stick")
+        bottom = len(rows) - 1 - rows[::-1].index("stick")
+        above = 0
+        while top - 1 - above >= 0 and rows[top - 1 - above] == "halo":
+            above += 1
+        below = 0
+        while bottom + 1 + below < len(rows) and rows[bottom + 1 + below] == "halo":
+            below += 1
+        check(f"a {gap} A gap darkens {width} row(s) above the stick",
+              above == width, f"{above}")
+        check(f"a {gap} A gap darkens {width} row(s) below the stick",
+              below == width, f"{below}")
+
+
 def test_the_camera_tumbles_over_the_pole():
     print("\nthe camera turns smoothly over the pole instead of snapping upside down")
     from orcamon.core.geometry import camera_basis, camera_forward
@@ -1075,6 +1122,7 @@ if __name__ == "__main__":
     test_wireframe_draws_the_qm_layer_thicker()
     test_fog_holds_still_under_rotation()
     test_host_fog_keeps_near_host_bright()
+    test_halos_widen_with_the_depth_gap()
     test_the_camera_tumbles_over_the_pole()
     test_the_renderer_is_fast_enough()
     test_the_view_is_not_mirrored()

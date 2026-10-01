@@ -55,6 +55,8 @@ HOST_FOG = 0.85                       # how far the farthest host pixel fades to
 HOST_FOG_POWER = 2.0                  # the host fade grows as t**2, so the near host stays bright
 OUTLINE_JUMP = 0.35                   # angstrom a nearer neighbour must be to ring
 OUTLINE_DARKEN = 0.25                 # silhouette pixels are multiplied by this
+HALO_MAX_PX = 5                       # the widest halo, in pixels, on a frame whose short side is 750 px
+HALO_FULL_GAP = 2.5                   # the depth gap, angstrom, that earns the widest halo
 
 
 @dataclass
@@ -396,28 +398,42 @@ def _apply_fog(layer: _Layer, near: float, far: float, amount: float, power: flo
                                + np.asarray(BACKGROUND, dtype=float) * mix)
 
 
-def _apply_outlines(zbuf, foreground, color):
-    """Darken the FAR side of every silhouette.
+def _apply_halos(zbuf, foreground, color):
+    """Darken the far side of every silhouette, as wide as its depth gap.
 
-    A pixel is an edge when any 4-neighbour is background, or is NEARER by
-    more than OUTLINE_JUMP. That second clause is what separates two atoms
-    that overlap on screen: the nearer atom's letter rings where it covers
-    the farther one, so a sphere stops reading as a flat disc. Outlines are
-    always on -- they are a readability fix, not an option."""
+    A pixel is darkened when something nearer by more than `T_d` lies within
+    d pixels. At d = 1 that is the old silhouette: any 4-neighbour is
+    background, or is nearer by more than OUTLINE_JUMP. `T_d` then grows
+    linearly from OUTLINE_JUMP to HALO_FULL_GAP across `levels`, so the
+    halo's width tells the eye HOW FAR in front the near object is -- the
+    larger the gap, the more levels clear their threshold and the wider the
+    ring. The width scales with the frame's short side (a 329x315 preview
+    frame gets 2 levels, not 5), so it stays a cue at pane size instead of
+    swallowing the picture.
+
+    This replaced a single 1-px line that gave a host stick 3 angstrom in
+    front of a QM ball the same faint edge as two atoms touching, so the
+    stick did not read as floating in front and the picture looked like a
+    rendering error. Halos are always on -- a readability fix, not an option.
+
+    The `-1e30` sentinel, not `-inf`, keeps the max-propagation finite:
+    `inf - inf` is `nan`, and a nan test never darkens.
+    """
     height, width = zbuf.shape
-    padded_z = np.pad(zbuf, 1, constant_values=-1e30)
-    padded_fg = np.pad(foreground, 1, constant_values=False)
     edge = np.zeros_like(foreground)
-    for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-        neighbour_z = padded_z[1 + dy:1 + dy + height, 1 + dx:1 + dx + width]
-        neighbour_fg = padded_fg[1 + dy:1 + dy + height, 1 + dx:1 + dx + width]
-        edge |= foreground & ~neighbour_fg
-        # Background is -inf, and -inf - -inf is nan (and a warning on every
-        # frame), so the depth test runs only where BOTH pixels are drawn.
-        both = foreground & neighbour_fg
-        jump = np.zeros_like(zbuf)
-        np.subtract(neighbour_z, zbuf, out=jump, where=both)
-        edge |= both & (jump > OUTLINE_JUMP)
+    padded_fg = np.pad(foreground, 1, constant_values=False)
+    for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):            # 1 px against the background
+        edge |= foreground & ~padded_fg[1 + dy:1 + dy + height, 1 + dx:1 + dx + width]
+    levels = max(1, round(HALO_MAX_PX * min(width, height) / 750))
+    z = np.where(foreground, zbuf, -1e30).astype(np.float32)
+    nearest = z.copy()          # after step d: the nearest depth within L1 distance d
+    for d in range(1, levels + 1):
+        padded = np.pad(nearest, 1, constant_values=-1e30)
+        nearest = np.maximum.reduce([nearest, padded[0:height, 1:width + 1], padded[2:height + 2, 1:width + 1],
+                                     padded[1:height + 1, 0:width], padded[1:height + 1, 2:width + 2]])
+        threshold = (OUTLINE_JUMP if levels == 1
+                     else OUTLINE_JUMP + (d - 1) * (HALO_FULL_GAP - OUTLINE_JUMP) / (levels - 1))
+        edge |= foreground & (nearest - z > threshold)
     color[edge] *= OUTLINE_DARKEN
 
 
@@ -451,7 +467,7 @@ def render(atoms: list, view: View | None = None, *,
     foreground = frame.zbuf != -np.inf
     frame.color[~foreground] = np.asarray(BACKGROUND, dtype=float)
     if foreground.any():
-        _apply_outlines(frame.zbuf, foreground, frame.color)
+        _apply_halos(frame.zbuf, foreground, frame.color)
     image = Image.fromarray(np.clip(frame.color, 0, 255).astype(np.uint8), "RGB")
 
     if atoms and view.show_labels:
