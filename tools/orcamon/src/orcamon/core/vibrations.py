@@ -1,5 +1,5 @@
 """How a normal mode's printed vector becomes a displacement of the geometry
-a pane is showing.
+a pane is showing -- every mode of a final Hessian, imaginary or real.
 
 `orca_pltvib` writes 2.0 * the printed vector, for carbon and hydrogen alike
 (measured against its own trajectory), so the printed vector is the Cartesian
@@ -26,6 +26,28 @@ def imaginary_modes(state) -> list:
     if state.modes is None or not state.freqs_final:
         return []
     return sorted(state.modes, key=lambda mode: mode.cm1)
+
+
+def real_modes(state) -> list:
+    """The real modes of the FINAL Hessian, lowest frequency first; [] until one."""
+    if state.normal_modes is None or not state.freqs_final:
+        return []
+    return sorted((m for m in state.normal_modes if m.cm1 > 0), key=lambda m: (m.cm1, m.index))
+
+
+def find_mode(state, index: int):
+    """ORCA's mode `index`, imaginary or real, or None."""
+    return next((m for m in imaginary_modes(state) + real_modes(state) if m.index == index), None)
+
+
+def available_text(state) -> str:
+    """What a 'no such mode' message offers instead."""
+    imaginary = [m.index for m in imaginary_modes(state)]
+    real = sorted(m.index for m in real_modes(state))
+    text = f"available: {imaginary or 'none'} imaginary"
+    if real:
+        text += f"; real: {len(real)} modes, {real[0]}-{real[-1]}"
+    return text
 
 
 def target_indices(n_atoms: int, n_mode_atoms: int, qm_atom_indices) -> list | None:
@@ -84,6 +106,35 @@ def offsets(atoms: list, qm_atom_indices, mode, amplitude=MODE_AMPLITUDE_ANGSTRO
         x, y, z = raw[j]
         result[atom_index] = (x * scale, y * scale, z * scale)
     return result
+
+
+def participation(atoms: list, qm_atom_indices, mode, top=None) -> list | None:
+    """Which atoms `mode` moves, largest first: `(ORCA atom, element, relative)`.
+
+    It ranks the printed displacement pattern -- the vector `offsets` scales
+    to draw the animation -- so `relative` is that atom's displacement over
+    the largest one's, and the atom number is ORCA's index in the drawn
+    structure. `None` when the mode fits neither `atoms` nor its QM subset,
+    or when it moves nothing; `top`, when given, keeps the largest few."""
+    n_mode_atoms = len(mode.vector) // 3
+    indices = target_indices(len(atoms), n_mode_atoms, qm_atom_indices)
+    if indices is None:
+        return None
+    norms = []
+    for j in range(n_mode_atoms):
+        x, y, z = mode.vector[3 * j], mode.vector[3 * j + 1], mode.vector[3 * j + 2]
+        norms.append(math.sqrt(x * x + y * y + z * z))
+    biggest = max(norms, default=0.0)
+    if biggest == 0.0:
+        return None
+    rows = []
+    for j, norm in enumerate(norms):
+        if norm == 0.0:
+            continue
+        atom = indices[j]
+        rows.append((atom, atoms[atom][0], norm / biggest))
+    rows.sort(key=lambda row: (-row[2], row[0]))
+    return rows[:top] if top is not None else rows
 
 
 def displaced(atoms: list, mode_offsets: list, sine: float) -> list:

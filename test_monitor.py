@@ -583,6 +583,52 @@ def test_every_mode_of_a_final_block_is_kept():
           partial.normal_modes is None)
 
 
+def test_modes_are_found_and_described():
+    print("\nany mode of a final Hessian is found by ORCA's number and its atoms ranked")
+    from orcamon.core import vibrations
+
+    atoms3 = [("O", 0.0, 0.0, 0.0), ("H", 0.96, 0.0, 0.0), ("H", -0.24, 0.93, 0.0)]
+    rnd = lambda rows: [(a, e, round(r, 4)) for a, e, r in rows]
+
+    state = JobState(path=Path("/nonexistent"))
+    _feed(state, _modes_block(_MODE_FREQS, _MODE_VECTORS))
+    state.feed_line("")  # `_feed` strips the fixture's trailing blank line
+
+    check("real_modes lists the final Hessian's real modes lowest frequency first",
+          [m.index for m in vibrations.real_modes(state)] == [5, 4, 7, 6, 8],
+          f"{[m.index for m in vibrations.real_modes(state)]}")
+    found = [vibrations.find_mode(state, i) for i in (3, 5)]
+    check("find_mode returns ORCA's own mode, imaginary or real, and None otherwise",
+          all(m is not None for m in found)
+          and found[0].cm1 == -150.0 and found[1].cm1 == 50.0
+          and vibrations.find_mode(state, 0) is None
+          and vibrations.find_mode(state, 99) is None,
+          f"{found}")
+    check("participation ranks the imaginary mode's atoms largest first",
+          rnd(vibrations.participation(atoms3, None, vibrations.find_mode(state, 3)))
+          == [(2, "H", 1.0), (1, "H", 0.6667), (0, "O", 0.3333)])
+    check("an atom the mode leaves still is dropped, not ranked last",
+          rnd(vibrations.participation(atoms3, None, vibrations.find_mode(state, 5)))
+          == [(0, "O", 1.0), (1, "H", 0.75)])
+    check("equal displacements tie by atom index",
+          rnd(vibrations.participation(atoms3, None, vibrations.find_mode(state, 8)))
+          == [(0, "O", 1.0), (1, "H", 1.0), (2, "H", 1.0)])
+    check("top keeps only the largest atom",
+          rnd(vibrations.participation(atoms3, None, vibrations.find_mode(state, 3), top=1))
+          == [(2, "H", 1.0)])
+    check("available_text starts with the imaginary list, then the real range",
+          vibrations.available_text(state) == "available: [3] imaginary; real: 5 modes, 4-8",
+          f"{vibrations.available_text(state)!r}")
+
+    interim = JobState(path=Path("/nonexistent"))
+    _feed(interim, "         *                GEOMETRY OPTIMIZATION CYCLE   3            *")
+    _feed(interim, _modes_block(_MODE_FREQS, _MODE_VECTORS))
+    interim.feed_line("")
+    check("an intermediate Hessian offers no real mode",
+          vibrations.real_modes(interim) == []
+          and vibrations.find_mode(interim, 5) is None)
+
+
 def test_mode_offsets_fill_the_whole_structure():
     print("\na whole-structure mode moves its largest atom by MODE_AMPLITUDE_ANGSTROM")
     import math
@@ -1889,6 +1935,7 @@ if __name__ == "__main__":
     test_normal_modes_keep_only_imaginary()
     test_normal_modes_take_the_last_block()
     test_every_mode_of_a_final_block_is_kept()
+    test_modes_are_found_and_described()
     test_mode_offsets_fill_the_whole_structure()
     test_mode_offsets_map_onto_the_qm_subset()
     test_mode_offsets_refuse_a_mismatched_mode()
