@@ -127,8 +127,10 @@ without `crash_lines` and `criteria`. Changing the key set bumps
   the depth gap, environment atoms bonded to the QM region are drawn as
   small balls in ball-and-stick, and `x` shows the QM region through the
   environment. `v` cycles the representation -- ball-and-stick,
-  licorice, space-filling and wireframe -- and `h` hides hydrogens. The text
-  pane draws bonds in braille and atoms as element symbols; it cannot shade
+  licorice, space-filling and wireframe -- and `h` hides hydrogens. `i`
+  animates the job's imaginary normal modes, most negative first, in the
+  text pane as well as the pixel ones. The text pane draws bonds in braille
+  and atoms as element symbols; it cannot shade
   or occlude, so it offers ball-and-stick and wireframe only, works in any
   terminal, and costs a few KB a frame.
 - **Notifications**: `--notify off|bell|osc|all` (default `all`) announces a
@@ -146,7 +148,8 @@ without `crash_lines` and `criteria`. Changing the key set bumps
   `[`/`]` zoom, ctrl+arrows pan, `d` shows distances, `l` hides the atom
   labels (the index numbers in pixel mode; in text mode atoms become dots),
   `v` cycles the representation, `f` toggles fog, `x` shows the QM region
-  through the environment (pixel panes), `h` toggles hydrogens,
+  through the environment (pixel panes), `i` animates the job's imaginary
+  normal modes, `h` toggles hydrogens,
   `p` steps through face-on principal-axis views, and `0` resets the camera.
   `o` rocks the molecule gently (+/-15 degrees over 6 s) to show it in the
   round; it is off by default, because a steady 5 frames a second at up to
@@ -157,8 +160,9 @@ without `crash_lines` and `criteria`. Changing the key set bumps
 `orcamon snapshot JOB -o view.png` renders a job's latest geometry (or the
 file it wrote, when the log prints none) to a PNG -- the same renderer the
 pixel panes use, with the same `--representation`, `--no-fog`,
-`--see-through`, `--no-labels` and `--distances` options and the
-`--elev`/`--azim` view. It needs the
+`--see-through`, `--no-labels` and `--distances` options, the
+`--elev`/`--azim` view, and `--mode N`/`--phase DEG` to draw one phase of
+an imaginary normal mode. It needs the
 `images` extra, and is how a person shares a structure or checks the pane
 without a terminal.
 
