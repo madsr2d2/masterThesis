@@ -1,6 +1,6 @@
 ---
 name: orcamon
-description: Monitor and inspect ORCA quantum-chemistry jobs (running or finished) from the terminal -- status, convergence, energies, geometries, frequencies, errors, and waiting for a job to finish. Use instead of grep/tail/cat on ORCA .out files.
+description: Monitor and inspect ORCA quantum-chemistry jobs (running or finished) from the terminal -- status, convergence, energies, geometries, frequencies, errors, and waiting for a job to finish -- and see what the person is looking at in their orcamon TUI. Use instead of grep/tail/cat on ORCA .out files. Use it FIRST whenever the person refers to what is on their screen ("this", "these atoms", "the bond I picked", "what am I looking at", "the model I'm viewing", "show me"): run `orcamon view`, and use `orcamon focus` to put something in front of them.
 ---
 
 # orcamon: ORCA jobs from the command line
