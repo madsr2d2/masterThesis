@@ -156,12 +156,15 @@ def remove_stale() -> int:
 def geometry_address(shown, following: bool) -> list[str]:
     """`orcamon geom`'s own flags for the geometry the pane shows: the path
     point it has scrubbed to, or the step and cycle of the printed one.
-    Empty while it follows the newest geometry, where `geom`'s default is
-    already what the pane draws."""
-    if following or shown is None or isinstance(shown, FileGeometry):
-        return []
+    A path point is addressed even while following: on an IRC or NEB the
+    pane draws the path's focus, not the job's latest printed geometry, so
+    `geom`'s default would return a different structure. Empty while it
+    follows the newest printed geometry, where that default is already
+    what the pane draws."""
     if isinstance(shown, PathPoint):
         return ["--point", str(shown.index)]
+    if following or shown is None or isinstance(shown, FileGeometry):
+        return []
     args = []
     if shown.scan_step is not None:
         args += ["--step", str(shown.scan_step)]
