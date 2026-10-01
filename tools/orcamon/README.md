@@ -121,8 +121,12 @@ without `crash_lines` and `criteria`. Changing the key set bumps
   graphics API if it answers, and text inside tmux or screen. Otherwise it
   asks the terminal whether it speaks the Kitty graphics protocol and uses
   kitty or text accordingly. The pixel panes are z-buffered: near atoms hide
-  far ones, spheres are lit, distant atoms fade (fog) and overlapping
-  silhouettes are outlined. `v` cycles the representation -- ball-and-stick,
+  far ones, spheres are lit, and distant atoms fade; the low-level
+  (environment) layer fades harder with depth, so its near parts stay bright,
+  a nearer object casts a dark halo on what is behind it, wider the larger
+  the depth gap, environment atoms bonded to the QM region are drawn as
+  small balls in ball-and-stick, and `x` shows the QM region through the
+  environment. `v` cycles the representation -- ball-and-stick,
   licorice, space-filling and wireframe -- and `h` hides hydrogens. The text
   pane draws bonds in braille and atoms as element symbols; it cannot shade
   or occlude, so it offers ball-and-stick and wireframe only, works in any
@@ -141,7 +145,8 @@ without `crash_lines` and `criteria`. Changing the key set bumps
   shows all cycles of a scan. In the geometry pane, arrows rotate,
   `[`/`]` zoom, ctrl+arrows pan, `d` shows distances, `l` hides the atom
   labels (the index numbers in pixel mode; in text mode atoms become dots),
-  `v` cycles the representation, `f` toggles fog, `h` toggles hydrogens,
+  `v` cycles the representation, `f` toggles fog, `x` shows the QM region
+  through the environment (pixel panes), `h` toggles hydrogens,
   `p` steps through face-on principal-axis views, and `0` resets the camera.
   `o` rocks the molecule gently (+/-15 degrees over 6 s) to show it in the
   round; it is off by default, because a steady 5 frames a second at up to
@@ -151,8 +156,9 @@ without `crash_lines` and `criteria`. Changing the key set bumps
 
 `orcamon snapshot JOB -o view.png` renders a job's latest geometry (or the
 file it wrote, when the log prints none) to a PNG -- the same renderer the
-pixel panes use, with the same `--representation`, `--no-fog`, `--no-labels`
-and `--distances` options and the `--elev`/`--azim` view. It needs the
+pixel panes use, with the same `--representation`, `--no-fog`,
+`--see-through`, `--no-labels` and `--distances` options and the
+`--elev`/`--azim` view. It needs the
 `images` extra, and is how a person shares a structure or checks the pane
 without a terminal.
 
