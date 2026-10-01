@@ -58,7 +58,7 @@ OUTLINE_JUMP = 0.35                   # angstrom a nearer neighbour must be to r
 OUTLINE_DARKEN = 0.25                 # silhouette pixels are multiplied by this
 HALO_MAX_PX = 5                       # the widest halo, in pixels, on a frame whose short side is 750 px
 HALO_FULL_GAP = 2.5                   # the depth gap, angstrom, that earns the widest halo
-SEE_THROUGH_ALPHA = 0.3               # how much of the host shows where it covers the QM region in see-through
+SEE_THROUGH_ALPHA = 0.3               # the environment layer's opacity when see-through ghosts it: against the guest where the guest is behind, the background elsewhere
 
 
 @dataclass
@@ -487,15 +487,22 @@ def render(atoms: list, view: View | None = None, *,
 
     frame, env_wins = _composite(env, qm)
     if view.see_through:
-        # A host stick in front of a QM ball hides most of it from some
-        # angles, so where the two overlap the pixel becomes a blend towards
-        # the QM layer's colour. The owner changes with the colour, so a
-        # covered QM atom keeps its label; the depth stays the HOST's, so the
-        # halo still rings the host that is in front.
-        blend = env_wins & (qm.zbuf != -np.inf)
-        frame.color[blend] = (SEE_THROUGH_ALPHA * env.color[blend]
-                              + (1.0 - SEE_THROUGH_ALPHA) * qm.color[blend])
-        frame.owner[blend] = qm.owner[blend]
+        # See-through ghosts the ENTIRE environment layer, not only the
+        # pixels it wins over a guest surface: at the default view that
+        # strict-win set is 0.10% of the frame, so blending only it looked
+        # like a no-op. Each environment pixel is composited against what
+        # lies behind it -- the guest's colour where a guest surface is
+        # behind, the background elsewhere -- so the host fades to a faint
+        # skeleton and a guest atom behind a host stick reads through it.
+        # The depth is left as the environment's, so the halo still rings
+        # the host that is in front; the owner changes only where a guest
+        # really is behind, so a covered guest atom keeps its label.
+        qm_behind = qm.zbuf != -np.inf
+        behind = np.where(qm_behind[..., None], qm.color,
+                          np.asarray(BACKGROUND, dtype=float))
+        frame.color[env_wins] = (SEE_THROUGH_ALPHA * env.color[env_wins]
+                                 + (1.0 - SEE_THROUGH_ALPHA) * behind[env_wins])
+        frame.owner[env_wins & qm_behind] = qm.owner[env_wins & qm_behind]
     foreground = frame.zbuf != -np.inf
     frame.color[~foreground] = np.asarray(BACKGROUND, dtype=float)
     if foreground.any():

@@ -801,6 +801,49 @@ def test_see_through_shows_the_guest_behind_the_host():
           c_x[0] > c_env[0] + 50, f"{c_x[0]} vs {c_env[0]}")
 
 
+def test_see_through_ghosts_the_environment():
+    print("\nsee-through ghosts the whole environment layer, not only where it covers a guest")
+    import numpy as np
+    from orcamon.core.geometry import View
+    from orcamon.tui import raster
+
+    # `test_host_fog_keeps_near_host_bright`'s atoms: a near host C-C stick
+    # (atoms 0-1) and a far one (atoms 2-3), with a lone guest oxygen (atom 4)
+    # off to the side of both. The eye is on +x (elev=0, azim=0), so the near
+    # stick is at depth +3 and the far one at -3; neither midpoint has a guest
+    # surface behind it. fog=False because the ghost blends against the raw
+    # background, and the host fog would otherwise fade `off` by an amount the
+    # derivation below does not carry.
+    atoms = [("C", 3.0, -3.0, 0.0), ("C", 3.0, -1.6, 0.0),
+             ("C", -3.0, 1.6, 0.0), ("C", -3.0, 3.0, 0.0), ("O", 0.0, 0.0, 2.5)]
+    view = View(elev=0, azim=0, fog=False, show_labels=False)
+    ghost = View(elev=0, azim=0, fog=False, show_labels=False, see_through=True)
+    off = np.asarray(raster.render(atoms, view, qm_atom_indices={4}, size_px=(400, 300)), float)
+    on = np.asarray(raster.render(atoms, ghost, qm_atom_indices={4}, size_px=(400, 300)), float)
+    sx, sy, _depth, _scale = raster.project(atoms, view, (400, 300))
+
+    # With see-through off an environment pixel is its full colour. With it on
+    # the environment layer is composited at SEE_THROUGH_ALPHA = 0.3 against
+    # whatever lies behind: BACKGROUND = (30, 30, 30) at a stick midpoint, so
+    # each channel is 0.3 * off + 0.7 * 30. The guest oxygen is in the QM
+    # layer, not the environment, so where it wins its colour is unchanged.
+    near_mid = ((sx[0] + sx[1]) / 2, (sy[0] + sy[1]) / 2)
+    far_mid = ((sx[2] + sx[3]) / 2, (sy[2] + sy[3]) / 2)
+    near_x, near_y = int(round(near_mid[0])), int(round(near_mid[1]))
+    far_x, far_y = int(round(far_mid[0])), int(round(far_mid[1]))
+    near_expected = 0.3 * off[near_y, near_x] + 0.7 * 30.0
+    far_expected = 0.3 * off[far_y, far_x] + 0.7 * 30.0
+    check("the near host stick ghosts to 0.3 * off + 0.7 * 30",
+          max(abs(on[near_y, near_x] - near_expected)) <= 2.0,
+          f"{on[near_y, near_x]} vs {near_expected}")
+    check("the far host stick ghosts to 0.3 * off + 0.7 * 30",
+          max(abs(on[far_y, far_x] - far_expected)) <= 2.0,
+          f"{on[far_y, far_x]} vs {far_expected}")
+    gx, gy = int(round(sx[4])), int(round(sy[4]))
+    check("the guest oxygen's own pixel is unchanged",
+          max(abs(on[gy, gx] - off[gy, gx])) <= 2.0, f"{on[gy, gx]} vs {off[gy, gx]}")
+
+
 def test_the_camera_tumbles_over_the_pole():
     print("\nthe camera turns smoothly over the pole instead of snapping upside down")
     from orcamon.core.geometry import camera_basis, camera_forward
@@ -1195,6 +1238,7 @@ if __name__ == "__main__":
     test_halos_widen_with_the_depth_gap()
     test_boundary_host_atoms_get_a_ball()
     test_see_through_shows_the_guest_behind_the_host()
+    test_see_through_ghosts_the_environment()
     test_the_camera_tumbles_over_the_pole()
     test_the_renderer_is_fast_enough()
     test_the_view_is_not_mirrored()
