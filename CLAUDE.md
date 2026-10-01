@@ -127,16 +127,16 @@ rather than on anything real, which reads as 23 broken gates and is not.
 .venv/bin/python test_doc_check.py                  # the contract every check_numbers runs on
 ```
 
-Or all of it, which is what `.venv/bin/python run_gates.py` is for: 37
+Or all of it, which is what `.venv/bin/python run_gates.py` is for: 38
 gates, non-zero if any fails. `--all` adds the slow optimiser suite
-(38 gates), `--only two_axis` narrows the run, and `--jobs 1` runs in order
+(39 gates), `--only two_axis` narrows the run, and `--jobs 1` runs in order
 when a failure needs reading. A full run takes about eight minutes on the
 default 8 jobs. That is the wall time of its slowest gate,
 `test_mechanism_evidence.py`, with `data/test_rate_laws.py` close behind; the
 rest finish inside it. Gates run in PARALLEL because they are independent
 processes: nothing here builds a page, and the only three that write anything
 write into their own `tempfile` directories. **It DISCOVERS the gates rather
-than listing them.** The list above names 10 of the repository's 37.
+than listing them.** The list above names 10 of the repository's 38.
 `test_curve_flags`, `test_curve_screen`, `test_kinetic_model`,
 `test_read_rre`, `test_solution_chemistry` and `test_summary_kinetics` were in
 the tree and in no documented suite. A hardcoded list is a list that drifts.

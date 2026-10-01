@@ -75,8 +75,8 @@ gate will fail at the import line rather than on anything real.
 **One command runs all of them:**
 
 ```bash
-.venv/bin/python run_gates.py             # 37 gates, parallel, about 8 min (its slowest gate)
-.venv/bin/python run_gates.py --all       # 38: adds the optimiser suite (9 min)
+.venv/bin/python run_gates.py             # 38 gates, parallel, about 8 min (its slowest gate)
+.venv/bin/python run_gates.py --all       # 39: adds the optimiser suite (9 min)
 .venv/bin/python run_gates.py --only two_axis
 .venv/bin/python run_gates.py --jobs 1    # serially, when a failure needs reading
 ```

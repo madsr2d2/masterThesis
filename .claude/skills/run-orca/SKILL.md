@@ -247,6 +247,9 @@ Do not kill a running ORCA job on your own initiative.
 
 ## Not installed
 
-xtb, CREST, Psi4, NWChem, Gaussian, pyscf, ASE, RDKit, cclib. ORCA 6.1.1 at
-`~/orca_6_1_1/orca`, and OPI. Anything a conformer search would want, this
-machine does not have — say so rather than routing around it.
+Psi4, NWChem, Gaussian, pyscf, ASE, RDKit, cclib. ORCA 6.1.1 at
+`~/orca_6_1_1/orca`, and OPI. **Standalone xtb 6.7.1 and CREST 3.0.2 ARE
+installed** (`~/xtb-6.7.1/bin/xtb`, `~/crest-3.0.2/crest`, on no `PATH`) --
+this paragraph said they were not until 2026-09-30 while the C8 CREST runs
+were already in the tree. The `run-crest-xtb` skill covers them; ORCA's
+SOLVATOR seeds a cluster and CREST samples it.
