@@ -11,7 +11,7 @@ Plan: `PLAN_ORCAMON_STEER.md`. Branch `master` from `master` (`9b4abeae965da1706
 | ST5 the TUI publishes; orcamon view | DONE | c908f4e | 1 | reviewer PASS r1: 231/231 pass, 0 failures |
 | ST6 orcamon focus | DONE | 37750b5 | 1 | reviewer PASS r1: 231/238 pass, 0 failures |
 | ST7 the TUI takes focus; b | DONE | 8ea495a | 1 | reviewer PASS r1: 231/244 pass, 0 failures |
-| ST8 click picking, every gate | TODO | | | |
+| ST8 click picking, every gate | DONE | 01eff1f | 1 | reviewer PASS r1: 237/248 pass, 0 failures; run_gates 38 gates, 0 failed |
 
 Statuses: TODO | DONE | BLOCKED
 
@@ -27,6 +27,7 @@ Statuses: TODO | DONE | BLOCKED
 | ST5 | 231 | 231 | 0 failure(s) | (not run; ST8 only) |
 | ST6 | 231 | 238 | 0 failure(s) | (not run; ST8 only) |
 | ST7 | 231 | 244 | 0 failure(s) | (not run; ST8 only) |
+| ST8 | 237 | 248 | 0 failure(s) | 38 gates, 0 failed |
 
 ## Gates
 
@@ -41,6 +42,7 @@ Statuses: TODO | DONE | BLOCKED
 - 2026-10-01T18:36Z ST5 DONE (c908f4e). Reviewer PASS round 1, no findings. 231/231 pass, 0 failures.
 - 2026-10-01T18:43Z ST6 DONE (37750b5). Reviewer PASS round 1, no findings. 231/238 pass, 0 failures.
 - 2026-10-01T18:51Z ST7 DONE (8ea495a). Reviewer PASS round 1, no findings. 231/244 pass, 0 failures.
+- 2026-10-01T19:22Z ST8 DONE (01eff1f). Reviewer PASS round 1, no findings. 237/248 pass, 0 failures; run_gates 38 gates in 575 s on 8 jobs, 0 failed. Plan complete.
 
 ## Backlog
 
@@ -52,3 +54,4 @@ Statuses: TODO | DONE | BLOCKED
 - `orcamon skill --check` reports no user-level skill at `~/.claude/skills`; the project-level copy is current and is what the tests require (reviewer, ST6 r1).
 - ST7: `b` restores a mode with `show_mode(mode)` only when the saved mode is not None, so if the person had no mode running before the agent started one, `b` leaves the agent's animation running (plan text specifies this; not a defect here). (reviewer, ST7 r1)
 - ST7's draft-focus check depends on a 0.5 s timer plus one rescan inside an 8 s wait; the implementer ran the test 3 extra times with 0 failures, the reviewer did not repeat it (reviewer, ST7 r1).
+- ST8: `tools/orcamon/src/orcamon/tui/app.py:12` and `:24` — `from textual import events, work` is shadowed by `from ..core.events import events`; it works only because of `from __future__ import annotations`, so `event: events.Click` at line 846 is never evaluated. Importing `Click` directly would avoid the clash (reviewer, ST8 r1).
