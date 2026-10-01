@@ -43,10 +43,10 @@ def parse_probe_reply(reply: bytes) -> bool | None:
 
 
 def images_available() -> bool:
-    # Found, not imported: importing matplotlib costs half a second of
-    # startup, and the pixel widget imports it lazily anyway.
+    # The `images` extra is numpy and Pillow. Found, not imported: the pixel
+    # widget imports them lazily, so startup does not pay for it.
     import importlib.util
-    return all(importlib.util.find_spec(m) is not None for m in ("matplotlib", "numpy", "PIL"))
+    return all(importlib.util.find_spec(m) is not None for m in ("numpy", "PIL"))
 
 
 def probe_kitty(timeout: float = PROBE_TIMEOUT_S) -> bool:

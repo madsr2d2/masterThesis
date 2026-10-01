@@ -816,6 +816,29 @@ def test_the_geometry_pane_degrades_to_text():
     check("300 atoms in under 50 ms", elapsed < 50, f"{elapsed:.1f} ms")
 
 
+def test_the_images_extra_needs_no_matplotlib():
+    print("\nthe pixel panes need numpy and Pillow, not matplotlib")
+    import importlib.util
+    from orcamon.tui import graphics_probe
+
+    real_find_spec = importlib.util.find_spec
+    hidden = {"matplotlib"}
+
+    def hiding_find_spec(name, *args, **kwargs):
+        if name in hidden:
+            return None
+        return real_find_spec(name, *args, **kwargs)
+
+    importlib.util.find_spec = hiding_find_spec
+    try:
+        check("with matplotlib hidden the images extra is still available",
+              graphics_probe.images_available() is True)
+        hidden = {"PIL"}
+        check("with PIL hidden it is not", graphics_probe.images_available() is False)
+    finally:
+        importlib.util.find_spec = real_find_spec
+
+
 def test_text_fog_dims_only_the_far_third():
     print("\ntext fog dims only the far third of the depth range")
     from orcamon.core.geometry import View
@@ -1340,6 +1363,7 @@ if __name__ == "__main__":
     test_events_announce_changes_not_the_first_scan()
     test_notifications_reach_the_terminal_through_tmux()
     test_the_geometry_pane_degrades_to_text()
+    test_the_images_extra_needs_no_matplotlib()
     test_text_fog_dims_only_the_far_third()
     test_text_fog_holds_still_under_rotation()
     test_the_tui_runs_headless()

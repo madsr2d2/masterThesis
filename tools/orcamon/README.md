@@ -28,7 +28,7 @@ pip install ./tools/orcamon                      # an agents-only server: standa
 |---|---|---|
 | (none) | nothing: the core and CLI are standard library only | every `orcamon <command>` |
 | `tui` | textual, textual-plotext, plotext | `orcamon tui` |
-| `images` | matplotlib, numpy, pillow | the pixel geometry pane (without it the pane is text) |
+| `images` | numpy, pillow | the pixel geometry pane (without it the pane is text) |
 | `procs` | psutil | liveness on a platform without `/proc` |
 
 Python 3.10 or later.

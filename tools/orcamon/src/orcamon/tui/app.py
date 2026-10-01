@@ -32,7 +32,7 @@ from ..core.status import QUIET_AFTER_S, TERMINAL, Status
 from ..core.units import EH_TO_KJ_PER_MOL, format_wall_time
 from . import geometry_text, graphics_probe, herdr_graphics, kitty, notify
 
-# `geometry_render` (matplotlib, numpy, PIL -- the `images` extra) is imported
+# `geometry_render` (numpy, PIL -- the `images` extra) is imported
 # inside the two pixel widgets' render paths, never here, so the TUI starts
 # without it.
 
