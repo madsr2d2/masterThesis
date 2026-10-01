@@ -27,6 +27,8 @@ Statuses: TODO | DONE | BLOCKED
 
 ## Deviations (plan said → evidence → what was done)
 
+- FX1: the plan's new test calls `_orcamon([... "--json"])` and parses stdout. A different name/path for the same thing is not a stop, so the test calls the file's existing `_json(...)` helper, which is exactly `_orcamon` plus a guarded `json.loads` — same argv, same assertions. Reviewer accepted.
+
 ## Log
 
 - 2026-10-01T13:24Z FX1 DONE at 3c422bc (round 1, reviewer PASS). Liveness is now per-job via the `orca` driver's named input, and `orcamon`'s own console script no longer counts as ORCA. Suites: test_orcamon 170 pass, test_monitor 155 pass, data/test_curve_metrics 0 failure(s); run_gates.py not run (reserved for FX5).
