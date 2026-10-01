@@ -9,7 +9,7 @@ Plan: `PLAN_ORCAMON_PATHS.md`. Branch `master` from `master` (`ec5144624628357b3
 | PA3 Summary and irc_not_converged | DONE | 7d93dc9 | 1 | suite: monitor 184/0, orcamon 179/0, curve_metrics 0 failures; accepted deviation: test_orcamon imports `_irc_tree` from test_monitor (the duplicate guard reads private functions too, so the plan's "copy it" premise was wrong) |
 | PA4 energies, geom/snapshot --point | DONE | cdd7399 | 1 | suite: monitor 184/0, orcamon 187/0, curve_metrics 0 failures; accepted deviations: private `_energies_path` extraction (output identical), README help blocks pasted at COLUMNS=90 to match the other blocks |
 | PA5 Scrub the path in the TUI | DONE | 56ef1aa | 1 | suite: monitor 184/0, orcamon 192/0, curve_metrics 0 failures; accepted deviation: user-authorised step-5 amendment (a) (`action_select_latest` calls `_place_selection()` before `update_detail()`). First attempt blocked by a plan defect (step 5 as written left the pane on `IRC backward 0`); no commit was made then. |
-| PB1 Parse the NEB and build its path | TODO | | | |
+| PB1 Parse the NEB and build its path | DONE | 8d2df4a | 1 | suite: monitor 193/0, orcamon 192/0, curve_metrics 0 failures; no deviations. Real neb_anion: 15 rows (12 HEI + 3 CI), 10 images, summary `iteration 14 · climbing image 4 · +170.6 kJ/mol`. |
 | PB2 NEB end to end, every gate | TODO | | | |
 
 Statuses: TODO | DONE | BLOCKED
@@ -24,6 +24,7 @@ Statuses: TODO | DONE | BLOCKED
 | PA3 | 184 | 179 | 0 failure(s) | |
 | PA4 | 184 | 187 | 0 failure(s) | |
 | PA5 | 184 | 192 | 0 failure(s) | |
+| PB1 | 193 | 192 | 0 failure(s) | |
 
 ## Gates
 
@@ -51,6 +52,7 @@ Statuses: TODO | DONE | BLOCKED
 - 2026-10-01T14:52Z PA5 BLOCKED (no commit). Plan stop condition: a hand-derived expected value does not hold when step 5 is implemented as written (`end` leaves the pane on `IRC backward 0`, not `IRC TS`). The implementer's uncommitted changes were discarded and the baseline re-verified (184/187/0). Stopped for a user decision on amending PA5.
 - 2026-10-01T14:55Z PA5 unblocked; user authorised amendment (a) to step 5 (`action_select_latest` calls `_place_selection()` before `update_detail()`), recorded under `## Plan amendments`. Re-running PA5 from the clean tree at 6132040.
 - 2026-10-01T14:57Z PA5 DONE (56ef1aa); round 1 reviewer PASS with all 5 TUI checks. test_orcamon 192/0, test_monitor 184/0, curve_metrics 0 failures. The only deviation is the user-authorised step-5 amendment; the reviewer confirmed `_following_latest` was NOT added to `_signature_of` and the non-path branches are unchanged.
+- 2026-10-01T15:02Z PB1 DONE (8d2df4a); round 1 reviewer PASS with 9 parser/path checks. test_monitor 193/0, test_orcamon 192/0, curve_metrics 0 failures. Real neb_anion read-only: 15 rows (12 HEI + 3 CI), 10 images, focus 4, dE matches § Facts.
 
 ## Backlog
 
@@ -61,4 +63,6 @@ Statuses: TODO | DONE | BLOCKED
 - PLAN_ORCAMON_PATHS.md PA3 acceptance names `test_report_keys_are_stable` under test_orcamon.py; it lives in test_monitor.py (plan slip, PA3 reviewer).
 - Text `energies` of a 101-point path is cut at the default `--max-lines`, so `dE from the TS` and the label footer are not shown unless `--max-lines` is raised. Existing `Out` behaviour the plan asks for, but an agent may want the footer kept (PA4 reviewer).
 - `_path_point` has no `-> int` return annotation; other helpers in the file are similarly loose (style, PA4 reviewer).
+- `core/paths.py::_neb_reaction_path` calls `_frames(trj)` before the cache check; cheap because `_frames` is memoised on the file stamp (PB1 reviewer).
+- `_neb_view`'s docstring cites "D4" for the dE-from-image-0 rule; plan D4 is the IRC energy decision, so the reference is loose (PB1 reviewer).
 
