@@ -1136,6 +1136,52 @@ def test_the_tui_runs_headless():
     check("in under 10 s", elapsed < 10, f"{elapsed:.1f} s")
 
 
+def test_the_tui_scrubs_a_path():
+    print("\nthe TUI charts the IRC path, and left/right/end scrub the geometry pane")
+    import asyncio
+    import tempfile
+    import time as _time
+    from pathlib import Path
+
+    from orcamon.tui.app import MonitorApp
+    from test_monitor import _irc_tree
+
+    async def drive(root):
+        app = MonitorApp(root, liveness="mtime", graphics="text", notify_mode="off")
+        async with app.run_test(size=(180, 50)) as pilot:
+            chart = app.query_one("#chart")
+            deadline = _time.monotonic() + 5
+            while not (app.jobs and all(j.parsed for j in app.jobs)
+                       and chart._points) and _time.monotonic() < deadline:
+                await pilot.pause(0.05)
+
+            title = lambda: app.query_one("#geometry").border_title
+            check("the chart is the IRC path, one dot per point",
+                  chart._mode == "irc" and len(chart._points) == 6,
+                  f"{chart._mode} {len(chart._points)}")
+            check("while following, the geometry pane is on the TS",
+                  title().endswith("· IRC TS"), title())
+            chart.focus()
+            await pilot.press("right")
+            await pilot.pause(0.2)
+            check("right walks the pane forward along the path",
+                  title().endswith("· IRC forward 0"), title())
+            await pilot.press("left")
+            await pilot.press("left")
+            await pilot.pause(0.2)
+            check("left walks it back",
+                  title().endswith("· IRC backward 0"), title())
+            await pilot.press("end")
+            await pilot.pause(0.2)
+            check("end follows the focus again, which is the TS",
+                  title().endswith("· IRC TS"), title())
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _irc_tree(root / "irc")
+        asyncio.run(drive(root))
+
+
 def test_slurm_names_what_the_login_node_cannot_see():
     print("\nSLURM: squeue's view of a job, and the fallbacks when it has none")
     import stat
@@ -1479,6 +1525,7 @@ if __name__ == "__main__":
     test_text_fog_dims_only_the_far_third()
     test_text_fog_holds_still_under_rotation()
     test_the_tui_runs_headless()
+    test_the_tui_scrubs_a_path()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
     test_liveness_names_the_job_not_only_the_directory()

@@ -15,7 +15,7 @@ from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Header, RichLog, Static
 from textual_plotext import PlotextPlot
 
-from ..core import cache, vibrations
+from ..core import cache, paths, vibrations
 from ..core.discovery import discover, short_label
 from ..core.events import events
 from ..core.geometry import (
@@ -147,6 +147,10 @@ class ConvergencePlot(PlotextPlot):
         super().__init__(*args, **kwargs)
         self._job: Job | None = None
         self._points: list = []
+        # The path view when the job is an IRC or NEB, otherwise None, and the
+        # mode `_series` chose -- the selection rules below branch on both.
+        self._mode: str | None = None
+        self._view = None
         self.selected_index: int | None = None
         # The selected GeometryPoint itself, so a selection survives the
         # bounded history shifting underneath it -- an index would silently
@@ -160,8 +164,15 @@ class ConvergencePlot(PlotextPlot):
         self.all_cycles = False
         self._signature: tuple | None = ()
 
-    def _series(self, state) -> tuple[str, list]:
-        """Which points to plot, and in what mode."""
+    def _series(self, job) -> tuple[str, list]:
+        """Which points to plot, and in what mode. A reaction path -- an IRC
+        or an NEB -- is drawn as its own points: its dots are the path, not
+        the job's SCF iterations or optimization cycles."""
+        view = paths.reaction_path(job)
+        self._view = view
+        if view is not None:
+            return view.kind, view.points
+        state = job.state
         if state.scan_points and not self.all_cycles:
             return "scan", [p for _, p in sorted(state.scan_points.items()) if p.energy is not None]
         points = [p for p in state.points if p.energy is not None]
@@ -182,6 +193,9 @@ class ConvergencePlot(PlotextPlot):
             None if last is None else last.energy,
             len(state.scf_iterations),
             self.selected_index,
+            # The path view is rebuilt when the path grows; its identity moves
+            # with it, so a new point replots the chart and its ring.
+            id(paths.reaction_path(job)),
         )
 
     def show_job(self, job: Job | None) -> None:
@@ -206,7 +220,8 @@ class ConvergencePlot(PlotextPlot):
             return
 
         state = job.state
-        mode, points = self._series(state)
+        mode, points = self._series(job)
+        self._mode = mode
         self._points = points
         if mode == "scf":
             self.selected_index = None
@@ -220,25 +235,35 @@ class ConvergencePlot(PlotextPlot):
             else:
                 self.plt.title("no energies yet")
         else:
-            ref = points[0].energy if points else 0.0
-            ys = [(p.energy - ref) * EH_TO_KJ_PER_MOL for p in points]
-            if mode == "scan":
-                if state.scan_values and all(p.scan_step in state.scan_values for p in points):
-                    xs = [state.scan_values[p.scan_step] for p in points]
-                    self.plt.xlabel(state.scan_label or "scanned coordinate")
+            if mode in ("irc", "neb"):
+                xs = [p.index for p in points]
+                ys = [p.de_kj_mol for p in points]
+                if mode == "irc":
+                    self.plt.title(f"IRC: {len(points)} points, dE from the TS")
+                    self.plt.xlabel("point (backward < 0, TS 0, forward > 0)")
                 else:
-                    xs = [p.scan_step for p in points]
-                    self.plt.xlabel("scan step")
-                total = f"/{state.scan_total}" if state.scan_total else ""
-                self.plt.title(f"relaxed scan: {len(points)}{total} steps  [a: all cycles]")
-            elif mode == "all":
-                xs = list(range(1, len(points) + 1))
-                self.plt.xlabel("geometry")
-                self.plt.title(f"all cycles of {len(state.scan_points)} scan steps  [a: profile]")
+                    self.plt.title(f"NEB: {len(points)} images, dE from image 0")
+                    self.plt.xlabel("image")
             else:
-                xs = [p.cycle for p in points]
-                self.plt.xlabel("cycle")
-                self.plt.title("optimization: energy per cycle")
+                ref = points[0].energy if points else 0.0
+                ys = [(p.energy - ref) * EH_TO_KJ_PER_MOL for p in points]
+                if mode == "scan":
+                    if state.scan_values and all(p.scan_step in state.scan_values for p in points):
+                        xs = [state.scan_values[p.scan_step] for p in points]
+                        self.plt.xlabel(state.scan_label or "scanned coordinate")
+                    else:
+                        xs = [p.scan_step for p in points]
+                        self.plt.xlabel("scan step")
+                    total = f"/{state.scan_total}" if state.scan_total else ""
+                    self.plt.title(f"relaxed scan: {len(points)}{total} steps  [a: all cycles]")
+                elif mode == "all":
+                    xs = list(range(1, len(points) + 1))
+                    self.plt.xlabel("geometry")
+                    self.plt.title(f"all cycles of {len(state.scan_points)} scan steps  [a: profile]")
+                else:
+                    xs = [p.cycle for p in points]
+                    self.plt.xlabel("cycle")
+                    self.plt.title("optimization: energy per cycle")
             self.plt.ylabel("dE (kJ/mol)")
             if points:
                 self.plt.scatter(xs, ys, marker=POINT_MARKER)
@@ -253,6 +278,20 @@ class ConvergencePlot(PlotextPlot):
         if not self._points:
             self.selected_index = None
             return
+        if self._mode in ("irc", "neb") and self._view is not None:
+            if not self._following_latest and self._selected is not None:
+                # A path's points are rebuilt when the path grows, so the old
+                # selection is re-found by index, never by identity.
+                for i, p in enumerate(self._points):
+                    if p.index == self._selected.index:
+                        self.selected_index = i
+                        self._selected = p
+                        return
+            # Following, or the point is not on the rebuilt path any more:
+            # the focus is where the pane goes.
+            self.selected_index = self._view.focus
+            self._selected = self._points[self.selected_index]
+            return
         if not self._following_latest and self._selected is not None:
             for i, p in enumerate(self._points):
                 if p is self._selected:
@@ -265,7 +304,13 @@ class ConvergencePlot(PlotextPlot):
     def selected_point(self):
         """The scrubbed-to point, or None while following the newest geometry
         -- which may be one whose energy has not been printed yet, and so has
-        no dot to put a ring on."""
+        no dot to put a ring on. A path point is returned while following too:
+        its focus IS a point, and the pane draws it rather than the job's
+        printed geometry."""
+        if self._mode in ("irc", "neb"):
+            if self.selected_index is None:
+                return None
+            return self._points[self.selected_index]
         if self._following_latest or self.selected_index is None:
             return None
         return self._points[self.selected_index]
@@ -273,7 +318,12 @@ class ConvergencePlot(PlotextPlot):
     def _select(self, index: int) -> None:
         self.selected_index = index
         self._selected = self._points[index]
-        self._following_latest = index == len(self._points) - 1
+        if self._mode in ("irc", "neb"):
+            # A person who scrubbed stays where they scrubbed, even at the
+            # last point of the path: `end` is how following resumes.
+            self._following_latest = False
+        else:
+            self._following_latest = index == len(self._points) - 1
         self.app.update_detail()
 
     def action_select_prev(self) -> None:
@@ -288,6 +338,14 @@ class ConvergencePlot(PlotextPlot):
         self._select(min(len(self._points) - 1, self.selected_index + 1))
 
     def action_select_latest(self) -> None:
+        if self._mode in ("irc", "neb"):
+            self._following_latest = True
+            # Re-place the focus HERE: `update_detail` -> `show_job`
+            # early-returns while the signature is unchanged, and
+            # `_following_latest` is not part of it.
+            self._place_selection()
+            self.app.update_detail()
+            return
         if self._points:
             self._select(len(self._points) - 1)
 
