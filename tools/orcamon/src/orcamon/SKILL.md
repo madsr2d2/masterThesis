@@ -95,6 +95,12 @@ no coordinates at all (ORCA's SOLVATOR writes its cluster to a file) gives the
 geometry file the log names, or else its input geometry. The XYZ comment line
 and the pane title say which, so report it as that file, not as a cycle.
 
+On an IRC or NEB job, `orcamon energies JOB` is the path, one row per point:
+the dE is from the TS (IRC) or from image 0 (NEB), and an IRC row carries its
+monitored internals. `orcamon geom JOB --point N` gives one point's geometry:
+N is the signed IRC point (0 is the TS, negative is backward) or the NEB
+image. An NEB path is the CURRENT one: ORCA rewrites it every iteration.
+
 ## Waiting
 
 ```

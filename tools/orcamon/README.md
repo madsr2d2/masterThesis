@@ -171,6 +171,16 @@ an imaginary normal mode. It needs the
 `images` extra, and is how a person shares a structure or checks the pane
 without a terminal.
 
+## Reaction paths
+
+On an IRC or NEB job, `orcamon energies JOB` is the path, one row per point:
+the dE is from the TS (IRC) or from image 0 (NEB), and an IRC row carries its
+monitored internals. `orcamon geom JOB --point N` gives one point's geometry:
+N is the signed IRC point (0 is the TS, negative is backward) or the NEB
+image. An NEB path is the CURRENT one: ORCA rewrites it every iteration. In
+the TUI, the chart's dots are the path's points and left/right scrub the
+geometry pane along it.
+
 ## State cache
 
 Parsed state is kept in `$XDG_CACHE_HOME/orcamon/` (default
@@ -409,7 +419,7 @@ options:
 
 ```
 usage: orcamon geom [-h] [--root DIR] [--liveness {auto,process,slurm,mtime}]
-                    [--quiet-after S] [--no-cache] [--cycle C] [--step S]
+                    [--quiet-after S] [--no-cache] [--cycle C] [--step S] [--point N]
                     [--region {all,qm}] [--json]
                     JOB
 
@@ -431,6 +441,8 @@ options:
                         state cache
   --cycle C             optimization cycle (within --step for a scan)
   --step S              scan step (its last cycle unless --cycle)
+  --point N             a point on an IRC or NEB path: the signed IRC point (0 is the
+                        TS, negative is backward) or the NEB image
   --region {all,qm}     qm: only a multilayer job's high-level (QM1) atoms (default:
                         all)
   --json                print one JSON document instead of text
@@ -443,7 +455,8 @@ usage: orcamon snapshot [-h] [--root DIR] [--liveness {auto,process,slurm,mtime}
                         [--quiet-after S] [--no-cache] -o FILE
                         [--representation {ball-and-stick,licorice,space-filling,wireframe}]
                         [--size WxH] [--elev DEG] [--azim DEG] [--no-labels] [--no-fog]
-                        [--see-through] [--mode N] [--phase DEG] [--distances]
+                        [--see-through] [--point N] [--mode N] [--phase DEG]
+                        [--distances]
                         JOB
 
 render a job's geometry to a PNG (needs the images extra)
@@ -473,6 +486,8 @@ options:
   --no-fog              do not fade distant atoms
   --see-through         show the QM region through the environment where the environment
                         covers it
+  --point N             a point on an IRC or NEB path: the signed IRC point (0 is the
+                        TS, negative is backward) or the NEB image
   --mode N              animate an imaginary normal mode: ORCA's mode number (the one
                         `orcamon freqs` prints)
   --phase DEG           where in the oscillation to draw, 0-360 degrees (default: 90.0)

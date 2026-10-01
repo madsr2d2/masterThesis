@@ -97,6 +97,12 @@ no coordinates at all (ORCA's SOLVATOR writes its cluster to a file) gives the
 geometry file the log names, or else its input geometry. The XYZ comment line
 and the pane title say which, so report it as that file, not as a cycle.
 
+On an IRC or NEB job, `orcamon energies JOB` is the path, one row per point:
+the dE is from the TS (IRC) or from image 0 (NEB), and an IRC row carries its
+monitored internals. `orcamon geom JOB --point N` gives one point's geometry:
+N is the signed IRC point (0 is the TS, negative is backward) or the NEB
+image. An NEB path is the CURRENT one: ORCA rewrites it every iteration.
+
 ## Waiting
 
 ```
@@ -211,6 +217,7 @@ a geometry as XYZ: the latest, or a given cycle or scan step
 - `JOB`: a job directory, a .inp/.out file, or (part of) a job's label
 - `--cycle C`: optimization cycle (within --step for a scan)
 - `--step S`: scan step (its last cycle unless --cycle)
+- `--point N`: a point on an IRC or NEB path: the signed IRC point (0 is the TS, negative is backward) or the NEB image
 - `--region all|qm`: qm: only a multilayer job's high-level (QM1) atoms (default: all)
 - `--json`: print one JSON document instead of text
 
@@ -227,6 +234,7 @@ render a job's geometry to a PNG (needs the images extra)
 - `--no-labels`: omit the atom index labels
 - `--no-fog`: do not fade distant atoms
 - `--see-through`: show the QM region through the environment where the environment covers it
+- `--point N`: a point on an IRC or NEB path: the signed IRC point (0 is the TS, negative is backward) or the NEB image
 - `--mode N`: animate an imaginary normal mode: ORCA's mode number (the one `orcamon freqs` prints)
 - `--phase DEG`: where in the oscillation to draw, 0-360 degrees (default: 90.0)
 - `--distances`: label the QM-QM bond distances

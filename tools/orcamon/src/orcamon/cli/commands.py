@@ -18,7 +18,7 @@ from collections import deque
 from pathlib import Path
 
 from .. import __version__  # noqa: F401 -- `orcamon --version` reads it here
-from ..core import cache
+from ..core import cache, paths
 from ..core.discovery import JobRef, discover
 from ..core.geometry import View
 from ..core.job import Job
@@ -318,10 +318,43 @@ def cmd_conv(args, job: Job) -> int:
 # --- energies ---------------------------------------------------------------
 
 
+def _energies_path(args, job: Job, state, view, label: str | None) -> int:
+    """The energies of an IRC or NEB path: one row per point, with ORCA's own
+    dE from the TS (IRC) or from image 0 (NEB) and, for an IRC, the monitored
+    internals the header names."""
+    rows = view.points[-args.last:] if args.last else view.points
+    if args.json:
+        _emit_json({"job": job.label, "mode": view.kind, "truncated": False,
+                    "rows": [{"point": p.index, "label": p.label, "energy_eh": p.energy,
+                              "dE_kj_mol": p.de_kj_mol, "monitors": p.monitors}
+                             for p in rows]})
+        return _job_exit(job)
+    out = Out(args.max_lines)
+    monitors = state.irc_monitors if view.kind == "irc" else []
+    head = f"{'point':>6}  {'label':<20}  {'energy/Eh':>18}  {'dE (kJ/mol)':>12}"
+    out(head + "".join(f"  {name:>16}" for name in monitors))
+    for p in rows:
+        energy = f"{p.energy:>18.9f}" if p.energy is not None else f"{'-':>18}"
+        line = f"{p.index:>6}  {p.label:<20}  {energy}  {p.de_kj_mol:>+12.2f}"
+        for name in monitors:
+            value = p.monitors.get(name)
+            line += f"  {value:>16.2f}" if value is not None else f"  {'-':>16}"
+        out(line)
+    out("dE from the TS" if view.kind == "irc" else "dE from image 0")
+    if label:
+        out(f"energies are the {label} total")
+    out.flush()
+    return _job_exit(job)
+
+
 @_with_job
 def cmd_energies(args, job: Job) -> int:
     state = job.state
     label = state.final_energy_label
+    view = paths.reaction_path(job)
+    if view is not None:
+        return _energies_path(args, job, state, view, label)
+
     rows: list[dict] = []
     truncated = False
     if state.scan_points:
@@ -417,16 +450,38 @@ def _range(values) -> str:
     return f"{values[0]}-{values[-1]}" if values else "none"
 
 
+def _path_point(job: Job, n: int):
+    """The path point the signed IRC point or NEB image `n` names. Refused
+    with the path's range when there is no path or no such point, and by
+    label when its geometry has not been written yet."""
+    view = paths.reaction_path(job)
+    if view is None:
+        raise UsageError("--point needs an IRC or NEB job; this job has no reaction path")
+    point = next((p for p in view.points if p.index == n), None)
+    if point is None:
+        first, last = view.points[0], view.points[-1]
+        raise UsageError(f"point {n} is not on the path (points {first.index} to {last.index})")
+    if not point.atoms:
+        raise UsageError(f"{point.label}: geometry not written yet")
+    return point
+
+
 @_with_job
 def cmd_geom(args, job: Job) -> int:
     state = job.state
-    point, asked = _find_point(state, args.step, args.cycle)
-    if point is None and job.file_geometry is not None:
-        # Nothing printed, but the job wrote a geometry file (SOLVATOR) or
-        # has an input geometry. It is named as such, never as a cycle.
-        point = job.file_geometry
-    if point is None:
-        raise UsageError("no coordinates printed yet, and no geometry file to read")
+    if args.point is not None:
+        if args.cycle is not None or args.step is not None:
+            raise UsageError("--point cannot be combined with --cycle or --step")
+        point = _path_point(job, args.point)
+        asked = describe_point(point)
+    else:
+        point, asked = _find_point(state, args.step, args.cycle)
+        if point is None and job.file_geometry is not None:
+            # Nothing printed, but the job wrote a geometry file (SOLVATOR) or
+            # has an input geometry. It is named as such, never as a cycle.
+            point = job.file_geometry
+        if point is None:
+            raise UsageError("no coordinates printed yet, and no geometry file to read")
     if not point.atoms:
         history = list(state.points)
         i = next((k for k, p in enumerate(history) if p is point), len(history))
@@ -474,11 +529,16 @@ def cmd_snapshot(args, job: Job) -> int:
     PNG, using the same renderer the TUI's pixel panes use. With --mode, the
     geometry is displaced along one imaginary mode's own pattern instead."""
     state = job.state
-    point, _asked = _find_point(state, None, None)
-    if point is None and job.file_geometry is not None:
-        point = job.file_geometry
-    if point is None or not point.atoms:
-        raise UsageError("no geometry to draw")
+    if args.point is not None:
+        if args.mode is not None:
+            raise UsageError("--point cannot be combined with --mode")
+        point = _path_point(job, args.point)
+    else:
+        point, _asked = _find_point(state, None, None)
+        if point is None and job.file_geometry is not None:
+            point = job.file_geometry
+        if point is None or not point.atoms:
+            raise UsageError("no geometry to draw")
     match = re.fullmatch(r"(\d+)x(\d+)", args.size)
     if not match:
         raise UsageError(f"bad --size {args.size!r}: use WxH (e.g. 900x750)")

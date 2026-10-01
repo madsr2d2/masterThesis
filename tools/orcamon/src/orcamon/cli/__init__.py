@@ -119,6 +119,9 @@ def build_parser() -> argparse.ArgumentParser:
     _job(p)
     p.add_argument("--cycle", type=int, metavar="C", help="optimization cycle (within --step for a scan)")
     p.add_argument("--step", type=int, metavar="S", help="scan step (its last cycle unless --cycle)")
+    p.add_argument("--point", type=int, metavar="N",
+                   help="a point on an IRC or NEB path: the signed IRC point (0 is the TS, "
+                        "negative is backward) or the NEB image")
     p.add_argument("--region", choices=("all", "qm"), default="all",
                    help="qm: only a multilayer job's high-level (QM1) atoms (default: all)")
     _output(p, lines=False)
@@ -139,6 +142,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-fog", action="store_true", help="do not fade distant atoms")
     p.add_argument("--see-through", action="store_true",
                    help="show the QM region through the environment where the environment covers it")
+    p.add_argument("--point", type=int, metavar="N",
+                   help="a point on an IRC or NEB path: the signed IRC point (0 is the TS, "
+                        "negative is backward) or the NEB image")
     p.add_argument("--mode", type=int, metavar="N",
                    help="animate an imaginary normal mode: ORCA's mode number (the one `orcamon freqs` prints)")
     p.add_argument("--phase", type=float, default=90.0, metavar="DEG",

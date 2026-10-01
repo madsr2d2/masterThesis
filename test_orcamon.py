@@ -555,6 +555,65 @@ def test_snapshot_writes_a_png():
               code == 2 and "no frequency block" in err, err)
 
 
+def test_a_path_is_listed_and_drawn():
+    print("\nan IRC path is listed by energies and drawn by geom/snapshot --point")
+    import tempfile
+    from pathlib import Path
+    # One IRC fixture, not two: the duplicate guard reads functions even when
+    # they are private, and its rule is to import the other copy, not clone it.
+    from test_monitor import _irc_tree
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _irc_tree(root / "irc")
+        (root / "plain").mkdir()
+        (root / "plain" / "job.inp").write_text(
+            "! B97-3c SP\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n")
+        argv = ["--root", str(root), "--liveness", "mtime", "--no-cache"]
+
+        code, doc, err = _json([*argv, "energies", "irc"])
+        rows = doc["rows"] if doc else []
+        first = rows[0] if rows else {}
+        check("energies --json lists the path's points with their dE and monitors",
+              code == 0 and doc is not None and doc["mode"] == "irc" and len(rows) == 6
+              and {**first, "dE_kj_mol": round(first.get("dE_kj_mol", 0.0), 3)} == {
+                  "point": -2, "label": "IRC backward 1", "energy_eh": -100.00239,
+                  "dE_kj_mol": -6.276,
+                  "monitors": {"B(O 0,H 1)": 0.94, "B(O 0,H 2)": 0.98}},
+              f"{code} {doc} {err}")
+
+        code, out, err = _orcamon([*argv, "energies", "irc"])
+        check("energies prints the path with ORCA's own dE, and says where dE is from",
+              code == 0 and "IRC TS" in out and "dE from the TS" in out, out + err)
+
+        code, out, err = _orcamon([*argv, "geom", "irc", "--point", "1"])
+        lines = out.split("\n")
+        check("geom --point gives that point's geometry",
+              code == 0 and len(lines) > 2 and "IRC forward 0" in lines[1]
+              and lines[2].split()[-1] == "3.00000000", f"{code} {out} {err}")
+
+        code, out, err = _orcamon([*argv, "geom", "irc", "--point", "9"])
+        check("a point off the path exits 2 with the range it does have",
+              code == 2 and "not on the path (points -2 to 3)" in err, err)
+
+        code, out, err = _orcamon([*argv, "geom", "irc", "--point", "0", "--cycle", "1"])
+        check("--point refuses to be combined with a cycle or a step",
+              code == 2, f"{code} {out} {err}")
+
+        code, out, err = _orcamon([*argv, "geom", "plain", "--point", "0"])
+        check("a job with no path refuses --point",
+              code == 2 and "no reaction path" in err, err)
+
+        png = root / "p.png"
+        code, out, err = _orcamon([*argv, "snapshot", "irc", "--point", "-2", "-o", str(png)])
+        check("snapshot --point draws that point and names it",
+              code == 0 and png.exists() and "IRC backward 1" in out, f"{code} {out} {err}")
+
+        code, out, err = _orcamon([*argv, "snapshot", "irc", "--point", "0", "--mode", "6",
+                                   "-o", str(root / "q.png")])
+        check("snapshot --point refuses --mode", code == 2, f"{code} {out} {err}")
+
+
 def test_the_bond_cache_holds_the_geometry_it_answers_for():
     print("\nthe geometry pane's bond cache is keyed by the atom list itself, not its id")
     from types import SimpleNamespace
@@ -1407,6 +1466,7 @@ if __name__ == "__main__":
     test_show_and_ls_agree()
     test_geom_never_substitutes_a_geometry()
     test_snapshot_writes_a_png()
+    test_a_path_is_listed_and_drawn()
     test_the_bond_cache_holds_the_geometry_it_answers_for()
     test_wait_returns_when_the_job_is_done()
     test_the_other_commands_answer_boundedly()
