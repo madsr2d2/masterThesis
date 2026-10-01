@@ -731,6 +731,41 @@ def test_halos_widen_with_the_depth_gap():
               below == width, f"{below}")
 
 
+def test_boundary_host_atoms_get_a_ball():
+    print("\na host atom bonded to the QM region gets a small ball in ball-and-stick")
+    import numpy as np
+    from orcamon.core.geometry import View
+    from orcamon.tui import raster
+
+    # A QM oxygen with two host carbons along +x at 1.4 A spacing. The eye is
+    # on +z (elev=90, azim=-90), so x runs to the screen's right. Atom 1 is
+    # bonded to the QM atom and is a boundary atom; atom 2 is one bond further
+    # out and keeps only its stick end.
+    #
+    # The framing sphere's mean x is 1.4 and its extent is 1.4 + 0.5 = 1.9,
+    # so scale = 400 / 3.8 = 105.26 px/A. The boundary ball's radius is
+    # 0.6 * 0.28 * 1.70 = 0.2856 A = 30 px, so its column spans 61 rows; a
+    # host stick end of radius ENV_BOND_RADIUS = 0.06 A = 6 px gives 13 rows.
+    atoms = [("O", 0.0, 0.0, 0.0), ("C", 1.4, 0.0, 0.0), ("C", 2.8, 0.0, 0.0)]
+    ball_view = View(elev=90, azim=-90, fog=False, show_labels=False)
+    sx, _sy, _depth, _scale = raster.project(atoms, ball_view, (400, 400))
+
+    def column_rows(image, i):
+        column = np.asarray(image, float)[:, int(round(sx[i]))]
+        return int((abs(column - 30.0).sum(axis=1) > 6).sum())
+
+    ball = raster.render(atoms, ball_view, qm_atom_indices={0}, size_px=(400, 400))
+    check("the boundary carbon is drawn as a ball: 0.6 * 0.28 * 1.70 = 61 rows",
+          57 <= column_rows(ball, 1) <= 65, f"{column_rows(ball, 1)}")
+    check("the carbon one bond further out keeps only the stick end: 13 rows",
+          11 <= column_rows(ball, 2) <= 15, f"{column_rows(ball, 2)}")
+    licorice = raster.render(atoms, View(elev=90, azim=-90, representation="licorice",
+                                         fog=False, show_labels=False),
+                             qm_atom_indices={0}, size_px=(400, 400))
+    check("licorice gets no boundary ball: the same 13 rows",
+          11 <= column_rows(licorice, 1) <= 15, f"{column_rows(licorice, 1)}")
+
+
 def test_the_camera_tumbles_over_the_pole():
     print("\nthe camera turns smoothly over the pole instead of snapping upside down")
     from orcamon.core.geometry import camera_basis, camera_forward
@@ -1123,6 +1158,7 @@ if __name__ == "__main__":
     test_fog_holds_still_under_rotation()
     test_host_fog_keeps_near_host_bright()
     test_halos_widen_with_the_depth_gap()
+    test_boundary_host_atoms_get_a_ball()
     test_the_camera_tumbles_over_the_pole()
     test_the_renderer_is_fast_enough()
     test_the_view_is_not_mirrored()

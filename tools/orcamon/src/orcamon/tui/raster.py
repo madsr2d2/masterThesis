@@ -45,6 +45,7 @@ LICORICE_RADIUS = 0.16                # licorice atom cap
 WIREFRAME_ATOM_RADIUS = 0.12          # the dot an unbonded atom keeps
 ENV_BOND_RADIUS = 0.06                # the environment layer's thin sticks
 ENV_DESATURATE = 0.5                  # mix environment colours halfway to grey
+BOUNDARY_BALL_SCALE = 0.6             # a host atom bonded to the QM region: this fraction of its ball-and-stick ball
 BALL_BOND_RGB = (184, 184, 184)       # ball-and-stick bonds: light grey
 SAMPLE_SPACING = 1.2                  # bond sample spacing, in bond radii
 MAX_SAMPLES_PER_BOND = 64
@@ -263,9 +264,29 @@ def _draw_geometry(atoms, view, pairs, has_bond, sx, sy, depth, scale,
                        (sx[i], sy[i], depth[i]), (sx[j], sy[j], depth[j]),
                        length, radius, scale, rgb_a, rgb_b,
                        _bond_owner(i, len(atoms)), _bond_owner(j, len(atoms)))
-    # The environment never gets a ball: on space-filling the host would bury
-    # the QM region the pane exists to show, and on the other representations
-    # its thin desaturated sticks are what marks it as the lower layer.
+    # The environment never gets a full ball: on space-filling the host would
+    # bury the QM region the pane exists to show, and on the other
+    # representations its thin desaturated sticks are what marks it as the
+    # lower layer. The exception is a host atom bonded to the QM region in
+    # ball-and-stick: it gets a small desaturated ball, because a host atom in
+    # front of a QM ball was otherwise drawn only as the junction of thin
+    # sticks, and the eye read a stick slicing through a ball rather than an
+    # atom in front of it.
+    if representation == "ball-and-stick" and not all(is_qm):
+        boundary = set()
+        for i, j in pairs:
+            if not (visible[i] and visible[j]):
+                continue
+            if not is_qm[i] and is_qm[j]:
+                boundary.add(i)
+            elif is_qm[i] and not is_qm[j]:
+                boundary.add(j)
+        for i in sorted(boundary):
+            element = atoms[i][0]
+            _draw_sphere(env.zbuf, env.color, env.owner, sx[i], sy[i], depth[i],
+                         BOUNDARY_BALL_SCALE * BALL_SCALE
+                         * VDW_RADII.get(element, DEFAULT_VDW_RADIUS),
+                         scale, _desaturate(_rgb(element)), i)
     for i, (element, *_rest) in enumerate(atoms):
         if not visible[i] or not is_qm[i]:
             continue
