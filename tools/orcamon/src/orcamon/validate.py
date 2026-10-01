@@ -111,6 +111,7 @@ MARKER_CASES = [
      lambda s: s._pending_step.get("rms_step") == (0.0020825435, 0.002, False)),
     ("          MAX step            0.0192646101            0.0040000000      YES",
      lambda s: s._pending_step.get("max_step") == (0.0192646101, 0.004, True)),
+    ("NORMAL MODES", lambda s: s._in_modes_block),
 ]
 
 

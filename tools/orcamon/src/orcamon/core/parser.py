@@ -80,6 +80,14 @@ _FREQ_HEADER_RE = re.compile(r"^VIBRATIONAL FREQUENCIES\s*$")
 _FREQ_LINE_RE = re.compile(
     r"^\s*\d+:\s+(-?[\d.]+)\s+cm\*\*-1(\s+\*\*\*imaginary mode\*\*\*)?"
 )
+# The `NORMAL MODES` block ORCA prints after a Hessian's frequencies: an
+# all-integer column header (the mode indices, six per block) then one row per
+# Cartesian coordinate with that many floats. A column header is all integers
+# and a data row starts with an integer then floats with decimal points, so the
+# two never collide.
+_NORMAL_MODES_HEADER_RE = re.compile(r"^NORMAL MODES\s*$")
+_MODE_COLUMNS_RE = re.compile(r"^\s*(\d+(?:\s+\d+)*)\s*$")
+_MODE_ROW_RE = re.compile(r"^\s*(\d+)\s+(-?\d+\.\d+(?:\s+-?\d+\.\d+)*)\s*$")
 _GEOM_HEADER_RE = re.compile(r"^CARTESIAN COORDINATES \(ANGSTROEM\)\s*$")
 _GEOM_ATOM_RE = re.compile(
     r"^\s*([A-Za-z]{1,2})\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s*$"
@@ -128,6 +136,7 @@ _LINE_OF_INTEREST_PARTS = (
     "QM1 Subsystem",
     "Energy change|RMS gradient|MAX gradient|RMS step|MAX step",
     "VIBRATIONAL FREQUENCIES",
+    "NORMAL MODES",
     r"CARTESIAN COORDINATES \(ANGSTROEM\)",
 )
 _LINE_OF_INTEREST_RE = re.compile("|".join(_LINE_OF_INTEREST_PARTS))
@@ -193,6 +202,17 @@ class GeometryPoint:
 
 
 @dataclass
+class NormalMode:
+    """One normal mode of one Hessian: ORCA's mode number, its signed
+    frequency in cm**-1 and the 3N printed displacements, coordinate-major
+    -- the mass-weighted pattern `orca_pltvib` scales, not a Cartesian one."""
+
+    index: int
+    cm1: float
+    vector: list
+
+
+@dataclass
 class JobState:
     path: Path
     stem: str = "job"
@@ -238,6 +258,10 @@ class JobState:
     # EVERY frequency of that block, in printed order -- the zero
     # translations and rotations included, so a mode's index here is ORCA's.
     frequencies: list | None = None
+    # The displacement vectors of the LAST `NORMAL MODES` block printed, one
+    # NormalMode per imaginary mode of that Hessian, in printed order; None
+    # until a block has been read.
+    modes: list | None = None
     # Whether that block is the job's FINAL answer: read with no optimization
     # under way (a plain Freq job) or after it ended. An OptTS with
     # Calc_Hess/Recalc_Hess prints a full frequency block for every Hessian it
@@ -278,6 +302,11 @@ class JobState:
     _freq_imaginary: list = field(default_factory=list)
     _freq_all: list = field(default_factory=list)
     _pending_eig: int | None = None
+    _in_modes_block: bool = False
+    _modes_columns: list = field(default_factory=list)
+    # mode index -> {coordinate index: printed value}, filled column by column
+    _modes_values: dict = field(default_factory=dict)
+    _modes_seen_row: bool = False
 
     _IDENTITY_FIELDS = frozenset({"path", "stem", "has_out", "offset", "inode", "mtime"})
 
@@ -355,6 +384,7 @@ class JobState:
         return (
             self._in_geom_block or self._in_freq_block
             or self._in_qm1_composition or self._in_scan_banner
+            or self._in_modes_block
         )
 
     def _process(self, line: str) -> None:
@@ -502,6 +532,9 @@ class JobState:
             self._freq_imaginary = []
             self._freq_all = []
             self._freq_seen_line = False
+            # A later Hessian replaces the earlier one's modes; a job whose
+            # second Hessian has no NORMAL MODES must not keep the first's.
+            self.modes = None
         elif self._in_freq_block:
             m = _FREQ_LINE_RE.match(line)
             if m:
@@ -556,6 +589,50 @@ class JobState:
                 self._in_geom_block = False
             else:
                 self._in_geom_block = False
+
+        if _NORMAL_MODES_HEADER_RE.match(stripped):
+            self._in_modes_block = True
+            self._modes_columns = []
+            self._modes_values = {}
+            self._modes_seen_row = False
+        elif self._in_modes_block:
+            m = _MODE_COLUMNS_RE.match(stripped)
+            if m:
+                self._modes_columns = [int(tok) for tok in m.group(1).split()]
+                self._modes_seen_row = False
+            else:
+                m = _MODE_ROW_RE.match(line)
+                if m:
+                    coord = int(m.group(1))
+                    values = [float(tok) for tok in m.group(2).split()]
+                    imaginary = {i for i, f in enumerate(self.frequencies or []) if f < 0}
+                    for column, mode_index in enumerate(self._modes_columns):
+                        if mode_index in imaginary:
+                            self._modes_values.setdefault(mode_index, {})[coord] = values[column]
+                    self._modes_seen_row = True
+                elif not self._modes_seen_row:
+                    pass                     # the block's own preamble
+                else:
+                    self._finish_modes()
+
+    def _finish_modes(self) -> None:
+        """Close the `NORMAL MODES` block and keep its imaginary modes.
+
+        The rows are incomplete until the blank line after them closes the
+        block, so nothing partial is stored: a mode whose every coordinate
+        has not been printed is dropped rather than kept half-read."""
+        self._in_modes_block = False
+        coords = len(self.frequencies) // 3 if self.frequencies else 0
+        modes = []
+        for index in sorted(self._modes_values):
+            row = self._modes_values[index]
+            if coords and all(c in row for c in range(3 * coords)):
+                modes.append(NormalMode(index=index, cm1=self.frequencies[index],
+                                        vector=[row[c] for c in range(3 * coords)]))
+        self.modes = modes or None
+        self._modes_columns = []
+        self._modes_values = {}
+        self._modes_seen_row = False
 
     def _finish_step(self) -> None:
         step = GeometryStep(cycle=self.cycle, scan_step=self.scan_step, neg_eig=self._pending_eig)

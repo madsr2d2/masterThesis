@@ -354,6 +354,149 @@ def test_the_fast_path_reads_what_the_line_path_reads():
                   f"{differ}")
 
 
+def test_normal_modes_are_parsed():
+    print("\nan imaginary mode's printed displacement vector is read from NORMAL MODES")
+    state = JobState(path=Path("/nonexistent"))
+    state.feed_text("""\
+VIBRATIONAL FREQUENCIES
+-----------------------
+
+Scaling factor for frequencies =  1.000000000  (already applied!)
+
+    0:   -100.00 cm**-1  ***imaginary mode***
+    1:     10.00 cm**-1
+    2:     20.00 cm**-1
+    3:     30.00 cm**-1
+    4:     40.00 cm**-1
+    5:     50.00 cm**-1
+
+NORMAL MODES
+------------
+
+These modes are the Cartesian displacements weighted by the diagonal matrix
+M(i,i)=1/sqrt(m[i]) where m[i] is the mass of the displaced atom
+Thus, these vectors are normalized but *not* orthogonal
+
+                  0          1          2          3          4          5
+      0       0.100000   0.000000   0.000000   0.000000   0.000000   0.000000
+      1       0.200000   0.000000   0.000000   0.000000   0.000000   0.000000
+      2      -0.300000   0.000000   0.000000   0.000000   0.000000   0.000000
+      3       0.400000   0.000000   0.000000   0.000000   0.000000   0.000000
+      4      -0.500000   0.000000   0.000000   0.000000   0.000000   0.000000
+      5       0.600000   0.000000   0.000000   0.000000   0.000000   0.000000
+
+""")
+    check("one imaginary mode is stored",
+          state.modes is not None and len(state.modes) == 1, f"{state.modes}")
+    check("with ORCA's own mode number and its signed frequency",
+          state.modes is not None and state.modes[0].index == 0 and state.modes[0].cm1 == -100.0,
+          f"{state.modes}")
+    check("and the 3N printed values, coordinate-major",
+          state.modes is not None
+          and state.modes[0].vector == [0.1, 0.2, -0.3, 0.4, -0.5, 0.6],
+          f"{state.modes[0].vector if state.modes else None}")
+
+
+def test_normal_modes_keep_only_imaginary():
+    print("\nonly the imaginary modes' columns of a NORMAL MODES block are kept")
+    state = JobState(path=Path("/nonexistent"))
+    state.feed_text("""\
+VIBRATIONAL FREQUENCIES
+-----------------------
+
+Scaling factor for frequencies =  1.000000000  (already applied!)
+
+    0:   -100.00 cm**-1  ***imaginary mode***
+    1:    -50.00 cm**-1  ***imaginary mode***
+    2:     20.00 cm**-1
+    3:     30.00 cm**-1
+    4:     40.00 cm**-1
+    5:     50.00 cm**-1
+
+NORMAL MODES
+------------
+
+These modes are the Cartesian displacements weighted by the diagonal matrix
+M(i,i)=1/sqrt(m[i]) where m[i] is the mass of the displaced atom
+Thus, these vectors are normalized but *not* orthogonal
+
+                  0          1          2          3          4          5
+      0       0.100000   0.000000   0.000000   0.000000   0.000000   0.000000
+      1       0.200000   0.000000   0.000000   0.000000   0.000000   0.000000
+      2      -0.300000   0.000000   0.000000   0.000000   0.000000   0.000000
+      3       0.400000   0.000000   0.000000   0.000000   0.000000   0.000000
+      4      -0.500000   0.000000   0.000000   0.000000   0.000000   0.000000
+      5       0.600000   0.000000   0.000000   0.000000   0.000000   0.000000
+
+""")
+    check("both imaginary modes, and neither real one",
+          state.modes is not None and [m.index for m in state.modes] == [0, 1], f"{state.modes}")
+
+
+def test_normal_modes_take_the_last_block():
+    print("\na later Hessian's NORMAL MODES block replaces the earlier one's")
+    state = JobState(path=Path("/nonexistent"))
+    state.feed_text("""\
+VIBRATIONAL FREQUENCIES
+-----------------------
+
+Scaling factor for frequencies =  1.000000000  (already applied!)
+
+    0:   -100.00 cm**-1  ***imaginary mode***
+    1:     10.00 cm**-1
+    2:     20.00 cm**-1
+    3:     30.00 cm**-1
+    4:     40.00 cm**-1
+    5:     50.00 cm**-1
+
+NORMAL MODES
+------------
+
+These modes are the Cartesian displacements weighted by the diagonal matrix
+M(i,i)=1/sqrt(m[i]) where m[i] is the mass of the displaced atom
+Thus, these vectors are normalized but *not* orthogonal
+
+                  0          1          2          3          4          5
+      0       1.000000   0.000000   0.000000   0.000000   0.000000   0.000000
+      1       1.000000   0.000000   0.000000   0.000000   0.000000   0.000000
+      2       1.000000   0.000000   0.000000   0.000000   0.000000   0.000000
+      3       1.000000   0.000000   0.000000   0.000000   0.000000   0.000000
+      4       1.000000   0.000000   0.000000   0.000000   0.000000   0.000000
+      5       1.000000   0.000000   0.000000   0.000000   0.000000   0.000000
+
+VIBRATIONAL FREQUENCIES
+-----------------------
+
+Scaling factor for frequencies =  1.000000000  (already applied!)
+
+    0:     10.00 cm**-1
+    1:     20.00 cm**-1
+    2:   -200.00 cm**-1  ***imaginary mode***
+    3:     30.00 cm**-1
+    4:     40.00 cm**-1
+    5:     50.00 cm**-1
+
+NORMAL MODES
+------------
+
+These modes are the Cartesian displacements weighted by the diagonal matrix
+M(i,i)=1/sqrt(m[i]) where m[i] is the mass of the displaced atom
+Thus, these vectors are normalized but *not* orthogonal
+
+                  0          1          2          3          4          5
+      0       0.000000   0.000000   0.100000   0.000000   0.000000   0.000000
+      1       0.000000   0.000000   0.200000   0.000000   0.000000   0.000000
+      2       0.000000   0.000000   0.300000   0.000000   0.000000   0.000000
+      3       0.000000   0.000000   0.400000   0.000000   0.000000   0.000000
+      4       0.000000   0.000000   0.500000   0.000000   0.000000   0.000000
+      5       0.000000   0.000000   0.600000   0.000000   0.000000   0.000000
+
+""")
+    check("only the second Hessian's mode 2 survives",
+          state.modes is not None and state.modes[0].index == 2 and state.modes[0].cm1 == -200.0,
+          f"{state.modes}")
+
+
 def test_a_frame_is_a_small_faithful_palette_png():
     print("\na frame goes out as a palette PNG, rendered without matplotlib")
     import io
@@ -1222,6 +1365,9 @@ if __name__ == "__main__":
     test_the_input_names_charge_and_multiplicity()
     test_the_basis_is_the_one_orca_reports()
     test_the_fast_path_reads_what_the_line_path_reads()
+    test_normal_modes_are_parsed()
+    test_normal_modes_keep_only_imaginary()
+    test_normal_modes_take_the_last_block()
     test_a_frame_is_a_small_faithful_palette_png()
     test_near_atoms_hide_far_ones()
     test_spheres_are_shaded()
