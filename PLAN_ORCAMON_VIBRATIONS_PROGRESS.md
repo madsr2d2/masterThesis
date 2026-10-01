@@ -4,7 +4,7 @@ Plan: `PLAN_ORCAMON_VIBRATIONS.md`. Branch `master` from `master` (`6729d55`).
 
 | Task | Status | Commits | Rounds | Note |
 |---|---|---|---|---|
-| MO1 Parse NORMAL MODES | TODO | | | |
+| MO1 Parse NORMAL MODES | DONE | d933363 | 1 | real jobs parse (N=420/51); test_monitor 141, test_orcamon 157, curve_metrics 0 failure(s) |
 | MO2 Map and displace a mode | TODO | | | |
 | MO3 `snapshot --mode` | TODO | | | |
 | MO4 TUI `i` animation | TODO | | | |
@@ -17,11 +17,12 @@ Statuses: TODO | DONE | BLOCKED
 | After | test_monitor pass | test_orcamon pass | test_curve_metrics | run_gates |
 |---|---|---|---|---|
 | baseline | 136 | 157 | 0 failure(s) | 38 gates, 0 failed |
+| MO1 | 141 | 157 | 0 failure(s) | 38 gates, 0 failed |
 
 ## Gates
 
 ## Deviations (plan said → evidence → what was done)
 
-## Log
+- 2026-10-01T11:20Z MO1 DONE (d933363), reviewer PASS round 1; NORMAL MODES parsed from real jobs, suites 141/157/0.
 
 ## Backlog
