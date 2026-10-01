@@ -459,6 +459,45 @@ def cmd_geom(args, job: Job) -> int:
     return _job_exit(job)
 
 
+# --- snapshot ---------------------------------------------------------------
+
+
+@_with_job
+def cmd_snapshot(args, job: Job) -> int:
+    """Render a job's latest geometry (or the geometry file it wrote) to a
+    PNG, using the same renderer the TUI's pixel panes use."""
+    state = job.state
+    point, _asked = _find_point(state, None, None)
+    if point is None and job.file_geometry is not None:
+        point = job.file_geometry
+    if point is None or not point.atoms:
+        raise UsageError("no geometry to draw")
+    match = re.fullmatch(r"(\d+)x(\d+)", args.size)
+    if not match:
+        raise UsageError(f"bad --size {args.size!r}: use WxH (e.g. 900x750)")
+    size = (int(match.group(1)), int(match.group(2)))
+    # The renderer is the `images` extra, and the CLI must run without it, so
+    # the import is here and not at module level.
+    try:
+        from ..tui import geometry_render
+    except ImportError:
+        print("snapshot needs the images extra: pip install 'orcamon[images]'", file=sys.stderr)
+        return EXIT_USAGE
+    image = geometry_render.render(
+        point.atoms, elev=args.elev, azim=args.azim,
+        show_distances=args.distances, show_labels=not args.no_labels,
+        qm_atom_indices=state.qm_atom_indices, size_px=size,
+    )
+    try:
+        with open(args.output, "wb") as f:
+            f.write(geometry_render.frame_png(image))
+    except OSError as exc:
+        raise UsageError(f"cannot write {args.output}: {exc}")
+    source = describe_point(point) or "latest geometry"
+    print(f"{args.output}: {size[0]}x{size[1]}, {len(point.atoms)} atoms, {source}")
+    return _job_exit(job)
+
+
 # --- freqs ------------------------------------------------------------------
 
 

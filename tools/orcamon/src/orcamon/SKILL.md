@@ -82,6 +82,10 @@ orcamon geom JOB > latest.xyz  # the latest geometry as XYZ
 On a multilayer (QM/MM, QM/XTB, ONIOM) job the energy is the combined total,
 labelled `QM/QM2`, never the high-level region alone.
 
+`orcamon snapshot JOB -o view.png` renders the geometry to a PNG for a person
+to look at (needs the `images` extra). It is for showing someone a structure,
+not for answering a question about it.
+
 `orcamon geom` takes a cycle, or a scan step and its cycle. ORCA does not
 print coordinates for every cycle. When the one asked for was not printed,
 the command exits 2 and names the nearest earlier cycle that was. Report

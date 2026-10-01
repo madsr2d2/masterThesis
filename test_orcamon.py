@@ -392,6 +392,31 @@ def test_geom_never_substitutes_a_geometry():
         check("but a cycle that was never printed is still refused", code == 2, out + err)
 
 
+def test_snapshot_writes_a_png():
+    print("\nsnapshot: renders a job's geometry to a PNG, or exits 2 with no geometry")
+    from PIL import Image
+
+    with _Tree() as t:
+        target = t.root.parent / "x.png"
+        code, out, err = t.run("snapshot", "opt_done", "-o", str(target), "--size", "120x100")
+        check("exit 0, and the file is a PNG at the size asked for",
+              code == 0 and target.read_bytes()[:4] == b"\x89PNG"
+              and Image.open(target).size == (120, 100), f"{code} {out} {err}")
+        check("and the one line names the file, size, atom count and source",
+              out.strip() == f"{target}: 120x100, 3 atoms, cycle 3", out)
+
+        nothing = t.root / "nothing"
+        nothing.mkdir()
+        (nothing / "job.inp").write_text("! XTB SP\n* xyzfile 0 1 missing.xyz\n")
+        empty = t.root.parent / "empty.png"
+        code, out, err = t.run("snapshot", "nothing", "-o", str(empty))
+        check("a job with no geometry anywhere exits 2 and says so",
+              code == 2 and "no geometry to draw" in err and not empty.exists(), f"{code} {out} {err}")
+
+        code, out, err = t.run("snapshot", "opt_done", "-o", str(target), "--size", "12")
+        check("a bad --size is a usage error", code == 2 and "--size" in err, err)
+
+
 def test_wait_returns_when_the_job_is_done():
     print("\nwait: returns on the condition, times out with 4")
     import threading
@@ -1002,6 +1027,7 @@ if __name__ == "__main__":
     test_ls_lists_every_job_boundedly()
     test_show_and_ls_agree()
     test_geom_never_substitutes_a_geometry()
+    test_snapshot_writes_a_png()
     test_wait_returns_when_the_job_is_done()
     test_the_other_commands_answer_boundedly()
     test_a_cached_state_equals_a_fresh_parse()

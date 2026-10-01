@@ -122,6 +122,19 @@ def build_parser() -> argparse.ArgumentParser:
                    help="qm: only a multilayer job's high-level (QM1) atoms (default: all)")
     _output(p, lines=False)
 
+    p = add("snapshot", "render a job's geometry to a PNG (needs the images extra)",
+            "orcamon snapshot opt/ts -o ts.png", commands.cmd_snapshot)
+    _job(p)
+    p.add_argument("-o", "--output", required=True, metavar="FILE", help="where to write the PNG")
+    p.add_argument("--size", default="900x750", metavar="WxH",
+                   help="image size in pixels (default: %(default)s)")
+    p.add_argument("--elev", type=float, default=20, metavar="DEG",
+                   help="elevation angle (default: %(default)s)")
+    p.add_argument("--azim", type=float, default=-60, metavar="DEG",
+                   help="azimuth angle (default: %(default)s)")
+    p.add_argument("--no-labels", action="store_true", help="omit the atom index labels")
+    p.add_argument("--distances", action="store_true", help="label the QM-QM bond distances")
+
     p = add("freqs", "imaginary and lowest real vibrational frequencies", "orcamon freqs opt/ts", commands.cmd_freqs)
     _job(p)
     p.add_argument("--lowest", type=int, default=6, metavar="K", help="real modes to list (default: %(default)s)")
