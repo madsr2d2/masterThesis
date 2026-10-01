@@ -434,7 +434,7 @@ usage: orcamon snapshot [-h] [--root DIR] [--liveness {auto,process,slurm,mtime}
                         [--quiet-after S] [--no-cache] -o FILE
                         [--representation {ball-and-stick,licorice,space-filling,wireframe}]
                         [--size WxH] [--elev DEG] [--azim DEG] [--no-labels] [--no-fog]
-                        [--see-through] [--distances]
+                        [--see-through] [--mode N] [--phase DEG] [--distances]
                         JOB
 
 render a job's geometry to a PNG (needs the images extra)
@@ -464,6 +464,9 @@ options:
   --no-fog              do not fade distant atoms
   --see-through         show the QM region through the environment where the environment
                         covers it
+  --mode N              animate an imaginary normal mode: ORCA's mode number (the one
+                        `orcamon freqs` prints)
+  --phase DEG           where in the oscillation to draw, 0-360 degrees (default: 90.0)
   --distances           label the QM-QM bond distances
 ```
 

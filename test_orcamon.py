@@ -132,6 +132,21 @@ def _freqs(values):
             f"{rows}\n\n------------\n")
 
 
+def _normal_modes(vectors):
+    """A `NORMAL MODES` block: {mode index: its printed coordinate-major
+    values}. ORCA prints six mode columns at a time and repeats every
+    coordinate row under each block's own integer header line."""
+    indices = sorted(vectors)
+    n_coords = len(vectors[indices[0]])
+    lines = ["NORMAL MODES", "------------", ""]
+    for start in range(0, len(indices), 6):
+        columns = indices[start:start + 6]
+        lines.append("".join(f"{c:>11}" for c in columns))
+        for row in range(n_coords):
+            lines.append(f"{row:>7}" + "".join(f"{vectors[c][row]:12.6f}" for c in columns))
+    return "\n".join(lines) + "\n\n"
+
+
 def _opt(cycles, energies, coords_at=None, converged=True, hessian=None):
     out = ["Max. no of cycles        MaxIter  .... 3"]
     for n in range(1, cycles + 1):
@@ -431,6 +446,30 @@ def test_snapshot_writes_a_png():
                                "--see-through")
         check("--see-through renders too", code == 0 and see.read_bytes()[:4] == b"\x89PNG",
               f"{code} {out} {err}")
+
+        # A frequency job with one imaginary mode (ORCA mode 0) whose 9
+        # printed values cover the three drawn atoms, so --mode can draw a
+        # phase displaced along that mode's own pattern.
+        modes_job = t.root / "mode_ts"
+        modes_job.mkdir()
+        (modes_job / "job.inp").write_text(_OPT_FREQ)
+        vectors = {0: [0.1, 0.0, 0.0, 0.0, -0.2, 0.0, 0.0, 0.0, 0.3]}
+        vectors.update({i: [0.0] * 9 for i in range(1, 9)})
+        (modes_job / "job.out").write_text(
+            _opt(2, [-80.00, -80.10]) + _CONVERGED + "\n"
+            + _freqs([-100.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0])
+            + _normal_modes(vectors) + _DONE + "\n")
+        mode_png = t.root.parent / "mode.png"
+        code, out, err = t.run("snapshot", "mode_ts", "-o", str(mode_png),
+                               "--mode", "0", "--size", "120x100")
+        check("--mode renders a phase of the imaginary mode and says which",
+              code == 0 and mode_png.read_bytes()[:4] == b"\x89PNG"
+              and out.strip().endswith("3 atoms, cycle 2, mode 0 at 90 deg"), f"{code} {out} {err}")
+        code, out, err = t.run("snapshot", "mode_ts", "-o", str(mode_png), "--mode", "999")
+        check("a mode the job does not have exits 2 naming the ones it does",
+              code == 2 and "available: [0]" in err, err)
+        code, out, err = t.run("snapshot", "opt_maxiter", "-o", str(mode_png), "--mode", "0")
+        check("a job with no frequencies exits 2", code == 2 and "available: none" in err, err)
 
 
 def test_the_bond_cache_holds_the_geometry_it_answers_for():

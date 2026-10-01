@@ -139,6 +139,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-fog", action="store_true", help="do not fade distant atoms")
     p.add_argument("--see-through", action="store_true",
                    help="show the QM region through the environment where the environment covers it")
+    p.add_argument("--mode", type=int, metavar="N",
+                   help="animate an imaginary normal mode: ORCA's mode number (the one `orcamon freqs` prints)")
+    p.add_argument("--phase", type=float, default=90.0, metavar="DEG",
+                   help="where in the oscillation to draw, 0-360 degrees (default: %(default)s)")
     p.add_argument("--distances", action="store_true", help="label the QM-QM bond distances")
 
     p = add("freqs", "imaginary and lowest real vibrational frequencies", "orcamon freqs opt/ts", commands.cmd_freqs)

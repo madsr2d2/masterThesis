@@ -9,6 +9,7 @@ second computation of the same number.
 from __future__ import annotations
 
 import json
+import math
 import re
 import signal
 import sys
@@ -471,7 +472,8 @@ SNAPSHOT_MAX_SIDE = 4096
 @_with_job
 def cmd_snapshot(args, job: Job) -> int:
     """Render a job's latest geometry (or the geometry file it wrote) to a
-    PNG, using the same renderer the TUI's pixel panes use."""
+    PNG, using the same renderer the TUI's pixel panes use. With --mode, the
+    geometry is displaced along one imaginary mode's own pattern instead."""
     state = job.state
     point, _asked = _find_point(state, None, None)
     if point is None and job.file_geometry is not None:
@@ -484,6 +486,30 @@ def cmd_snapshot(args, job: Job) -> int:
     size = (int(match.group(1)), int(match.group(2)))
     if not all(1 <= side <= SNAPSHOT_MAX_SIDE for side in size):
         raise UsageError(f"bad --size {args.size!r}: each side must be 1 to {SNAPSHOT_MAX_SIDE} pixels")
+    atoms = point.atoms
+    qm_atom_indices = state.qm_atom_indices
+    if args.mode is not None:
+        from ..core import vibrations
+
+        modes = vibrations.imaginary_modes(state)
+        available = [m.index for m in modes]
+        if args.mode not in available:
+            raise UsageError(f"no imaginary mode {args.mode} in this job; available: {available or 'none'}")
+        mode = next(m for m in modes if m.index == args.mode)
+        # The pane's geometry may not be the Hessian's -- a multilayer `.out`
+        # prints only its QM block -- so the mode is drawn on the structure
+        # that holds it, or refused rather than moved against the wrong atoms.
+        candidates = [point.atoms] + vibrations.alternate_geometries(job)
+        chosen = vibrations.mode_geometry(candidates, state.qm_atom_indices, mode)
+        if chosen is None:
+            raise UsageError(f"no geometry in this job holds mode {args.mode} "
+                             f"({len(mode.vector) // 3} atoms)")
+        atoms, qm_atom_indices = chosen
+        offs = vibrations.offsets(atoms, qm_atom_indices, mode)
+        if offs is None:
+            raise UsageError(f"no geometry in this job holds mode {args.mode} "
+                             f"({len(mode.vector) // 3} atoms)")
+        atoms = vibrations.displaced(atoms, offs, math.sin(math.radians(args.phase)))
     # The renderer is the `images` extra, and the CLI must run without it, so
     # the import is here and not at module level.
     try:
@@ -495,7 +521,7 @@ def cmd_snapshot(args, job: Job) -> int:
                 fog=not args.no_fog, see_through=args.see_through,
                 show_distances=args.distances, show_labels=not args.no_labels)
     image = geometry_render.render(
-        point.atoms, view, qm_atom_indices=state.qm_atom_indices, size_px=size,
+        atoms, view, qm_atom_indices=qm_atom_indices, size_px=size,
     )
     try:
         with open(args.output, "wb") as f:
@@ -503,7 +529,8 @@ def cmd_snapshot(args, job: Job) -> int:
     except OSError as exc:
         raise UsageError(f"cannot write {args.output}: {exc}")
     source = describe_point(point) or "latest geometry"
-    print(f"{args.output}: {size[0]}x{size[1]}, {len(point.atoms)} atoms, {source}")
+    mode_text = f", mode {args.mode} at {args.phase:g} deg" if args.mode is not None else ""
+    print(f"{args.output}: {size[0]}x{size[1]}, {len(atoms)} atoms, {source}{mode_text}")
     return _job_exit(job)
 
 
