@@ -5,7 +5,7 @@ Plan: `PLAN_ORCAMON_MODES.md`. Branch `master` from `master` (`c0db5ef`).
 | Task | Status | Commits | Rounds | Note |
 |---|---|---|---|---|
 | NM1 Keep every mode, compactly | DONE | 1184c38 | 1 | reviewer PASS; test_monitor 200, test_orcamon 197, test_curve_metrics 0; deviation accepted: `_feed` strips the fixture's closing blank line, tests feed it explicitly |
-| NM2 Find, list and rank modes | TODO | | | |
+| NM2 Find, list and rank modes | DONE | 6a5bf2a | 1 | reviewer PASS; test_monitor 208, test_orcamon 197, test_curve_metrics 0 |
 | NM3 snapshot/freqs --mode for any mode | TODO | | | |
 | NM4 I in the TUI, every gate | TODO | | | |
 
@@ -17,6 +17,7 @@ Statuses: TODO | DONE | BLOCKED
 |---|---|---|---|---|
 | baseline | 193 | 197 | 0 failure(s) | 38 gates, 0 failed |
 | after NM1 | 200 | 197 | 0 failure(s) | — |
+| after NM2 | 208 | 197 | 0 failure(s) | — |
 
 ## Gates
 
@@ -27,6 +28,7 @@ Statuses: TODO | DONE | BLOCKED
 ## Log
 
 - 2026-10-01T16:16Z NM1 DONE (1184c38), reviewer PASS round 1.
+- 2026-10-01T16:20Z NM2 DONE (6a5bf2a), reviewer PASS round 1.
 
 ## Backlog
 
