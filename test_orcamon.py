@@ -1714,6 +1714,112 @@ def test_focus_waits_for_the_tui_to_take_it():
                 os.environ["XDG_STATE_HOME"] = saved
 
 
+def test_the_tui_takes_the_agents_focus():
+    print("\nthe TUI takes the agent's orcamon focus, and b goes back")
+    import asyncio
+    import tempfile
+    import time as _time
+    from pathlib import Path
+
+    from orcamon.core import steer
+    from orcamon.tui.app import MonitorApp
+    from test_monitor import _MODE_FREQS, _MODE_VECTORS, _irc_tree
+
+    async def drive(root):
+        app = MonitorApp(root, liveness="mtime", graphics="text", notify_mode="off")
+        async with app.run_test(size=(180, 50)) as pilot:
+            geometry = app.query_one("#geometry")
+            cli = lambda *a: _orcamon(["--root", str(root), "--liveness", "mtime",
+                                       "--no-cache", *a])
+            title = lambda: geometry.border_title
+
+            async def until(cond, seconds):
+                deadline = _time.monotonic() + seconds
+                while not cond() and _time.monotonic() < deadline:
+                    await pilot.pause(0.1)
+                return cond()
+
+            deadline = _time.monotonic() + 5
+            while not (app.jobs and all(j.parsed for j in app.jobs)
+                       and geometry._job is not None
+                       and geometry._job.label == "irc") and _time.monotonic() < deadline:
+                await pilot.pause(0.05)
+
+            code, out, err = cli("focus", "modes_all", "--atoms", "1,0,2",
+                                 "--mode", "5", "--timeout", "0")
+            check("focus shows the job, its atoms and its mode, and the title measures them",
+                  code == 0 and await until(
+                      lambda: app.selected_label == "modes_all"
+                      and geometry.selection == (1, 0, 2)
+                      and geometry.mode_index == 5
+                      and "mode 5 50.0 cm-1 (real 1/5)" in title()
+                      and "angle 1-0-2: 104.5°" in title(), 3),
+                  f"{code} {app.selected_label} {geometry.selection} "
+                  f"{geometry.mode_index} {title()!r} {out!r} {err!r}")
+
+            focus = (steer.read_json(steer.view_path()) or {}).get("focus")
+            check("the TUI records the focus it took for the agent to read back",
+                  isinstance(focus, dict) and focus.get("ok") is True
+                  and focus.get("message") == "showing modes_all",
+                  f"{focus}")
+
+            code, out, err = cli("focus", "irc", "--point", "1", "--timeout", "0")
+            check("focus on a path point scrubs the chart and the pane follows it",
+                  code == 0 and await until(
+                      lambda: app.selected_label == "irc"
+                      and title().endswith("· IRC forward 0")
+                      and (steer.read_json(steer.view_path()) or {}).get(
+                          "geometry", {}).get("args") == ["--point", "1"], 3),
+                  f"{code} {app.selected_label} {title()!r} {out!r} {err!r}")
+
+            await pilot.press("b")
+            await pilot.pause(0.4)
+            check("b returns to the job, atoms and mode the agent interrupted",
+                  app.selected_label == "modes_all" and geometry.selection == (1, 0, 2)
+                  and geometry.mode_index == 5,
+                  f"{app.selected_label} {geometry.selection} {geometry.mode_index} "
+                  f"{title()!r}")
+
+            await pilot.press("b")
+            await pilot.pause(0.2)
+            check("b with nothing left to go back to changes nothing",
+                  app.selected_label == "modes_all",
+                  f"{app.selected_label} {title()!r}")
+
+            (root / "draft").mkdir()
+            (root / "draft" / "job.inp").write_text(
+                "! B97-3c Opt\n* xyz 0 1\nO 0.0 0.0 0.0\nH 0.96 0.0 0.0\n"
+                "H -0.24 0.93 0.0\n*\n")
+            code, out, err = cli("focus", "draft", "--atoms", "0,1", "--timeout", "0")
+            check("focus finds a draft input written after the TUI started",
+                  code == 0 and await until(
+                      lambda: app.selected_label == "draft"
+                      and "input geometry" in title()
+                      and "distance 0-1: 0.960 Å" in title(), 8),
+                  f"{code} {app.selected_label} {title()!r} "
+                  f"{[j.label for j in app.jobs]} {out!r} {err!r}")
+
+    saved = os.environ.get("XDG_STATE_HOME")
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["XDG_STATE_HOME"] = tmp
+        try:
+            root = Path(tmp) / "tree"
+            root.mkdir()
+            _irc_tree(root / "irc")
+            job_dir = root / "modes_all"
+            job_dir.mkdir()
+            (job_dir / "job.inp").write_text(_OPT_FREQ)
+            (job_dir / "job.out").write_text(
+                _opt(2, [-80.00, -80.10]) + _CONVERGED + "\n"
+                + _freqs(_MODE_FREQS) + _normal_modes(_MODE_VECTORS) + _DONE + "\n")
+            asyncio.run(drive(root))
+        finally:
+            if saved is None:
+                os.environ.pop("XDG_STATE_HOME", None)
+            else:
+                os.environ["XDG_STATE_HOME"] = saved
+
+
 def test_slurm_names_what_the_login_node_cannot_see():
     print("\nSLURM: squeue's view of a job, and the fallbacks when it has none")
     import stat
@@ -2065,6 +2171,7 @@ if __name__ == "__main__":
     test_the_tui_selects_atoms_by_number()
     test_the_tui_tells_the_agent_what_it_shows()
     test_focus_waits_for_the_tui_to_take_it()
+    test_the_tui_takes_the_agents_focus()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
     test_liveness_names_the_job_not_only_the_directory()

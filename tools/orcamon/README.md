@@ -148,7 +148,8 @@ without `crash_lines` and `criteria`. Changing the key set bumps
   a webhook.
 - New jobs appear within 30 s (`r` forces a rescan). A job whose
   directory disappears is shown as `gone`.
-- Keys: `q` quit, `r` refresh, `m` maximize the geometry. In the chart,
+- Keys: `q` quit, `r` refresh, `m` maximize the geometry, `b` returns to where
+  you were before the agent's last `orcamon focus`. In the chart,
   left/right scrub through geometries, `end` follows the newest, and `a`
   shows all cycles of a scan. In the geometry pane, arrows rotate,
   `[`/`]` zoom, ctrl+arrows pan, `d` shows distances, `l` hides the atom

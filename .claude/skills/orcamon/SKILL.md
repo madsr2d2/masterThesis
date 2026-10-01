@@ -167,7 +167,7 @@ about, and to show a proposed structure before anything runs: write the draft
 input beside the others and focus it — the TUI draws a job's input geometry
 before there is any output. It waits up to `--timeout` seconds (default 5) for
 the TUI to take the request; exit 4 means it did not, exit 2 that it could not
-show it.
+show it. The person can press `b` to go back.
 
 ## Other rules
 

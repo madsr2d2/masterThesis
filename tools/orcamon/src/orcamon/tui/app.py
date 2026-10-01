@@ -16,6 +16,7 @@ from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Header, Input, RichLog, Static
+from textual.widgets.data_table import RowDoesNotExist
 from textual_plotext import PlotextPlot
 
 from ..core import cache, paths, steer, vibrations
@@ -75,6 +76,13 @@ ROTATE_STEP_DEG = 5.0
 # feels immediate -- which it is, because the first press of a burst is acted
 # on at once (see Coalescer).
 COALESCE_S = 0.12
+
+# How often the TUI looks for an agent's `orcamon focus` request, and how long
+# a request naming a job that is not parsed yet is kept while one rescan runs
+# (D9): a focus is taken without confirmation, and `b` returns the person to
+# where they were before the agent's last one.
+FOCUS_CHECK_S = 0.5
+FOCUS_WAIT_S = 10.0
 
 # Linear size of the herdr backend's interim preview frame, as a fraction of
 # the pane. At a typical pane this is ~330x315 and ~10 KB of palette PNG.
@@ -335,6 +343,22 @@ class ConvergencePlot(PlotextPlot):
         else:
             self._following_latest = index == len(self._points) - 1
         self.app.update_detail()
+
+    def select_point(self, point=None, step=None, cycle=None) -> bool:
+        """Scrub to the point `orcamon focus` names, by the job's own
+        numbering: an IRC/NEB point index, a scan step or an optimization
+        cycle. False when this job's chart holds no such point, so the caller
+        can say so and leave the newest showing (D1)."""
+        for i, p in enumerate(self._points):
+            if (
+                (point is not None and self._mode in ("irc", "neb") and p.index == point)
+                or (step is not None and self._mode == "scan" and p.scan_step == step)
+                or (cycle is not None and self._mode == "opt" and p.cycle == cycle)
+            ):
+                self._following_latest = False
+                self._select(i)
+                return True
+        return False
 
     def action_select_prev(self) -> None:
         if self.selected_index is None or len(self._points) <= 1:
@@ -709,13 +733,39 @@ class RotatableGeometryImage(Widget):
             self._stop_modes()
             self._mode_alternates = []
         else:
-            self.mode_index = indices[position]
-            self._start_modes()
-            self._mode_alternates = vibrations.alternate_geometries(self._job)
-            self.mode_label = (f"mode {indices[position]} {modes[position].cm1:.1f} cm-1 "
-                               f"({kind}{position + 1}/{len(indices)})")
+            self._start_mode_at(modes, kind, position)
         self._input.request()
         self.app.update_detail()
+
+    def _start_mode_at(self, modes: list, kind: str, position: int) -> None:
+        """Start the mode at `position` in `modes`: the animation, the
+        structures to try when the pane's own geometry does not hold it, and
+        the title label naming its place in the cycle. Shared by the `i`/`I`
+        cycle and `show_mode`, so a mode the agent names is labelled exactly
+        as one reached by hand."""
+        indices = [mode.index for mode in modes]
+        self.mode_index = indices[position]
+        self._start_modes()
+        self._mode_alternates = vibrations.alternate_geometries(self._job)
+        self.mode_label = (f"mode {indices[position]} {modes[position].cm1:.1f} cm-1 "
+                           f"({kind}{position + 1}/{len(indices)})")
+
+    def show_mode(self, index: int) -> bool:
+        """Animate the job's mode `index` (ORCA's own number), imaginary or
+        real, if its frequency block holds one. False when there is no job or
+        no such mode, so `orcamon focus --mode` can say which (D1)."""
+        if self._job is None:
+            return False
+        state = self._job.state
+        for kind, modes in (("", vibrations.imaginary_modes(state)),
+                            ("real ", vibrations.real_modes(state))):
+            indices = [mode.index for mode in modes]
+            if index in indices:
+                self._start_mode_at(modes, kind, indices.index(index))
+                self._input.request()
+                self.app.update_detail()
+                return True
+        return False
 
     def _start_modes(self) -> None:
         # A cycle from one mode straight to the next must not leave the
@@ -1272,6 +1322,7 @@ class MonitorApp(App):
         ("q", "quit", "Quit"),
         ("r", "refresh_now", "Refresh"),
         ("m", "toggle_maximize", "Maximize geometry"),
+        ("b", "agent_back", "Back"),
     ]
 
     def __init__(
@@ -1324,6 +1375,12 @@ class MonitorApp(App):
         # The agent's last `orcamon focus` (D1), published for the agent to
         # read back in the view file.
         self._last_focus: dict | None = None
+        # The focus request being taken, held while its job is not parsed yet
+        # (D9); `_check_focus` owns it from `take_focus` to `_finish_focus`.
+        self._pending_focus: dict | None = None
+        # Where `b` returns to: (label, selection, mode index) as they were
+        # before the agent's last focus (D1). One level only, by decision.
+        self._back: tuple | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -1386,6 +1443,7 @@ class MonitorApp(App):
         table.focus()
         self.refresh_all()
         self.set_interval(REFRESH_SECONDS, self.refresh_all)
+        self.set_interval(FOCUS_CHECK_S, self._check_focus)
 
     def on_unmount(self) -> None:
         """A TUI that exits takes its own two files with it: a view file still
@@ -1399,6 +1457,111 @@ class MonitorApp(App):
     def action_refresh_now(self) -> None:
         self._force_discover = True
         self.refresh_all()
+
+    def action_agent_back(self) -> None:
+        """`b`: return to the job, atoms and mode that were on screen before
+        the agent's last `orcamon focus` (D1). One level, by decision."""
+        if self._back is None:
+            self.notify("nothing to go back to")
+            return
+        label, selection, mode = self._back
+        self._select_label(label)
+        geometry = self.query_one("#geometry")
+        job = self.selected_job()
+        if job is None or geometry._job is not job:
+            # The scan held the job's lock, so the pane skipped the render;
+            # keep `_back` and let the next press retry.
+            self.notify("the job is being read; press b again")
+            return
+        self._back = None
+        geometry.set_selection(selection)
+        if mode is not None:
+            geometry.show_mode(mode)
+
+    def _select_label(self, label: str) -> None:
+        """Show `label`'s job, moving the table cursor to its row: the agent
+        names the job, and its row can have moved since the agent read the
+        view file. A row that has gone is ignored -- the pane still shows the
+        job while it is in the list."""
+        table = self.query_one("#job_table", DataTable)
+        try:
+            table.move_cursor(row=table.get_row_index(label))
+        except RowDoesNotExist:
+            pass
+        self.selected_label = label
+        self.update_detail()
+
+    def _check_focus(self) -> None:
+        """Take an agent's `orcamon focus` request, if one waits, and show it
+        (D1, D9). On a timer: the request file is claimed by a rename, so the
+        CLI's own wait ends the moment the TUI has taken it, not when the
+        person acknowledges it. A request naming a job that is not parsed yet
+        is kept for FOCUS_WAIT_S and asks for one rescan, so a draft input the
+        agent has just written can still be shown."""
+        doc = self._pending_focus
+        if doc is None:
+            doc = steer.take_focus(os.getpid())
+            if doc is None:
+                return
+            doc["_since"] = time.monotonic()
+            self._pending_focus = doc
+        path = Path(str(doc.get("file", ""))).resolve()
+        if not path.is_relative_to(self.root):
+            self._finish_focus(doc, False, f"{path} is outside the TUI's root {self.root}")
+            return
+        job = next((j for j in self.jobs
+                    if j.label not in self._gone and j.inp_path.resolve() == path), None)
+        if job is None or not job.parsed:
+            if time.monotonic() - doc["_since"] >= FOCUS_WAIT_S:
+                self._finish_focus(doc, False, f"{path} not found under {self.root} within 10 s")
+                return
+            if job is None and not doc.get("_rescan"):
+                # The job may have appeared since the last discovery: ask for
+                # one, and only one, so a draft input can be found.
+                doc["_rescan"] = True
+                self._force_discover = True
+                self.refresh_all()
+            return
+        geometry = self.query_one("#geometry")
+        if "_back" not in doc:
+            doc["_back"] = (self.selected_label, geometry.selection, geometry.mode_index)
+        self._select_label(job.label)
+        if geometry._job is not job:
+            # The scan holds the job's lock, so the render was skipped; the
+            # next check retries with the request still pending.
+            return
+        chart = self.query_one("#chart", ConvergencePlot)
+        notes = []
+        for key, name in (("point", "point"), ("step", "scan step"), ("cycle", "cycle")):
+            value = doc.get(key)
+            if value is None:
+                continue
+            if not chart.select_point(**{key: value}):
+                notes.append(f"{name} {value} is not on the chart, showing the newest")
+        atoms = doc.get("atoms")
+        if atoms:
+            try:
+                picked = parse_atom_list(" ".join(map(str, atoms)),
+                                         len(geometry_shown(job, chart.selected_point())[0]))
+            except ValueError as exc:
+                notes.append(f"atoms not picked: {exc}")
+            else:
+                geometry.set_selection(picked)
+        if doc.get("mode") is not None and not geometry.show_mode(doc["mode"]):
+            notes.append(f"mode {doc['mode']} not shown: no such mode")
+        self._back = doc["_back"]
+        self.notify(f"agent: showing {job.label} (b goes back)", timeout=8)
+        self._finish_focus(doc, True, "; ".join([f"showing {job.label}", *notes]))
+
+    def _finish_focus(self, doc: dict, ok: bool, message: str) -> None:
+        """Finish one `orcamon focus` request: publish the answer the CLI
+        waits for in the view file (D9), warn the person when it could not be
+        shown, and let the next request be taken."""
+        self._pending_focus = None
+        self._last_focus = {"id": doc.get("id"), "ok": ok, "message": message}
+        if not ok:
+            self.notify(f"agent's focus not shown: {message}", severity="warning", timeout=8)
+        self.update_detail()
 
     def _geometry_title(self) -> str:
         note = f", {self.graphics_note}" if self.graphics_note else ""
