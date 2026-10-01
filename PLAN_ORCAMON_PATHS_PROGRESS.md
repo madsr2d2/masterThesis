@@ -7,7 +7,7 @@ Plan: `PLAN_ORCAMON_PATHS.md`. Branch `master` from `master` (`ec5144624628357b3
 | PA1 Parse the IRC rows | DONE | f99dc53 | 1 | suite: monitor 168/0, orcamon 178/0, curve_metrics 0 failures; no deviations |
 | PA2 Build the IRC path | DONE | 6af91fa | 1 | suite: monitor 179/0, orcamon 178/0, curve_metrics 0 failures; reviewer accepted the row-energy and missing-file-cache-key interpretations |
 | PA3 Summary and irc_not_converged | DONE | 7d93dc9 | 1 | suite: monitor 184/0, orcamon 179/0, curve_metrics 0 failures; accepted deviation: test_orcamon imports `_irc_tree` from test_monitor (the duplicate guard reads private functions too, so the plan's "copy it" premise was wrong) |
-| PA4 energies, geom/snapshot --point | TODO | | | |
+| PA4 energies, geom/snapshot --point | DONE | cdd7399 | 1 | suite: monitor 184/0, orcamon 187/0, curve_metrics 0 failures; accepted deviations: private `_energies_path` extraction (output identical), README help blocks pasted at COLUMNS=90 to match the other blocks |
 | PA5 Scrub the path in the TUI | TODO | | | |
 | PB1 Parse the NEB and build its path | TODO | | | |
 | PB2 NEB end to end, every gate | TODO | | | |
@@ -22,6 +22,7 @@ Statuses: TODO | DONE | BLOCKED
 | PA1 | 168 | 178 | 0 failure(s) | |
 | PA2 | 179 | 178 | 0 failure(s) | |
 | PA3 | 184 | 179 | 0 failure(s) | |
+| PA4 | 184 | 187 | 0 failure(s) | |
 
 ## Gates
 
@@ -34,6 +35,8 @@ Statuses: TODO | DONE | BLOCKED
 - 2026-10-01T14:27Z PA2 DONE (6af91fa); round 1 reviewer PASS. Real irc_bridge builds 101 points, 137 atoms each, focus 50; summary matches § Facts. Reviewer accepted `energy = row.energy` on the row points (consistent with D4/§ Facts) and the missing-file cache key.
 - 2026-10-01T14:33Z PA3 DONE (7d93dc9); round 1 reviewer PASS. Real `show irc_bridge` prints the 50/50 (MaxIter) summary and the `! IRC forward and backward hit MaxIter (50)` flag; `ls` row shows `irc B50/F50`.
 
+- 2026-10-01T14:42Z PA4 DONE (cdd7399); round 1 reviewer PASS. Real `energies irc_bridge --json` prints `irc 101 -50 IRC backward 49 -257.1 IRC TS -1011.288471006717 50 -5.27`; `geom --point -50` prints `137`. No JSON key added (`schema` comes from `_emit_json` for every branch).
+
 ## Backlog
 
 - `test_monitor.py` has an extra blank line before `_TERMINATED` (three blank lines after the new test) — cosmetic, PA1 reviewer.
@@ -41,4 +44,6 @@ Statuses: TODO | DONE | BLOCKED
 - `core/paths.py::_frames` caches a missing file as `[]` under a `None` stamp; those entries count against the 8 slots. Harmless (PA2 reviewer).
 - `data/test_curve_metrics.py::_defined_names` docstring says anything starting with `_` is skipped, but only private constants are; private functions/classes duplicated across modules are reported. Correcting the docstring is a separate change outside this plan (PA3 implementer/reviewer).
 - PLAN_ORCAMON_PATHS.md PA3 acceptance names `test_report_keys_are_stable` under test_orcamon.py; it lives in test_monitor.py (plan slip, PA3 reviewer).
+- Text `energies` of a 101-point path is cut at the default `--max-lines`, so `dE from the TS` and the label footer are not shown unless `--max-lines` is raised. Existing `Out` behaviour the plan asks for, but an agent may want the footer kept (PA4 reviewer).
+- `_path_point` has no `-> int` return annotation; other helpers in the file are similarly loose (style, PA4 reviewer).
 
