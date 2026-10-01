@@ -118,6 +118,14 @@ MARKER_CASES = [
      lambda s: s._pending_converged_reason == "step overachieved"),
     ("       Everything but the energy has converged. However, the energy",
      lambda s: s._pending_converged_reason == "energy nearly converged"),
+    ("         *                          FORWARD IRC                      *",
+     lambda s: s.irc_direction == "forward"),
+    ("Iteration    E(Eh)      dE(kcal/mol)  max(|G|)   RMS(G)  B(O 0,H 1)",
+     lambda s: s._in_irc_rows and s.irc_monitors == ["B(O 0,H 1)"]),
+    ("         *  MAXIMUM NUMBER OF ITERATIONS REACHED - STOPPING IRC RUN  *",
+     lambda s: len(s.irc_maxiter) == 1),
+    ("Storing forward trajectory in       .... job_IRC_F_trj.xyz",
+     lambda s: s.irc_files == {"forward": "job_IRC_F_trj.xyz"}),
 ]
 
 

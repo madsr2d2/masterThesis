@@ -43,6 +43,19 @@ _OPT_MAXITER_RE = re.compile(r"The optimization did not converge but reached the
 _CONVERGED_REASON_RE = re.compile(
     r"The (gradient|step) convergence is overachieved|Everything but the energy has converged"
 )
+# An IRC prints one block per direction -- a banner naming it, a header naming
+# the monitored internals, one row per iteration -- and three lines naming the
+# trajectory files. A real header and row (b973c-xtb/irc_bridge/job.out):
+#     Iteration    E(Eh)      dE(kcal/mol)  max(|G|)   RMS(G)  B(O 133,C 128) B(O 129,C 128) B(O 133,H 132)
+#         0     -1011.280182    5.201526    0.074732  0.005858      1.66         1.29         0.92
+_IRC_DIRECTION_RE = re.compile(r"^\s*\*\s+(FORWARD|BACKWARD) IRC\s+\*\s*$")
+_IRC_HEADER_RE = re.compile(r"^Iteration\s+E\(Eh\)\s+dE\(kcal/mol\)\s+max\(\|G\|\)\s+RMS\(G\)(.*)$")
+# The first five columns are fixed; everything after them is one value per
+# monitored internal, a count that varies from job to job.
+_IRC_ROW_RE = re.compile(r"^\s*(\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)((?:\s+-?\d+\.\d+)*)\s*$")
+_IRC_MONITOR_RE = re.compile(r"[A-Za-z]+\([^)]*\)")
+_IRC_MAXITER_RE = re.compile(r"MAXIMUM NUMBER OF ITERATIONS REACHED - STOPPING IRC RUN")
+_IRC_TRAJECTORY_RE = re.compile(r"Storing (full|forward|backward) (?:IRC )?trajectory in\s+\.+\s+(\S+)")
 # A geometry the job writes to a FILE instead of printing it. ORCA's SOLVATOR
 # prints no coordinate block at all -- the solvated cluster exists only as
 # `job.solvator.xyz` -- and names the file on this line, typo included:
@@ -125,6 +138,7 @@ _RARE_MARKERS_RE = re.compile(
     r"|basis set information|utilizes the basis:"
     r"|did not converge but reached the maximum|saved to"
     r"|convergence is overachieved|Everything but the energy has converged"
+    r"|FORWARD IRC|BACKWARD IRC|STOPPING IRC RUN|trajectory in|dE\(kcal/mol\)"
 )
 _CONV_HINT_RE = re.compile(r"gradient|step|Energy change")
 
@@ -223,6 +237,16 @@ class NormalMode:
 
 
 @dataclass
+class IrcRow:
+    """One IRC iteration as ORCA printed it: its energy, ORCA's dE from the
+    TS in kcal/mol, and the values of the monitored internals."""
+    iteration: int
+    energy: float
+    de_kcal: float
+    monitors: list
+
+
+@dataclass
 class JobState:
     path: Path
     stem: str = "job"
@@ -259,6 +283,15 @@ class JobState:
     # ORCA's reason when it converged without all five criteria; None when all
     # five were met.
     opt_converged_reason: str | None = None
+    # An IRC, read from the block ORCA prints per direction: the direction the
+    # last banner named ("forward"/"backward"), that block's rows, the monitor
+    # names its header carried, the directions whose MaxIter banner was
+    # printed, and "full"/"forward"/"backward" -> the trajectory file named.
+    irc_direction: str | None = None
+    irc_rows: dict = field(default_factory=dict)
+    irc_monitors: list = field(default_factory=list)
+    irc_maxiter: list = field(default_factory=list)
+    irc_files: dict = field(default_factory=dict)
     maxiter_scan_steps: list = field(default_factory=list)
     # A geometry file the job announced it wrote (relative to the job's
     # directory), for jobs that print no coordinates -- see _RESULT_FILE_RE.
@@ -316,6 +349,8 @@ class JobState:
     _freq_all: list = field(default_factory=list)
     _pending_eig: int | None = None
     _pending_converged_reason: str | None = None
+    _in_irc_rows: bool = False
+    _irc_seen_row: bool = False
     _in_modes_block: bool = False
     _modes_columns: list = field(default_factory=list)
     # mode index -> {coordinate index: printed value}, filled column by column
@@ -398,7 +433,7 @@ class JobState:
         return (
             self._in_geom_block or self._in_freq_block
             or self._in_qm1_composition or self._in_scan_banner
-            or self._in_modes_block
+            or self._in_modes_block or self._in_irc_rows
         )
 
     def _process(self, line: str) -> None:
@@ -410,6 +445,11 @@ class JobState:
         # below decide in one pass each whether the group is worth trying.
         if _RARE_MARKERS_RE.search(line):
             self._feed_marker(line)
+
+        # After `_feed_marker`, so the header line opens the block and is then
+        # skipped as "no row yet" rather than closing it again.
+        if self._in_irc_rows:
+            self._feed_irc_row(line)
 
         if self._in_scan_banner:
             self._feed_scan_banner(line)
@@ -520,6 +560,40 @@ class JobState:
         if m:
             d, h, mi, s, ms = (int(x) for x in m.groups())
             self.wall_time_s = d * 86400 + h * 3600 + mi * 60 + s + ms / 1000
+
+        m = _IRC_DIRECTION_RE.match(line)
+        if m:
+            self.irc_direction = m.group(1).lower()
+
+        m = _IRC_HEADER_RE.match(line.strip())
+        if m:
+            self.irc_monitors = _IRC_MONITOR_RE.findall(m.group(1))
+            self._in_irc_rows = True
+            self._irc_seen_row = False
+
+        if _IRC_MAXITER_RE.search(line):
+            self.irc_maxiter.append(self.irc_direction or "?")
+
+        m = _IRC_TRAJECTORY_RE.search(line)
+        if m:
+            self.irc_files[m.group(1)] = m.group(2)
+
+    def _feed_irc_row(self, line: str) -> None:
+        """An open IRC row block: one row per iteration until a line that is
+        not one -- a blank line, the MaxIter banner, the next direction's
+        banner -- closes it. Preamble before the first row (the header, the
+        `Convergence thresholds` line) is stepped over without closing."""
+        m = _IRC_ROW_RE.match(line)
+        if m:
+            self.irc_rows.setdefault(self.irc_direction or "?", []).append(
+                IrcRow(int(m.group(1)), float(m.group(2)), float(m.group(3)),
+                       [float(v) for v in m.group(6).split()])
+            )
+            self._irc_seen_row = True
+        elif line.strip().startswith("Convergence thresholds") or not self._irc_seen_row:
+            pass
+        else:
+            self._in_irc_rows = False
 
     def _feed_scan_banner(self, line: str) -> None:
         """The lines of a scan step's banner after its title: the scanned

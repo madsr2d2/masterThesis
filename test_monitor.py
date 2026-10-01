@@ -30,7 +30,7 @@ sys.path.insert(0, HERE)
 
 from orcamon import validate  # noqa: E402
 from orcamon.core.orca_input import describe_spin, parse_input  # noqa: E402
-from orcamon.core.parser import JobState  # noqa: E402
+from orcamon.core.parser import IrcRow, JobState  # noqa: E402
 from orcamon.core.report import (  # noqa: E402
     REPORT_SCHEMA, STEP_ROWS, build_report, geometry_shown, render_markup, render_plain,
     render_steps_markup, render_steps_plain, steps_rows,
@@ -1191,6 +1191,75 @@ def test_every_marker_reaches_its_parser():
     check("validate.MARKER_CASES all read", validate.check_markers() == 0)
 
 
+_IRC_OUT = """
+Max. no of cycles        MaxIter    .... 3
+Storing full IRC trajectory in      .... job_IRC_Full_trj.xyz
+Storing forward trajectory in       .... job_IRC_F_trj.xyz
+Storing backward trajectory in      .... job_IRC_B_trj.xyz
+FINAL SINGLE POINT ENERGY      -100.000000000000
+
+         *************************************************************
+         *                          FORWARD IRC                      *
+         *************************************************************
+
+Iteration    E(Eh)      dE(kcal/mol)  max(|G|)   RMS(G)  B(O 0,H 1) B(O 0,H 2)
+Convergence thresholds                0.002000  0.000500
+    0     -100.001594   -1.000000    0.010000  0.001000      0.97         0.96
+    1     -100.003187   -2.000000    0.008000  0.000800      0.98         0.95
+    2     -100.004781   -3.000000    0.006000  0.000600      0.99         0.94
+
+         *************************************************************
+         *  MAXIMUM NUMBER OF ITERATIONS REACHED - STOPPING IRC RUN  *
+         *************************************************************
+
+
+         *************************************************************
+         *                          BACKWARD IRC                     *
+         *************************************************************
+
+Iteration    E(Eh)      dE(kcal/mol)  max(|G|)   RMS(G)  B(O 0,H 1) B(O 0,H 2)
+Convergence thresholds                0.002000  0.000500
+    0     -100.000797   -0.500000    0.010000  0.001000      0.95         0.97
+    1     -100.002390   -1.500000    0.008000  0.000800      0.94         0.98
+
+                             ****ORCA TERMINATED NORMALLY****
+"""
+
+
+def test_irc_rows_are_parsed():
+    print("\nan IRC's rows, monitors and trajectory files are read")
+    state = JobState(path=Path("/nonexistent"), stem="job")
+    _feed(state, _IRC_OUT)
+
+    check("the three trajectory files the log names",
+          state.irc_files == {"full": "job_IRC_Full_trj.xyz",
+                              "forward": "job_IRC_F_trj.xyz",
+                              "backward": "job_IRC_B_trj.xyz"})
+    check("the monitored internals the header names",
+          state.irc_monitors == ["B(O 0,H 1)", "B(O 0,H 2)"])
+    check("the per-direction rows, with ORCA's own dE and monitors",
+          len(state.irc_rows["forward"]) == 3 and len(state.irc_rows["backward"]) == 2
+          and state.irc_rows["forward"][2] == IrcRow(2, -100.004781, -3.0, [0.99, 0.94]))
+    check("and the backward block keeps its own rows in printed order",
+          state.irc_rows["backward"][0].monitors == [0.95, 0.97])
+    check("only the direction whose MaxIter banner was printed is listed",
+          state.irc_maxiter == ["forward"])
+
+    fast = JobState(path=Path("/nonexistent"), stem="job")
+    fast.feed_text(_IRC_OUT.strip("\n") + "\n")
+    check("the whole-chunk path reads the same rows",
+          fast.irc_rows == state.irc_rows and fast.irc_maxiter == state.irc_maxiter
+          and fast.irc_files == state.irc_files)
+
+    lines = _IRC_OUT.strip("\n").split("\n")
+    cut = next(i for i, line in enumerate(lines)
+               if line.startswith("    0     -100.000797")) + 1
+    partial = JobState(path=Path("/nonexistent"), stem="job")
+    _feed(partial, "\n".join(lines[:cut]))
+    check("a direction still being written holds only what has been read",
+          len(partial.irc_rows["backward"]) == 1 and partial._in_block())
+
+
 
 _TERMINATED = "                 ****ORCA TERMINATED NORMALLY****"
 _MAXITER = ("       The optimization did not converge but reached the maximum \n"
@@ -1543,6 +1612,7 @@ if __name__ == "__main__":
     test_the_view_is_not_mirrored()
     test_text_mode_draws_the_right_enantiomer()
     test_every_marker_reaches_its_parser()
+    test_irc_rows_are_parsed()
     test_status_names_the_outcome()
     test_attention_flags()
     test_orca_says_why_it_converged()
