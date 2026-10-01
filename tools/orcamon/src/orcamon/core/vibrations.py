@@ -32,7 +32,9 @@ def target_indices(n_atoms: int, n_mode_atoms: int, qm_atom_indices) -> list | N
     """Which displayed atom each mode row belongs to, or None."""
     if n_mode_atoms == n_atoms:
         return list(range(n_atoms))
-    if qm_atom_indices and len(qm_atom_indices) == n_mode_atoms:
+    # ORCA's QM indices are into the FULL system, so only a full-system list fits.
+    if (qm_atom_indices and len(qm_atom_indices) == n_mode_atoms
+            and max(qm_atom_indices) < n_atoms):
         return sorted(qm_atom_indices)
     return None
 

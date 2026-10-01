@@ -566,7 +566,10 @@ class RotatableGeometryImage(Widget):
         nothing and says so rather than animating something else."""
         modes = vibrations.imaginary_modes(self._job.state) if self._job is not None else []
         if not modes:
-            self.notify("no imaginary mode in this job")
+            if self._job is not None and self._job.state.frequencies is None:
+                self.notify("this job computes no frequencies (no Freq or NumFreq step)")
+            else:
+                self.notify("no imaginary mode in this job")
             return
         indices = [mode.index for mode in modes]
         if self.mode_index is None:

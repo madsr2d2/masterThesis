@@ -491,6 +491,8 @@ def cmd_snapshot(args, job: Job) -> int:
     if args.mode is not None:
         from ..core import vibrations
 
+        if state.frequencies is None:
+            raise UsageError("this job has no frequency block (no Freq or NumFreq step)")
         modes = vibrations.imaginary_modes(state)
         available = [m.index for m in modes]
         if args.mode not in available:

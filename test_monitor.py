@@ -584,6 +584,23 @@ def test_the_mode_geometry_falls_back_to_an_alternate():
           f"{vibrations.mode_geometry([pane, alternate], None, mode2)}")
 
 
+def test_the_qm_map_needs_indices_that_fit():
+    print("\nQM indices that run past the drawn structure do not map onto it")
+    from orcamon.core import vibrations
+    from orcamon.core.parser import NormalMode
+
+    pane = [("H", float(i), 0.0, 0.0) for i in range(19)]
+    alternate = [("H", float(i), 0.0, 0.0) for i in range(137)]
+    mode = NormalMode(index=6, cm1=-379.28, vector=[0.01] * 51)
+    qm = {61, 64, 120, 121, 122, 124, 125, 126, 128, 129, 130, 131, 132, 133, 134, 135, 136}
+    check("a 17-index QM map running to 136 does not fit a 19-atom pane",
+          vibrations.target_indices(19, 17, qm) is None,
+          f"{vibrations.target_indices(19, 17, qm)}")
+    check("so the mode is drawn on the 137-atom alternate instead",
+          vibrations.mode_geometry([pane, alternate], qm, mode) == (alternate, qm),
+          f"{vibrations.mode_geometry([pane, alternate], qm, mode)}")
+
+
 def test_a_frame_is_a_small_faithful_palette_png():
     print("\na frame goes out as a palette PNG, rendered without matplotlib")
     import io
@@ -1460,6 +1477,7 @@ if __name__ == "__main__":
     test_mode_offsets_refuse_a_mismatched_mode()
     test_the_sine_phase_displaces_atoms()
     test_the_mode_geometry_falls_back_to_an_alternate()
+    test_the_qm_map_needs_indices_that_fit()
     test_a_frame_is_a_small_faithful_palette_png()
     test_near_atoms_hide_far_ones()
     test_spheres_are_shaded()

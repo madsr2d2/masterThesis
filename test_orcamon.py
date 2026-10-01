@@ -468,8 +468,12 @@ def test_snapshot_writes_a_png():
         code, out, err = t.run("snapshot", "mode_ts", "-o", str(mode_png), "--mode", "999")
         check("a mode the job does not have exits 2 naming the ones it does",
               code == 2 and "available: [0]" in err, err)
+        code, out, err = t.run("snapshot", "opt_done", "-o", str(mode_png), "--mode", "0")
+        check("a job with a frequency block but no imaginary mode exits 2",
+              code == 2 and "available: none" in err, err)
         code, out, err = t.run("snapshot", "opt_maxiter", "-o", str(mode_png), "--mode", "0")
-        check("a job with no frequencies exits 2", code == 2 and "available: none" in err, err)
+        check("a job with no frequency block exits 2 naming the cause",
+              code == 2 and "no frequency block" in err, err)
 
 
 def test_the_bond_cache_holds_the_geometry_it_answers_for():
