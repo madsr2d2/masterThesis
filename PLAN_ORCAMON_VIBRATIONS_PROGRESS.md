@@ -6,7 +6,7 @@ Plan: `PLAN_ORCAMON_VIBRATIONS.md`. Branch `master` from `master` (`6729d55`).
 |---|---|---|---|---|
 | MO1 Parse NORMAL MODES | DONE | d933363 | 1 | real jobs parse (N=420/51); test_monitor 141, test_orcamon 157, curve_metrics 0 failure(s) |
 | MO2 Map and displace a mode | DONE | f9c1e48 | 1 | plan revised (a22eb06, cf53402): draws the geometry the mode belongs to; parity 1e-6; test_monitor 153, test_orcamon 157, curve_metrics 0 failure(s) |
-| MO3 `snapshot --mode` | TODO | | | |
+| MO3 `snapshot --mode` | DONE | 58b610c | 1 | --mode/--phase write a PNG and error cleanly; test_monitor 153, test_orcamon 160, curve_metrics 0 failure(s) |
 | MO4 TUI `i` animation | TODO | | | |
 | MO5 Docs, gates, pictures | TODO | | | |
 
@@ -19,6 +19,7 @@ Statuses: TODO | DONE | BLOCKED
 | baseline | 136 | 157 | 0 failure(s) | 38 gates, 0 failed |
 | MO1 | 141 | 157 | 0 failure(s) | 38 gates, 0 failed |
 | MO2 | 153 | 157 | 0 failure(s) | 38 gates, 0 failed |
+| MO3 | 153 | 160 | 0 failure(s) | 38 gates, 0 failed |
 
 ## Gates
 
@@ -33,7 +34,10 @@ Statuses: TODO | DONE | BLOCKED
 - 2026-10-01T11:20Z MO1 DONE (d933363), reviewer PASS round 1; NORMAL MODES parsed from real jobs, suites 141/157/0.
 - 2026-10-01T11:35Z MO2 NEEDS_USER, no commits; vibrations.py + 9 checks green and uncommitted. Two plan defects found by the ground-truth probe (see Deviations).
 - 2026-10-01T11:39Z MO2 DONE (f9c1e48), reviewer PASS round 1; user chose the geometry fallback (plan a22eb06), parity restated (cf53402); suites 153/157/0.
+- 2026-10-01T11:44Z MO3 DONE (58b610c), reviewer PASS round 1; snapshot --mode/--phase, README and skill regenerated; suites 153/160/0.
 
 ## Backlog
 
 - MO2 reviewer: `phase_sine` has no docstring (trivial).
+- MO3 reviewer: `--phase` is not range-checked despite the "0-360" help (harmless).
+- MO3 reviewer: the two `UsageError` messages for "no geometry holds mode" are duplicated verbatim.
