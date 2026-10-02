@@ -152,11 +152,17 @@ and only a bounded slice of it, never the whole file.
 A person may be watching the same jobs in `orcamon tui`, usually in the pane
 beside yours. When they say "this", "these atoms", "the bond I picked" or
 "what I'm looking at", run `orcamon view` first. It says which job and which
-geometry their TUI shows, the atoms they picked — ORCA's 0-based numbers, as
-the TUI labels them — with the distance, angle or dihedral between them, and
-the `orcamon geom` command that prints exactly that geometry. It exits 2 when
-no TUI is running for this user on this machine: then ask which job and atoms
-they mean; do not guess.
+geometry their TUI shows and how many atoms that geometry has, the atoms they
+picked — ORCA's 0-based numbers, as the TUI labels them — with their elements
+and the distance, angle or dihedral between them, and two ready commands:
+`as measure` for the picked atoms and `as XYZ` for the geometry. An atom
+number means something only in the geometry it was picked in: a QM/MM job's
+printed geometry can hold fewer atoms than the system, so keep the `--point`,
+`--step` or `--cycle` those commands carry when you run `orcamon measure`,
+`orcamon geom` or `orcamon snapshot` yourself. "Following the job" means their
+pane follows the job's own newest geometry (an IRC's TS); it never switches
+jobs by itself. `orcamon view` exits 2 when no TUI is running for this user on
+this machine: then ask which job and atoms they mean; do not guess.
 
 `orcamon focus JOB` puts a job in front of the person: their TUI jumps to it,
 with `--atoms 129,55` ringed and measured, `--point`, `--step` or `--cycle`
@@ -176,6 +182,8 @@ show it. The person can press `b` to go back.
   and says so when it could not decide. See `--liveness` in the reference.
 - `orcamon tui` is the interactive view for a person. An agent should not
   start it.
+- Only `orcamon tui` needs a terminal; every other command runs as it is from
+  an agent's shell, with no special environment.
 - Never kill, signal, edit or resubmit a running job on your own initiative.
   orcamon never changes a job: it reads, and `orcamon focus` only moves what
   the person's TUI shows.

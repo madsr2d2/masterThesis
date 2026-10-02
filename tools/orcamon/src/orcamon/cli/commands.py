@@ -573,9 +573,10 @@ def _no_tui() -> str:
 
 
 def cmd_view(args) -> int:
-    """What the person's orcamon TUI shows: the job, the geometry, the atoms
-    they picked and the measurement between them, and the `orcamon geom`
-    command that prints exactly that geometry."""
+    """What the person's orcamon TUI shows: the job, the geometry and the
+    number of atoms in it, the atoms they picked with their elements and the
+    measurement between them, and the ready `orcamon measure` and `orcamon
+    geom` commands for exactly that geometry."""
     doc = steer.current_view()
     if doc is None:
         return _error(_no_tui())
@@ -597,7 +598,9 @@ def cmd_view(args) -> int:
     shown = geometry.get("shown", "latest")
     following = geometry.get("following")
     out(f"{'geometry':<11}{shown} "
-        f"({'following the newest' if following else 'scrubbed'})")
+        f"({'following the job' if following else 'scrubbed'})")
+    if doc.get("atoms_shown"):
+        out(f"{'atoms':<11}{doc['atoms_shown']} in this geometry")
     mode = doc.get("mode")
     if mode is not None:
         out(f"{'mode':<11}{mode['index']} ({mode['cm1']:.1f} cm-1)")
@@ -610,6 +613,11 @@ def cmd_view(args) -> int:
     else:
         picked = "none"
     out(f"{'selection':<11}{picked}")
+    if doc.get("selection_atoms"):
+        out(f"{'elements':<11}"
+            + "-".join(a.get("element") or "?" for a in doc["selection_atoms"]))
+    if doc.get("as_measure"):
+        out(f"{'as measure':<11}{doc['as_measure']}")
     out(f"{'as XYZ':<11}{doc['as_xyz']}")
     out.flush()
     return EXIT_OK

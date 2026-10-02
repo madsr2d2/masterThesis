@@ -1619,6 +1619,160 @@ def test_the_tui_tells_the_agent_what_it_shows():
                 os.environ["XDG_STATE_HOME"] = saved
 
 
+def test_view_names_the_geometry_its_numbers_belong_to():
+    print("\nview names the geometry its atom numbers belong to, in full")
+    import tempfile
+    import time as _time
+
+    from orcamon.core import steer
+
+    file = "/r/irc/job.inp"
+    saved = os.environ.get("XDG_STATE_HOME")
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["XDG_STATE_HOME"] = tmp
+        try:
+            base = {
+                "schema": 1, "pid": os.getpid(), "host": steer.host_name(),
+                "root": "/r", "updated_unix_s": _time.time(),
+                "job": {"label": "irc", "file": file},
+                "geometry": {"shown": "IRC TS", "following": True,
+                             "args": ["--point", "0"]},
+                "atoms_shown": 137, "mode": None,
+                "selection": [133, 134, 135],
+                "selection_atoms": [{"atom": 133, "element": "O"},
+                                    {"atom": 134, "element": "O"},
+                                    {"atom": 135, "element": "H"}],
+                "measurement": {"kind": "angle", "value": 98.1764, "unit": "degree"},
+                "as_measure": f"orcamon measure {file} 133 134 135 --point 0",
+                "as_xyz": f"orcamon geom {file} --point 0",
+                "focus": None,
+            }
+
+            def view():
+                code, out, err = _orcamon(["view"])
+                return code, out.strip().split("\n"), err
+
+            steer.write_json(steer.view_path(), base)
+            code, lines, err = view()
+            check("view names the geometry and says the pane follows the job",
+                  code == 0 and "geometry   IRC TS (following the job)" in lines,
+                  f"{code} {lines} {err!r}")
+
+            check("view carries the atom count of the geometry it names",
+                  "atoms      137 in this geometry" in lines, f"{lines}")
+
+            picked = "selection  angle 133-134-135: 98.2°"
+            check("view prints the picked atoms' elements right under the measurement",
+                  picked in lines and lines[lines.index(picked) + 1] == "elements   O-O-H",
+                  f"{lines}")
+
+            check("view hands over both ready commands, measure above XYZ",
+                  lines[-2] == f"as measure orcamon measure {file} 133 134 135 --point 0"
+                  and lines[-1] == f"as XYZ     orcamon geom {file} --point 0",
+                  f"{lines}")
+
+            base["geometry"] = {**base["geometry"], "following": False}
+            steer.write_json(steer.view_path(), base)
+            code, lines, err = view()
+            check("a scrubbed pane says scrubbed, not following",
+                  code == 0 and "geometry   IRC TS (scrubbed)" in lines,
+                  f"{code} {lines} {err!r}")
+
+            older = {k: v for k, v in base.items()
+                     if k not in ("atoms_shown", "selection_atoms", "as_measure")}
+            steer.write_json(steer.view_path(), older)
+            code, lines, err = view()
+            check("an older TUI's document prints exactly as before",
+                  code == 0
+                  and not any(line.startswith(("atoms ", "elements ", "as measure"))
+                              for line in lines)
+                  and lines[-1] == f"as XYZ     orcamon geom {file} --point 0",
+                  f"{code} {lines} {err!r}")
+        finally:
+            if saved is None:
+                os.environ.pop("XDG_STATE_HOME", None)
+            else:
+                os.environ["XDG_STATE_HOME"] = saved
+
+
+def test_the_tui_publishes_the_numbering_it_shows():
+    print("\nthe TUI publishes the numbering it shows, beside the geometry")
+    import asyncio
+    import shlex
+    import tempfile
+    import time as _time
+    from pathlib import Path
+
+    from orcamon.core import steer
+    from orcamon.tui.app import MonitorApp
+
+    async def drive(root, file):
+        app = MonitorApp(root, liveness="mtime", graphics="text", notify_mode="off")
+        async with app.run_test(size=(180, 50)) as pilot:
+            geometry = app.query_one("#geometry")
+            deadline = _time.monotonic() + 5
+            while not (app.jobs and all(j.parsed for j in app.jobs)
+                       and geometry._job is not None
+                       and geometry._job.label == "water") and _time.monotonic() < deadline:
+                await pilot.pause(0.05)
+
+            doc = lambda: steer.read_json(steer.view_path())
+
+            geometry.focus()
+            await pilot.press("s")
+            await pilot.press(*"1 0 2")
+            await pilot.press("enter")
+            await pilot.pause(0.2)
+            check("the TUI publishes the atom count of the geometry it draws",
+                  (doc() or {}).get("atoms_shown") == 3, f"{doc()}")
+
+            check("and the element of every picked atom at the number it shows",
+                  (doc() or {}).get("selection_atoms") == [
+                      {"atom": 1, "element": "H"}, {"atom": 0, "element": "O"},
+                      {"atom": 2, "element": "H"}],
+                  f"{doc()}")
+
+            check("and a measure command for exactly those atoms on that geometry",
+                  (doc() or {}).get("as_measure")
+                  == shlex.join(["orcamon", "measure", file, "1", "0", "2"]),
+                  f"{doc()}")
+
+            chart = app.query_one("#chart")
+            chart.focus()
+            await pilot.press("left")
+            await pilot.pause(0.2)
+            check("scrubbing carries the geometry's own --cycle into the measure command",
+                  (doc() or {}).get("as_measure")
+                  == shlex.join(["orcamon", "measure", file, "1", "0", "2", "--cycle", "1"]),
+                  f"{doc()}")
+
+            geometry.focus()
+            await pilot.press("s")
+            for _ in range(5):
+                await pilot.press("backspace")
+            await pilot.press("enter")
+            await pilot.pause(0.2)
+            check("clearing the selection clears the elements and the command",
+                  (doc() or {}).get("as_measure") is None
+                  and (doc() or {}).get("selection_atoms") == [],
+                  f"{doc()}")
+
+    saved = os.environ.get("XDG_STATE_HOME")
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["XDG_STATE_HOME"] = tmp
+        try:
+            root = Path(tmp) / "tree"
+            root.mkdir()
+            _water_job(root, "water")
+            file = str((root / "water" / "job.inp").resolve())
+            asyncio.run(drive(root, file))
+        finally:
+            if saved is None:
+                os.environ.pop("XDG_STATE_HOME", None)
+            else:
+                os.environ["XDG_STATE_HOME"] = saved
+
+
 def test_focus_waits_for_the_tui_to_take_it():
     print("\nfocus sends a checked request and waits for the TUI to take it")
     import tempfile
@@ -2232,6 +2386,8 @@ if __name__ == "__main__":
     test_the_tui_cycles_real_modes()
     test_the_tui_selects_atoms_by_number()
     test_the_tui_tells_the_agent_what_it_shows()
+    test_view_names_the_geometry_its_numbers_belong_to()
+    test_the_tui_publishes_the_numbering_it_shows()
     test_focus_waits_for_the_tui_to_take_it()
     test_the_tui_takes_the_agents_focus()
     test_the_tui_picks_atoms_by_click()

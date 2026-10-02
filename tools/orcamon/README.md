@@ -175,8 +175,10 @@ atoms picked and their measurement — as `view-<host>-<pid>.json` under
 only when what is on screen changes. `orcamon view` reads the view file of
 the newest live TUI on this machine (a pid that no longer exists is
 ignored) and prints it as text or `--json`; a TUI that exits removes its own
-file. **Nothing written there touches a job**: these files are messages
-between the TUI and the agent, never input to ORCA.
+file. The view carries the number of atoms in the geometry shown, the picked
+atoms' elements and ready `orcamon measure` and `orcamon geom` commands for
+exactly that geometry. **Nothing written there touches a job**: these files
+are messages between the TUI and the agent, never input to ORCA.
 
 `orcamon focus JOB` goes the other way: it makes that TUI jump to the job,
 with `--atoms` ringed and measured, `--point`, `--step` or `--cycle` for one

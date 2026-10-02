@@ -1884,6 +1884,9 @@ class MonitorApp(App):
             "selection": [],
             "measurement": None,
             "as_xyz": None,
+            "atoms_shown": None,
+            "selection_atoms": [],
+            "as_measure": None,
             "focus": self._last_focus,
         }
         if job is not None:
@@ -1898,6 +1901,15 @@ class MonitorApp(App):
                 "args": args,
             }
             doc["as_xyz"] = shlex.join(["orcamon", "geom", file, *args])
+            doc["atoms_shown"] = len(atoms)
+            doc["selection_atoms"] = [
+                {"atom": i, "element": atoms[i][0] if 0 <= i < len(atoms) else None}
+                for i in geometry.selection
+            ]
+            if 2 <= len(geometry.selection) <= 4 and all(
+                    0 <= i < len(atoms) for i in geometry.selection):
+                doc["as_measure"] = shlex.join(
+                    ["orcamon", "measure", file, *(str(i) for i in geometry.selection), *args])
             if geometry.mode_index is not None:
                 mode = vibrations.find_mode(job.state, geometry.mode_index)
                 if mode is not None:
