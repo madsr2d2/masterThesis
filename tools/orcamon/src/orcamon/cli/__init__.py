@@ -139,6 +139,29 @@ def build_parser() -> argparse.ArgumentParser:
                         "negative is backward) or the NEB image")
     _output(p, lines=False)
 
+    p = add("edit", "write a changed copy of a geometry: rotate a bond, set a dihedral or a distance",
+            "orcamon edit opt/ts --rotate-bond 12 15 60 -o rotated.xyz", commands.cmd_edit)
+    _job(p)
+    what = p.add_mutually_exclusive_group(required=True)
+    what.add_argument("--rotate-bond", nargs=3, metavar=("I", "J", "DEG"),
+                      help="turn the bond I-J: every dihedral across it grows by DEG degrees")
+    what.add_argument("--set-dihedral", nargs=5, metavar=("A", "B", "C", "D", "DEG"),
+                      help="turn the bond B-C until the dihedral A-B-C-D is DEG degrees")
+    what.add_argument("--set-distance", nargs=3, metavar=("I", "J", "ANGSTROM"),
+                      help="move one side along I-J until they are ANGSTROM apart")
+    p.add_argument("-o", "--output", required=True, metavar="FILE",
+                   help="the XYZ file to write; an existing file is refused")
+    p.add_argument("--move", type=int, metavar="ATOM",
+                   help="move the side of this atom of the edited bond (default: the smaller side)")
+    p.add_argument("--allow-new-bonds", action="store_true",
+                   help="write the file even when the edit makes a new bond")
+    p.add_argument("--cycle", type=int, metavar="C", help="optimization cycle (within --step for a scan)")
+    p.add_argument("--step", type=int, metavar="S", help="scan step (its last cycle unless --cycle)")
+    p.add_argument("--point", type=int, metavar="N",
+                   help="a point on an IRC or NEB path: the signed IRC point (0 is the TS, "
+                        "negative is backward) or the NEB image")
+    _output(p, lines=False)
+
     p = add("view", "what the person's orcamon TUI shows: job, geometry, picked atoms",
             "orcamon view --json", commands.cmd_view)
     _output(p)

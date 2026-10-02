@@ -19,9 +19,9 @@ from collections import deque
 from pathlib import Path
 
 from .. import __version__  # noqa: F401 -- `orcamon --version` reads it here
-from ..core import cache, paths, steer
+from ..core import cache, edit, paths, steer
 from ..core.discovery import JobRef, discover
-from ..core.geometry import View, measure, measurement_text, parse_atom_list
+from ..core.geometry import View, _check_in_range, measure, measurement_text, parse_atom_list
 from ..core.job import Job
 from ..core.liveness import LivenessProbe, lookup, make_probe
 from ..core.parser import _CRASH_RE, _QM2_ERROR_RE, HISTORY_LEN, READ_CHUNK_BYTES
@@ -560,6 +560,130 @@ def cmd_measure(args, job: Job) -> int:
         line += f" · {where}"
     print(line)
     return _job_exit(job)
+
+
+# --- edit -------------------------------------------------------------------
+
+
+@_with_job
+def cmd_edit(args, job: Job) -> int:
+    """Write a checked copy of a job's geometry with one side of a bond turned
+    or slid, and never in place (D1, D5): the source geometry is chosen as
+    `geom` chooses it, the output is a NEW file, and an edit that is
+    impossible or that would make a new bond is refused rather than written.
+    The exit code is 0 whatever the job's status: the file, not the job, is
+    the result."""
+    if os.path.exists(args.output):
+        raise UsageError(f"{args.output} exists: orcamon edit never overwrites a file")
+    point = _requested_point(args, job)
+    n = len(point.atoms)
+
+    def number(text, cast):
+        try:
+            return cast(text)
+        except ValueError:
+            raise UsageError(f"not a number: {text!r}") from None
+
+    if args.rotate_bond is not None:
+        i, j = number(args.rotate_bond[0], int), number(args.rotate_bond[1], int)
+        value = number(args.rotate_bond[2], float)
+        kind, edit_atoms = "rotate-bond", [i, j]
+    elif args.set_dihedral is not None:
+        a, b, c, d = (number(text, int) for text in args.set_dihedral[:4])
+        value = number(args.set_dihedral[4], float)
+        kind, edit_atoms = "set-dihedral", [a, b, c, d]
+    else:
+        i, j = number(args.set_distance[0], int), number(args.set_distance[1], int)
+        value = number(args.set_distance[2], float)
+        kind, edit_atoms = "set-distance", [i, j]
+
+    try:
+        _check_in_range(edit_atoms, n)
+        if kind == "rotate-bond":
+            result = edit.rotate_bond(point.atoms, *edit_atoms, value, move=args.move)
+        elif kind == "set-dihedral":
+            result = edit.set_dihedral(point.atoms, *edit_atoms, value, move=args.move)
+        else:
+            result = edit.set_distance(point.atoms, *edit_atoms, value, move=args.move)
+    except ValueError as exc:  # edit.EditError is one: the edit cannot be made
+        raise UsageError(str(exc)) from None
+
+    # The QM/environment split is only meaningful when the printed geometry
+    # holds both layers; a QM-only block or no layering at all has no split.
+    qm = job.state.qm_atom_indices
+    if not (qm and 0 < len(qm) < n):
+        qm = None
+    if qm is not None:
+        moved_qm = sum(1 for atom in result.moved if atom in qm)
+        moved_environment = len(result.moved) - moved_qm
+        split = f" ({moved_qm} QM, {moved_environment} environment)"
+    else:
+        moved_qm = moved_environment = None
+        split = ""
+
+    if kind == "rotate-bond":
+        action = f"rotate bond {edit_atoms[0]}-{edit_atoms[1]} by {value:+.1f}°"
+    elif kind == "set-dihedral":
+        a, b, c, d = edit_atoms
+        action = f"set dihedral {a}-{b}-{c}-{d} to {result.after:.1f}° (was {result.before:.1f}°)"
+    else:
+        i, j = edit_atoms
+        action = f"set distance {i}-{j} to {result.after:.3f} Å (was {result.before:.3f} Å)"
+
+    def contact(a, b, distance):
+        return f"{a} {point.atoms[a][0]}-{b} {point.atoms[b][0]} {distance:.3f} Å"
+
+    lines = [
+        action,
+        f"moved {len(result.moved)} of {n} atoms, the {result.mover} side{split}; "
+        f"--move {result.fixed} moves the other {result.fixed_side}",
+        "closest new contact: " + (contact(result.closest[1], result.closest[2], result.closest[0])
+                                   if result.closest else "none"),
+    ]
+    lines += [f"new bond: {contact(a, b, distance)}" for a, b, distance in result.new_bonds]
+
+    doc = {
+        "job": job.label,
+        "point": _point_doc(point),
+        "edit": {"kind": kind, "atoms": edit_atoms, "value": value},
+        "before": None if result.before is None else round(result.before, 4),
+        "after": None if result.after is None else round(result.after, 4),
+        "moved": result.moved,
+        "moved_qm": moved_qm or None,
+        "moved_environment": moved_environment or None,
+        "fixed_side": result.fixed_side,
+        "closest": None if result.closest is None else {
+            "atoms": [result.closest[1], result.closest[2]],
+            "elements": [point.atoms[result.closest[1]][0], point.atoms[result.closest[2]][0]],
+            "distance": round(result.closest[0], 4),
+        },
+        "new_bonds": [{"atoms": [a, b], "elements": [point.atoms[a][0], point.atoms[b][0]],
+                       "distance": round(distance, 4)} for a, b, distance in result.new_bonds],
+        "written": None,
+    }
+
+    new = len(result.new_bonds)
+    if new and not args.allow_new_bonds:
+        if args.json:
+            _emit_json(doc)
+        else:
+            sys.stdout.write("\n".join(lines) + "\n")
+        return _error(f"refused: the edit makes {new} new bond{'s' if new != 1 else ''}; "
+                      "nothing written (--allow-new-bonds writes it anyway)")
+
+    xyz = [str(n), f"{job.label} · {describe_point(point) or 'latest'} · {action}"]
+    xyz += [f"{el:<2} {x:15.8f} {y:15.8f} {z:15.8f}" for el, x, y, z in result.atoms]
+    try:
+        with open(args.output, "w") as f:
+            f.write("\n".join(xyz) + "\n")
+    except OSError as exc:
+        raise UsageError(f"cannot write {args.output}: {exc}") from None
+    if args.json:
+        doc["written"] = args.output
+        _emit_json(doc)
+    else:
+        sys.stdout.write("\n".join([*lines, f"wrote {args.output} ({n} atoms)"]) + "\n")
+    return EXIT_OK
 
 
 # --- view -------------------------------------------------------------------

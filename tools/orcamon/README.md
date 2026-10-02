@@ -214,6 +214,21 @@ image. An NEB path is the CURRENT one: ORCA rewrites it every iteration. In
 the TUI, the chart's dots are the path's points and left/right scrub the
 geometry pane along it.
 
+## Changing a geometry
+
+`orcamon edit JOB --rotate-bond I J DEG -o new.xyz` writes a copy of the
+job's geometry with one side of the bond I-J turned, so every dihedral across
+it grows by DEG degrees; `--set-dihedral A B C D DEG` and
+`--set-distance I J ANGSTROM` set one value instead. The smaller side moves
+(`--move ATOM` picks the other), the output names how many atoms moved — QM
+and environment on a multilayer job — and the closest new contact, and an
+existing file is never overwritten. It refuses atoms that are not bonded, a
+bond in a ring, and an edit that makes a new bond; do not pass
+`--allow-new-bonds` unless the person asked for that contact. A bond here is
+under 1.7 Å between heavy atoms, 1.4 Å to a hydrogen and 1.0 Å between
+hydrogens, so a hydrogen bond, a long transition-state bond or an ion's
+contact is not one.
+
 ## State cache
 
 Parsed state is kept in `$XDG_CACHE_HOME/orcamon/` (default
@@ -271,6 +286,8 @@ positional arguments:
     geom                a geometry as XYZ: the latest, or a given cycle or scan step
     measure             the distance, angle or dihedral between 2 to 4 atoms of a
                         geometry
+    edit                write a changed copy of a geometry: rotate a bond, set a
+                        dihedral or a distance
     view                what the person's orcamon TUI shows: job, geometry, picked atoms
     focus               show a job in the person's orcamon TUI: a geometry, picked
                         atoms, a mode
@@ -513,6 +530,50 @@ options:
                         called quiet (default: 1800)
   --no-cache            parse every output from scratch; neither read nor write the
                         state cache
+  --cycle C             optimization cycle (within --step for a scan)
+  --step S              scan step (its last cycle unless --cycle)
+  --point N             a point on an IRC or NEB path: the signed IRC point (0 is the
+                        TS, negative is backward) or the NEB image
+  --json                print one JSON document instead of text
+```
+
+### `orcamon edit`
+
+```
+usage: orcamon edit [-h] [--root DIR] [--liveness {auto,process,slurm,mtime}]
+                    [--quiet-after S] [--no-cache]
+                    (--rotate-bond I J DEG | --set-dihedral A B C D DEG | --set-distance I J ANGSTROM)
+                    -o FILE [--move ATOM] [--allow-new-bonds] [--cycle C] [--step S]
+                    [--point N] [--json]
+                    JOB
+
+write a changed copy of a geometry: rotate a bond, set a dihedral or a distance
+
+example: orcamon edit opt/ts --rotate-bond 12 15 60 -o rotated.xyz
+
+positional arguments:
+  JOB                   a job directory, a .inp/.out file, or (part of) a job's label
+
+options:
+  -h, --help            show this help message and exit
+  --root DIR            where jobs are looked for (default: $ORCAMON_ROOT or .)
+  --liveness {auto,process,slurm,mtime}
+                        how a job is known to be running (default: auto)
+  --quiet-after S       seconds without output before a job of unknown liveness is
+                        called quiet (default: 1800)
+  --no-cache            parse every output from scratch; neither read nor write the
+                        state cache
+  --rotate-bond I J DEG
+                        turn the bond I-J: every dihedral across it grows by DEG degrees
+  --set-dihedral A B C D DEG
+                        turn the bond B-C until the dihedral A-B-C-D is DEG degrees
+  --set-distance I J ANGSTROM
+                        move one side along I-J until they are ANGSTROM apart
+  -o FILE, --output FILE
+                        the XYZ file to write; an existing file is refused
+  --move ATOM           move the side of this atom of the edited bond (default: the
+                        smaller side)
+  --allow-new-bonds     write the file even when the edit makes a new bond
   --cycle C             optimization cycle (within --step for a scan)
   --step S              scan step (its last cycle unless --cycle)
   --point N             a point on an IRC or NEB path: the signed IRC point (0 is the

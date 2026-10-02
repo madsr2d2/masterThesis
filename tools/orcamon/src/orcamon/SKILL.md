@@ -147,6 +147,21 @@ not contain.
 sanctioned way to look at raw lines. Read the `.out` directly only after that
 and only a bounded slice of it, never the whole file.
 
+## Changing a geometry
+
+`orcamon edit JOB --rotate-bond I J DEG -o new.xyz` writes a copy of the job's
+geometry with one side of the bond I-J turned so that every dihedral across it
+grows by DEG degrees; `--set-dihedral A B C D DEG` and
+`--set-distance I J ANGSTROM` set one value instead. The smaller side moves
+(`--move ATOM` picks the other), the output names how many atoms moved — QM
+and environment on a multilayer job — and the closest new contact, and an
+existing file is never overwritten. It refuses atoms that are not bonded, a
+bond in a ring, and an edit that makes a new bond. Do not pass
+`--allow-new-bonds` unless the person asked for that contact. A bond here is
+under 1.7 Å between heavy atoms, 1.4 Å to a hydrogen and 1.0 Å between
+hydrogens, so a hydrogen bond, a long transition-state bond or an ion's
+contact is not one.
+
 ## Working beside a person
 
 A person may be watching the same jobs in `orcamon tui`, usually in the pane

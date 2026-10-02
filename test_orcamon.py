@@ -2117,6 +2117,107 @@ def test_the_tui_picks_atoms_by_click():
         asyncio.run(drive(root))
 
 
+def test_edit_writes_a_checked_geometry():
+    print("\nedit: a checked copy of a geometry, with the refusals that matter")
+    import tempfile
+    from pathlib import Path
+
+    from orcamon.core.geometry import read_xyz
+
+    F = [("C", 0.0, 0.0, 0.0), ("C", 1.5, 0.0, 0.0), ("H", -0.5, 1.0, 0.0),
+         ("O", 2.0, 1.0, 0.0), ("H", 2.0, 1.0, 1.0)]
+    G = [("C", 0.0, 0.0, 0.0), ("C", 1.5, 0.0, 0.0), ("O", 2.1, 1.2, 0.0),
+         ("O", 2.1, -1.9, 0.0), ("H", -0.5, 0.9, 0.0), ("H", -0.5, -0.9, 0.0)]
+
+    def block(atoms):
+        return ("CARTESIAN COORDINATES (ANGSTROEM)\n---------------------------------\n"
+                + "".join(f"  {el}      {x:.6f}    {y:.6f}    {z:.6f}\n"
+                          for el, x, y, z in atoms))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        out = root / "out"
+        out.mkdir()
+        for name, atoms in (("f", F), ("g", G)):
+            d = root / name
+            d.mkdir()
+            (d / "job.inp").write_text(
+                "! B97-3c Opt\n* xyz 0 1\n"
+                + "".join(f"{el} {x} {y} {z}\n" for el, x, y, z in atoms) + "*\n")
+        ml = root / "ml"
+        ml.mkdir()
+        (ml / "job.inp").write_text(
+            "! QM/XTB B97-3c Opt\n%qmmm\n  QMAtoms {0 1} end\n"
+            "  Charge_Total 0\n  Mult_Total 1\nend\n* xyz 0 1\n*\n")
+        (ml / "job.out").write_text("QM1 Subsystem                    ...  0 1\n"
+                                    + block(G) + "\n" + _DONE + "\n")
+        argv = ["--root", str(root), "--liveness", "mtime", "--no-cache"]
+
+        code, out_text, err = _orcamon([*argv, "edit", "f", "--rotate-bond", "0", "1", "90",
+                                        "-o", str(out / "r.xyz")])
+        check("a rotation writes the file and names the motion, the atoms and the contact",
+              code == 0 and out_text.splitlines() == [
+                  "rotate bond 0-1 by +90.0°",
+                  "moved 2 of 5 atoms, the 0 side; --move 1 moves the other 3",
+                  "closest new contact: 2 H-3 O 2.872 Å",
+                  f"wrote {out / 'r.xyz'} (5 atoms)"],
+              f"{code} {(out_text + err)!r}")
+
+        atoms = read_xyz(out / "r.xyz")
+        check("the new XYZ holds the turned geometry and says where it came from",
+              atoms is not None and len(atoms) == 5
+              and (atoms[2][0],) + tuple(round(v, 6) for v in atoms[2][1:]) == ("H", -0.5, 0.0, -1.0)
+              and (out / "r.xyz").read_text().splitlines()[1]
+              == "f · input geometry · rotate bond 0-1 by +90.0°",
+              f"{atoms}")
+
+        code, doc, err = _json([*argv, "edit", "f", "--set-dihedral", "2", "0", "1", "3", "-60",
+                                "-o", str(out / "d.xyz")])
+        check("--json reports the value reached, the moved atoms and the file written",
+              doc is not None and code == 0 and doc["after"] == -60.0 and doc["moved"] == [0, 2]
+              and doc["written"] == str(out / "d.xyz") and doc["new_bonds"] == [],
+              f"{code} {doc} {err}")
+
+        code, out_text, err = _orcamon([*argv, "edit", "g", "--rotate-bond", "0", "1", "180",
+                                        "-o", str(out / "x.xyz")])
+        check("a new bond is named and refused, and nothing is written",
+              code == 2 and "new bond: 2 O-3 O 0.700 Å" in out_text
+              and "refused: the edit makes 1 new bond; nothing written "
+                  "(--allow-new-bonds writes it anyway)" in err
+              and not (out / "x.xyz").exists(),
+              f"{code} {(out_text + err)!r}")
+
+        code, out_text, err = _orcamon([*argv, "edit", "g", "--rotate-bond", "0", "1", "180",
+                                        "--allow-new-bonds", "-o", str(out / "x.xyz")])
+        check("--allow-new-bonds writes it anyway",
+              code == 0 and (out / "x.xyz").exists(), f"{code} {(out_text + err)!r}")
+
+        before = (out / "r.xyz").read_text()
+        code, out_text, err = _orcamon([*argv, "edit", "f", "--rotate-bond", "0", "1", "10",
+                                        "-o", str(out / "r.xyz")])
+        check("an existing file is refused and left untouched",
+              code == 2 and "exists: orcamon edit never overwrites a file" in err
+              and (out / "r.xyz").read_text() == before,
+              f"{code} {(out_text + err)!r}")
+
+        code_a, out_a, err_a = _orcamon([*argv, "edit", "f", "--rotate-bond", "0", "3", "10",
+                                         "-o", str(out / "n.xyz")])
+        code_b, out_b, err_b = _orcamon([*argv, "edit", "f", "--rotate-bond", "0", "1", "abc",
+                                         "-o", str(out / "n.xyz")])
+        check("atoms that are not bonded, and a value that is not a number, are refused",
+              code_a == 2 and "atoms 0 and 3 are not bonded: 2.24 Å apart" in err_a
+              and code_b == 2 and "not a number: 'abc'" in err_b,
+              f"{code_a} {err_a!r} {code_b} {err_b!r}")
+
+        code, out_text, err = _orcamon([*argv, "edit", "ml", "--rotate-bond", "0", "1", "90",
+                                        "-o", str(out / "m.xyz")])
+        check("a multilayer job splits the moved atoms into QM and environment",
+              code == 0 and out_text.splitlines()[1]
+              == "moved 2 of 6 atoms, the 1 side (1 QM, 1 environment); "
+                 "--move 0 moves the other 3",
+              f"{code} {(out_text + err)!r}")
+
+
 def test_slurm_names_what_the_login_node_cannot_see():
     print("\nSLURM: squeue's view of a job, and the fallbacks when it has none")
     import stat
@@ -2473,6 +2574,7 @@ if __name__ == "__main__":
     test_the_tui_takes_the_agents_focus()
     test_b_does_not_leave_the_agents_mode_running()
     test_the_tui_picks_atoms_by_click()
+    test_edit_writes_a_checked_geometry()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
     test_liveness_names_the_job_not_only_the_directory()
