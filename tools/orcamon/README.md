@@ -244,6 +244,14 @@ after an optimization or a scan and before trusting the result: a bond nobody
 asked for is the costliest mistake a run can hide. Distances are given before
 and after, so a bond that only crossed the threshold is visible as one.
 
+When the person asks for a change ("rotate this bond 60 degrees", "set this
+distance to 2.1"): run `orcamon view` for the job, the geometry and the atoms
+they mean; `orcamon edit` it into a new file in a new job directory; write the
+input there (your own project's conventions decide how); `orcamon check` it;
+`orcamon focus` the draft so the person sees the new structure; and run it
+only when they say so. After the run, `orcamon connectivity` says what it did
+to the bonds.
+
 ## State cache
 
 Parsed state is kept in `$XDG_CACHE_HOME/orcamon/` (default
