@@ -2231,6 +2231,23 @@ def test_the_steer_files_name_one_live_tui():
                 os.environ[name] = value
 
 
+def test_a_followed_path_point_is_addressed():
+    print("\na path point the pane follows is still addressed by its own flag")
+    from orcamon.core import steer
+    from orcamon.core.geometry import FileGeometry
+    from orcamon.core.parser import GeometryPoint
+    from orcamon.core.paths import PathPoint
+
+    check("following a path still names the point the pane draws",
+          steer.geometry_address(
+              PathPoint(kind="irc", index=0, label="IRC TS", energy=None,
+                        de_kj_mol=0.0, atoms=[]), True) == ["--point", "0"])
+    check("following an optimization cycle has no address: the default is what is drawn",
+          steer.geometry_address(GeometryPoint(scan_step=None, cycle=4), True) == [])
+    check("a file geometry has nothing to address",
+          steer.geometry_address(FileGeometry([], "input geometry"), False) == [])
+
+
 if __name__ == "__main__":
     test_a_multilayer_energy_is_the_total()
     test_a_scan_is_keyed_by_step_and_cycle()
@@ -2288,6 +2305,7 @@ if __name__ == "__main__":
     test_a_job_that_prints_no_geometry_shows_the_one_it_wrote()
     test_the_summary_counts_the_whole_system()
     test_the_steer_files_name_one_live_tui()
+    test_a_followed_path_point_is_addressed()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)

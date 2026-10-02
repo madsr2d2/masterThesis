@@ -9,10 +9,11 @@ from itertools import islice
 from pathlib import Path
 
 from rich.text import Text
-from textual import events, work
+from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
+from textual.events import Click
 from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Header, Input, RichLog, Static
@@ -851,7 +852,7 @@ class RotatableGeometryImage(Widget):
         dots, 2 across and 4 down per cell."""
         return (2 * width, 4 * height)
 
-    def on_click(self, event: events.Click) -> None:
+    def on_click(self, event: Click) -> None:
         """A click in the pane toggles the atom under it (D8); one that lands
         on nothing does nothing."""
         offset = event.get_content_offset(self)
