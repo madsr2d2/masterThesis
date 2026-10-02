@@ -6,7 +6,7 @@ Plan: `PLAN_ORCAMON_ACT_RUN.md`. Branch `master` from `master` (`986aae3`).
 |---|---|---|---|---|
 | AR1 the runner | DONE | 22018f3 | 1 | Reviewer PASS r1; 290/266/0; no deviations accepted |
 | AR2 orcamon run | DONE | 5aab04b | 1 | Reviewer PASS r1; 299/266/0; accepted deviations: show check reads `doc["job"]["status"]`; --json rides warnings in the doc |
-| AR3 orcamon stop, the skill's rule, every gate | TODO | | | |
+| AR3 orcamon stop, the skill's rule, every gate | DONE | 051cac6 | 1 | Reviewer PASS r1; 303/266/0; run_gates 38 gates 0 failed; no deviations |
 
 Statuses: TODO | DONE | BLOCKED
 
@@ -17,6 +17,7 @@ Statuses: TODO | DONE | BLOCKED
 | baseline | 266 | 285 | 0 failure(s) | 38 gates, 0 failed |
 | after AR1 | 266 | 290 | 0 failure(s) | not run (AR3) |
 | after AR2 | 266 | 299 | 0 failure(s) | not run (AR3) |
+| after AR3 | 266 | 303 | 0 failure(s) | 38 gates, 0 failed (583 s on 8 jobs, reviewer's run) |
 
 ## Gates
 
@@ -30,6 +31,7 @@ Statuses: TODO | DONE | BLOCKED
 
 - 2026-10-02T07:31Z — AR1 DONE (22018f3): reviewer PASS round 1; test_monitor 266 pass, test_orcamon 290 pass, test_curve_metrics 0 failure(s); run_gates deferred to AR3. No fake ORCA or `sleep 60` left behind.
 - 2026-10-02T07:49Z — AR2 DONE (5aab04b): reviewer PASS round 1; test_monitor 266 pass, test_orcamon 299 pass, test_curve_metrics 0 failure(s); both real-tree dry runs matched (ts5 exit 0, optts_freq_tight exit 2); skill current.
+- 2026-10-02T08:15Z — AR3 DONE (051cac6): reviewer PASS round 1; test_monitor 266 pass, test_orcamon 303 pass, test_curve_metrics 0 failure(s), run_gates 38 gates 0 failed (583 s on 8 jobs); no fake process left; test diff additions only. Plan complete.
 
 ## Backlog
 
