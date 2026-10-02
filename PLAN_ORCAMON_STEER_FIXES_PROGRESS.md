@@ -5,7 +5,7 @@ Plan: `PLAN_ORCAMON_STEER_FIXES.md`. Branch `master` from `master` (`727f7f48512
 | Task | Status | Commits | Rounds | Note |
 |---|---|---|---|---|
 | FS1 show counts the whole system | DONE | 16fb732 | 1 | reviewer PASS: test_monitor 243, test_orcamon 248, test_curve_metrics 0 failure(s). Deviation accepted: plan's real-tree command nests `n_atoms` under `job` (plan said `d['n_atoms']`); values 137/140/133/137 unchanged. |
-| FS2 view gives atoms, elements, measure | TODO | | | |
+| FS2 view gives atoms, elements, measure | DONE | af0abb4 | 1 | reviewer PASS: test_orcamon 259, test_monitor 243, test_curve_metrics 0 failure(s). No deviations. |
 | FS3 b stops the agent's mode | TODO | | | |
 | FS4 events import, path address test, every gate | TODO | | | |
 
@@ -17,6 +17,7 @@ Statuses: TODO | DONE | BLOCKED
 |---|---|---|---|---|
 | baseline | 237 | 248 | 0 failure(s) | 38 gates, 0 failed |
 | FS1 | 243 | 248 | 0 failure(s) | not run until FS4 |
+| FS2 | 243 | 259 | 0 failure(s) | not run until FS4 |
 
 ## Gates
 
@@ -27,6 +28,7 @@ Statuses: TODO | DONE | BLOCKED
 ## Log
 
 - 2026-10-02T02:39:03Z FS1 DONE, commit 16fb732, 1 round, reviewer PASS.
+- 2026-10-02T02:44:08Z FS2 DONE, commit af0abb4, 1 round, reviewer PASS.
 
 ## Backlog
 
