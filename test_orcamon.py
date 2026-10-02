@@ -208,6 +208,41 @@ _ERROR_OUT = "\n".join([
     "[file orca_tools/qcmsg.cpp, line 394]:",
 ]) + "\n"
 
+# The fake ORCA: it renames itself `orca` (PR_SET_NAME = 15) so `/proc` and
+# `driver_pids` see what the real driver looks like, starts one child the way
+# ORCA starts its modules, and does what words in its input tell it to. No
+# test may ever start the real ORCA, so this is the only thing that runs.
+_FAKE_ORCA = '''#!/usr/bin/env python3
+"""A stand-in for ORCA in orcamon's tests: it calls itself `orca`, starts one
+child, and does what words in its input tell it to."""
+import ctypes, signal, subprocess, sys, time
+ctypes.CDLL(None).prctl(15, b"orca", 0, 0, 0)
+text = open(sys.argv[1]).read()
+print("fake ORCA running", sys.argv[1], flush=True)
+if "FAKE_FAIL" in text:
+    print("ORCA finished by error termination in SCF", flush=True)
+    sys.exit(1)
+if "FAKE_STUBBORN" in text:
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+subprocess.Popen(["sleep", "60"])
+time.sleep(60)
+'''
+
+
+def _fake_orca(directory):
+    """Write the fake above as `directory/orca` (mode 755) with the ten
+    `orca_N` files `find_orca` wants beside it; returns the script's path."""
+    from pathlib import Path
+
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    orca = directory / "orca"
+    orca.write_text(_FAKE_ORCA)
+    orca.chmod(0o755)
+    for n in range(10):
+        (directory / f"orca_{n}").write_text("")
+    return orca
+
 
 def _tree(base):
     """Write the synthetic tree under `base`; returns {name: directory}."""
@@ -2371,6 +2406,130 @@ def test_connectivity_names_bonds_made_and_broken():
               f"{code} {text!r} {err!r}")
 
 
+def test_the_runner_finds_orca_and_stops_what_it_started():
+    print("\nthe runner: finding ORCA, starting it detached, stopping its tree")
+    import socket
+    import tempfile
+    from pathlib import Path
+
+    from orcamon.core import runner
+
+    started = []
+    with tempfile.TemporaryDirectory(prefix="orcamon_runner_") as tmp:
+        root = Path(tmp)
+        fake = _fake_orca(root / "bin")
+        try:
+            old_orca = os.environ.get("ORCAMON_ORCA")
+            try:
+                os.environ["ORCAMON_ORCA"] = str(fake)
+                from_env = runner.find_orca()
+            finally:
+                if old_orca is None:
+                    os.environ.pop("ORCAMON_ORCA", None)
+                else:
+                    os.environ["ORCAMON_ORCA"] = old_orca
+            lone = root / "lone"
+            lone.mkdir()
+            (lone / "orca").write_text("#!/bin/sh\nexit 0\n")
+            (lone / "orca").chmod(0o755)
+            try:
+                runner.find_orca(str(lone / "orca"))
+                lone_message = ""
+            except runner.RunError as exc:
+                lone_message = str(exc)
+            check("find_orca takes --orca then $ORCAMON_ORCA, and refuses a binary "
+                  "with no orca_* modules beside it",
+                  runner.find_orca(str(fake)) == fake.resolve()
+                  and from_env == fake.resolve()
+                  and "is not ORCA: no orca_* programs beside it" in lone_message,
+                  f"fake={runner.find_orca(str(fake))} env={from_env} lone={lone_message!r}")
+
+            def draft(name, first=""):
+                d = root / name
+                d.mkdir()
+                (d / "job.inp").write_text(
+                    first + "! B97-3c Opt\n* xyz 0 1\n"
+                    "O 0.0 0.0 0.0\nH 0.96 0.0 0.0\nH -0.24 0.93 0.0\n*\n")
+                return d
+
+            job = draft("job")
+            pid, code, tail = runner.start_orca(fake, job, "job", 0.5)
+            started.append(pid)
+            try:
+                comm = Path(f"/proc/{pid}/comm").read_text().strip()
+            except OSError:
+                comm = ""
+            check("start_orca leaves ORCA running detached, in its own directory, "
+                  "on its own input",
+                  code is None and runner.alive(pid) and comm == "orca"
+                  and runner.driver_pids(job, "job") == [pid]
+                  and len(runner.descendants(pid)) == 1
+                  and "fake ORCA running job.inp" in (job / "job.out").read_text(),
+                  f"code={code} alive={runner.alive(pid)} comm={comm!r} "
+                  f"drivers={runner.driver_pids(job, 'job')} children={runner.descendants(pid)} "
+                  f"out={(job / 'job.out').read_text()!r}")
+
+            stopped, killed = runner.stop_tree([pid], 2.0)
+            check("stop_tree takes the driver and its child, and leaves nothing of either",
+                  len(stopped) == 2 and killed == []
+                  and not any(runner.alive(p) for p in stopped)
+                  and runner.driver_pids(job, "job") == [],
+                  f"stopped={stopped} killed={killed} "
+                  f"alive={[p for p in stopped if runner.alive(p)]}")
+
+            stubborn = draft("stubborn", "# FAKE_STUBBORN\n")
+            pid_stubborn, _, _ = runner.start_orca(fake, stubborn, "job", 0.5)
+            started.append(pid_stubborn)
+            stubborn_pids, stubborn_killed = runner.stop_tree([pid_stubborn], 0.5)
+            fails = draft("fails", "# FAKE_FAIL\n")
+            pid_fail, code_fail, tail_fail = runner.start_orca(fake, fails, "job", 0.5)
+            started.append(pid_fail)
+            check("a SIGTERM-ignoring tree is SIGKILLed whole, and an ORCA that dies "
+                  "at once brings its tail back",
+                  len(stubborn_pids) == 2 and len(stubborn_killed) == 2
+                  and set(stubborn_killed) == set(stubborn_pids)
+                  and not any(runner.alive(p) for p in stubborn_pids)
+                  and code_fail == 1
+                  and (tail_fail[-1] if tail_fail else None)
+                  == "ORCA finished by error termination in SCF",
+                  f"stubborn={stubborn_pids}/{stubborn_killed} "
+                  f"alive={[p for p in stubborn_pids if runner.alive(p)]} "
+                  f"fail=({code_fail}, {tail_fail!r})")
+
+            slurm_bin = root / "slurm"
+            slurm_bin.mkdir()
+            (slurm_bin / "squeue").write_text("#!/bin/sh\nexit 0\n")
+            (slurm_bin / "squeue").chmod(0o755)
+            sinfo = slurm_bin / "sinfo"
+            sinfo.write_text("#!/bin/sh\necho node01\necho node02\n")
+            sinfo.chmod(0o755)
+            old_path = os.environ.get("PATH")
+            try:
+                os.environ["PATH"] = str(slurm_bin)
+                login = runner.slurm_login_node()
+                sinfo.write_text(f"#!/bin/sh\necho {socket.gethostname()}\n")
+                this_machine = runner.slurm_login_node()
+                empty = root / "empty"
+                empty.mkdir()
+                os.environ["PATH"] = str(empty)
+                no_slurm = runner.slurm_login_node()
+            finally:
+                if old_path is None:
+                    os.environ.pop("PATH", None)
+                else:
+                    os.environ["PATH"] = old_path
+            check("slurm_login_node names a login node, and says nothing where sinfo "
+                  "is absent or lists this machine",
+                  login is not None
+                  and "is not one of SLURM's nodes (node01, node02)" in login
+                  and this_machine is None and no_slurm is None,
+                  f"login={login!r} this_machine={this_machine!r} none={no_slurm!r}")
+        finally:
+            still = [p for p in started if runner.alive(p)]
+            if still:
+                runner.stop_tree(still, 1.0)
+
+
 def test_slurm_names_what_the_login_node_cannot_see():
     print("\nSLURM: squeue's view of a job, and the fallbacks when it has none")
     import stat
@@ -2730,6 +2889,7 @@ if __name__ == "__main__":
     test_edit_writes_a_checked_geometry()
     test_check_finds_what_would_fail()
     test_connectivity_names_bonds_made_and_broken()
+    test_the_runner_finds_orca_and_stops_what_it_started()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
     test_liveness_names_the_job_not_only_the_directory()
