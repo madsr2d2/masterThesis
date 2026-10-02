@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from .discovery import relative_label
-from .geometry import FileGeometry, read_xyz
+from .geometry import FileGeometry, read_xyz, xyz_atom_count
 from .liveness import Liveness
 from .orca_input import JobInput, read_input
 from .parser import JobState, new_state, update_job
@@ -25,6 +25,9 @@ class Job:
         self.wall_time_s: float | None = None
         self.input: JobInput | None = None
         self._input_mtime: tuple | None = None
+        # ((path, mtime_ns, size), count) of the input's *xyzfile, so a
+        # re-scan does not reopen an unchanged file.
+        self._xyz_count: tuple | None = None
         # The geometry to show when the log prints none (`file_geometry`),
         # and the file stamp it was read at.
         self.file_geometry: FileGeometry | None = None
@@ -107,6 +110,42 @@ class Job:
                 self._file_stamp = stamp
             return
         self.file_geometry, self._file_stamp = None, None
+
+    def system_atoms(self) -> int | None:
+        """The size of the WHOLE system, not only the block the log printed.
+
+        ORCA's log may print only the QM block of a multilayer job, and a job
+        that prints nothing at all still has an input. Every count the job
+        offers -- the atoms the log printed, the highest QM atom index + 1,
+        the current file geometry, the input's inline atoms and the count its
+        `*xyzfile` announces -- is a lower bound on the system's size, so the
+        largest is the best answer, and None when there is nothing to count.
+        The input file's count is cached by its stamp; only its first line is
+        ever read."""
+        counts = [len(self.state.atoms)]
+        if self.state.qm_atom_indices:
+            counts.append(max(self.state.qm_atom_indices) + 1)
+        if self.file_geometry is not None:
+            counts.append(len(self.file_geometry.atoms))
+        if self.input is not None:
+            counts.append(len(self.input.coords_atoms))
+            if self.input.coords_file:
+                path = self.state.path / self.input.coords_file
+                try:
+                    st = path.stat()
+                except OSError:
+                    pass
+                else:
+                    stamp = (str(path), st.st_mtime_ns, st.st_size)
+                    if self._xyz_count is not None and self._xyz_count[0] == stamp:
+                        count = self._xyz_count[1]
+                    else:
+                        count = xyz_atom_count(path)
+                        self._xyz_count = (stamp, count)
+                    if count is not None:
+                        counts.append(count)
+        largest = max(counts)
+        return largest or None
 
     def pending_bytes(self) -> int:
         """How much of job.out this job has still to read -- the order key

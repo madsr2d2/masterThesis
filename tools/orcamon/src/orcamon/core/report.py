@@ -168,8 +168,7 @@ def build_report(job: Job, now: float | None = None) -> JobReport:
         mult=inp.mult if inp else None,
         layers=layers,
         multilayer=bool(inp and inp.multilayer),
-        n_atoms=(len(state.atoms) if state.atoms
-                 else len(job.file_geometry.atoms) if getattr(job, "file_geometry", None) else None),
+        n_atoms=job.system_atoms(),
         n_qm_atoms=len(state.qm_atom_indices) if state.qm_atom_indices else None,
         nprocs=inp.nprocs if inp else None,
         maxcore_mb=inp.maxcore_mb if inp else None,

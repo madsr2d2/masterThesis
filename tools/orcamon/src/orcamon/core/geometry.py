@@ -426,6 +426,18 @@ def read_xyz(path: Path) -> list | None:
     return atoms or None
 
 
+def xyz_atom_count(path: Path) -> int | None:
+    """The atom count an XYZ file announces, without reading its atoms: a
+    137-atom trajectory's count costs one line. None when the file is missing
+    or unreadable, or its first line is not a count of at least one atom."""
+    try:
+        with open(path, errors="replace") as f:
+            n = int(f.readline().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+    return n if n >= 1 else None
+
+
 def read_xyz_frames(path: Path) -> list[tuple[str, list]]:
     """Every COMPLETE frame of an XYZ trajectory as (comment, atoms), atoms
     as `read_xyz` makes them.

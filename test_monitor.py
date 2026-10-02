@@ -2089,6 +2089,63 @@ def test_a_job_that_prints_no_geometry_shows_the_one_it_wrote():
               and not describe_point(shown).startswith("input"), f"{len(atoms)} {describe_point(shown)!r}")
 
 
+def test_the_summary_counts_the_whole_system():
+    print("\nthe summary counts the whole system, not only the block the log printed")
+    import tempfile
+    from orcamon.core.geometry import xyz_atom_count
+
+    def xyz(path, n):
+        path.write_text(f"{n}\nc\n" + "".join(f"C {i * 1.5} 0.0 0.0\n" for i in range(n)))
+
+    gone = Liveness(False, "process")
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "job.inp").write_text(
+            "! QM/XTB r2SCAN-3c Opt PAL8\n%maxcore 4000\n%qmmm\n"
+            "  QMAtoms {0:2} end\n  Charge_Total 0\n  Mult_Total 1\nend\n"
+            "* xyzfile 0 1 start.xyz\n")
+        out = ("QM1 Subsystem                    ...  0 1 2\n"
+               "CARTESIAN COORDINATES (ANGSTROEM)\n"
+               "---------------------------------\n"
+               "  O      0.000000    0.000000    0.000000\n"
+               "  H      0.960000    0.000000    0.000000\n"
+               "  H     -0.240000    0.930000    0.000000\n"
+               "\n"
+               "                             ****ORCA TERMINATED NORMALLY****\n")
+        (d / "job.out").write_text(out)
+        xyz(d / "start.xyz", 8)
+        job = Job(d, "job", d.parent)
+        job.refresh(gone)
+        report = build_report(job)
+
+        check("the input *xyzfile's own count is taken over the printed QM block",
+              report.n_atoms == 8, f"{report.n_atoms}")
+        check("while the QM count stays the log's", report.n_qm_atoms == 3)
+        check("so the summary says both", "(3 of 8 atoms)" in render_plain(report))
+
+        xyz(d / "start.xyz", 10)
+        job.refresh(gone)
+        check("a rewritten input file is re-read, not served from the cache",
+              build_report(job).n_atoms == 10)
+
+        (d / "hello.xyz").write_text("hello\n")
+        (d / "zero.xyz").write_text("0\n")
+        check("the count is the first line alone, and only when it names an atom",
+              xyz_atom_count(d / "start.xyz") == 10
+              and xyz_atom_count(d / "missing.xyz") is None
+              and xyz_atom_count(d / "hello.xyz") is None
+              and xyz_atom_count(d / "zero.xyz") is None)
+
+        d2 = d / "second"
+        d2.mkdir()
+        (d2 / "job.inp").write_text("! B97-3c Opt\n* xyz 0 1\nO 0.0 0.0 0.0\n*\n")
+        (d2 / "job.out").write_text(out.split("\n", 1)[1])
+        job2 = Job(d2, "job", d2.parent)
+        job2.refresh(gone)
+        check("a log that prints the whole system still beats the input's one atom",
+              build_report(job2).n_atoms == 3, f"{build_report(job2).n_atoms}")
+
+
 def test_the_steer_files_name_one_live_tui():
     print("\nthe steer files name the one live TUI on this host")
     import subprocess
@@ -2229,6 +2286,7 @@ if __name__ == "__main__":
     test_plain_and_markup_say_the_same_thing()
     test_report_keys_are_stable()
     test_a_job_that_prints_no_geometry_shows_the_one_it_wrote()
+    test_the_summary_counts_the_whole_system()
     test_the_steer_files_name_one_live_tui()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
