@@ -2269,6 +2269,116 @@ def test_the_edit_bond_rule():
           f"{len(ATOMIC_NUMBERS)} elements")
 
 
+def test_edits_move_one_side_and_report_contacts():
+    print("\nan edit moves one side rigidly and reports the contacts it makes")
+    from orcamon.core.edit import (EditError, bond_changes, rotate_bond,
+                                   set_dihedral, set_distance)
+    from orcamon.core.geometry import measure
+
+    F = [("C", 0.0, 0.0, 0.0), ("C", 1.5, 0.0, 0.0), ("H", -0.5, 1.0, 0.0),
+         ("O", 2.0, 1.0, 0.0), ("H", 2.0, 1.0, 1.0)]
+    G = [("C", 0.0, 0.0, 0.0), ("C", 1.5, 0.0, 0.0), ("O", 2.1, 1.2, 0.0),
+         ("O", 2.1, -1.9, 0.0), ("H", -0.5, 0.9, 0.0), ("H", -0.5, -0.9, 0.0)]
+    RING = [("C", 0.0, 0.0, 0.0), ("C", 1.5, 0.0, 0.0), ("C", 0.75, 1.3, 0.0)]
+
+    def coord(atoms, index):
+        element, x, y, z = atoms[index]
+        return element, round(x, 6), round(y, 6), round(z, 6)
+
+    def contact(result):
+        if result.closest is None:
+            return None
+        distance, a, b = result.closest
+        return round(distance, 4), a, b
+
+    ninety = rotate_bond(F, 0, 1, 90.0)
+    check("rotate_bond turns the smaller side and names both sides",
+          ninety.moved == [0, 2] and ninety.fixed == 1 and ninety.mover == 0
+          and ninety.fixed_side == 3
+          and coord(ninety.atoms, 2) == ("H", -0.5, 0.0, -1.0)
+          and [coord(ninety.atoms, k) for k in (0, 1, 3, 4)]
+          == [coord(F, k) for k in (0, 1, 3, 4)])
+
+    turned = rotate_bond(F, 0, 1, 90.0, move=1)
+    check("every dihedral across the bond grows by the angle, whichever side moves",
+          round(measure(F, [2, 0, 1, 3])[1], 6) == 0.0
+          and round(measure(ninety.atoms, [2, 0, 1, 3])[1], 6) == 90.0
+          and turned.moved == [1, 3, 4]
+          and coord(turned.atoms, 3) == ("O", 2.0, 0.0, 1.0)
+          and coord(turned.atoms, 4) == ("H", 2.0, -1.0, 1.0)
+          and round(measure(turned.atoms, [2, 0, 1, 3])[1], 6) == 90.0)
+
+    check("a rotation that forms no bond still reports the closest new contact",
+          ninety.new_bonds == [] and contact(ninety) == (2.8723, 2, 3))
+
+    torsion = set_dihedral(F, 2, 0, 1, 3, -60.0)
+    check("set_dihedral turns the bond by the difference to its target",
+          torsion.moved == [0, 2] and round(torsion.before, 6) == 0.0
+          and round(torsion.after, 6) == -60.0
+          and coord(torsion.atoms, 2) == ("H", -0.5, 0.5, 0.866025))
+
+    stretched = set_distance(F, 0, 1, 2.0)
+    check("set_distance slides one side along the line between the atoms",
+          stretched.moved == [0, 2] and round(stretched.before, 6) == 1.5
+          and round(stretched.after, 6) == 2.0
+          and coord(stretched.atoms, 0) == ("C", -0.5, 0.0, 0.0)
+          and coord(stretched.atoms, 2) == ("H", -1.0, 1.0, 0.0))
+
+    flipped = rotate_bond(F, 1, 3, 180.0)
+    check("a half turn about the other bond moves only its far side",
+          flipped.moved == [3, 4] and coord(flipped.atoms, 4) == ("H", 2.0, 1.0, -1.0)
+          and contact(flipped) == (2.4495, 0, 4))
+
+    g_flipped = rotate_bond(G, 0, 1, 180.0)
+    check("a rotation that forms a bond says which, and where the sides nearly touch",
+          g_flipped.moved == [1, 2] and coord(g_flipped.atoms, 2) == ("O", 2.1, -1.2, 0.0)
+          and [(a, b, round(d, 4)) for a, b, d in g_flipped.new_bonds] == [(2, 3, 0.7)]
+          and contact(g_flipped) == (0.7, 2, 3))
+
+    g_quarter = rotate_bond(G, 0, 1, 90.0)
+    check("a quarter turn of the same bond forms nothing and misses further out",
+          coord(g_quarter.atoms, 2) == ("O", 2.1, 0.0, 1.2)
+          and g_quarter.new_bonds == []
+          and contact(g_quarter) == (2.2472, 2, 3))
+
+    pulled = set_distance(G, 2, 3, 2.5)
+    check("a distance across separate fragments pulls one of them along the line",
+          pulled.moved == [3] and round(pulled.before, 6) == 3.1
+          and round(pulled.after, 6) == 2.5
+          and coord(pulled.atoms, 3) == ("O", 2.1, -1.3, 0.0)
+          and [(a, b, round(d, 4)) for a, b, d in pulled.new_bonds] == [(1, 3, 1.4318)]
+          and pulled.closest is None)
+
+    calls = [lambda: rotate_bond(F, 0, 3, 10),
+             lambda: rotate_bond(F, 0, 1, 10, move=4),
+             lambda: set_dihedral(F, 3, 0, 1, 2, 10),
+             lambda: set_distance(F, 2, 3, 2.0),
+             lambda: set_distance(F, 0, 1, 0),
+             lambda: rotate_bond(RING, 0, 1, 10)]
+    expected = ["atoms 0 and 3 are not bonded: 2.24 Å apart",
+                "--move takes 0 or 1, the atoms of the edited bond",
+                "atoms 3 and 2 must lie on opposite sides of the bond 0-1",
+                "atoms 2 and 3 are 2.50 Å apart in one connected fragment: moving either would bend it",
+                "a distance must be positive",
+                "the bond 0-1 is in a ring: both sides stay connected, so neither can move alone"]
+    messages = []
+    for call in calls:
+        try:
+            call()
+        except EditError as error:
+            messages.append(str(error))
+        else:
+            messages.append(None)
+    check("an impossible edit is refused with the reason",
+          messages == expected, f"{messages}")
+
+    formed, broken, bonds_after = bond_changes(G, g_flipped.atoms)
+    check("bond_changes names the bond a change formed with both distances",
+          [(a, b, round(d0, 4), round(d1, 4)) for a, b, d0, d1 in formed]
+          == [(2, 3, 3.1, 0.7)]
+          and broken == [] and bonds_after == 5)
+
+
 if __name__ == "__main__":
     test_a_multilayer_energy_is_the_total()
     test_a_scan_is_keyed_by_step_and_cycle()
@@ -2328,6 +2438,7 @@ if __name__ == "__main__":
     test_the_steer_files_name_one_live_tui()
     test_a_followed_path_point_is_addressed()
     test_the_edit_bond_rule()
+    test_edits_move_one_side_and_report_contacts()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)
