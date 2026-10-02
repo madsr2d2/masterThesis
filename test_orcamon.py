@@ -2293,6 +2293,84 @@ def test_check_finds_what_would_fail():
               and doc["electrons"] == 10, f"{code} {doc} {err}")
 
 
+def test_connectivity_names_bonds_made_and_broken():
+    print("\nconnectivity: the bonds a run formed and broke, from what it started with")
+    import tempfile
+    from pathlib import Path
+
+    from test_monitor import _irc_tree
+
+    G = [("C", 0.0, 0.0, 0.0), ("C", 1.5, 0.0, 0.0), ("O", 2.1, 1.2, 0.0),
+         ("O", 2.1, -1.9, 0.0), ("H", -0.5, 0.9, 0.0), ("H", -0.5, -0.9, 0.0)]
+    G2 = [G[0], G[1], ("O", 2.1, 2.0, 0.0), ("O", 2.9, 2.6, 0.0), G[4], G[5]]
+    water = "O 0.0 0.0 0.0\nH 0.96 0.0 0.0\nH -0.24 0.93 0.0\n"
+
+    def block(atoms):
+        return ("CARTESIAN COORDINATES (ANGSTROEM)\n---------------------------------\n"
+                + "".join(f"  {el}      {x:.6f}    {y:.6f}    {z:.6f}\n"
+                          for el, x, y, z in atoms))
+
+    def output(atoms):
+        return "\n".join([_CYCLE.format(n=1), block(G),
+                          "FINAL SINGLE POINT ENERGY     -80.000000000",
+                          _CYCLE.format(n=2), block(atoms),
+                          "FINAL SINGLE POINT ENERGY     -80.100000000", _DONE]) + "\n"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        for name, atoms in (("c", G2), ("short", G[:2])):
+            d = root / name
+            d.mkdir()
+            (d / "job.inp").write_text("! B97-3c Opt\n* xyz 0 1\n*\n")
+            (d / "job.out").write_text(output(atoms))
+        draft = root / "draft"
+        draft.mkdir()
+        (draft / "job.inp").write_text("! B97-3c Opt\n* xyz 0 1\n" + water + "*\n")
+        _irc_tree(root / "irc")
+        argv = ["--root", str(root), "--liveness", "mtime", "--no-cache"]
+
+        code, text, err = _orcamon([*argv, "connectivity", "c"])
+        lines = text.splitlines()
+        check("the changes are named from the first geometry to the latest, with both distances",
+              code == 0 and lines[0] == "first printed geometry -> cycle 2: 1 bond formed, 1 broken"
+              and "formed  2 O-3 O  3.10 -> 1.00 Å" in lines
+              and "broken  1 C-2 O  1.34 -> 2.09 Å" in lines
+              and lines[-1] == "bonds: under 1.7 Å between heavy atoms, 1.4 Å to a hydrogen, "
+                               "1.0 Å between hydrogens",
+              f"{code} {text!r}")
+
+        code, text, err = _orcamon([*argv, "connectivity", "c", "--cycle", "1"])
+        check("a cycle with no change reports only the count of bonds",
+              code == 0 and text.splitlines()[0]
+              == "first printed geometry -> cycle 1: no bond formed or broken (4 bonds)",
+              f"{code} {text!r}")
+
+        code, doc, err = _json([*argv, "connectivity", "c"])
+        check("--json gives the same changes as atom numbers and rounded distances",
+              doc is not None
+              and doc["formed"] == [{"atoms": [2, 3], "elements": ["O", "O"],
+                                     "before": 3.1, "after": 1.0}]
+              and doc["broken"] == [{"atoms": [1, 2], "elements": ["C", "O"],
+                                     "before": 1.342, "after": 2.088}]
+              and doc["bonds"] == 4, f"{code} {doc} {err}")
+
+        code, text, err = _orcamon([*argv, "connectivity", "irc", "--point", "1"])
+        check("on a path, point 0 (the TS) is the baseline",
+              code == 0 and text.splitlines()[0]
+              == "IRC TS -> IRC forward 0: no bond formed or broken (2 bonds)",
+              f"{code} {text!r}")
+
+        code, text, err = _orcamon([*argv, "connectivity", "draft"])
+        check("an output that printed no geometry has nothing to compare",
+              code == 2 and "this output has printed no geometry yet" in err,
+              f"{code} {text!r} {err!r}")
+
+        code, text, err = _orcamon([*argv, "connectivity", "short"])
+        check("two printed parts of the system are refused, not compared atom for atom",
+              code == 2 and "the first printed geometry has 6 atoms and cycle 2 has 2" in err,
+              f"{code} {text!r} {err!r}")
+
+
 def test_slurm_names_what_the_login_node_cannot_see():
     print("\nSLURM: squeue's view of a job, and the fallbacks when it has none")
     import stat
@@ -2651,6 +2729,7 @@ if __name__ == "__main__":
     test_the_tui_picks_atoms_by_click()
     test_edit_writes_a_checked_geometry()
     test_check_finds_what_would_fail()
+    test_connectivity_names_bonds_made_and_broken()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
     test_liveness_names_the_job_not_only_the_directory()

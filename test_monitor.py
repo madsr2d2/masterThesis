@@ -2396,6 +2396,32 @@ def test_the_input_names_every_atom_it_uses():
           atom_references("* xyz 0 1\n*\n") == [])
 
 
+def test_the_first_geometry_is_kept():
+    print("\nthe first geometry is kept, however long the run")
+    import pickle
+
+    state = JobState(path=Path("/nonexistent"))
+    for cycle in range(1, 503):
+        _cycle(state, cycle)
+        _geometry(state, 3, x=float(cycle))
+    check("the first geometry printed survives the history dropping it",
+          state.start_atoms == [("H", 1.0, 0.0, 0.0), ("H", 2.0, 0.0, 0.0),
+                                ("H", 3.0, 0.0, 0.0)]
+          and state.points[0].cycle != 1,
+          f"{state.start_atoms} {state.points[0].cycle}")
+
+    largest = JobState(path=Path("/nonexistent"))
+    _cycle(largest, 1)
+    _geometry(largest, 5)
+    _geometry(largest, 2)
+    check("the largest block of the first cycle is the one kept",
+          len(largest.start_atoms) == 5, f"{largest.start_atoms}")
+
+    copied = pickle.loads(pickle.dumps(state))
+    check("a pickled copy carries the first geometry too",
+          copied.start_atoms == state.start_atoms, f"{copied.start_atoms}")
+
+
 if __name__ == "__main__":
     test_a_multilayer_energy_is_the_total()
     test_a_scan_is_keyed_by_step_and_cycle()
@@ -2457,6 +2483,7 @@ if __name__ == "__main__":
     test_the_edit_bond_rule()
     test_edits_move_one_side_and_report_contacts()
     test_the_input_names_every_atom_it_uses()
+    test_the_first_geometry_is_kept()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)

@@ -169,6 +169,16 @@ def build_parser() -> argparse.ArgumentParser:
     _job(p)
     _output(p)
 
+    p = add("connectivity", "the bonds a run formed and broke",
+            "orcamon connectivity opt/ts", commands.cmd_connectivity)
+    _job(p)
+    p.add_argument("--cycle", type=int, metavar="C", help="optimization cycle (within --step for a scan)")
+    p.add_argument("--step", type=int, metavar="S", help="scan step (its last cycle unless --cycle)")
+    p.add_argument("--point", type=int, metavar="N",
+                   help="a point on an IRC or NEB path: the signed IRC point (0 is the TS, "
+                        "negative is backward) or the NEB image")
+    _output(p)
+
     p = add("view", "what the person's orcamon TUI shows: job, geometry, picked atoms",
             "orcamon view --json", commands.cmd_view)
     _output(p)

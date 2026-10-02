@@ -237,6 +237,13 @@ memory, and an output that a run would overwrite. Exit 1 means an error: fix
 it before running. It does not check the QM region's electrons — they depend
 on the link atoms ORCA creates.
 
+`orcamon connectivity JOB` lists the bonds a run formed and broke, from the
+first geometry the output printed to the latest (or `--cycle`, `--step`); on
+an IRC or NEB, `--point N` compares the TS (image 0) with point N. Run it
+after an optimization or a scan and before trusting the result: a bond nobody
+asked for is the costliest mistake a run can hide. Distances are given before
+and after, so a bond that only crossed the threshold is visible as one.
+
 ## State cache
 
 Parsed state is kept in `$XDG_CACHE_HOME/orcamon/` (default
@@ -298,6 +305,7 @@ positional arguments:
     edit                write a changed copy of a geometry: rotate a bond, set a
                         dihedral or a distance
     check               what in a job's input would fail or mislead before it runs
+    connectivity        the bonds a run formed and broke
     view                what the person's orcamon TUI shows: job, geometry, picked atoms
     focus               show a job in the person's orcamon TUI: a geometry, picked
                         atoms, a mode
@@ -614,6 +622,38 @@ options:
                         called quiet (default: 1800)
   --no-cache            parse every output from scratch; neither read nor write the
                         state cache
+  --json                print one JSON document instead of text
+  --max-lines N         cap on text output lines (default: 60)
+```
+
+### `orcamon connectivity`
+
+```
+usage: orcamon connectivity [-h] [--root DIR] [--liveness {auto,process,slurm,mtime}]
+                            [--quiet-after S] [--no-cache] [--cycle C] [--step S]
+                            [--point N] [--json] [--max-lines N]
+                            JOB
+
+the bonds a run formed and broke
+
+example: orcamon connectivity opt/ts
+
+positional arguments:
+  JOB                   a job directory, a .inp/.out file, or (part of) a job's label
+
+options:
+  -h, --help            show this help message and exit
+  --root DIR            where jobs are looked for (default: $ORCAMON_ROOT or .)
+  --liveness {auto,process,slurm,mtime}
+                        how a job is known to be running (default: auto)
+  --quiet-after S       seconds without output before a job of unknown liveness is
+                        called quiet (default: 1800)
+  --no-cache            parse every output from scratch; neither read nor write the
+                        state cache
+  --cycle C             optimization cycle (within --step for a scan)
+  --step S              scan step (its last cycle unless --cycle)
+  --point N             a point on an IRC or NEB path: the signed IRC point (0 is the
+                        TS, negative is backward) or the NEB image
   --json                print one JSON document instead of text
   --max-lines N         cap on text output lines (default: 60)
 ```

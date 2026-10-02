@@ -172,6 +172,13 @@ memory, and an output that a run would overwrite. Exit 1 means an error: fix
 it before running. It does not check the QM region's electrons — they depend
 on the link atoms ORCA creates.
 
+`orcamon connectivity JOB` lists the bonds a run formed and broke, from the
+first geometry the output printed to the latest (or `--cycle`, `--step`); on
+an IRC or NEB, `--point N` compares the TS (image 0) with point N. Run it
+after an optimization or a scan and before trusting the result: a bond nobody
+asked for is the costliest mistake a run can hide. Distances are given before
+and after, so a bond that only crossed the threshold is visible as one.
+
 ## Working beside a person
 
 A person may be watching the same jobs in `orcamon tui`, usually in the pane
@@ -317,6 +324,17 @@ write a changed copy of a geometry: rotate a bond, set a dihedral or a distance
 what in a job's input would fail or mislead before it runs
 
 - `JOB`: a job directory, a .inp/.out file, or (part of) a job's label
+- `--json`: print one JSON document instead of text
+- `--max-lines N`: cap on text output lines (default: 60)
+
+### orcamon connectivity
+
+the bonds a run formed and broke
+
+- `JOB`: a job directory, a .inp/.out file, or (part of) a job's label
+- `--cycle C`: optimization cycle (within --step for a scan)
+- `--step S`: scan step (its last cycle unless --cycle)
+- `--point N`: a point on an IRC or NEB path: the signed IRC point (0 is the TS, negative is backward) or the NEB image
 - `--json`: print one JSON document instead of text
 - `--max-lines N`: cap on text output lines (default: 60)
 

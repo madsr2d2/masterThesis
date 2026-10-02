@@ -170,6 +170,13 @@ memory, and an output that a run would overwrite. Exit 1 means an error: fix
 it before running. It does not check the QM region's electrons — they depend
 on the link atoms ORCA creates.
 
+`orcamon connectivity JOB` lists the bonds a run formed and broke, from the
+first geometry the output printed to the latest (or `--cycle`, `--step`); on
+an IRC or NEB, `--point N` compares the TS (image 0) with point N. Run it
+after an optimization or a scan and before trusting the result: a bond nobody
+asked for is the costliest mistake a run can hide. Distances are given before
+and after, so a bond that only crossed the threshold is visible as one.
+
 ## Working beside a person
 
 A person may be watching the same jobs in `orcamon tui`, usually in the pane

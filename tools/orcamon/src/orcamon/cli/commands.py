@@ -720,6 +720,60 @@ def cmd_check(args, job: Job) -> int:
     return EXIT_JOB_BAD if result.errors else EXIT_OK
 
 
+# --- connectivity -----------------------------------------------------------
+
+
+@_with_job
+def cmd_connectivity(args, job: Job) -> int:
+    """The bonds a run formed and broke (D3), from the first geometry the
+    output printed -- what ORCA started from, not the input file it
+    overwrites (D7) -- to the geometry asked for. On an IRC or NEB,
+    `--point N` compares the TS (image 0) with point N instead."""
+    if args.point is not None:
+        first_point = _path_point(job, 0)
+        last_point = _requested_point(args, job)
+        before_atoms, after_atoms = first_point.atoms, last_point.atoms
+        first_name, last_name = first_point.label, last_point.label
+        first_error = first_name
+    else:
+        if not job.state.start_atoms:
+            raise UsageError("this output has printed no geometry yet: nothing to compare")
+        before_atoms = job.state.start_atoms
+        last_point = _requested_point(args, job)
+        after_atoms = last_point.atoms
+        first_name = "first printed geometry"
+        last_name = describe_point(last_point) or "latest"
+        first_error = "the first printed geometry"
+    if len(before_atoms) != len(after_atoms):
+        raise UsageError(
+            f"{first_error} has {len(before_atoms)} atoms and {last_name} has {len(after_atoms)}: "
+            "ORCA printed different parts of the system, so they cannot be compared")
+    formed, broken, n = edit.bond_changes(before_atoms, after_atoms)
+    if args.json:
+        def changes(items):
+            return [{"atoms": [a, b], "elements": [before_atoms[a][0], before_atoms[b][0]],
+                     "before": round(d0, 3), "after": round(d1, 3)}
+                    for a, b, d0, d1 in items]
+        _emit_json({"job": job.label, "from": first_name, "to": last_name, "bonds": n,
+                    "formed": changes(formed), "broken": changes(broken)})
+        return _job_exit(job)
+    lines = []
+    if formed or broken:
+        lines.append(f"{first_name} -> {last_name}: "
+                     f"{len(formed)} bond{'s' if len(formed) != 1 else ''} formed, "
+                     f"{len(broken)} broken")
+    else:
+        lines.append(f"{first_name} -> {last_name}: no bond formed or broken ({n} bonds)")
+    for label, items in (("formed", formed), ("broken", broken)):
+        for a, b, d0, d1 in items:
+            lines.append(f"{label}  {a} {before_atoms[a][0]}-{b} {before_atoms[b][0]}  "
+                         f"{d0:.2f} -> {d1:.2f} Å")
+    lines.append("bonds: under 1.7 Å between heavy atoms, 1.4 Å to a hydrogen, "
+                 "1.0 Å between hydrogens")
+    sys.stdout.write("\n".join(lines) + "\n")
+    return _job_exit(job)
+
+
 # --- view -------------------------------------------------------------------
 
 

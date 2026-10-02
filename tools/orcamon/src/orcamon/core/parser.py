@@ -365,6 +365,10 @@ class JobState:
     lines_seen: int = 0
     scf_iterations: deque = field(default_factory=lambda: deque(maxlen=HISTORY_LEN))
     atoms: list = field(default_factory=list)
+    # The first geometry the output printed -- what ORCA started from, kept
+    # however long the run: `points` drops its oldest after HISTORY_LEN, and
+    # ORCA overwrites the input's `<basename>.xyz` with the latest geometry.
+    start_atoms: list = field(default_factory=list)
     # One GeometryPoint per geometry, in the order computed -- lets the UI
     # scrub back through an optimization or scan instead of only ever showing
     # the latest. Bounded, so a long scan keeps its most recent cycles...
@@ -383,6 +387,9 @@ class JobState:
     _freq_seen_line: bool = False
     _in_geom_block: bool = False
     _pending_atoms: list = field(default_factory=list)
+    # The first GeometryPoint, so a later (larger) coordinate block of the
+    # same cycle can update `start_atoms` without scanning `points` again.
+    _start_point: object = None
     _in_qm1_composition: bool = False
     _in_scan_banner: bool = False
     _in_orbital_basis: bool = False
@@ -768,9 +775,13 @@ class JobState:
                     # system is always a superset of any QM-region subset, so
                     # it's always the biggest.
                     point = self.current_point()
+                    if self._start_point is None:
+                        self._start_point = point
                     if len(self._pending_atoms) > len(point.atoms):
                         self.atoms = self._pending_atoms
                         point.atoms = self._pending_atoms
+                        if point is self._start_point:
+                            self.start_atoms = self._pending_atoms
                 self._in_geom_block = False
             else:
                 self._in_geom_block = False
