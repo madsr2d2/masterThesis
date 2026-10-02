@@ -5,7 +5,7 @@ Plan: `PLAN_ORCAMON_ACT_GEOMETRY.md`. Branch `master` from `master` (`cf78720`).
 | Task | Status | Commits | Rounds | Note |
 |---|---|---|---|---|
 | AG1 the edit bond rule, element table | DONE | f49d145 | 1 | reviewer PASS; monitor 249, orcamon 263, curve_metrics 0 failure(s); no deviations |
-| AG2 rotate, set dihedral, set distance, bond changes | TODO | | | |
+| AG2 rotate, set dihedral, set distance, bond changes | DONE | 023baff | 1 | reviewer PASS; monitor 260, orcamon 263, curve_metrics 0 failure(s); real-tree check [134,135]/5/[]/(1.971,102,135)/-63.507/5; no deviations |
 | AG3 orcamon edit | TODO | | | |
 | AG4 atom references, orcamon check | TODO | | | |
 | AG5 first geometry, orcamon connectivity | TODO | | | |
@@ -19,6 +19,7 @@ Statuses: TODO | DONE | BLOCKED
 |---|---|---|---|---|
 | baseline | 246 | 263 | 0 failure(s) | 38 gates, 0 failed |
 | after AG1 | 249 | 263 | 0 failure(s) | — |
+| after AG2 | 260 | 263 | 0 failure(s) | — |
 
 ## Gates
 
@@ -27,6 +28,7 @@ Statuses: TODO | DONE | BLOCKED
 ## Log
 
 - 2026-10-02T03:31Z AG1 DONE f49d145 — reviewer PASS r1.
+- 2026-10-02T03:38Z AG2 DONE 023baff — reviewer PASS r1.
 
 ## Backlog
 
