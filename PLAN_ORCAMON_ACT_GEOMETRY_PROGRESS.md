@@ -9,7 +9,7 @@ Plan: `PLAN_ORCAMON_ACT_GEOMETRY.md`. Branch `master` from `master` (`cf78720`).
 | AG3 orcamon edit | DONE | 8849f03 | 1 | reviewer PASS; monitor 260, orcamon 271, curve_metrics 0 failure(s); real-tree 4 commands match; no deviations |
 | AG4 atom references, orcamon check | DONE | e9e5a14 | 1 | reviewer PASS; monitor 263, orcamon 279, curve_metrics 0 failure(s); real tree 6 geometry_file, 1 qm_boundary_h (pc_relax 135 H/19 O 0.91 Å), 66 output_exists; no deviations |
 | AG5 first geometry, orcamon connectivity | DONE | 72ddd1b | 1 | reviewer PASS; monitor 266, orcamon 285, curve_metrics 0 failure(s); real-tree scan/pc/irc_bridge match, optts_freq_tight 143 bonds no change; no deviations |
-| AG6 the workflow in the skill, every gate | TODO | | | |
+| AG6 the workflow in the skill, every gate | DONE | f8dc890 | 1 | reviewer PASS; monitor 266, orcamon 285, curve_metrics 0 failure(s); run_gates 38 gates 0 failed; whole-plan test diff 435 insertions, 0 deletions; no deviations |
 
 Statuses: TODO | DONE | BLOCKED
 
@@ -23,6 +23,7 @@ Statuses: TODO | DONE | BLOCKED
 | after AG3 | 260 | 271 | 0 failure(s) | — |
 | after AG4 | 263 | 279 | 0 failure(s) | — |
 | after AG5 | 266 | 285 | 0 failure(s) | — |
+| after AG6 | 266 | 285 | 0 failure(s) | 38 gates, 0 failed |
 
 ## Gates
 
@@ -35,6 +36,7 @@ Statuses: TODO | DONE | BLOCKED
 - 2026-10-02T06:33Z AG3 DONE 8849f03 — reviewer PASS r1.
 - 2026-10-02T06:44Z AG4 DONE e9e5a14 — reviewer PASS r1.
 - 2026-10-02T06:53Z AG5 DONE 72ddd1b — reviewer PASS r1.
+- 2026-10-02T07:06Z AG6 DONE f8dc890 — reviewer PASS r1; all tasks done, every gate green.
 
 ## Backlog
 
@@ -43,3 +45,4 @@ Statuses: TODO | DONE | BLOCKED
 - AG3: a refused edit's stderr line appears before its stdout lines when both go to one terminal (stream buffering only; no test effect).
 - AG4: `_atom_token` expands a reversed range such as `5:2` to 5,4,3,2 where the plan says `a…b` inclusive (harmless; no real input uses a reversed range).
 - AG4: `check` raises `UsageError` (exit 2) when the input is unreadable, instead of reporting it as a finding (case the plan does not specify).
+- AG6: the plan's verification command `git diff a825532 -- '*test*' --stat` puts `--stat` after `--`, so git reads it as a pathspec; the option must come first (`git diff --stat a825532 -- '*test*'`).
