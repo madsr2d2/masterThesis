@@ -55,6 +55,19 @@ _NPROCS_RE = re.compile(r"\bnprocs\s+(\d+)", re.I)
 _PAL_RE = re.compile(r"^pal(\d+)$", re.I)
 _MAXCORE_RE = re.compile(r"%maxcore\s+(\d+)", re.I)
 
+# Every atom-number syntax an ORCA input uses: a `{...}` group (QMAtoms,
+# ActiveAtoms, Hybrid_Hess, TS_Active_Atoms, Constraints, TS_Mode) and a
+# `%geom Scan` coordinate line (`B 130 129 = 2.4, 1.5, 10`). `check` reads
+# both so a number past the geometry's end is found before the job runs.
+_BRACE_RE = re.compile(r"\{([^{}]*)\}")
+_SCAN_COORD_RE = re.compile(r"^\s*([BAD])\s+(\d+(?:\s+\d+)*)\s*=", re.M)
+_RANGE_RE = re.compile(r"(-?\d+):(-?\d+)")
+_QMATOMS_RE = re.compile(r"qmatoms\s*\{([^}]*)\}", re.I)
+# B, A, C and D name a bond, an angle, a constraint and a dihedral; the number
+# after the letter is how many atoms it takes (`C 0:60 C` is one atom plus a
+# value, `TS_Mode {B 135 128}` is two).
+_GROUP_ARITY = {"B": 2, "A": 3, "D": 4, "C": 1}
+
 
 @dataclass
 class JobInput:
@@ -161,6 +174,85 @@ def _inline_atoms(rest: str) -> list:
         if element and element.upper() not in ("Q", "DA"):
             atoms.append((element.capitalize(), x, y, z))
     return atoms
+
+
+def _atom_token(token: str) -> list[int] | None:
+    """One word of an atom list: an integer, an inclusive range `a:b` (read
+    backwards when written that way), or None when it is neither."""
+    m = _RANGE_RE.fullmatch(token)
+    if m:
+        start, stop = int(m.group(1)), int(m.group(2))
+        step = 1 if start <= stop else -1
+        return list(range(start, stop + step, step))
+    try:
+        return [int(token)]
+    except ValueError:
+        return None
+
+
+def _atoms_of(tokens: list[str]) -> list[int] | None:
+    """Every token expanded, or None when one is neither an integer nor a
+    range: a group that holds a value is not an atom list."""
+    atoms = []
+    for token in tokens:
+        expanded = _atom_token(token)
+        if expanded is None:
+            return None
+        atoms.extend(expanded)
+    return atoms
+
+
+def _reference_atoms(content: str) -> list[int] | None:
+    """The atoms a `{...}` group names, or None when the group is not one.
+
+    A group beginning B, A, D or C is a constraint or a TS mode: the next 2,
+    3, 4 or 1 words are its atoms and the rest are values (`{B 1 2 1.5 C}`,
+    `{D 0 1 2 3 180 C}`). Any other group is an atom list all through and is
+    skipped when a word is not an atom or a range (`{55 ... 129}`)."""
+    tokens = content.replace(",", " ").split()
+    if not tokens:
+        return None
+    arity = _GROUP_ARITY.get(tokens[0].upper())
+    if arity is not None:
+        return _atoms_of(tokens[1:1 + arity]) if len(tokens) > arity else None
+    return _atoms_of(tokens)
+
+
+def atom_references(text: str) -> list[tuple[str, list[int]]]:
+    """Every atom number a `{...}` group or a `%geom Scan` line names, in the
+    order the input writes them, as `(name, atoms)`.
+
+    ORCA hides atom numbers in QMAtoms, ActiveAtoms, Hybrid_Hess,
+    TS_Active_Atoms, Constraints (`{ C 0:60 C}`), TS_Mode (`{B 135 128}`) and
+    the Scan coordinate lines (`B 130 129 = ...`). `check` needs every one:
+    a number past the geometry's end is a job that dies on startup or, worse,
+    optimises something else. A range `a:b` is inclusive; the name is the
+    group as written so a finding can quote it."""
+    text = _COMMENT_RE.sub("", text)
+    found: list[tuple[int, tuple[str, list[int]]]] = []
+    for m in _BRACE_RE.finditer(text):
+        atoms = _reference_atoms(m.group(1))
+        if atoms is not None:
+            found.append((m.start(), (f"{{{m.group(1).strip()}}}", atoms)))
+    for m in _SCAN_COORD_RE.finditer(text):
+        numbers = " ".join(m.group(2).split())
+        found.append((m.start(),
+                      (f"Scan {m.group(1)} {numbers}", [int(t) for t in numbers.split()])))
+    found.sort(key=lambda item: item[0])
+    return [reference for _start, reference in found]
+
+
+def qm_atoms(text: str) -> set | None:
+    """The atoms of the input's first `QMAtoms { ... }`, or None.
+
+    The QM region the INPUT asks for, which is a different set from the one
+    the output prints -- ORCA adds link atoms of its own -- so `check` reads
+    the QM boundary off this one, not off the parsed output."""
+    m = _QMATOMS_RE.search(_COMMENT_RE.sub("", text))
+    if m is None:
+        return None
+    atoms = _atoms_of(m.group(1).replace(",", " ").split())
+    return None if atoms is None else set(atoms)
 
 
 def describe_spin(charge: int | None, mult: int | None) -> str:

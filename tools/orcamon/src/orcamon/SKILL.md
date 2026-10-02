@@ -162,6 +162,14 @@ under 1.7 Å between heavy atoms, 1.4 Å to a hydrogen and 1.0 Å between
 hydrogens, so a hydrogen bond, a long transition-state bond or an ion's
 contact is not one.
 
+`orcamon check JOB` reads a job's input before it runs: the geometry (inline
+or the `*xyzfile`), the whole system's electron count against the
+multiplicity, every atom number the input uses (QM atoms, active atoms,
+constraints, scans, TS modes) against the geometry, the machine's CPUs and
+memory, and an output that a run would overwrite. Exit 1 means an error: fix
+it before running. It does not check the QM region's electrons — they depend
+on the link atoms ORCA creates.
+
 ## Working beside a person
 
 A person may be watching the same jobs in `orcamon tui`, usually in the pane

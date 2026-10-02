@@ -164,6 +164,14 @@ under 1.7 Å between heavy atoms, 1.4 Å to a hydrogen and 1.0 Å between
 hydrogens, so a hydrogen bond, a long transition-state bond or an ion's
 contact is not one.
 
+`orcamon check JOB` reads a job's input before it runs: the geometry (inline
+or the `*xyzfile`), the whole system's electron count against the
+multiplicity, every atom number the input uses (QM atoms, active atoms,
+constraints, scans, TS modes) against the geometry, the machine's CPUs and
+memory, and an output that a run would overwrite. Exit 1 means an error: fix
+it before running. It does not check the QM region's electrons — they depend
+on the link atoms ORCA creates.
+
 ## Working beside a person
 
 A person may be watching the same jobs in `orcamon tui`, usually in the pane
@@ -304,6 +312,14 @@ write a changed copy of a geometry: rotate a bond, set a dihedral or a distance
 - `--point N`: a point on an IRC or NEB path: the signed IRC point (0 is the TS, negative is backward) or the NEB image
 - `--json`: print one JSON document instead of text
 
+### orcamon check
+
+what in a job's input would fail or mislead before it runs
+
+- `JOB`: a job directory, a .inp/.out file, or (part of) a job's label
+- `--json`: print one JSON document instead of text
+- `--max-lines N`: cap on text output lines (default: 60)
+
 ### orcamon view
 
 what the person's orcamon TUI shows: job, geometry, picked atoms
@@ -404,7 +420,7 @@ print the agent skill, or install it for Claude Code
 ### Exit codes
 
 - `0`: success; for show and wait, the job is not failed or stopped
-- `1`: the command worked and the job (for ls: any listed job) is failed or stopped
+- `1`: the command worked and the job (for ls: any listed job) is failed or stopped, or (check) the input has an error
 - `2`: usage error, a job not found or ambiguous, or (view, focus) no TUI running
 - `4`: wait timed out, or focus was not taken by the TUI in time
 - `130`: interrupted (Ctrl-C)

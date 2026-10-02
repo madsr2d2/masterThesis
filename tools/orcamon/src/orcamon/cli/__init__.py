@@ -7,8 +7,9 @@
 
 Every command takes `--json` and prints one JSON document; without it, plain
 text of at most `--max-lines` lines. Exit status: 0 success, 1 the job (or,
-for `ls`, any listed job) is failed or stopped, 2 usage error, no such job or
-no running TUI, 4 `wait` timed out or `focus` not taken, 130 interrupted.
+for `ls`, any listed job) is failed or stopped, or (check) the input has an
+error, 2 usage error, no such job or no running TUI, 4 `wait` timed out or
+`focus` not taken, 130 interrupted.
 """
 from __future__ import annotations
 
@@ -26,7 +27,8 @@ TUI_MISSING = "the TUI needs the tui extra: uv tool install 'orcamon[tui]'"
 EXIT_OK, EXIT_JOB_BAD, EXIT_USAGE, EXIT_TIMEOUT, EXIT_INTERRUPTED = 0, 1, 2, 4, 130
 EXIT_CODES = (
     (EXIT_OK, "success; for show and wait, the job is not failed or stopped"),
-    (EXIT_JOB_BAD, "the command worked and the job (for ls: any listed job) is failed or stopped"),
+    (EXIT_JOB_BAD, "the command worked and the job (for ls: any listed job) is failed or stopped, "
+                   "or (check) the input has an error"),
     (EXIT_USAGE, "usage error, a job not found or ambiguous, or (view, focus) no TUI running"),
     (EXIT_TIMEOUT, "wait timed out, or focus was not taken by the TUI in time"),
     (EXIT_INTERRUPTED, "interrupted (Ctrl-C)"),
@@ -161,6 +163,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a point on an IRC or NEB path: the signed IRC point (0 is the TS, "
                         "negative is backward) or the NEB image")
     _output(p, lines=False)
+
+    p = add("check", "what in a job's input would fail or mislead before it runs",
+            "orcamon check opt/ts", commands.cmd_check)
+    _job(p)
+    _output(p)
 
     p = add("view", "what the person's orcamon TUI shows: job, geometry, picked atoms",
             "orcamon view --json", commands.cmd_view)

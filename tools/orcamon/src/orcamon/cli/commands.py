@@ -19,7 +19,7 @@ from collections import deque
 from pathlib import Path
 
 from .. import __version__  # noqa: F401 -- `orcamon --version` reads it here
-from ..core import cache, edit, paths, steer
+from ..core import cache, edit, inputcheck, paths, steer
 from ..core.discovery import JobRef, discover
 from ..core.geometry import View, _check_in_range, measure, measurement_text, parse_atom_list
 from ..core.job import Job
@@ -684,6 +684,40 @@ def cmd_edit(args, job: Job) -> int:
     else:
         sys.stdout.write("\n".join([*lines, f"wrote {args.output} ({n} atoms)"]) + "\n")
     return EXIT_OK
+
+
+# --- check ------------------------------------------------------------------
+
+
+@_with_job
+def cmd_check(args, job: Job) -> int:
+    """What in the input would fail or mislead before it runs (D6): the
+    geometry the atom checks need, the whole system's electron count against
+    its multiplicity, every atom number the input names, this machine's CPUs
+    and memory, and an output a re-run would overwrite. Exit 1 on an error;
+    a warning is not one, because ORCA would still start."""
+    if job.input is None:
+        raise UsageError(f"no readable input: {job.inp_path}")
+    result = inputcheck.check_input(job)
+    if args.json:
+        _emit_json({
+            "job": job.label, "atoms": result.atoms, "electrons": result.electrons,
+            "charge": result.charge, "mult": result.mult,
+            "errors": [{"code": f.code, "message": f.message} for f in result.errors],
+            "warnings": [{"code": f.code, "message": f.message} for f in result.warnings],
+        })
+        return EXIT_JOB_BAD if result.errors else EXIT_OK
+    for finding in result.errors:
+        print(f"error: {finding.message}")
+    for finding in result.warnings:
+        print(f"warning: {finding.message}")
+    if result.atoms is not None and result.electrons is not None:
+        detail = (f"{result.atoms} atoms, {result.electrons} electrons, "
+                  f"charge {result.charge}, multiplicity {result.mult}")
+    else:
+        detail = "atoms not read"
+    print(f"{len(result.errors)} error(s), {len(result.warnings)} warning(s) · {detail}")
+    return EXIT_JOB_BAD if result.errors else EXIT_OK
 
 
 # --- view -------------------------------------------------------------------

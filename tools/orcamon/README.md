@@ -75,7 +75,7 @@ An IRC direction that stopped at MaxIter before reaching a minimum raises
 | code | meaning |
 |---|---|
 | 0 | success; for `show` and `wait`, the job is not failed or stopped |
-| 1 | the command worked, and the job (for `ls`: any listed job) is failed or stopped |
+| 1 | the command worked, and the job (for `ls`: any listed job) is failed or stopped, or (`check`) the input has an error |
 | 2 | usage error, a job not found or ambiguous, or (view, focus) no TUI running |
 | 4 | wait timed out, or focus was not taken by the TUI in time |
 | 130 | interrupted |
@@ -229,6 +229,14 @@ under 1.7 Å between heavy atoms, 1.4 Å to a hydrogen and 1.0 Å between
 hydrogens, so a hydrogen bond, a long transition-state bond or an ion's
 contact is not one.
 
+`orcamon check JOB` reads a job's input before it runs: the geometry (inline
+or the `*xyzfile`), the whole system's electron count against the
+multiplicity, every atom number the input uses (QM atoms, active atoms,
+constraints, scans, TS modes) against the geometry, the machine's CPUs and
+memory, and an output that a run would overwrite. Exit 1 means an error: fix
+it before running. It does not check the QM region's electrons — they depend
+on the link atoms ORCA creates.
+
 ## State cache
 
 Parsed state is kept in `$XDG_CACHE_HOME/orcamon/` (default
@@ -273,8 +281,9 @@ usage: orcamon [-h] [--version] [--root DIR] [--liveness {auto,process,slurm,mti
 
 Every command takes `--json` and prints one JSON document; without it, plain
 text of at most `--max-lines` lines. Exit status: 0 success, 1 the job (or,
-for `ls`, any listed job) is failed or stopped, 2 usage error, no such job or
-no running TUI, 4 `wait` timed out or `focus` not taken, 130 interrupted.
+for `ls`, any listed job) is failed or stopped, or (check) the input has an
+error, 2 usage error, no such job or no running TUI, 4 `wait` timed out or
+`focus` not taken, 130 interrupted.
 
 positional arguments:
   COMMAND
@@ -288,6 +297,7 @@ positional arguments:
                         geometry
     edit                write a changed copy of a geometry: rotate a bond, set a
                         dihedral or a distance
+    check               what in a job's input would fail or mislead before it runs
     view                what the person's orcamon TUI shows: job, geometry, picked atoms
     focus               show a job in the person's orcamon TUI: a geometry, picked
                         atoms, a mode
@@ -579,6 +589,33 @@ options:
   --point N             a point on an IRC or NEB path: the signed IRC point (0 is the
                         TS, negative is backward) or the NEB image
   --json                print one JSON document instead of text
+```
+
+### `orcamon check`
+
+```
+usage: orcamon check [-h] [--root DIR] [--liveness {auto,process,slurm,mtime}]
+                     [--quiet-after S] [--no-cache] [--json] [--max-lines N]
+                     JOB
+
+what in a job's input would fail or mislead before it runs
+
+example: orcamon check opt/ts
+
+positional arguments:
+  JOB                   a job directory, a .inp/.out file, or (part of) a job's label
+
+options:
+  -h, --help            show this help message and exit
+  --root DIR            where jobs are looked for (default: $ORCAMON_ROOT or .)
+  --liveness {auto,process,slurm,mtime}
+                        how a job is known to be running (default: auto)
+  --quiet-after S       seconds without output before a job of unknown liveness is
+                        called quiet (default: 1800)
+  --no-cache            parse every output from scratch; neither read nor write the
+                        state cache
+  --json                print one JSON document instead of text
+  --max-lines N         cap on text output lines (default: 60)
 ```
 
 ### `orcamon view`

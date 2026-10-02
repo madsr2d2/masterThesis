@@ -2379,6 +2379,23 @@ def test_edits_move_one_side_and_report_contacts():
           and broken == [] and bonds_after == 5)
 
 
+def test_the_input_names_every_atom_it_uses():
+    print("\nthe atom numbers an input uses are read from every syntax")
+    from orcamon.core.orca_input import atom_references, qm_atoms
+
+    text = "! QM/XTB B97-3c OptTS\n# {99} in a comment\n%qmmm\n  QMATOMS\n    {0:2 5}\n  END\n  ActiveAtoms {0:9} end\nend\n%geom\n  TS_Mode {B 4 5} end\n  Constraints\n    { C 0:3 C }\n    { B 1 2 1.5 C }\n    { D 0 1 2 3 180 C }\n  end\n  Scan\n    B 1 2 = 1.0, 2.0, 5\n  end\nend\n* xyzfile 0 1 x.xyz\n"
+    check("every brace group and Scan line names its atoms, comments dropped",
+          atom_references(text) == [("{0:2 5}", [0, 1, 2, 5]), ("{0:9}", list(range(10))),
+                                    ("{B 4 5}", [4, 5]), ("{C 0:3 C}", [0, 1, 2, 3]),
+                                    ("{B 1 2 1.5 C}", [1, 2]), ("{D 0 1 2 3 180 C}", [0, 1, 2, 3]),
+                                    ("Scan B 1 2", [1, 2])],
+          f"{atom_references(text)}")
+    check("the QM region is the first QMAtoms brace group, expanded",
+          qm_atoms(text) == {0, 1, 2, 5}, f"{qm_atoms(text)}")
+    check("a geometry line with no atom list has no references",
+          atom_references("* xyz 0 1\n*\n") == [])
+
+
 if __name__ == "__main__":
     test_a_multilayer_energy_is_the_total()
     test_a_scan_is_keyed_by_step_and_cycle()
@@ -2439,6 +2456,7 @@ if __name__ == "__main__":
     test_a_followed_path_point_is_addressed()
     test_the_edit_bond_rule()
     test_edits_move_one_side_and_report_contacts()
+    test_the_input_names_every_atom_it_uses()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)

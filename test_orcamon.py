@@ -2218,6 +2218,81 @@ def test_edit_writes_a_checked_geometry():
               f"{code} {(out_text + err)!r}")
 
 
+def test_check_finds_what_would_fail():
+    print("\ncheck: the input faults that would waste a run, before it runs")
+    import tempfile
+    from pathlib import Path
+
+    water = "O 0.0 0.0 0.0\nH 0.96 0.0 0.0\nH -0.24 0.93 0.0\n"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        argv = ["--root", str(root), "--liveness", "mtime", "--no-cache"]
+
+        def draft(name, body, out=False):
+            d = root / name
+            d.mkdir()
+            (d / "job.inp").write_text(body)
+            if out:
+                (d / "job.out").write_text("")
+
+        draft("water", "! B97-3c Opt\n* xyz 0 1\n" + water + "*\n")
+        code, out_text, err = _orcamon([*argv, "check", "water"])
+        check("a clean input exits 0 and counts the whole system",
+              code == 0 and out_text.splitlines()[-1]
+              == "0 error(s), 0 warning(s) · 3 atoms, 10 electrons, charge 0, multiplicity 1",
+              f"{code} {(out_text + err)!r}")
+
+        draft("doublet", "! B97-3c Opt\n* xyz 0 2\n" + water + "*\n")
+        code, out_text, err = _orcamon([*argv, "check", "doublet"])
+        check("an even electron count cannot have an odd multiplicity",
+              code == 1 and "error: 10 electrons cannot have multiplicity 2: "
+                            "it needs an odd number" in out_text,
+              f"{code} {(out_text + err)!r}")
+
+        draft("scan", "! B97-3c Opt\n%geom\n  Scan\n    B 0 5 = 1.0, 2.0, 3\n  end\nend\n"
+                      "* xyz 0 1\n" + water + "*\n")
+        code, out_text, err = _orcamon([*argv, "check", "scan"])
+        check("an atom number past the geometry names the group it came from",
+              code == 1 and "error: atom 5 in `Scan B 0 5` is out of range: "
+                            "the geometry has 3 atoms (0-2)" in out_text,
+              f"{code} {(out_text + err)!r}")
+
+        draft("missing", "! B97-3c Opt\n* xyzfile 0 1 missing.xyz\n")
+        code, out_text, err = _orcamon([*argv, "check", "missing"])
+        check("a geometry file that is not there is an error, not a silent skip",
+              code == 1 and "error: missing.xyz: missing or not an XYZ file" in out_text,
+              f"{code} {(out_text + err)!r}")
+
+        draft("pal", "! B97-3c Opt\n%pal nprocs 100000 end\n* xyz 0 1\n" + water + "*\n")
+        code, out_text, err = _orcamon([*argv, "check", "pal"])
+        check("more processes than this machine has is a warning, not an error",
+              code == 0 and any("warning:" in line
+                                and "nprocs 100000 is more than this machine's" in line
+                                for line in out_text.splitlines()),
+              f"{code} {(out_text + err)!r}")
+
+        draft("again", "! B97-3c Opt\n* xyz 0 1\n" + water + "*\n", out=True)
+        code, doc, err = _json([*argv, "check", "again"])
+        check("an output a run would overwrite is reported in the JSON",
+              code == 0 and doc is not None and {"code": "output_exists",
+                  "message": "job.out exists: running this job again overwrites it"}
+              in doc["warnings"], f"{code} {doc} {err}")
+
+        draft("boundary", "! QM/XTB B97-3c Opt\n%qmmm\n  QMAtoms {0 1} end\n"
+                          "  Charge_Total 0\n  Mult_Total 1\nend\n* xyz 0 1\n" + water + "*\n")
+        code, out_text, err = _orcamon([*argv, "check", "boundary"])
+        check("a bond to a hydrogen across the QM boundary is named",
+              code == 0 and "warning: QM atom 0 O is 0.96 Å from environment atom 2 H: "
+                            "a bond to hydrogen crosses the QM boundary" in out_text,
+              f"{code} {(out_text + err)!r}")
+
+        code, doc, err = _json([*argv, "check", "doublet"])
+        check("--json reports the parity code and the electron count",
+              doc is not None and code == 1 and doc["errors"][0]["code"] == "parity"
+              and doc["electrons"] == 10, f"{code} {doc} {err}")
+
+
 def test_slurm_names_what_the_login_node_cannot_see():
     print("\nSLURM: squeue's view of a job, and the fallbacks when it has none")
     import stat
@@ -2575,6 +2650,7 @@ if __name__ == "__main__":
     test_b_does_not_leave_the_agents_mode_running()
     test_the_tui_picks_atoms_by_click()
     test_edit_writes_a_checked_geometry()
+    test_check_finds_what_would_fail()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
     test_liveness_names_the_job_not_only_the_directory()
