@@ -264,6 +264,13 @@ would run, starting nothing. An ORCA that dies within its first seconds is
 reported at once (exit 1) with the output's last lines. On a cluster's login
 node it refuses: `run` does not submit to a queue.
 
+`orcamon stop JOB` ends that job's ORCA run on this machine: the `orca` driver
+running that job's input and its whole process tree, and nothing else on the
+machine. It sends SIGTERM, waits `--grace` seconds (default 10), then SIGKILLs
+anything still alive; `stop --json` reports which pids were terminated and
+which needed SIGKILL. A job SLURM runs is refused with the `scancel` command
+to use instead, since its processes are not on this node for `stop` to find.
+
 ## State cache
 
 Parsed state is kept in `$XDG_CACHE_HOME/orcamon/` (default
@@ -327,6 +334,7 @@ positional arguments:
     check               what in a job's input would fail or mislead before it runs
     connectivity        the bonds a run formed and broke
     run                 start ORCA on a job on this machine, after checking it
+    stop                stop a job's ORCA run on this machine: its whole process tree
     view                what the person's orcamon TUI shows: job, geometry, picked atoms
     focus               show a job in the person's orcamon TUI: a geometry, picked
                         atoms, a mode
@@ -710,6 +718,33 @@ options:
   --dry-run             check everything and say what would run; start nothing
   --settle S            seconds to watch for ORCA exiting at once (default: 3.0)
   --no-focus            do not show the started job in the person's TUI
+  --json                print one JSON document instead of text
+```
+
+### `orcamon stop`
+
+```
+usage: orcamon stop [-h] [--root DIR] [--liveness {auto,process,slurm,mtime}]
+                    [--quiet-after S] [--no-cache] [--grace S] [--json]
+                    JOB
+
+stop a job's ORCA run on this machine: its whole process tree
+
+example: orcamon stop opt/ts
+
+positional arguments:
+  JOB                   a job directory, a .inp/.out file, or (part of) a job's label
+
+options:
+  -h, --help            show this help message and exit
+  --root DIR            where jobs are looked for (default: $ORCAMON_ROOT or .)
+  --liveness {auto,process,slurm,mtime}
+                        how a job is known to be running (default: auto)
+  --quiet-after S       seconds without output before a job of unknown liveness is
+                        called quiet (default: 1800)
+  --no-cache            parse every output from scratch; neither read nor write the
+                        state cache
+  --grace S             seconds between SIGTERM and SIGKILL (default: 10.0)
   --json                print one JSON document instead of text
 ```
 

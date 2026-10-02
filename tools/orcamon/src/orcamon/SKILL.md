@@ -231,8 +231,10 @@ show it. The person can press `b` to go back.
   start it.
 - Only `orcamon tui` needs a terminal; every other command runs as it is from
   an agent's shell, with no special environment.
-- Never kill, signal, edit or resubmit a running job on your own initiative.
-  orcamon never changes a job: it reads, and `orcamon focus` only moves what
-  the person's TUI shows.
+- Start a job with `orcamon run` and stop one with `orcamon stop` only when
+  the person has asked for that job. Never kill, signal, edit or resubmit a
+  running job any other way. `orcamon stop JOB` ends the job's whole ORCA
+  process tree on this machine — SIGTERM, then SIGKILL after `--grace`
+  seconds — and nothing else; a job SLURM runs is stopped with `scancel`.
 - `orcamon skill --check` says whether this copy of the skill matches the
   installed orcamon; if it is stale, `orcamon skill install` refreshes it.

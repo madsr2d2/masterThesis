@@ -887,6 +887,40 @@ def cmd_run(args, job: Job) -> int:
     return EXIT_OK
 
 
+# --- stop -------------------------------------------------------------------
+
+
+@_with_job
+def cmd_stop(args, job: Job) -> int:
+    """End a job's ORCA run on this machine (D7): the `orca` driver running
+    that job's input and its whole process tree, and nothing else -- SIGTERM
+    to all of them, then SIGKILL to whatever outlives `--grace` seconds. A
+    job SLURM runs is refused with the `scancel` command to use instead: its
+    processes are not on this node for `stop` to find."""
+    if job.liveness is not None and job.liveness.source == "slurm" and job.liveness.sched_id:
+        raise UsageError(f"{job.label} runs under SLURM as job {job.liveness.sched_id}: "
+                         f"stop it with scancel {job.liveness.sched_id}")
+    roots = runner.driver_pids(job.state.path, job.state.stem)
+    if not roots:
+        raise UsageError(f"{job.label} is not running: no ORCA in {job.state.path} "
+                         f"names {job.state.stem}.inp")
+    try:
+        terminated, killed = runner.stop_tree(roots, args.grace)
+    except runner.RunError as exc:
+        raise UsageError(str(exc)) from None
+    if args.json:
+        _emit_json({"job": job.label, "terminated": terminated, "killed": killed})
+        return EXIT_OK
+    n = len(terminated)
+    print(f"stopped {job.label}: SIGTERM to {n} process{'es' if n != 1 else ''} "
+          f"({', '.join(map(str, terminated))})")
+    if killed:
+        m = len(killed)
+        print(f"SIGKILL to {m} that outlived {args.grace:g} s "
+              f"({', '.join(map(str, killed))})")
+    return EXIT_OK
+
+
 # --- view -------------------------------------------------------------------
 
 

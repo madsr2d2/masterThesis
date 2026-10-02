@@ -196,6 +196,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="do not show the started job in the person's TUI")
     _output(p, lines=False)
 
+    p = add("stop", "stop a job's ORCA run on this machine: its whole process tree",
+            "orcamon stop opt/ts", commands.cmd_stop)
+    _job(p)
+    p.add_argument("--grace", type=float, default=10.0, metavar="S",
+                   help="seconds between SIGTERM and SIGKILL (default: %(default)s)")
+    _output(p, lines=False)
+
     p = add("view", "what the person's orcamon TUI shows: job, geometry, picked atoms",
             "orcamon view --json", commands.cmd_view)
     _output(p)

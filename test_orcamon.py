@@ -2673,6 +2673,84 @@ def test_run_starts_orca_only_when_it_should():
                 runner.stop_tree(still, 1.0)
 
 
+def test_stop_ends_the_whole_run():
+    print("\nstop: ends the job's whole tree, gently first, and nothing else")
+    import tempfile
+    from pathlib import Path
+
+    from orcamon.core import runner
+
+    started = []
+    with tempfile.TemporaryDirectory(prefix="orcamon_cli_stop_") as tmp:
+        root = Path(tmp)
+        try:
+            fake = _fake_orca(root / "orca_bin")
+            water = "O 0.0 0.0 0.0\nH 0.96 0.0 0.0\nH -0.24 0.93 0.0\n"
+
+            def draft(name, first=""):
+                d = root / name
+                d.mkdir()
+                (d / "job.inp").write_text(
+                    first + "! B97-3c Opt\n* xyz 0 1\n" + water + "*\n")
+                return d
+
+            draft("water")
+            draft("stubborn", first="# FAKE_STUBBORN\n")
+            base = ["--root", str(root), "--liveness", "process", "--no-cache"]
+
+            def run(*argv):
+                return _orcamon([*base, "run", *argv, "--orca", str(fake),
+                                 "--settle", "0.5", "--local"])
+
+            def pid_of(text):
+                first = text.splitlines()[0] if text else ""
+                return int(first.split("pid ", 1)[1].split(",", 1)[0]) if "pid " in first else 0
+
+            code, out, err = run("water")
+            pid = pid_of(out)
+            started.append(pid)
+            children = runner.descendants(pid)
+            code2, out2, err2 = _orcamon([*base, "stop", "water", "--grace", "2"])
+            check("stop water takes the driver and its sleep child and says so",
+                  code == 0 and code2 == 0
+                  and (out2.splitlines() or [""])[0].startswith(
+                      "stopped water: SIGTERM to 2 processes (")
+                  and len(children) == 1
+                  and not runner.alive(pid) and not runner.alive(children[0]),
+                  f"{code} {out!r} {err!r} | {code2} {out2!r} {err2!r} children={children}")
+
+            code, out, err = _orcamon([*base, "stop", "water"])
+            check("a second stop says there is no ORCA of that job running",
+                  code == 2 and "water is not running: no ORCA in" in err
+                  and "names job.inp" in err,
+                  f"{code} {out!r} {err!r}")
+
+            code, out, err = run("stubborn")
+            pid = pid_of(out)
+            started.append(pid)
+            code2, doc, err2 = _json([*base, "stop", "stubborn", "--grace", "0.5"])
+            doc = doc or {}
+            terminated = doc.get("terminated") or []
+            killed = doc.get("killed") or []
+            check("stop --json reports what SIGTERM ended and what needed SIGKILL",
+                  code == 0 and code2 == 0 and len(terminated) == 2 and len(killed) == 2
+                  and not any(runner.alive(p) for p in terminated),
+                  f"{code} {out!r} {err!r} | {code2} {doc} {err2!r}")
+
+            from orcamon.cli import skill
+            body = skill.body()
+            check("the skill names run and stop, and no longer forbids stopping "
+                  "on your own initiative",
+                  "`orcamon run`" in body and "`orcamon stop`" in body
+                  and "Never kill, signal, edit or resubmit a running job on your own initiative."
+                  not in body,
+                  f"run={'`orcamon run`' in body} stop={'`orcamon stop`' in body}")
+        finally:
+            still = [p for p in started if p and runner.alive(p)]
+            if still:
+                runner.stop_tree(still, 1.0)
+
+
 def test_slurm_names_what_the_login_node_cannot_see():
     print("\nSLURM: squeue's view of a job, and the fallbacks when it has none")
     import stat
@@ -3034,6 +3112,7 @@ if __name__ == "__main__":
     test_connectivity_names_bonds_made_and_broken()
     test_the_runner_finds_orca_and_stops_what_it_started()
     test_run_starts_orca_only_when_it_should()
+    test_stop_ends_the_whole_run()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
     test_liveness_names_the_job_not_only_the_directory()
