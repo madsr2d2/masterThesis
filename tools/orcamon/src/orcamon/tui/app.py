@@ -768,6 +768,14 @@ class RotatableGeometryImage(Widget):
                 return True
         return False
 
+    def clear_mode(self) -> None:
+        """Stop animating a mode, as the `i` and `I` cycles do after their
+        last one."""
+        self._stop_modes()
+        self._mode_alternates = []
+        self._input.request()
+        self.app.update_detail()
+
     def _start_modes(self) -> None:
         # A cycle from one mode straight to the next must not leave the
         # previous mode's timer running: two ticks per frame, and only the
@@ -1510,6 +1518,8 @@ class MonitorApp(App):
         geometry.set_selection(selection)
         if mode is not None:
             geometry.show_mode(mode)
+        else:
+            geometry.clear_mode()
 
     def _select_label(self, label: str) -> None:
         """Show `label`'s job, moving the table cursor to its row: the agent

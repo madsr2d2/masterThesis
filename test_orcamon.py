@@ -1974,6 +1974,87 @@ def test_the_tui_takes_the_agents_focus():
                 os.environ["XDG_STATE_HOME"] = saved
 
 
+def test_b_does_not_leave_the_agents_mode_running():
+    print("\nb stops a mode the agent started when no mode ran before the focus")
+    import asyncio
+    import tempfile
+    import time as _time
+    from pathlib import Path
+
+    from orcamon.tui.app import MonitorApp
+    from test_monitor import _MODE_FREQS, _MODE_VECTORS
+
+    async def drive(root):
+        app = MonitorApp(root, liveness="mtime", graphics="text", notify_mode="off")
+        async with app.run_test(size=(180, 50)) as pilot:
+            geometry = app.query_one("#geometry")
+            cli = lambda *a: _orcamon(["--root", str(root), "--liveness", "mtime",
+                                       "--no-cache", *a])
+            title = lambda: geometry.border_title
+
+            async def until(cond, seconds):
+                deadline = _time.monotonic() + seconds
+                while not cond() and _time.monotonic() < deadline:
+                    await pilot.pause(0.1)
+                return cond()
+
+            deadline = _time.monotonic() + 5
+            while not (app.jobs and all(j.parsed for j in app.jobs)
+                       and geometry._job is not None
+                       and geometry._job.label == "modes_all") and _time.monotonic() < deadline:
+                await pilot.pause(0.05)
+
+            code, out, err = cli("focus", "modes_all", "--atoms", "1,0", "--mode", "5",
+                                 "--timeout", "0")
+            check("focus starts the agent's mode 5 on the picked atoms",
+                  code == 0 and await until(
+                      lambda: geometry.mode_index == 5 and geometry.selection == (1, 0), 3),
+                  f"{code} {geometry.mode_index} {geometry.selection} {out!r} {err!r}")
+
+            await pilot.press("b")
+            await pilot.pause(0.4)
+            check("b stops the agent's mode: no mode, no selection, no cm-1 in the title",
+                  geometry.mode_index is None and geometry.selection == ()
+                  and "cm-1" not in title(),
+                  f"{geometry.mode_index} {geometry.selection} {title()!r}")
+
+            geometry.focus()
+            await pilot.press("i")
+            await pilot.pause(0.2)
+            person = geometry.mode_index
+            code, out, err = cli("focus", "modes_all", "--mode", "5", "--timeout", "0")
+            check("with the person's own mode 3 running, focus starts mode 5",
+                  person == 3 and code == 0 and await until(
+                      lambda: geometry.mode_index == 5, 3),
+                  f"{person} {code} {geometry.mode_index} {out!r} {err!r}")
+
+            await pilot.press("b")
+            await pilot.pause(0.4)
+            check("b returns to the person's own mode 3, title and all",
+                  geometry.mode_index == 3
+                  and "mode 3 -150.0 cm-1 (1/1)" in title(),
+                  f"{geometry.mode_index} {title()!r}")
+
+    saved = os.environ.get("XDG_STATE_HOME")
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["XDG_STATE_HOME"] = tmp
+        try:
+            root = Path(tmp) / "tree"
+            root.mkdir()
+            job_dir = root / "modes_all"
+            job_dir.mkdir()
+            (job_dir / "job.inp").write_text(_OPT_FREQ)
+            (job_dir / "job.out").write_text(
+                _opt(2, [-80.00, -80.10]) + _CONVERGED + "\n"
+                + _freqs(_MODE_FREQS) + _normal_modes(_MODE_VECTORS) + _DONE + "\n")
+            asyncio.run(drive(root))
+        finally:
+            if saved is None:
+                os.environ.pop("XDG_STATE_HOME", None)
+            else:
+                os.environ["XDG_STATE_HOME"] = saved
+
+
 def test_the_tui_picks_atoms_by_click():
     print("\na click in the geometry pane toggles the atom under it")
     import asyncio
@@ -2390,6 +2471,7 @@ if __name__ == "__main__":
     test_the_tui_publishes_the_numbering_it_shows()
     test_focus_waits_for_the_tui_to_take_it()
     test_the_tui_takes_the_agents_focus()
+    test_b_does_not_leave_the_agents_mode_running()
     test_the_tui_picks_atoms_by_click()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
