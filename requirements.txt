@@ -30,20 +30,9 @@ xlrd==2.0.2
 # gate and rebuilds every page.
 matplotlib==3.11.1
 
-# tools/orcamon/ -- the ORCA job monitor: a TUI for people and `orcamon
-# <command>` for agents, installed editable from this tree. Its core and CLI
-# are standard library only; the `tui` extra brings textual (the terminal UI
-# toolkit) and plotext/textual-plotext (the convergence chart), `images` the
-# matplotlib/numpy/pillow the pixel geometry renders with. The geometry
-# panel's pixel graphics are hand-rolled (herdr's own pane.graphics API under
-# herdr; raw Kitty protocol, absolute placement, outside it) -- no
-# image-widget library needed for either path. psutil is no longer needed:
-# liveness is read from /proc. The pins below hold the extras to the
-# versions the monitor was tested with.
--e ./tools/orcamon[tui,images]
-textual==8.2.8
-plotext==5.3.2
-textual-plotext==1.0.1
+# orcamon, the ORCA job monitor, is not installed here: it has its own
+# repository (github.com/madsr2d2/orcamon) and its own venv, and `orcamon` is
+# on PATH. Nothing in this repository imports it.
 
 # computational/orca_io.py -- ORCA's own Python interface, which reads a job
 # through the structured property JSON `orca_2json` writes rather than the

@@ -231,9 +231,9 @@ overwriting `job.inp` in place.
 ## While a job runs
 
 Checking on a job, triaging one or waiting for it belongs to the **orcamon**
-skill, not this one. Here the command is `.venv/bin/orcamon`, because the
-venv is not on PATH. `.venv/bin/orcamon tui computational/` is the live view
-for a person.
+skill, not this one. orcamon has its own repository and venv
+(`~/dev/orcamon`) and is on PATH as `orcamon`; `orcamon tui computational/`
+is the live view for a person.
 
 orcamon reads the live log, so its numbers are for monitoring and triage.
 A number this thesis quotes comes from `orca_io` on the finished job (above),
