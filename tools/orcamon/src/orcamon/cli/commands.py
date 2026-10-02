@@ -12,6 +12,7 @@ import json
 import math
 import os
 import re
+import shutil
 import signal
 import sys
 import time
@@ -19,7 +20,7 @@ from collections import deque
 from pathlib import Path
 
 from .. import __version__  # noqa: F401 -- `orcamon --version` reads it here
-from ..core import cache, edit, inputcheck, paths, steer
+from ..core import cache, edit, inputcheck, paths, runner, steer
 from ..core.discovery import JobRef, discover
 from ..core.geometry import View, _check_in_range, measure, measurement_text, parse_atom_list
 from ..core.job import Job
@@ -774,6 +775,118 @@ def cmd_connectivity(args, job: Job) -> int:
     return _job_exit(job)
 
 
+# --- run --------------------------------------------------------------------
+
+
+def _first_free_output(out_path: Path, stem: str) -> int:
+    """The first free `<stem>.out.N` (D3): the keepsake name a rerun leaves
+    the old output under is itself never overwritten."""
+    n = 1
+    while out_path.with_name(f"{stem}.out.{n}").exists():
+        n += 1
+    return n
+
+
+@_with_job
+def cmd_run(args, job: Job) -> int:
+    """Start ORCA on this machine (D3, D4). Every refusal comes before
+    anything is written, so the job's directory is untouched unless the run
+    actually starts: a login node, no ORCA, a job already running, an input
+    with errors, `nprocs` above 1 with no `mpirun`, or an output that is
+    already there. `--rerun` keeps the old output as `<stem>.out.N`;
+    `--dry-run` makes every check and starts nothing. The process is detached
+    from this shell, and an ORCA that dies within `--settle` seconds is
+    reported with its output's tail and exit 1."""
+    if not args.local:
+        login = runner.slurm_login_node()
+        if login is not None:
+            raise UsageError(login)
+    try:
+        orca = runner.find_orca(args.orca)
+    except runner.RunError as exc:
+        raise UsageError(str(exc)) from None
+    if (job.liveness is not None and (job.liveness.alive is True or job.liveness.queued)) \
+            or runner.driver_pids(job.state.path, job.state.stem):
+        raise UsageError(f"{job.label} is already running: orcamon stop it first, "
+                         "if the person asks")
+    if job.input is None:
+        raise UsageError(f"no readable input: {job.inp_path}")
+
+    result = inputcheck.check_input(job)
+    for finding in result.errors:
+        print(f"error: {finding.message}")
+    if result.errors:
+        n = len(result.errors)
+        raise UsageError(f"the input has {n} error{'s' if n != 1 else ''}: "
+                         f"fix them before running (orcamon check {job.label})")
+    warnings = [f for f in result.warnings if f.code != "output_exists"]
+    nprocs = job.input.nprocs or 1
+    if nprocs > 1 and shutil.which("mpirun") is None:
+        raise UsageError(f"nprocs {nprocs} needs mpirun on PATH: "
+                         "ORCA runs its parallel modules through it")
+
+    stem = job.state.stem
+    free = previous = None
+    if job.out_path.exists():
+        free = _first_free_output(job.out_path, stem)
+        if not args.rerun:
+            raise UsageError(f"{stem}.out exists: --rerun moves it to "
+                             f"{stem}.out.{free} and runs again")
+        previous = str(job.out_path.with_name(f"{stem}.out.{free}"))
+
+    doc = {
+        "job": job.label, "dry_run": bool(args.dry_run), "orca": str(orca),
+        "output": str(job.out_path), "previous_output": previous,
+        "pid": None, "exited": None, "tail": [],
+        "warnings": [{"code": f.code, "message": f.message} for f in warnings],
+        "focus_queued": False,
+    }
+    if not args.json:
+        for finding in warnings:
+            print(f"warning: {finding.message}")
+
+    if args.dry_run:
+        if args.json:
+            _emit_json(doc)
+        else:
+            if previous is not None:
+                print(f"would move {stem}.out to {stem}.out.{free}")
+            print(f"would start: {orca} {stem}.inp in {job.state.path}")
+        return EXIT_OK
+
+    if previous is not None:
+        os.replace(job.out_path, previous)
+
+    pid, code, tail = runner.start_orca(orca, job.state.path, stem, args.settle)
+    doc["tail"] = tail
+    if code is not None:
+        doc["exited"] = code
+        if args.json:
+            _emit_json(doc)
+        else:
+            for line in tail:
+                print(line)
+        print(f"orcamon: ORCA exited with status {code} within {args.settle:g} s; "
+              "the output's last lines are above", file=sys.stderr)
+        return EXIT_JOB_BAD
+
+    doc["pid"] = pid
+    if not args.json:
+        print(f"started {job.label}: pid {pid}, {orca} {stem}.inp, output {job.out_path}")
+    if not args.no_focus:
+        view = steer.current_view()
+        if view is not None:
+            file = job.inp_path.resolve()
+            if file.is_relative_to(Path(view["root"])):
+                _queue_focus(view, file)
+                doc["focus_queued"] = True
+                if not args.json:
+                    print(f"queued for the TUI (pid {view['pid']})")
+    if args.json:
+        _emit_json(doc)
+    return EXIT_OK
+
+
 # --- view -------------------------------------------------------------------
 
 
@@ -841,6 +954,18 @@ def cmd_view(args) -> int:
 FOCUS_POLL_S = 0.1
 
 
+def _queue_focus(view, file, atoms=(), point=None, step=None, cycle=None, mode=None) -> str:
+    """Write one focus request for `view`'s TUI and return its id. The caller
+    has already checked that `file` is inside the TUI's own root."""
+    request_id = f"{time.time_ns()}-{os.getpid()}"
+    steer.write_json(steer.focus_path(view["pid"]), {
+        "schema": steer.STEER_SCHEMA, "id": request_id, "file": str(file),
+        "point": point, "step": step, "cycle": cycle,
+        "mode": mode, "atoms": list(atoms), "requested_unix_s": time.time(),
+    })
+    return request_id
+
+
 @_with_job
 def cmd_focus(args, job: Job) -> int:
     """Put a job in front of the person: their TUI jumps to it with the named
@@ -872,12 +997,8 @@ def cmd_focus(args, job: Job) -> int:
     if not file.is_relative_to(tui_root):
         raise UsageError(f"the TUI (pid {pid}) watches {tui_root}; {file} is outside it")
 
-    request_id = f"{time.time_ns()}-{os.getpid()}"
-    steer.write_json(steer.focus_path(pid), {
-        "schema": steer.STEER_SCHEMA, "id": request_id, "file": str(file),
-        "point": args.point, "step": args.step, "cycle": args.cycle,
-        "mode": args.mode, "atoms": list(atoms), "requested_unix_s": time.time(),
-    })
+    request_id = _queue_focus(view, file, atoms=atoms, point=args.point, step=args.step,
+                              cycle=args.cycle, mode=args.mode)
     document = {"tui_pid": pid, "request": request_id, "taken": False, "ok": None, "message": None}
     if args.timeout <= 0:
         if args.json:

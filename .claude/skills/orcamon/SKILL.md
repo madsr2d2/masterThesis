@@ -183,9 +183,18 @@ When the person asks for a change ("rotate this bond 60 degrees", "set this
 distance to 2.1"): run `orcamon view` for the job, the geometry and the atoms
 they mean; `orcamon edit` it into a new file in a new job directory; write the
 input there (your own project's conventions decide how); `orcamon check` it;
-`orcamon focus` the draft so the person sees the new structure; and run it
-only when they say so. After the run, `orcamon connectivity` says what it did
-to the bonds.
+`orcamon focus` the draft so the person sees the new structure; and when they
+say so, start it with `orcamon run` and follow it with `orcamon wait`. After
+the run, `orcamon connectivity` says what it did to the bonds.
+
+`orcamon run JOB` starts ORCA on this machine, by its full path, in the job's
+directory, with the output beside the input and detached from your shell. It
+checks the input first and refuses a job that is already running, has errors,
+needs `mpirun` that is missing, or already has an output — `--rerun` keeps the
+old output as `job.out.1` and runs again. `--dry-run` says what it would do.
+An ORCA that dies in its first seconds is reported at once (exit 1) with the
+output's last lines. On a cluster's login node it refuses: `run` does not
+submit to a queue.
 
 ## Working beside a person
 
@@ -346,6 +355,19 @@ the bonds a run formed and broke
 - `--json`: print one JSON document instead of text
 - `--max-lines N`: cap on text output lines (default: 60)
 
+### orcamon run
+
+start ORCA on a job on this machine, after checking it
+
+- `JOB`: a job directory, a .inp/.out file, or (part of) a job's label
+- `--orca PATH`: the ORCA binary (default: $ORCAMON_ORCA, else orca on PATH)
+- `--rerun`: run a job that has an output: the old one is kept as <stem>.out.N
+- `--local`: run here even where SLURM says this is not one of its nodes
+- `--dry-run`: check everything and say what would run; start nothing
+- `--settle S`: seconds to watch for ORCA exiting at once (default: 3.0)
+- `--no-focus`: do not show the started job in the person's TUI
+- `--json`: print one JSON document instead of text
+
 ### orcamon view
 
 what the person's orcamon TUI shows: job, geometry, picked atoms
@@ -446,7 +468,7 @@ print the agent skill, or install it for Claude Code
 ### Exit codes
 
 - `0`: success; for show and wait, the job is not failed or stopped
-- `1`: the command worked and the job (for ls: any listed job) is failed or stopped, or (check) the input has an error
+- `1`: the command worked and the job (for ls: any listed job) is failed or stopped, or (check) the input has an error, or (run) ORCA exited at once
 - `2`: usage error, a job not found or ambiguous, or (view, focus) no TUI running
 - `4`: wait timed out, or focus was not taken by the TUI in time
 - `130`: interrupted (Ctrl-C)

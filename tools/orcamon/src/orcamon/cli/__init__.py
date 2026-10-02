@@ -8,8 +8,8 @@
 Every command takes `--json` and prints one JSON document; without it, plain
 text of at most `--max-lines` lines. Exit status: 0 success, 1 the job (or,
 for `ls`, any listed job) is failed or stopped, or (check) the input has an
-error, 2 usage error, no such job or no running TUI, 4 `wait` timed out or
-`focus` not taken, 130 interrupted.
+error, or (run) ORCA exited at once, 2 usage error, no such job or no running
+TUI, 4 `wait` timed out or `focus` not taken, 130 interrupted.
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ EXIT_OK, EXIT_JOB_BAD, EXIT_USAGE, EXIT_TIMEOUT, EXIT_INTERRUPTED = 0, 1, 2, 4, 
 EXIT_CODES = (
     (EXIT_OK, "success; for show and wait, the job is not failed or stopped"),
     (EXIT_JOB_BAD, "the command worked and the job (for ls: any listed job) is failed or stopped, "
-                   "or (check) the input has an error"),
+                   "or (check) the input has an error, or (run) ORCA exited at once"),
     (EXIT_USAGE, "usage error, a job not found or ambiguous, or (view, focus) no TUI running"),
     (EXIT_TIMEOUT, "wait timed out, or focus was not taken by the TUI in time"),
     (EXIT_INTERRUPTED, "interrupted (Ctrl-C)"),
@@ -178,6 +178,23 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a point on an IRC or NEB path: the signed IRC point (0 is the TS, "
                         "negative is backward) or the NEB image")
     _output(p)
+
+    p = add("run", "start ORCA on a job on this machine, after checking it",
+            "orcamon run opt/ts", commands.cmd_run)
+    _job(p)
+    p.add_argument("--orca", metavar="PATH",
+                   help="the ORCA binary (default: $ORCAMON_ORCA, else orca on PATH)")
+    p.add_argument("--rerun", action="store_true",
+                   help="run a job that has an output: the old one is kept as <stem>.out.N")
+    p.add_argument("--local", action="store_true",
+                   help="run here even where SLURM says this is not one of its nodes")
+    p.add_argument("--dry-run", action="store_true",
+                   help="check everything and say what would run; start nothing")
+    p.add_argument("--settle", type=float, default=3.0, metavar="S",
+                   help="seconds to watch for ORCA exiting at once (default: %(default)s)")
+    p.add_argument("--no-focus", action="store_true",
+                   help="do not show the started job in the person's TUI")
+    _output(p, lines=False)
 
     p = add("view", "what the person's orcamon TUI shows: job, geometry, picked atoms",
             "orcamon view --json", commands.cmd_view)

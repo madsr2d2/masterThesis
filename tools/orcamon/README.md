@@ -75,7 +75,7 @@ An IRC direction that stopped at MaxIter before reaching a minimum raises
 | code | meaning |
 |---|---|
 | 0 | success; for `show` and `wait`, the job is not failed or stopped |
-| 1 | the command worked, and the job (for `ls`: any listed job) is failed or stopped, or (`check`) the input has an error |
+| 1 | the command worked, and the job (for `ls`: any listed job) is failed or stopped, or (`check`) the input has an error, or (`run`) ORCA exited at once |
 | 2 | usage error, a job not found or ambiguous, or (view, focus) no TUI running |
 | 4 | wait timed out, or focus was not taken by the TUI in time |
 | 130 | interrupted |
@@ -252,6 +252,18 @@ input there (your own project's conventions decide how); `orcamon check` it;
 only when they say so. After the run, `orcamon connectivity` says what it did
 to the bonds.
 
+## Running and stopping
+
+`orcamon run JOB` starts ORCA on this machine, by its full path, in the job's
+directory, with the output beside the input and detached from the shell that
+asked for it. It checks the input first — the same findings as `orcamon check`
+— and refuses a job that is already running, has errors, needs `mpirun` that
+is missing, or already has an output: with `--rerun` the old output is kept as
+`job.out.1` and the job runs again. `--dry-run` makes every check and says what
+would run, starting nothing. An ORCA that dies within its first seconds is
+reported at once (exit 1) with the output's last lines. On a cluster's login
+node it refuses: `run` does not submit to a queue.
+
 ## State cache
 
 Parsed state is kept in `$XDG_CACHE_HOME/orcamon/` (default
@@ -297,8 +309,8 @@ usage: orcamon [-h] [--version] [--root DIR] [--liveness {auto,process,slurm,mti
 Every command takes `--json` and prints one JSON document; without it, plain
 text of at most `--max-lines` lines. Exit status: 0 success, 1 the job (or,
 for `ls`, any listed job) is failed or stopped, or (check) the input has an
-error, 2 usage error, no such job or no running TUI, 4 `wait` timed out or
-`focus` not taken, 130 interrupted.
+error, or (run) ORCA exited at once, 2 usage error, no such job or no running
+TUI, 4 `wait` timed out or `focus` not taken, 130 interrupted.
 
 positional arguments:
   COMMAND
@@ -314,6 +326,7 @@ positional arguments:
                         dihedral or a distance
     check               what in a job's input would fail or mislead before it runs
     connectivity        the bonds a run formed and broke
+    run                 start ORCA on a job on this machine, after checking it
     view                what the person's orcamon TUI shows: job, geometry, picked atoms
     focus               show a job in the person's orcamon TUI: a geometry, picked
                         atoms, a mode
@@ -664,6 +677,40 @@ options:
                         TS, negative is backward) or the NEB image
   --json                print one JSON document instead of text
   --max-lines N         cap on text output lines (default: 60)
+```
+
+### `orcamon run`
+
+```
+usage: orcamon run [-h] [--root DIR] [--liveness {auto,process,slurm,mtime}]
+                   [--quiet-after S] [--no-cache] [--orca PATH] [--rerun] [--local]
+                   [--dry-run] [--settle S] [--no-focus] [--json]
+                   JOB
+
+start ORCA on a job on this machine, after checking it
+
+example: orcamon run opt/ts
+
+positional arguments:
+  JOB                   a job directory, a .inp/.out file, or (part of) a job's label
+
+options:
+  -h, --help            show this help message and exit
+  --root DIR            where jobs are looked for (default: $ORCAMON_ROOT or .)
+  --liveness {auto,process,slurm,mtime}
+                        how a job is known to be running (default: auto)
+  --quiet-after S       seconds without output before a job of unknown liveness is
+                        called quiet (default: 1800)
+  --no-cache            parse every output from scratch; neither read nor write the
+                        state cache
+  --orca PATH           the ORCA binary (default: $ORCAMON_ORCA, else orca on PATH)
+  --rerun               run a job that has an output: the old one is kept as
+                        <stem>.out.N
+  --local               run here even where SLURM says this is not one of its nodes
+  --dry-run             check everything and say what would run; start nothing
+  --settle S            seconds to watch for ORCA exiting at once (default: 3.0)
+  --no-focus            do not show the started job in the person's TUI
+  --json                print one JSON document instead of text
 ```
 
 ### `orcamon view`

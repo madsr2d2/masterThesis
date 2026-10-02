@@ -2530,6 +2530,149 @@ def test_the_runner_finds_orca_and_stops_what_it_started():
                 runner.stop_tree(still, 1.0)
 
 
+def test_run_starts_orca_only_when_it_should():
+    print("\nrun: starts the fake ORCA only after the checks, and can be told not to")
+    import tempfile
+    from pathlib import Path
+
+    from orcamon.core import runner
+
+    started = []
+    saved = {k: os.environ.get(k) for k in ("PATH", "XDG_STATE_HOME")}
+    with tempfile.TemporaryDirectory(prefix="orcamon_cli_run_") as tmp:
+        root = Path(tmp)
+        try:
+            # A state home of its own: `run` must not queue a focus into any
+            # TUI that happens to be live on this machine.
+            os.environ["XDG_STATE_HOME"] = str(root / "state")
+            fake = _fake_orca(root / "orca_bin")
+            water = "O 0.0 0.0 0.0\nH 0.96 0.0 0.0\nH -0.24 0.93 0.0\n"
+
+            def draft(name, first="", pal="", mult=1):
+                d = root / name
+                d.mkdir()
+                (d / "job.inp").write_text(
+                    first + pal + f"! B97-3c Opt\n* xyz 0 {mult}\n" + water + "*\n")
+                return d
+
+            draft("water")
+            draft("fresh")
+            draft("bad", mult=2)
+            draft("fails", first="# FAKE_FAIL\n")
+            draft("wide", pal="%pal nprocs 4 end\n")
+            base = ["--root", str(root), "--liveness", "process", "--no-cache"]
+
+            def run(*argv, local=True):
+                return _orcamon([*base, "run", *argv, "--orca", str(fake),
+                                 "--settle", "0.5", *(["--local"] if local else [])])
+
+            def pid_of(text):
+                first = text.splitlines()[0] if text else ""
+                return int(first.split("pid ", 1)[1].split(",", 1)[0]) if "pid " in first else 0
+
+            code, out, err = run("water")
+            pid = pid_of(out)
+            started.append(pid)
+            try:
+                comm = Path(f"/proc/{pid}/comm").read_text().strip()
+            except OSError:
+                comm = ""
+            check("run water starts the fake ORCA detached, on its own input",
+                  code == 0 and (out.splitlines() or [""])[0].startswith("started water: pid ")
+                  and comm == "orca"
+                  and "fake ORCA running job.inp" in (root / "water" / "job.out").read_text(),
+                  f"{code} {out!r} {err!r} comm={comm!r}")
+
+            code, doc, err = _json([*base, "show", "water"])
+            check("show sees the started job running",
+                  code == 0 and (doc or {}).get("job", {}).get("status") == "running",
+                  f"{code} {doc} {err!r}")
+
+            code, out, err = run("water")
+            check("a second run is refused while the first is alive",
+                  code == 2 and "water is already running" in err, f"{code} {out!r} {err!r}")
+
+            runner.stop_tree([pid], 2.0)
+            code, out, err = run("water")
+            refused = code == 2 and "job.out exists: --rerun moves it to job.out.1 and runs again" in err
+            code2, out2, err2 = run("water", "--rerun")
+            pid2 = pid_of(out2)
+            started.append(pid2)
+            check("the old output is refused until --rerun, which keeps it as job.out.1",
+                  refused and code2 == 0
+                  and "fake ORCA running job.inp" in (root / "water" / "job.out.1").read_text()
+                  and (root / "water" / "job.out").exists(),
+                  f"{code} {out!r} {err!r} | {code2} {out2!r} {err2!r}")
+            if pid2:
+                runner.stop_tree([pid2], 2.0)
+
+            code, out, err = run("fresh", "--dry-run")
+            check("--dry-run says what would run, and writes nothing",
+                  code == 0
+                  and (out.strip().splitlines() or [""])[-1]
+                  == f"would start: {fake.resolve()} job.inp in {root.resolve() / 'fresh'}"
+                  and not (root / "fresh" / "job.out").exists()
+                  and runner.driver_pids(root / "fresh", "job") == [],
+                  f"{code} {out!r} {err!r}")
+
+            code, out, err = run("bad")
+            check("an input error is printed, and no ORCA is started",
+                  code == 2
+                  and "error: 10 electrons cannot have multiplicity 2: it needs an odd number" in out
+                  and not (root / "bad" / "job.out").exists(),
+                  f"{code} {out!r} {err!r}")
+
+            code, out, err = run("fails")
+            check("an ORCA that dies at once is reported with its tail and exit 1",
+                  code == 1 and "ORCA finished by error termination in SCF" in out
+                  and "ORCA exited with status 1 within 0.5 s" in err,
+                  f"{code} {out!r} {err!r}")
+
+            no_path = root / "no_path"
+            no_path.mkdir()
+            os.environ["PATH"] = str(no_path)
+            try:
+                code, out, err = run("wide")
+            finally:
+                if saved["PATH"] is None:
+                    os.environ.pop("PATH", None)
+                else:
+                    os.environ["PATH"] = saved["PATH"]
+            check("nprocs above 1 without mpirun on PATH is refused",
+                  code == 2 and "nprocs 4 needs mpirun on PATH" in err
+                  and not (root / "wide" / "job.out").exists(),
+                  f"{code} {out!r} {err!r}")
+
+            slurm_bin = root / "slurm_bin"
+            slurm_bin.mkdir()
+            (slurm_bin / "squeue").write_text("#!/bin/sh\nexit 0\n")
+            (slurm_bin / "squeue").chmod(0o755)
+            (slurm_bin / "sinfo").write_text("#!/bin/sh\necho node01\necho node02\n")
+            (slurm_bin / "sinfo").chmod(0o755)
+            os.environ["PATH"] = str(slurm_bin)
+            try:
+                code, out, err = run("fresh", local=False)
+                without_local = code == 2 and "is not one of SLURM's nodes" in err
+                code2, out2, err2 = run("fresh", "--local", "--dry-run")
+            finally:
+                if saved["PATH"] is None:
+                    os.environ.pop("PATH", None)
+                else:
+                    os.environ["PATH"] = saved["PATH"]
+            check("a login node is refused unless --local",
+                  without_local and code2 == 0,
+                  f"{code} {out!r} {err!r} | {code2} {out2!r} {err2!r}")
+        finally:
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            still = [p for p in started if p and runner.alive(p)]
+            if still:
+                runner.stop_tree(still, 1.0)
+
+
 def test_slurm_names_what_the_login_node_cannot_see():
     print("\nSLURM: squeue's view of a job, and the fallbacks when it has none")
     import stat
@@ -2890,6 +3033,7 @@ if __name__ == "__main__":
     test_check_finds_what_would_fail()
     test_connectivity_names_bonds_made_and_broken()
     test_the_runner_finds_orca_and_stops_what_it_started()
+    test_run_starts_orca_only_when_it_should()
     test_slurm_names_what_the_login_node_cannot_see()
     test_squeue_lines_parse()
     test_liveness_names_the_job_not_only_the_directory()

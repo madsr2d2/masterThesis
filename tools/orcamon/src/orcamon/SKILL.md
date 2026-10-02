@@ -181,9 +181,18 @@ When the person asks for a change ("rotate this bond 60 degrees", "set this
 distance to 2.1"): run `orcamon view` for the job, the geometry and the atoms
 they mean; `orcamon edit` it into a new file in a new job directory; write the
 input there (your own project's conventions decide how); `orcamon check` it;
-`orcamon focus` the draft so the person sees the new structure; and run it
-only when they say so. After the run, `orcamon connectivity` says what it did
-to the bonds.
+`orcamon focus` the draft so the person sees the new structure; and when they
+say so, start it with `orcamon run` and follow it with `orcamon wait`. After
+the run, `orcamon connectivity` says what it did to the bonds.
+
+`orcamon run JOB` starts ORCA on this machine, by its full path, in the job's
+directory, with the output beside the input and detached from your shell. It
+checks the input first and refuses a job that is already running, has errors,
+needs `mpirun` that is missing, or already has an output — `--rerun` keeps the
+old output as `job.out.1` and runs again. `--dry-run` says what it would do.
+An ORCA that dies in its first seconds is reported at once (exit 1) with the
+output's last lines. On a cluster's login node it refuses: `run` does not
+submit to a queue.
 
 ## Working beside a person
 
