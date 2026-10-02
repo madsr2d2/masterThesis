@@ -2248,6 +2248,27 @@ def test_a_followed_path_point_is_addressed():
           steer.geometry_address(FileGeometry([], "input geometry"), False) == [])
 
 
+def test_the_edit_bond_rule():
+    print("\nthe edit bond rule drops hydrogen bonds and finds close H-H pairs")
+    from orcamon.core.edit import bonded_pairs
+    from orcamon.core.geometry import ATOMIC_NUMBERS
+
+    F = [("C", 0.0, 0.0, 0.0), ("C", 1.5, 0.0, 0.0), ("H", -0.5, 1.0, 0.0),
+         ("O", 2.0, 1.0, 0.0), ("H", 2.0, 1.0, 1.0)]
+    HH = [("H", 0.0, 0.0, 0.0), ("H", 0.9, 0.0, 0.0), ("H", 5.0, 0.0, 0.0),
+          ("H", 6.1, 0.0, 0.0), ("O", 5.0, 1.39, 0.0), ("O", 6.1, 1.41, 0.0)]
+
+    check("an atom and a hydrogen bond under 1.4 Å, not under the renderer's 1.7",
+          bonded_pairs(F) == [(0, 1), (0, 2), (1, 3), (3, 4)], f"{bonded_pairs(F)}")
+    check("two hydrogens closer than 1.0 Å are bonded",
+          bonded_pairs(HH) == [(0, 1), (2, 4), (4, 5)], f"{bonded_pairs(HH)}")
+    check("the atomic numbers run H through Rn in periodic-table order",
+          ATOMIC_NUMBERS["H"] == 1 and ATOMIC_NUMBERS["C"] == 6
+          and ATOMIC_NUMBERS["O"] == 8 and ATOMIC_NUMBERS["K"] == 19
+          and ATOMIC_NUMBERS["Rn"] == 86 and len(ATOMIC_NUMBERS) == 86,
+          f"{len(ATOMIC_NUMBERS)} elements")
+
+
 if __name__ == "__main__":
     test_a_multilayer_energy_is_the_total()
     test_a_scan_is_keyed_by_step_and_cycle()
@@ -2306,6 +2327,7 @@ if __name__ == "__main__":
     test_the_summary_counts_the_whole_system()
     test_the_steer_files_name_one_live_tui()
     test_a_followed_path_point_is_addressed()
+    test_the_edit_bond_rule()
     print(f"\n{len(FAILURES)} failure(s)"
           + (": " + ", ".join(FAILURES) if FAILURES else ""))
     raise SystemExit(1 if FAILURES else 0)
