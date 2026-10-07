@@ -185,12 +185,30 @@ not worth running.
   Newton-Raphson step") — **`N=10` for a TS search, `N=50` for a plain
   minimization**; minimizations don't drift as fast (BFGS/RFO for a minimum
   is more forgiving than eigenvector-following for a saddle) and each
-  recompute costs real wall time (roughly a couple of minutes on this QM
-  region size at `nprocs 8`, cheap enough to afford every 10 cycles on a TS,
-  wasteful more often than every 50 on a minimization). When restarting a
+  recompute costs real wall time. **On a QM/XTB job the numerical Hessian
+  covers the whole system, not the QM region**: 3N − 2 displaced gradients,
+  each a full QM/XTB gradient. Measured 2026-10-07 on
+  `acd_hoo_dock/product_b973c-xtb/` (133 atoms, 17 in the QM region,
+  `! QM/XTB B97-3c ddCOSMO(Water) Opt TightOpt`, `nprocs 8`): 397 gradients,
+  about 18 minutes per Hessian. With `Recalc_Hess 50` the run computed five
+  (cycles 0, 50, 100, 150, 200; 1,985 gradients), about 90 of its 144
+  minutes, and converged at cycle 227 on ORCA's relaxed rule. So every 10
+  cycles on a TS is still worth it where a barrier is quoted. On a minimum,
+  every Hessian costs about that much: before launching, state the expected
+  count (`orcamon check` prints the displaced gradients per Hessian) and
+  the time to the person. When restarting a
   run that's drifted, seed from its own latest geometry rather than from
   scratch — killing and resuming with the fix costs one Hessian recompute,
   not the cycles already made.
+- **Docking a guest onto a host uses ORCA's DOCKER** (`%DOCKER`, ORCA 6.1
+  manual §4.12), not a CREST frozen-host NCI search. The frozen-host CREST
+  recipe (`crest_nci_fixhost_apo/`) samples where waters sit around a fixed
+  host; it is not a docking protocol, and on 2026-10-07 it was started for
+  HOO⁻ before DOCKER was considered (`acd_hoo_dock/`). DOCKER's
+  `*.all.optimized.xyz` is **sorted by energy, and each frame's comment
+  starts with ORCA's structure number**: frame k is not structure k. Read
+  the poses with `orcamon energies <job>` and address one with
+  `--point <structure number>`, never by frame position.
 
 ## Environment
 
