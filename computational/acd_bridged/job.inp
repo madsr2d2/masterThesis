@@ -1,0 +1,4 @@
+# orcamon draft: e2e_acd/acd · input geometry, job.xyz · build [*:1]C(=O)OCC(=O)COC(=O)[*:2] at 60 27
+# orcamon new: e2e_acd/acd.xyz
+! XTB Opt
+* xyzfile 0 1 job.xyz

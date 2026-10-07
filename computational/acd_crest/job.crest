@@ -1,0 +1,2 @@
+# orcamon crest job: e2e_acd/acd_relax · cycle 88
+crest job.xyz --gfn2 --alpb water -T 8 --chrg 0 --uhf 0

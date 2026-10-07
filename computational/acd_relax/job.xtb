@@ -1,0 +1,2 @@
+# orcamon xtb job: e2e_acd/acd_bridged · input geometry, job.xyz
+xtb job.xyz --opt --alpb water --chrg 0 --uhf 0
