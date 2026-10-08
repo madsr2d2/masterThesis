@@ -10,6 +10,27 @@ or the existing dataset, and a calculation could settle it. Each entry states
 **what it would decide** — a calculation that does not change a conclusion is
 not worth running.
 
+## Levels in use
+
+The short answer to "the level we have been using". The reasons, tests and
+dates are under [Conventions](#conventions); this block only names the levels.
+
+| Tier | `!` line | Where it is used |
+|---|---|---|
+| Geometry, TS search, Hessian | `! QM/XTB B97-3c ddCOSMO(Water) TightSCF` plus the run types | Anything on the full 130-atom catalyst. B97-3c on the reactive QM region and GFN2-xTB on the rest (`%qmmm` with `QMAtoms`, `Charge_total`, `Mult_total`, `AutoFF_QM2_Method GFNFF`). Directories `geometry_b973c-xtb/` or `*_b973c-xtb`. Since 2026-09-21; it replaced r2SCAN-3c/XTB. |
+| Final energy | `! QM/XTB DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C ddCOSMO(Water) TightSCF` | A whole-system single point on the geometry tier's structure, in `energy_<method>/`. Never an extracted fragment. |
+| Exploration | `! XTB ALPB(water)` (GFN2-xTB, one layer) | Relaxed scans and ORCA DOCKER poses that find a starting structure for the geometry tier (`*_gfn2-xtb`). |
+
+On the geometry tier, `%geom` carries `Calc_Hess true` with `Recalc_Hess 10`
+for a TS search and `Recalc_Hess 50` for a minimum. A TS and its frequencies
+are one `OptTS Freq TightOpt` job. One Hessian on the 133-atom system costs
+about 18 minutes.
+
+A ready multilayer input for the HOO⁻ system (QM region `{116:132}`, charge
+−1) is `computational/acd_hoo_dock/product_b973c-xtb/job.inp`. Start a new
+geometry-tier job from a job like it, and do not write the `%qmmm` block by
+hand.
+
 ## Conventions
 
 - **Status**: `PENDING` (specced, not started) · `RUNNING` · `BLOCKED` ·
