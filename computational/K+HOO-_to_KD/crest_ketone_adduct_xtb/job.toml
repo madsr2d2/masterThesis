@@ -1,0 +1,12 @@
+# orcamon crest job: computational/K+HOO-_to_KD/scan_O130-C120_b973c-xtb · scan step 16 · cycle 20
+input = "job.xyz"
+runtype = "imtd-gc"
+threads = 8
+
+[calculation]
+
+[[calculation.level]]
+method = "gfn2"
+chrg = -1
+uhf = 0
+alpb = "water"
